@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>home</title>
+    <link rel="stylesheet" type="text/css" th:href="@{/css/home.css}" />
+</head>
+<body>
+<h1>OK</h1>
+    <form th:action="@{/login}" method="post">
+        <button type="submit" id="most-wanted">下载本月最想看的影片</button>
+    </form>
+
+    <form th:action="@{/logout}" method="post">
+        <button type="submit" id="best-rated">下载本月评价高的影片</button>
+    </form>
+</body>
+</html>
