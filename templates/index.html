@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavBus Web UI</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            JAV猎人
+        </h1>        
+        
+        <!-- 左侧搜索表单区域 -->
+        <div class="search-forms-container">
+            <div class="search-form">
+                <h2>影片查询</h2>
+                <form id="movie-search">
+                    <input type="text" name="keyword" placeholder="输入影片番号">
+                    <button type="submit">搜索</button>
+                </form>
+            </div>
+            
+            <div class="search-form">
+                <h2>影片列表筛选</h2>
+                <form id="movie-filter">
+                    <select name="filterType">
+                        <option value="">选择筛选类型</option>
+                        <option value="star">演员</option>
+                        <option value="genre">类别</option>
+                        <option value="director">导演</option>
+                        <option value="studio">制作商</option>
+                        <option value="label">发行商</option>
+                        <option value="series">系列</option>
+                    </select>
+                    <input type="text" name="filterValue" placeholder="输入筛选值">
+                    <select name="magnet">
+                        <option value="exist">有磁力链接</option>
+                        <option value="all">全部影片</option>
+                    </select>
+                    <select name="type">
+                        <option value="normal">有码影片</option>
+                        <option value="uncensored">无码影片</option>
+                    </select>
+                    <button type="submit">筛选</button>
+                </form>
+            </div>
+            
+            <div class="search-form">
+                <h2>演员查询</h2>
+                <form id="star-search">
+                    <input type="text" name="starId" placeholder="输入演员ID">
+                    <button type="submit">搜索</button>
+                </form>
+            </div>
+            
+            <div class="search-form">
+                <h2>磁力链接查询</h2>
+                <form id="magnet-search">
+                    <input type="text" name="movieId" placeholder="输入影片番号" required>
+                    <select name="sortBy">
+                        <option value="">排序方式 (可选)</option>
+                        <option value="date">日期</option>
+                        <option value="size">大小</option>
+                    </select>
+                    <select name="sortOrder">
+                        <option value="">排序顺序 (可选)</option>
+                        <option value="asc">升序</option>
+                        <option value="desc">降序</option>
+                    </select>
+                    <button type="submit">查询磁力链接</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 右侧结果展示区 -->
+        <div class="result-box" id="result-container">
+            <p>查询结果将显示在这里</p>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
