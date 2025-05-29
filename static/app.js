@@ -133,14 +133,27 @@ let loadedResources = 0;
 // 更新复制按钮状态的函数
 function updateCopyButtonStatus() {
     const copyButton = document.getElementById('copy-all-links');
-    const totalMovies = document.querySelectorAll('.movie-card').length;
+    const movieCards = document.querySelectorAll('.movie-card');
+    const totalMovies = movieCards.length;
+    const loadedMovies = Array.from(movieCards).filter(card => {
+        const magnetContainer = card.querySelector('.magnet-container');
+        return magnetContainer && (
+            magnetContainer.querySelector('.best-magnet') ||
+            magnetContainer.textContent.includes('影片不存在') ||
+            magnetContainer.textContent.includes('无法获取影片参数') ||
+            magnetContainer.textContent.includes('暂无可用资源') ||
+            magnetContainer.textContent.includes('获取资源失败')
+        );
+    }).length;
     
-    if (loadedResources === totalMovies) {
+    loadedResources = loadedMovies;
+    
+    if (loadedMovies === totalMovies) {
         copyButton.disabled = false;
         copyButton.textContent = '复制本页全部链接';
     } else {
         copyButton.disabled = true;
-        copyButton.textContent = `加载中... (${loadedResources}/${totalMovies})`;
+        copyButton.textContent = `加载中... (${loadedMovies}/${totalMovies})`;
     }
 }
 
