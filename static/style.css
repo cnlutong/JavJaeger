@@ -258,6 +258,54 @@ button:disabled {
     gap: 1.5rem;
 }
 
+/* 登录表单样式 */
+#pikpak-login {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+#pikpak-login input {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.login-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+#pikpak-login button {
+    padding: 10px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    flex: 1;
+}
+
+#pikpak-login button:hover {
+    background-color: #0056b3;
+}
+
+#pikpak-login button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+.logout-btn {
+    background-color: #dc3545 !important;
+}
+
+.logout-btn:hover {
+    background-color: #c82333 !important;
+}
+
 /* 登录状态样式 */
 .login-status {
     margin-top: 0.5rem;

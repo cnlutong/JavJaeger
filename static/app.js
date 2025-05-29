@@ -5,6 +5,109 @@ import { fetchWithRetry } from './utils.js';
 let pikpakCredentials = null;
 let isLoggedIn = false;
 
+// 页面加载时恢复PikPak登录状态
+function restorePikPakLogin() {
+    const savedCredentials = localStorage.getItem('pikpakCredentials');
+    const savedLoginStatus = localStorage.getItem('pikpakLoginStatus');
+    
+    if (savedCredentials && savedLoginStatus === 'true') {
+        try {
+            pikpakCredentials = JSON.parse(savedCredentials);
+            isLoggedIn = true;
+            
+            // 更新UI状态
+            const loginBtn = document.getElementById('login-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const loginStatus = document.getElementById('login-status');
+            const usernameInput = document.querySelector('#pikpak-login input[name="username"]');
+            const passwordInput = document.querySelector('#pikpak-login input[name="password"]');
+            
+            if (loginBtn && loginStatus) {
+                loginBtn.textContent = '已登录';
+                loginBtn.disabled = true;
+                loginStatus.textContent = '已登录 (' + pikpakCredentials.username + ')';
+                loginStatus.style.color = '#4CAF50';
+            }
+            
+            if (logoutBtn) {
+                logoutBtn.style.display = 'inline-block';
+            }
+            
+            if (usernameInput && passwordInput) {
+                usernameInput.value = pikpakCredentials.username;
+                passwordInput.value = pikpakCredentials.password;
+            }
+            
+            // 更新下载按钮状态
+            updateCopyButtonStatus();
+        } catch (error) {
+            console.error('恢复登录状态失败:', error);
+            // 清除无效的存储数据
+            localStorage.removeItem('pikpakCredentials');
+            localStorage.removeItem('pikpakLoginStatus');
+        }
+    }
+}
+
+// 保存PikPak登录状态
+function savePikPakLogin(credentials) {
+    localStorage.setItem('pikpakCredentials', JSON.stringify(credentials));
+    localStorage.setItem('pikpakLoginStatus', 'true');
+}
+
+// 清除PikPak登录状态
+function clearPikPakLogin() {
+    localStorage.removeItem('pikpakCredentials');
+    localStorage.removeItem('pikpakLoginStatus');
+    pikpakCredentials = null;
+    isLoggedIn = false;
+}
+
+// 页面加载完成后恢复登录状态
+document.addEventListener('DOMContentLoaded', () => {
+    restorePikPakLogin();
+    
+    // 添加退出登录按钮事件监听器
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+});
+
+// 处理退出登录
+function handleLogout() {
+    // 清除登录状态
+    clearPikPakLogin();
+    
+    // 重置UI状态
+    const loginBtn = document.getElementById('login-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+    const loginStatus = document.getElementById('login-status');
+    const usernameInput = document.querySelector('#pikpak-login input[name="username"]');
+    const passwordInput = document.querySelector('#pikpak-login input[name="password"]');
+    
+    if (loginBtn) {
+        loginBtn.textContent = '登录';
+        loginBtn.disabled = false;
+    }
+    
+    if (logoutBtn) {
+        logoutBtn.style.display = 'none';
+    }
+    
+    if (loginStatus) {
+        loginStatus.textContent = '';
+    }
+    
+    if (usernameInput && passwordInput) {
+        usernameInput.value = '';
+        passwordInput.value = '';
+    }
+    
+    // 更新下载按钮状态
+    updateCopyButtonStatus();
+}
+
 // 处理PikPak登录表单提交
 document.getElementById('pikpak-login').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -35,9 +138,21 @@ document.getElementById('pikpak-login').addEventListener('submit', async (e) => 
         if (result.success) {
             pikpakCredentials = { username, password };
             isLoggedIn = true;
+            
+            // 保存登录状态到localStorage
+            savePikPakLogin(pikpakCredentials);
+            
+            const logoutBtn = document.getElementById('logout-btn');
+            
             loginStatus.textContent = '登录成功！';
             loginStatus.style.color = '#4CAF50';
             loginBtn.textContent = '已登录';
+            loginBtn.disabled = true;
+            
+            if (logoutBtn) {
+                logoutBtn.style.display = 'inline-block';
+            }
+            
             // 更新影片列表中的下载按钮状态
             updateCopyButtonStatus();
         } else {
