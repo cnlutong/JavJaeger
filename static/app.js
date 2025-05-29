@@ -1,6 +1,60 @@
 // 导入工具函数
 import { fetchWithRetry } from './utils.js';
 
+// PikPak相关变量
+let pikpakCredentials = null;
+let isLoggedIn = false;
+
+// 处理PikPak登录表单提交
+document.getElementById('pikpak-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = e.target.username.value;
+    const password = e.target.password.value;
+    const loginBtn = document.getElementById('login-btn');
+    const loginStatus = document.getElementById('login-status');
+    const downloadButton = document.querySelector('.download-all-btn');
+    
+    loginBtn.disabled = true;
+    loginBtn.textContent = '登录中...';
+    loginStatus.textContent = '';
+    
+    try {
+        const response = await fetch('/api/pikpak/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            pikpakCredentials = { username, password };
+            isLoggedIn = true;
+            loginStatus.textContent = '登录成功！';
+            loginStatus.style.color = '#4CAF50';
+            loginBtn.textContent = '已登录';
+            // 更新影片列表中的下载按钮状态
+            updateCopyButtonStatus();
+        } else {
+            loginStatus.textContent = '登录失败: ' + (result.message || '未知错误');
+            loginStatus.style.color = '#f44336';
+            loginBtn.disabled = false;
+            loginBtn.textContent = '登录';
+        }
+    } catch (error) {
+        console.error('登录失败:', error);
+        loginStatus.textContent = '登录失败: ' + error.message;
+        loginStatus.style.color = '#f44336';
+        loginBtn.disabled = false;
+        loginBtn.textContent = '登录';
+    }
+});
+
 // 处理影片搜索表单提交
 document.getElementById('movie-search').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -133,6 +187,9 @@ let loadedResources = 0;
 // 更新复制按钮状态的函数
 function updateCopyButtonStatus() {
     const copyButton = document.getElementById('copy-all-links');
+    const downloadButton = document.getElementById('download-all-links');
+    if (!copyButton) return;
+    
     const movieCards = document.querySelectorAll('.movie-card');
     const totalMovies = movieCards.length;
     const loadedMovies = Array.from(movieCards).filter(card => {
@@ -151,9 +208,17 @@ function updateCopyButtonStatus() {
     if (loadedMovies === totalMovies) {
         copyButton.disabled = false;
         copyButton.textContent = '复制本页全部链接';
+        if (downloadButton) {
+            downloadButton.disabled = !isLoggedIn;
+            downloadButton.textContent = isLoggedIn ? '📥 下载本页全部影片' : '📥 请先登录';
+        }
     } else {
         copyButton.disabled = true;
         copyButton.textContent = `加载中... (${loadedMovies}/${totalMovies})`;
+        if (downloadButton) {
+            downloadButton.disabled = true;
+            downloadButton.textContent = `📥 加载中... (${loadedMovies}/${totalMovies})`;
+        }
     }
 }
 
@@ -180,7 +245,10 @@ function displayResults(data) {
         displayStarDetails(data);
     } else if (data.movies) {
         // 显示影片列表
-        let html = '<div class="copy-links-container"><button id="copy-all-links" class="copy-btn" disabled>加载中...</button></div><div class="movies-grid">';
+        let html = '<div class="copy-links-container">' +
+            '<button id="copy-all-links" class="copy-btn" disabled>加载中...</button>' +
+            '<button id="download-all-links" class="download-btn" disabled>📥 下载本页全部影片</button>' +
+            '</div><div class="movies-grid">';
         data.movies.forEach(movie => {
             html += `
                 <div class="movie-card">
@@ -270,8 +338,9 @@ function displayResults(data) {
 
         resultContainer.innerHTML = html;
 
-        // 添加复制按钮事件监听
+        // 添加复制按钮和下载按钮事件监听
         const copyButton = document.getElementById('copy-all-links');
+        const downloadButton = document.getElementById('download-all-links');
         
         if (copyButton) {
             copyButton.addEventListener('click', async () => {
@@ -301,6 +370,69 @@ function displayResults(data) {
                         copyButton.textContent = '复制本页全部链接';
                     }, 2000);
                 }
+            });
+        }
+        
+        // 添加下载按钮事件监听
+        if (downloadButton) {
+            downloadButton.addEventListener('click', async () => {
+                if (!isLoggedIn || !pikpakCredentials) {
+                    alert('请先登录PikPak账户');
+                    return;
+                }
+                
+                const movieCards = document.querySelectorAll('.movie-card');
+                let links = [];
+                
+                // 收集所有磁力链接
+                movieCards.forEach(card => {
+                    const magnetContainer = card.querySelector('.magnet-container');
+                    const bestMagnetLink = magnetContainer.querySelector('.best-magnet a');
+                    if (bestMagnetLink) {
+                        links.push(bestMagnetLink.href);
+                    }
+                });
+
+                if (links.length === 0) {
+                    alert('暂无可用链接');
+                    return;
+                }
+                
+                downloadButton.disabled = true;
+                downloadButton.textContent = '下载中...';
+                
+                try {
+                    const response = await fetch('/api/pikpak/download', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            magnet_links: links,
+                            username: pikpakCredentials.username,
+                            password: pikpakCredentials.password
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        downloadButton.textContent = '下载成功！';
+                        alert(result.message);
+                    } else {
+                        downloadButton.textContent = '下载失败';
+                        alert('下载失败: ' + (result.message || '未知错误'));
+                    }
+                } catch (error) {
+                    console.error('下载失败:', error);
+                    downloadButton.textContent = '下载失败';
+                    alert('下载失败: ' + error.message);
+                }
+                
+                setTimeout(() => {
+                    downloadButton.disabled = false;
+                    downloadButton.textContent = '📥 下载本页全部影片';
+                }, 3000);
             });
         }
 

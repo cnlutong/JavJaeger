@@ -3,81 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JavBus Web UI</title>
+    <title>JavJaeger</title>
     <link rel="stylesheet" href="/static/style.css">
     <script type="module" src="/static/app.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>
-            JAV猎人
-        </h1>        
+    <div class="app-container">
+        <header class="app-header">
+            <h1>JavJaeger</h1>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.875rem; color: #666; font-style: italic;">人类的一切痛苦，都是因为性欲得不到满足。</p>
+        </header>
         
-        <!-- 左侧搜索表单区域 -->
-        <div class="search-forms-container">
-            <div class="search-form">
-                <h2>影片查询</h2>
-                <form id="movie-search">
-                    <input type="text" name="keyword" placeholder="输入影片番号">
-                    <button type="submit">搜索</button>
-                </form>
-            </div>
-            
-            <div class="search-form">
-                <h2>影片列表筛选</h2>
-                <form id="movie-filter">
-                    <select name="filterType">
-                        <option value="">选择筛选类型</option>
-                        <option value="star">演员</option>
-                        <option value="genre">类别</option>
-                        <option value="director">导演</option>
-                        <option value="studio">制作商</option>
-                        <option value="label">发行商</option>
-                        <option value="series">系列</option>
-                    </select>
-                    <input type="text" name="filterValue" placeholder="输入筛选值">
-                    <select name="magnet">
-                        <option value="exist">有磁力链接</option>
-                        <option value="all">全部影片</option>
-                    </select>
-                    <select name="type">
-                        <option value="normal">有码影片</option>
-                        <option value="uncensored">无码影片</option>
-                    </select>
-                    <button type="submit">筛选</button>
-                </form>
-            </div>
-            
-            <div class="search-form">
-                <h2>演员查询</h2>
-                <form id="star-search">
-                    <input type="text" name="starId" placeholder="输入演员ID">
-                    <button type="submit">搜索</button>
-                </form>
-            </div>
-            
-            <div class="search-form">
-                <h2>磁力链接查询</h2>
-                <form id="magnet-search">
-                    <input type="text" name="movieId" placeholder="输入影片番号" required>
-                    <select name="sortBy">
-                        <option value="">排序方式 (可选)</option>
-                        <option value="date">日期</option>
-                        <option value="size">大小</option>
-                    </select>
-                    <select name="sortOrder">
-                        <option value="">排序顺序 (可选)</option>
-                        <option value="asc">升序</option>
-                        <option value="desc">降序</option>
-                    </select>
-                    <button type="submit">查询磁力链接</button>
-                </form>
-            </div>
-        </div>
+        <div class="main-layout">
+            <!-- 左侧查询功能区域 -->
+            <aside class="sidebar-left">
+                <div class="sidebar-header">
+                    <h2>🔍 查询功能</h2>
+                </div>
+                
+                <div class="search-forms-container">
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>🎬 影片查询</h3>
+                        </div>
+                        <form id="movie-search">
+                            <input type="text" name="keyword" placeholder="输入影片番号">
+                            <button type="submit">搜索</button>
+                        </form>
+                    </div>
+                    
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>📋 影片列表筛选</h3>
+                        </div>
+                        <form id="movie-filter">
+                            <select name="filterType">
+                                <option value="">选择筛选类型</option>
+                                <option value="star">演员</option>
+                                <option value="genre">类别</option>
+                                <option value="director">导演</option>
+                                <option value="studio">制作商</option>
+                                <option value="label">发行商</option>
+                                <option value="series">系列</option>
+                            </select>
+                            <input type="text" name="filterValue" placeholder="输入筛选值">
+                            <select name="magnet">
+                                <option value="exist">有磁力链接</option>
+                                <option value="all">全部影片</option>
+                            </select>
+                            <select name="type">
+                                <option value="normal">有码影片</option>
+                                <option value="uncensored">无码影片</option>
+                            </select>
+                            <button type="submit">筛选</button>
+                        </form>
+                    </div>
+                    
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>👤 演员查询</h3>
+                        </div>
+                        <form id="star-search">
+                            <input type="text" name="starId" placeholder="输入演员ID">
+                            <button type="submit">搜索</button>
+                        </form>
+                    </div>
+                    
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>🧲 磁力链接查询</h3>
+                        </div>
+                        <form id="magnet-search">
+                            <input type="text" name="movieId" placeholder="输入影片番号" required>
+                            <select name="sortBy">
+                                <option value="">排序方式 (可选)</option>
+                                <option value="date">日期</option>
+                                <option value="size">大小</option>
+                            </select>
+                            <select name="sortOrder">
+                                <option value="">排序顺序 (可选)</option>
+                                <option value="asc">升序</option>
+                                <option value="desc">降序</option>
+                            </select>
+                            <button type="submit">查询磁力链接</button>
+                        </form>
+                    </div>
+                </div>
+            </aside>
 
-        <!-- 右侧结果展示区 -->
-        <div class="result-box" id="result-container">
-            <p>查询结果将显示在这里</p>
+            <!-- 中间结果展示区 -->
+            <main class="content-main">
+                <div class="content-header">
+                    <h2>📊 查询结果</h2>
+                </div>
+                <div class="result-box" id="result-container">
+                    <div class="empty-state">
+                        <div class="empty-icon">🔍</div>
+                        <p>查询结果将显示在这里</p>
+                        <span class="empty-hint">请在左侧选择查询功能开始搜索</span>
+                    </div>
+                </div>
+            </main>
+
+            <!-- 右侧下载板块 -->
+            <aside class="sidebar-right">
+                <div class="sidebar-header">
+                    <h2>📥 下载管理</h2>
+                </div>
+                
+                <div class="download-section">
+                    <!-- PikPak登录区域 -->
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>🔐 PikPak 登录</h3>
+                        </div>
+                        <form id="pikpak-login">
+                            <input type="text" name="username" placeholder="用户名" required>
+                            <input type="password" name="password" placeholder="密码" required>
+                            <button type="submit" id="login-btn">登录</button>
+                        </form>
+                        <div id="login-status" class="login-status"></div>
+                    </div>
+                    
+                    <div class="download-info">
+                        <p class="info-text">📥 下载功能说明</p>
+                        <p class="info-desc">登录PikPak后，在影片列表筛选结果页面可使用批量下载功能</p>
+                    </div>
+                </div>
+            </aside>
         </div>
     </div>
     
