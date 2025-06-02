@@ -47,6 +47,8 @@
                                 <option value="series">系列</option>
                             </select>
                             <input type="text" name="filterValue" placeholder="输入筛选值">
+                            <input type="hidden" name="filterCode" value="">
+                            <button type="button" id="show-options-btn" class="options-btn" title="显示选项">📋</button>
                             <select name="magnet">
                                 <option value="exist">有磁力链接</option>
                                 <option value="all">全部影片</option>
@@ -59,16 +61,7 @@
                         </form>
                     </div>
                     
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>👤 演员查询</h3>
-                        </div>
-                        <form id="star-search">
-                            <input type="text" name="starId" placeholder="输入演员ID">
-                            <button type="submit">搜索</button>
-                        </form>
-                    </div>
-                    
+
                     <div class="search-form">
                         <div class="form-header">
                             <h3>🧲 磁力链接查询</h3>

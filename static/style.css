@@ -319,6 +319,244 @@ button:disabled {
     display: none;
 }
 
+/* 选项按钮样式 */
+.options-btn {
+    padding: 8px 12px;
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    min-width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.options-btn:hover {
+    background-color: #5a6268;
+}
+
+.options-btn:disabled {
+    background-color: #adb5bd;
+    cursor: not-allowed;
+}
+
+/* 选项展示区域样式 */
+.options-display {
+    padding: 0;
+    background: #fafafa;
+    border-radius: 0;
+    margin: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.options-display-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0;
+    padding: 1rem 1rem 0.5rem 1rem;
+    border-bottom: 1px solid #e1e1e1;
+    flex-shrink: 0;
+}
+
+.options-display-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #37352f;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.options-close-btn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: #666;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.options-close-btn:hover {
+    background-color: #e1e1e1;
+    color: #000;
+}
+
+.options-groups {
+    padding: 1rem;
+    flex: 1;
+    overflow-y: auto;
+}
+
+/* 当显示演员选项时，不使用grid布局 */
+.options-groups:has(.options-group:only-child) {
+    display: block;
+}
+
+/* 当显示其他选项时，使用grid布局 */
+.options-groups:not(:has(.options-group:only-child)) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.75rem;
+}
+
+.options-group {
+    background: white;
+    border: 1px solid #e1e1e1;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* 当演员选项是唯一组时，移除边框和背景 */
+.options-groups:has(.options-group:only-child) .options-group {
+    background: none;
+    border: none;
+    border-radius: 0;
+}
+
+.options-group-title {
+    background-color: #f1f1ef;
+    padding: 0.5rem 0.75rem;
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: #37352f;
+    margin: 0;
+    border-bottom: 1px solid #e1e1e1;
+}
+
+/* 当演员选项是唯一组时，简化标题样式 */
+.options-groups:has(.options-group:only-child) .options-group-title {
+    background-color: transparent;
+    padding: 0 0 0.75rem 0;
+    border-bottom: none;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.options-items {
+    padding: 0.5rem;
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.5rem;
+}
+
+.options-item {
+    padding: 0.5rem;
+    background: none;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: center;
+    font-size: 0.85rem;
+    line-height: 1.3;
+    transition: all 0.15s;
+    color: #37352f;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: auto;
+}
+
+.options-item:hover {
+    background-color: #f1f1ef;
+    border-color: #37352f;
+}
+
+/* 演员头像样式 */
+.actor-avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+/* 演员默认图标样式 */
+.actor-default-icon {
+    width: 120px;
+    height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #dee2e6;
+    font-size: 60px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* 演员名字样式 */
+.actor-name {
+    font-weight: 500;
+    text-align: center;
+    word-wrap: break-word;
+    max-width: 100%;
+    line-height: 1.2;
+}
+
+/* 类别选项专用样式 - 更紧凑的布局 */
+.options-groups:not(:has(.actor-avatar)) .options-items {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.3rem;
+    padding: 0.3rem;
+}
+
+.options-groups:not(:has(.actor-avatar)) .options-item {
+    padding: 0.4rem 0.6rem;
+    gap: 0;
+    min-height: 32px;
+    font-size: 0.8rem;
+    line-height: 1.2;
+    text-align: left;
+    justify-content: center;
+    align-items: center;
+    border-radius: 4px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    transition: all 0.1s;
+}
+
+.options-groups:not(:has(.actor-avatar)) .options-item:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.options-groups:not(:has(.actor-avatar)) .options-group {
+    margin-bottom: 0.5rem;
+}
+
+.options-groups:not(:has(.actor-avatar)) .options-group-title {
+    background: #e9ecef;
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    border-radius: 4px;
+    color: #495057;
+}
+
+.category-item:hover {
+    background-color: #e9ecef;
+    border-color: #007bff;
+}
+
+.category-item:last-child {
+    margin-bottom: 0;
+}
+
 .download-info {
     padding: 15px;
     background: #f8f9fa;
@@ -569,6 +807,12 @@ button:disabled {
     justify-content: space-between;
 }
 
+.best-magnet.downloaded {
+    background-color: #f0f0f0;
+    border: 1px solid #999;
+    opacity: 0.7;
+}
+
 .best-tag {
     display: inline-block;
     background: #22c55e;
@@ -578,6 +822,17 @@ button:disabled {
     font-size: 0.65rem;
     font-weight: 600;
     margin-bottom: 0.25rem;
+    align-self: flex-start;
+}
+
+.downloaded-badge {
+    background-color: #2196f3;
+    color: white;
+    padding: 0.125rem 0.375rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    margin-bottom: 0.25rem;
+    font-weight: bold;
     align-self: flex-start;
 }
 
@@ -964,5 +1219,139 @@ button:disabled {
     
     .download-section {
         padding: 0.75rem;
+    }
+    
+    /* 响应式演员选项布局 */
+    .options-items {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 0.4rem;
+        padding: 0.4rem;
+    }
+    
+    .options-item {
+        padding: 0.4rem;
+        gap: 0.4rem;
+    }
+    
+    .actor-avatar,
+    .actor-default-icon {
+        width: 80px;
+        height: 80px;
+    }
+    
+    .actor-default-icon {
+        font-size: 40px;
+    }
+    
+    .actor-name {
+        font-size: 0.75rem;
+    }
+    
+    /* 小屏幕类别选项样式 */
+    .options-groups:not(:has(.actor-avatar)) .options-items {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 0.25rem;
+        padding: 0.25rem;
+    }
+    
+    .options-groups:not(:has(.actor-avatar)) .options-item {
+        padding: 0.3rem 0.4rem;
+        min-height: 28px;
+        font-size: 0.75rem;
+    }
+    
+    .options-groups:not(:has(.actor-avatar)) .options-group-title {
+        padding: 0.25rem 0.4rem;
+        font-size: 0.75rem;
+        margin-bottom: 0.25rem;
+    }
+}
+
+/* 中等屏幕 - 平板 */
+@media (min-width: 768px) and (max-width: 1024px) {
+    .options-items {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 0.6rem;
+        padding: 0.6rem;
+    }
+    
+    .options-item {
+        padding: 0.6rem;
+        gap: 0.5rem;
+    }
+    
+    .actor-avatar,
+    .actor-default-icon {
+        width: 100px;
+        height: 100px;
+    }
+    
+    .actor-default-icon {
+        font-size: 50px;
+    }
+    
+    /* 中等屏幕类别选项样式 */
+    .options-groups:not(:has(.actor-avatar)) .options-items {
+        grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+        gap: 0.28rem;
+        padding: 0.28rem;
+    }
+    
+    .options-groups:not(:has(.actor-avatar)) .options-item {
+        padding: 0.35rem 0.5rem;
+        min-height: 30px;
+        font-size: 0.78rem;
+    }
+    
+    .options-groups:not(:has(.actor-avatar)) .options-group-title {
+        padding: 0.28rem 0.5rem;
+        font-size: 0.78rem;
+        margin-bottom: 0.28rem;
+    }
+}
+
+/* 大屏幕 - 桌面 */
+@media (min-width: 1200px) {
+    .options-items {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 0.75rem;
+    }
+    
+    .options-item {
+        padding: 0.75rem;
+        gap: 0.6rem;
+    }
+    
+    .actor-avatar,
+    .actor-default-icon {
+        width: 140px;
+        height: 140px;
+    }
+    
+    .actor-default-icon {
+        font-size: 70px;
+    }
+    
+    .actor-name {
+        font-size: 0.9rem;
+    }
+    
+    /* 大屏幕类别选项样式 */
+    .options-groups:not(:has(.actor-avatar)) .options-items {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 0.4rem;
+        padding: 0.4rem;
+    }
+    
+    .options-groups:not(:has(.actor-avatar)) .options-item {
+        padding: 0.5rem 0.8rem;
+        min-height: 36px;
+        font-size: 0.85rem;
+    }
+    
+    .options-groups:not(:has(.actor-avatar)) .options-group-title {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.85rem;
+        margin-bottom: 0.4rem;
     }
 }
