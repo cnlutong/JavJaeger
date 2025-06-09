@@ -121,9 +121,36 @@
                         <div id="login-status" class="login-status"></div>
                     </div>
                     
+                    <!-- Aria2配置区域 -->
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>⚡ Aria2 配置</h3>
+                        </div>
+                        <form id="aria2-config">
+                            <input type="text" name="host" placeholder="Aria2地址 (如: 192.168.1.100)" required>
+                            <input type="number" name="port" placeholder="端口 (如: 6800)" required>
+                            <input type="password" name="secret" placeholder="密码 (可选)">
+                            <div class="login-buttons">
+                                <button type="button" id="aria2-test-btn">测试连接</button>
+                                <button type="button" id="aria2-save-btn">保存配置</button>
+                            </div>
+                        </form>
+                        <div id="aria2-status" class="login-status"></div>
+                    </div>
+                    
                     <div class="download-info">
                         <p class="info-text">📥 下载功能说明</p>
-                        <p class="info-desc">登录PikPak后，在影片列表筛选结果页面可使用批量下载功能</p>
+                        <p class="info-desc">配置PikPak和Aria2后，系统将自动从PikPak获取下载链接并添加到Aria2进行本地下载</p>
+                        <div class="download-mode-selector">
+                            <label class="radio-label">
+                                <input type="radio" name="downloadMode" value="pikpak" checked>
+                                <span>仅PikPak下载</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="downloadMode" value="aria2">
+                                <span>PikPak + Aria2本地下载</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </aside>

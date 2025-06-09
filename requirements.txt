@@ -4,6 +4,7 @@ python-multipart>=0.0.6
 jinja2>=3.1.2
 httpx>=0.24.1
 pikpakapi
+aria2p>=0.11.3
 
 # 开发依赖
 python-dotenv>=1.0.0

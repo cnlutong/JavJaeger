@@ -5,6 +5,14 @@ import { fetchWithRetry } from './utils.js';
 let pikpakCredentials = null;
 let isLoggedIn = false;
 
+// Aria2相关变量
+let aria2Config = {
+    host: '',
+    port: 6800,
+    secret: ''
+};
+let aria2Connected = false;
+
 // 类别数据
 let categoriesData = null;
 // 演员数据
@@ -378,6 +386,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (showOptionsBtn) {
         showOptionsBtn.addEventListener('click', showOptionsSelector);
     }
+    
+    // Aria2配置事件监听
+    const aria2TestBtn = document.getElementById('aria2-test-btn');
+    if (aria2TestBtn) {
+        aria2TestBtn.addEventListener('click', testAria2Connection);
+    }
+
+    const aria2SaveBtn = document.getElementById('aria2-save-btn');
+    if (aria2SaveBtn) {
+        aria2SaveBtn.addEventListener('click', saveAria2Config);
+    }
+
+    // 加载保存的Aria2配置
+    loadAria2Config();
+
+    // 下载模式切换事件监听
+    const downloadModeRadios = document.querySelectorAll('input[name="downloadMode"]');
+    downloadModeRadios.forEach(radio => {
+        radio.addEventListener('change', updateDownloadButtonStatus);
+    });
 });
 
 // 处理退出登录
@@ -412,6 +440,112 @@ function handleLogout() {
     
     // 更新下载按钮状态
     updateCopyButtonStatus();
+}
+
+// 加载Aria2配置
+function loadAria2Config() {
+    const savedConfig = localStorage.getItem('aria2Config');
+    if (savedConfig) {
+        try {
+            aria2Config = JSON.parse(savedConfig);
+            // 填充表单
+            const form = document.getElementById('aria2-config');
+            if (form) {
+                form.host.value = aria2Config.host || '';
+                form.port.value = aria2Config.port || 6800;
+                form.secret.value = aria2Config.secret || '';
+            }
+            // 如果有配置，自动测试连接
+            if (aria2Config.host && aria2Config.port) {
+                testAria2Connection();
+            }
+        } catch (e) {
+            console.error('加载Aria2配置失败:', e);
+        }
+    }
+}
+
+// 保存Aria2配置
+function saveAria2Config() {
+    const form = document.getElementById('aria2-config');
+    if (!form) return;
+    
+    const host = form.host.value.trim();
+    const port = parseInt(form.port.value);
+    const secret = form.secret.value.trim();
+    
+    if (!host || !port) {
+        showAria2Status('请填写完整的Aria2地址和端口', 'error');
+        return;
+    }
+    
+    aria2Config = { host, port, secret };
+    localStorage.setItem('aria2Config', JSON.stringify(aria2Config));
+    showAria2Status('配置已保存', 'success');
+    
+    // 保存后自动测试连接
+    setTimeout(() => {
+        testAria2Connection();
+    }, 500);
+}
+
+// 测试Aria2连接
+async function testAria2Connection() {
+    const form = document.getElementById('aria2-config');
+    if (!form) return;
+    
+    const host = form.host.value.trim();
+    const port = parseInt(form.port.value);
+    const secret = form.secret.value.trim();
+    
+    if (!host || !port) {
+        showAria2Status('请填写完整的Aria2地址和端口', 'error');
+        return;
+    }
+    
+    const testBtn = document.getElementById('aria2-test-btn');
+    if (testBtn) {
+        testBtn.textContent = '测试中...';
+        testBtn.disabled = true;
+    }
+    
+    try {
+        const response = await fetch('/api/aria2/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ host, port, secret })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            aria2Connected = true;
+            showAria2Status(`连接成功 (版本: ${result.version})`, 'success');
+        } else {
+            aria2Connected = false;
+            showAria2Status(`连接失败: ${result.message}`, 'error');
+        }
+    } catch (error) {
+        aria2Connected = false;
+        showAria2Status(`连接失败: ${error.message}`, 'error');
+    } finally {
+        if (testBtn) {
+            testBtn.textContent = '测试连接';
+            testBtn.disabled = false;
+        }
+        updateDownloadButtonStatus();
+    }
+}
+
+// 显示Aria2状态
+function showAria2Status(message, type) {
+    const statusDiv = document.getElementById('aria2-status');
+    if (statusDiv) {
+        statusDiv.textContent = message;
+        statusDiv.className = `login-status ${type}`;
+    }
 }
 
 // 处理PikPak登录表单提交
@@ -616,8 +750,7 @@ function updateCopyButtonStatus() {
         copyButton.disabled = false;
         copyButton.textContent = '复制本页全部链接';
         if (downloadButton) {
-            downloadButton.disabled = !isLoggedIn;
-            downloadButton.textContent = isLoggedIn ? '📥 下载本页全部影片' : '📥 请先登录';
+            updateDownloadButtonStatus();
         }
     } else {
         copyButton.disabled = true;
@@ -625,6 +758,22 @@ function updateCopyButtonStatus() {
         if (downloadButton) {
             downloadButton.disabled = true;
             downloadButton.textContent = `📥 加载中... (${loadedMovies}/${totalMovies})`;
+        }
+    }
+}
+
+// 更新下载按钮状态
+function updateDownloadButtonStatus() {
+    const downloadButton = document.getElementById('download-all-links');
+    if (downloadButton) {
+        const selectedMode = document.querySelector('input[name="downloadMode"]:checked')?.value || 'pikpak';
+        if (selectedMode === 'aria2') {
+            const canDownload = isLoggedIn && aria2Connected;
+            downloadButton.textContent = canDownload ? '📥 下载本页全部影片 (Aria2)' : '📥 请先配置PikPak和Aria2';
+            downloadButton.disabled = !canDownload;
+        } else {
+            downloadButton.textContent = isLoggedIn ? '📥 下载本页全部影片 (PikPak)' : '📥 请先登录';
+            downloadButton.disabled = !isLoggedIn;
         }
     }
 }
@@ -854,24 +1003,58 @@ function displayResults(data) {
                 downloadButton.textContent = '下载中...';
                 
                 try {
-                    const response = await fetch('/api/pikpak/download', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
+                    const selectedMode = document.querySelector('input[name="downloadMode"]:checked')?.value || 'pikpak';
+                    
+                    if (selectedMode === 'aria2') {
+                        downloadButton.textContent = '下载中 (Aria2)...';
+                    } else {
+                        downloadButton.textContent = '下载中 (PikPak)...';
+                    }
+
+                    let apiEndpoint, requestBody;
+                    
+                    if (selectedMode === 'aria2') {
+                        apiEndpoint = '/api/aria2/download';
+                        requestBody = {
+                            magnet_links: links,
+                            pikpak_username: pikpakCredentials.username,
+                            pikpak_password: pikpakCredentials.password,
+                            movie_ids: movieIds,
+                            aria2_config: aria2Config
+                        };
+                    } else {
+                        apiEndpoint = '/api/pikpak/download';
+                        requestBody = {
                             magnet_links: links,
                             movie_ids: movieIds,
                             username: pikpakCredentials.username,
                             password: pikpakCredentials.password
-                        })
+                        };
+                    }
+
+                    const response = await fetch(apiEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)
                     });
                     
                     const result = await response.json();
                     
                     if (result.success) {
-                        downloadButton.textContent = '下载成功！';
-                        alert(result.message + '\n\n下载记录已保存，下次将自动跳过已下载的影片。');
+                        if (selectedMode === 'aria2') {
+                            downloadButton.textContent = '下载成功！';
+                            let message = result.message + '\n\n下载记录已保存，下次将自动跳过已下载的影片。';
+                            if (result.aria2_results && result.aria2_results.length > 0) {
+                                const successCount = result.aria2_results.filter(r => r.success).length;
+                                message += `\n\nAria2任务: ${successCount}/${result.aria2_results.length} 个文件已添加到下载队列`;
+                            }
+                            alert(message);
+                        } else {
+                            downloadButton.textContent = '下载成功！';
+                            alert(result.message + '\n\n下载记录已保存，下次将自动跳过已下载的影片。');
+                        }
                         // 刷新页面以更新下载状态显示
                         setTimeout(() => {
                             location.reload();
@@ -888,7 +1071,7 @@ function displayResults(data) {
                 
                 setTimeout(() => {
                     downloadButton.disabled = false;
-                    downloadButton.textContent = '📥 下载本页全部影片';
+                    updateDownloadButtonStatus();
                 }, 3000);
             });
         }
@@ -948,6 +1131,7 @@ function displayMovieDetails(movie) {
             ${movie.samples.map(sample => `<img src="${sample.src}" alt="${sample.alt}">`).join('')}
         </div>
         <div id="magnets-container"></div> <!-- 用于显示磁力链接 -->
+        <div id="single-movie-download-container" style="margin-top: 20px;"></div> <!-- 用于显示单个影片下载按钮 -->
     `;
     resultContainer.innerHTML = html;
 }
@@ -955,6 +1139,7 @@ function displayMovieDetails(movie) {
 // 获取并显示磁力链接
 async function fetchAndDisplayMagnets(movieId, gid, uc) {
     const magnetsContainer = document.getElementById('magnets-container');
+    const downloadContainer = document.getElementById('single-movie-download-container');
     magnetsContainer.innerHTML = '<p>正在加载磁力链接...</p>';
 
     const queryParams = new URLSearchParams();
@@ -964,6 +1149,16 @@ async function fetchAndDisplayMagnets(movieId, gid, uc) {
     queryParams.append('sortOrder', 'desc');
 
     try {
+        // 检查是否已下载
+        let isDownloaded = false;
+        try {
+            const checkResponse = await fetch(`/api/downloaded-movies/${encodeURIComponent(movieId)}`);
+            const checkResult = await checkResponse.json();
+            isDownloaded = checkResult.is_downloaded;
+        } catch (error) {
+            console.warn(`检查影片 ${movieId} 下载状态失败:`, error);
+        }
+
         const response = await fetch(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);
         const data = await response.json();
 
@@ -975,22 +1170,147 @@ async function fetchAndDisplayMagnets(movieId, gid, uc) {
                 return sizeB - sizeA;
             });
 
+            const downloadedBadge = isDownloaded ? '<span class="downloaded-badge">✅ 已下载</span>' : '';
             let magnetsHtml = '<h3>磁力链接:</h3><ul>';
             sortedData.forEach((magnet, index) => {
                 const isBest = index === 0;
-                magnetsHtml += `<li class="${isBest ? 'best-magnet' : ''}">` +
-                    `${isBest ? '<span class="best-tag">最佳资源</span>' : ''}` +
-                    `<a href="${magnet.link}" target="_blank">${magnet.title}</a> ` +
+                magnetsHtml += `<li class="${isBest ? 'best-magnet' : ''} ${isDownloaded ? 'downloaded' : ''}">`+
+                    `${isBest ? '<span class="best-tag">最佳资源</span>' : ''}`+
+                    `${isBest ? downloadedBadge : ''}`+
+                    `<a href="${magnet.link}" target="_blank">${magnet.title}</a> `+
                     `(大小: ${magnet.size}, 日期: ${magnet.date})</li>`;
             });
             magnetsHtml += '</ul>';
             magnetsContainer.innerHTML = magnetsHtml;
+
+            // 添加下载按钮
+            if (downloadContainer) {
+                const bestMagnet = sortedData[0];
+                downloadContainer.innerHTML = `
+                    <div class="single-movie-download">
+                        <h4>下载此影片:</h4>
+                        <button id="download-single-movie" class="download-btn" ${isDownloaded ? 'disabled' : ''}>
+                            ${isDownloaded ? '✅ 已下载' : '📥 下载最佳资源'}
+                        </button>
+                        <p class="download-info">将下载: ${bestMagnet.title} (${bestMagnet.size})</p>
+                    </div>
+                `;
+
+                // 添加下载按钮事件监听
+                if (!isDownloaded) {
+                    const downloadButton = document.getElementById('download-single-movie');
+                    downloadButton.addEventListener('click', async () => {
+                        await downloadSingleMovie(movieId, bestMagnet.link);
+                    });
+                }
+            }
         } else {
             magnetsContainer.innerHTML = '<p>没有找到磁力链接</p>';
+            if (downloadContainer) {
+                downloadContainer.innerHTML = '<p>无可用资源下载</p>';
+            }
         }
     } catch (error) {
         console.error('获取磁力链接失败:', error);
         magnetsContainer.innerHTML = '<p>获取磁力链接失败</p>';
+        if (downloadContainer) {
+            downloadContainer.innerHTML = '<p>加载下载选项失败</p>';
+        }
+    }
+}
+
+// 下载单个影片
+async function downloadSingleMovie(movieId, magnetLink) {
+    const downloadButton = document.getElementById('download-single-movie');
+    const originalText = downloadButton.textContent;
+    
+    // 检查PikPak登录状态
+    if (!pikpakCredentials || !pikpakCredentials.username || !pikpakCredentials.password) {
+        alert('请先登录PikPak账号');
+        return;
+    }
+    
+    // 获取当前选择的下载模式
+    const selectedMode = document.querySelector('input[name="downloadMode"]:checked')?.value || 'pikpak';
+    
+    // 检查Aria2连接状态（如果选择了Aria2模式）
+    if (selectedMode === 'aria2' && !aria2Connected) {
+        alert('请先配置并测试Aria2连接');
+        return;
+    }
+    
+    try {
+        if (selectedMode === 'aria2') {
+            downloadButton.textContent = '下载中 (Aria2)...';
+        } else {
+            downloadButton.textContent = '下载中 (PikPak)...';
+        }
+        downloadButton.disabled = true;
+        
+        let apiEndpoint, requestBody;
+        
+        if (selectedMode === 'aria2') {
+            apiEndpoint = '/api/aria2/download';
+            requestBody = {
+                magnet_links: [magnetLink],
+                pikpak_username: pikpakCredentials.username,
+                pikpak_password: pikpakCredentials.password,
+                movie_ids: [movieId],
+                aria2_config: aria2Config
+            };
+        } else {
+            apiEndpoint = '/api/pikpak/download';
+            requestBody = {
+                magnet_links: [magnetLink],
+                username: pikpakCredentials.username,
+                password: pikpakCredentials.password,
+                movie_ids: [movieId]
+            };
+        }
+        
+        const response = await fetch(apiEndpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            downloadButton.textContent = '✅ 下载成功';
+            downloadButton.disabled = true;
+            
+            let message = `影片 ${movieId} 下载成功！\n\n下载记录已保存，下次将自动跳过已下载的影片。`;
+            
+            if (selectedMode === 'aria2' && result.aria2_results && result.aria2_results.length > 0) {
+                const successCount = result.aria2_results.filter(r => r.success).length;
+                message += `\n\nAria2任务: ${successCount}/${result.aria2_results.length} 个文件已添加到下载队列`;
+            }
+            
+            alert(message);
+            
+            // 刷新页面以更新下载状态显示
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        } else {
+            downloadButton.textContent = '下载失败';
+            alert('下载失败: ' + (result.message || '未知错误'));
+            setTimeout(() => {
+                downloadButton.textContent = originalText;
+                downloadButton.disabled = false;
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('下载失败:', error);
+        downloadButton.textContent = '下载失败';
+        alert('下载失败: ' + error.message);
+        setTimeout(() => {
+            downloadButton.textContent = originalText;
+            downloadButton.disabled = false;
+        }, 3000);
     }
 }
 

@@ -10,6 +10,8 @@ import asyncio
 import json
 import os
 from pikpakapi import PikPakApi
+import base64
+import aria2p
 
 # 配置日志
 logging.basicConfig(
@@ -31,9 +33,21 @@ class PikPakCredentials(BaseModel):
 
 class DownloadRequest(BaseModel):
     magnet_links: list[str]
-    movie_ids: list[str]  # 影片番号列表
     username: str
     password: str
+    movie_ids: list[str] = []
+
+class Aria2Config(BaseModel):
+    host: str
+    port: int
+    secret: str = ""
+
+class Aria2DownloadRequest(BaseModel):
+    magnet_links: list[str]
+    pikpak_username: str
+    pikpak_password: str
+    movie_ids: list[str] = []
+    aria2_config: Aria2Config
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -49,8 +63,20 @@ async def load_downloaded_movies():
     """加载已下载的影片记录"""
     try:
         if os.path.exists(DOWNLOADED_MOVIES_FILE):
+            # 检查文件是否为空
+            if os.path.getsize(DOWNLOADED_MOVIES_FILE) == 0:
+                logging.warning("下载记录文件为空，初始化为空列表")
+                return []
+            
             with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                content = f.read().strip()
+                if not content:
+                    logging.warning("下载记录文件内容为空，初始化为空列表")
+                    return []
+                return json.loads(content)
+        return []
+    except json.JSONDecodeError as e:
+        logging.error(f"下载记录文件JSON格式错误: {str(e)}，重新初始化")
         return []
     except Exception as e:
         logging.error(f"加载下载记录失败: {str(e)}")
@@ -76,10 +102,129 @@ async def save_downloaded_movies(movie_ids):
     except Exception as e:
         logging.error(f"保存下载记录失败: {str(e)}")
 
-async def is_movie_downloaded(movie_id):
+async def is_movie_downloaded(movie_id: str) -> bool:
     """检查影片是否已下载"""
     downloaded_movies = await load_downloaded_movies()
     return movie_id in [record['movie_id'] for record in downloaded_movies]
+
+async def get_pikpak_download_links(client: PikPakApi, task_ids: list[str]) -> list[dict]:
+    """从PikPak获取下载链接"""
+    download_links = []
+    try:
+        # 获取所有离线任务列表
+        offline_tasks_result = await client.offline_list()
+        
+        # 处理API返回结果
+        if isinstance(offline_tasks_result, dict):
+            all_tasks = offline_tasks_result.get('tasks', [])
+        else:
+            all_tasks = offline_tasks_result or []
+
+        if not all_tasks:
+            logging.warning("PikPak离线任务列表为空或获取失败")
+            return []
+
+        # 创建任务ID到任务信息的映射
+        tasks_map = {task.get('id'): task for task in all_tasks if task.get('id')}
+        logging.info(f"找到 {len(tasks_map)} 个离线任务")
+
+        for task_id in task_ids:
+            task_info = tasks_map.get(task_id)
+            if not task_info:
+                logging.warning(f"在离线列表中未找到任务ID: {task_id}")
+                continue
+            
+            # 检查任务状态
+            task_phase = task_info.get('phase', '')
+            logging.info(f"任务 {task_id} 状态: {task_phase}")
+            
+            # 检查是否为完成状态
+            if task_phase == 'PHASE_TYPE_COMPLETE':
+                # 获取任务关联的文件ID
+                file_id = task_info.get('file_id')
+                if not file_id:
+                    # 尝试从其他字段获取文件ID
+                    if 'params' in task_info and 'file_id' in task_info['params']:
+                        file_id = task_info['params']['file_id']
+                    elif 'reference_resource' in task_info:
+                        file_id = task_info['reference_resource'].get('id')
+                
+                if file_id:
+                    try:
+                        # 使用pikpakapi库获取下载URL
+                        download_url = await client.get_download_url(file_id)
+                        if download_url:
+                            file_name = task_info.get('name', f'file_{file_id}')
+                            file_size = task_info.get('file_size', 0)
+                            
+                            download_links.append({
+                                'task_id': task_id,
+                                'file_id': file_id,
+                                'filename': file_name,
+                                'download_url': download_url,
+                                'size': file_size
+                            })
+                            logging.info(f"成功获取文件 {file_name} 的下载链接")
+                        else:
+                            logging.warning(f"无法获取文件 {file_id} 的下载链接")
+                    except Exception as e:
+                        logging.error(f"获取文件 {file_id} 下载链接时出错: {e}")
+                else:
+                    logging.warning(f"任务 {task_id} 已完成但未找到关联的文件ID")
+            else:
+                logging.info(f"任务 {task_id} 状态为 {task_phase}，跳过")
+
+    except Exception as e:
+        logging.error(f"获取PikPak下载链接过程中发生错误: {str(e)}")
+    
+    return download_links
+
+async def add_aria2_download(aria2_config: Aria2Config, download_url: str, filename: str) -> dict:
+    """使用aria2p库添加Aria2下载任务"""
+    try:
+        # 构建Aria2连接
+        if aria2_config.secret:
+            aria2 = aria2p.API(
+                aria2p.Client(
+                    host=f"http://{aria2_config.host}",
+                    port=aria2_config.port,
+                    secret=aria2_config.secret
+                )
+            )
+        else:
+            aria2 = aria2p.API(
+                aria2p.Client(
+                    host=f"http://{aria2_config.host}",
+                    port=aria2_config.port
+                )
+            )
+        
+        # 设置下载选项
+        options = {
+            "out": filename,
+            "dir": "/downloads"  # 默认下载目录
+        }
+        
+        # 添加下载任务
+        download = aria2.add_uris([download_url], options=options)
+        
+        if download:
+            return {
+                "success": True,
+                "gid": download.gid,
+                "filename": filename
+            }
+        else:
+            return {
+                "success": False,
+                "error": "添加下载任务失败"
+            }
+                
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 # 主页路由
 @app.get("/", response_class=HTMLResponse)
@@ -99,7 +244,7 @@ async def get_movies(request: Request):
     :return: 影片列表数据
     """
     # 构建目标API URL
-    api_url = "http://10.0.0.20:3000/api/movies"
+    api_url = "http://10.0.0.10:3000/api/movies"
     
     # 转发所有查询参数
     query_params = dict(request.query_params)
@@ -127,7 +272,7 @@ async def get_movie(movieId: str, request: Request):
     :return: 影片信息
     """
     # 构建目标API URL
-    api_url = f"http://10.0.0.20:3000/api/movies/{movieId}"
+    api_url = f"http://10.0.0.10:3000/api/movies/{movieId}"
     
     try:
         # 发送请求到JavBus API
@@ -152,7 +297,7 @@ async def get_magnets(movieId: str, request: Request):
     :return: 磁力链接数据
     """
     # 构建目标API URL
-    api_url = f"http://10.0.0.20:3000/api/magnets/{movieId}"
+    api_url = f"http://10.0.0.10:3000/api/magnets/{movieId}"
     
     # 转发查询参数
     query_params = dict(request.query_params)
@@ -304,10 +449,151 @@ async def check_movie_downloaded(movie_id: str):
     try:
         is_downloaded = await is_movie_downloaded(movie_id)
         return {
-            "success": True,
             "movie_id": movie_id,
             "is_downloaded": is_downloaded
         }
     except Exception as e:
         logging.error(f"检查下载状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"检查下载状态失败: {str(e)}")
+
+@app.post("/api/aria2/test")
+async def test_aria2_connection(config: Aria2Config):
+    """
+    使用aria2p库测试Aria2连接
+    :param config: Aria2配置
+    :return: 连接测试结果
+    """
+    try:
+        # 构建Aria2连接
+        if config.secret:
+            aria2 = aria2p.API(
+                aria2p.Client(
+                    host=f"http://{config.host}",
+                    port=config.port,
+                    secret=config.secret
+                )
+            )
+        else:
+            aria2 = aria2p.API(
+                aria2p.Client(
+                    host=f"http://{config.host}",
+                    port=config.port
+                )
+            )
+        
+        # 测试连接 - 获取版本信息
+        version_info = aria2.client.get_version()
+        
+        return {
+            "success": True,
+            "message": "连接成功",
+            "version": version_info.get("version", "未知版本")
+        }
+                
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"连接失败: {str(e)}"
+        }
+
+@app.post("/api/aria2/download")
+async def aria2_download(request: Aria2DownloadRequest):
+    """
+    通过PikPak获取下载链接并添加到Aria2
+    :param request: Aria2下载请求
+    :return: 下载结果
+    """
+    try:
+        # 1. 先通过PikPak添加离线下载任务
+        pikpak_client = PikPakApi(
+            username=request.pikpak_username,
+            password=request.pikpak_password
+        )
+        await pikpak_client.login()
+        
+        # 添加PikPak离线下载任务
+        pikpak_results = []
+        task_ids = []
+        successful_movie_ids = []
+        
+        for i, magnet_link in enumerate(request.magnet_links):
+            try:
+                result = await pikpak_client.offline_download(magnet_link)
+                task_id = result.get("task", {}).get("id") if result else None
+                if task_id:
+                    task_ids.append(task_id)
+                    pikpak_results.append({
+                        "magnet": magnet_link,
+                        "success": True,
+                        "task_id": task_id
+                    })
+                    # 记录成功的影片ID
+                    if i < len(request.movie_ids):
+                        successful_movie_ids.append(request.movie_ids[i])
+                else:
+                    pikpak_results.append({
+                        "magnet": magnet_link,
+                        "success": False,
+                        "error": "未获取到任务ID"
+                    })
+                logging.info(f"PikPak任务添加成功: {magnet_link[:50]}...")
+            except Exception as e:
+                pikpak_results.append({
+                    "magnet": magnet_link,
+                    "success": False,
+                    "error": str(e)
+                })
+                logging.error(f"PikPak任务添加失败: {magnet_link[:50]}... - {str(e)}")
+        
+        # 2. 等待PikPak任务完成并获取下载链接
+        aria2_results = []
+        if task_ids:
+            # 等待一段时间让PikPak处理
+            await asyncio.sleep(5)
+            
+            # 获取下载链接
+            download_links = await get_pikpak_download_links(pikpak_client, task_ids)
+            
+            # 3. 添加到Aria2
+            for link_info in download_links:
+                try:
+                    aria2_result = await add_aria2_download(
+                        request.aria2_config,
+                        link_info['download_url'],
+                        link_info['filename']
+                    )
+                    aria2_results.append({
+                        "filename": link_info['filename'],
+                        "success": aria2_result['success'],
+                        "gid": aria2_result.get('gid'),
+                        "error": aria2_result.get('error')
+                    })
+                    if aria2_result['success']:
+                        logging.info(f"Aria2任务添加成功: {link_info['filename']}")
+                    else:
+                        logging.error(f"Aria2任务添加失败: {link_info['filename']} - {aria2_result.get('error')}")
+                except Exception as e:
+                    aria2_results.append({
+                        "filename": link_info['filename'],
+                        "success": False,
+                        "error": str(e)
+                    })
+                    logging.error(f"Aria2任务添加异常: {link_info['filename']} - {str(e)}")
+        
+        # 保存下载记录
+        if successful_movie_ids:
+            await save_downloaded_movies(successful_movie_ids)
+        
+        pikpak_success = sum(1 for r in pikpak_results if r["success"])
+        aria2_success = sum(1 for r in aria2_results if r["success"])
+        
+        return {
+            "success": pikpak_success > 0,
+            "message": f"PikPak: {pikpak_success}/{len(request.magnet_links)} 个任务成功，Aria2: {aria2_success}/{len(aria2_results)} 个文件成功",
+            "pikpak_results": pikpak_results,
+            "aria2_results": aria2_results
+        }
+        
+    except Exception as e:
+        logging.error(f"Aria2下载失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"下载失败: {str(e)}")
