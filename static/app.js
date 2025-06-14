@@ -872,10 +872,8 @@ function displayResults(data) {
                     if (result.success) {
                         downloadButton.textContent = '下载成功！';
                         alert(result.message + '\n\n下载记录已保存，下次将自动跳过已下载的影片。');
-                        // 刷新页面以更新下载状态显示
-                        setTimeout(() => {
-                            location.reload();
-                        }, 2000);
+                        // 更新当前页面的下载状态显示，不刷新页面
+                        updateCopyButtonStatus();
                     } else {
                         downloadButton.textContent = '下载失败';
                         alert('下载失败: ' + (result.message || '未知错误'));
@@ -900,6 +898,7 @@ function displayResults(data) {
                 const form = document.getElementById('movie-filter');
                 const filterType = form.filterType.value;
                 const filterValue = form.filterValue.value;
+                const filterCode = form.filterCode.value;
                 const magnet = form.magnet.value;
                 const type = form.type.value;
 
@@ -907,7 +906,9 @@ function displayResults(data) {
                 queryParams.append('page', page);
                 if (filterType) {
                     queryParams.append('filterType', filterType);
-                    queryParams.append('filterValue', filterValue);
+                    // 优先使用代码，如果没有代码则使用输入框的值
+                    const actualFilterValue = filterCode || filterValue;
+                    queryParams.append('filterValue', actualFilterValue);
                 }
                 if (magnet) queryParams.append('magnet', magnet);
                 if (type) queryParams.append('type', type);

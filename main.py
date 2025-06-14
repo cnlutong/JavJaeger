@@ -18,6 +18,27 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
+# 加载配置文件
+def load_config():
+    """加载配置文件"""
+    try:
+        with open('config.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"加载配置文件失败: {str(e)}")
+        # 返回默认配置
+        return {
+            "javbus_api": {
+                "host": "10.0.0.20",
+                "port": 3000,
+                "base_url": "http://10.0.0.20:3000"
+            }
+        }
+
+# 全局配置
+config = load_config()
+JAVBUS_API_BASE_URL = config['javbus_api']['base_url']
+
 # 初始化FastAPI应用
 app = FastAPI(title="JavJaeger", description="基于JavBus的高效影片系统")
 
@@ -99,7 +120,7 @@ async def get_movies(request: Request):
     :return: 影片列表数据
     """
     # 构建目标API URL
-    api_url = "http://10.0.0.20:3000/api/movies"
+    api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
     
     # 转发所有查询参数
     query_params = dict(request.query_params)
@@ -127,7 +148,7 @@ async def get_movie(movieId: str, request: Request):
     :return: 影片信息
     """
     # 构建目标API URL
-    api_url = f"http://10.0.0.20:3000/api/movies/{movieId}"
+    api_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movieId}"
     
     try:
         # 发送请求到JavBus API
@@ -152,7 +173,7 @@ async def get_magnets(movieId: str, request: Request):
     :return: 磁力链接数据
     """
     # 构建目标API URL
-    api_url = f"http://10.0.0.20:3000/api/magnets/{movieId}"
+    api_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movieId}"
     
     # 转发查询参数
     query_params = dict(request.query_params)
@@ -181,7 +202,7 @@ async def proxy_api(path: str, request: Request):
     :return: API响应数据
     """
     # 构建目标API URL
-    api_url = f"http://10.0.0.20:3000/api/{path}"
+    api_url = f"{JAVBUS_API_BASE_URL}/api/{path}"
     
     # 转发查询参数
     query_params = dict(request.query_params)
