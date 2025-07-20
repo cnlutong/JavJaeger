@@ -1,11 +1,13 @@
 // 请求队列管理器
 class RequestQueue {
-    constructor(maxConcurrent = 2, retryDelay = 1000) {
+    constructor(maxConcurrent = 1, retryDelay = 2000) {
         this.queue = [];
         this.running = 0;
         this.maxConcurrent = maxConcurrent;
         this.baseRetryDelay = retryDelay;
         this.maxRetries = 3;
+        this.lastRequestTime = 0;
+        this.minInterval = 500; // 最小请求间隔500ms
     }
 
     async add(requestFn) {
@@ -18,7 +20,16 @@ class RequestQueue {
     async processQueue() {
         if (this.running >= this.maxConcurrent || this.queue.length === 0) return;
 
+        // 检查请求间隔
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+        if (timeSinceLastRequest < this.minInterval) {
+            setTimeout(() => this.processQueue(), this.minInterval - timeSinceLastRequest);
+            return;
+        }
+
         this.running++;
+        this.lastRequestTime = Date.now();
         const { requestFn, resolve, reject, retries } = this.queue.shift();
 
         try {
@@ -41,7 +52,8 @@ class RequestQueue {
         }
 
         this.running--;
-        this.processQueue();
+        // 添加延迟后处理下一个请求
+        setTimeout(() => this.processQueue(), this.minInterval);
     }
 }
 

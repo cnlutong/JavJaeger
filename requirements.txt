@@ -1,9 +1,15 @@
+# 核心依赖
 fastapi>=0.95.2
-uvicorn>=0.22.0
+uvicorn[standard]>=0.22.0
 python-multipart>=0.0.6
 jinja2>=3.1.2
 httpx>=0.24.1
+
+# PikPak下载功能
 pikpakapi
+
+# 生产环境服务器（可选）
+gunicorn>=21.2.0
 
 # 开发依赖
 python-dotenv>=1.0.0

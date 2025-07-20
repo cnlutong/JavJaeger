@@ -1,0 +1,84 @@
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker相关
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 日志文件
+*.log
+logs/
+
+# 测试和开发文件
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 文档
+*.md
+docs/
+
+# 临时文件
+*.tmp
+*.temp
+.cache/
+
+# 备份文件
+*.bak
+*.backup
+
+# 本地配置文件（保留config.json用于容器）
+.env
+.env.local
+
+# 数据文件（通过volume挂载）
+data/
+
+# SSL证书（通过volume挂载）
+ssl/
+
+# 部署脚本
+deploy.*
+*.bat
+*.sh

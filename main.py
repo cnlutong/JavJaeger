@@ -9,6 +9,8 @@ import datetime
 import asyncio
 import json
 import os
+import hashlib
+from typing import List, Dict, Optional
 from pikpakapi import PikPakApi
 
 # 配置日志
@@ -17,6 +19,10 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
+
+# 内存缓存（替代Redis以保持轻量化）
+memory_cache = {}
+CACHE_EXPIRE_TIME = 3600  # 缓存1小时
 
 # 加载配置文件
 def load_config():
@@ -37,7 +43,8 @@ def load_config():
 
 # 全局配置
 config = load_config()
-JAVBUS_API_BASE_URL = config['javbus_api']['base_url']
+# 优先使用环境变量，如果没有则使用配置文件
+JAVBUS_API_BASE_URL = os.getenv('JAVBUS_API_BASE_URL', config['javbus_api']['base_url'])
 
 # 初始化FastAPI应用
 app = FastAPI(title="JavJaeger", description="基于JavBus的高效影片系统")
@@ -65,30 +72,93 @@ templates = Jinja2Templates(directory="templates")
 # 下载记录文件路径
 DOWNLOADED_MOVIES_FILE = "static/downloaded_movies.json"
 
-# 下载记录管理函数
+# 缓存管理函数
+def get_cache_key(url: str, params: dict = None) -> str:
+    """生成缓存键"""
+    cache_string = url
+    if params:
+        cache_string += str(sorted(params.items()))
+    return hashlib.md5(cache_string.encode()).hexdigest()
+
+def get_from_cache(key: str):
+    """从缓存获取数据"""
+    if key in memory_cache:
+        data, timestamp = memory_cache[key]
+        if datetime.datetime.now().timestamp() - timestamp < CACHE_EXPIRE_TIME:
+            return data
+        else:
+            del memory_cache[key]
+    return None
+
+def set_cache(key: str, data):
+    """设置缓存数据"""
+    memory_cache[key] = (data, datetime.datetime.now().timestamp())
+
+async def fetch_with_cache(url: str, params: dict = None):
+    """带缓存的API请求"""
+    cache_key = get_cache_key(url, params)
+    
+    # 尝试从缓存获取
+    cached_data = get_from_cache(cache_key)
+    if cached_data is not None:
+        logging.info(f"缓存命中: {url}")
+        return cached_data
+    
+    # 缓存未命中，发起请求
+    try:
+        # 添加请求间隔，避免API限制
+        await asyncio.sleep(0.2)  # 200ms间隔
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            logging.info(f"API请求: {url}, 状态: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                set_cache(cache_key, data)
+                return data
+            else:
+                return None
+    except Exception as e:
+        logging.error(f"API请求失败: {url}, 错误: {str(e)}")
+        return None
+
+# 下载记录管理（使用内存存储以保持轻量化）
+downloaded_movies_cache = set()
+downloaded_movies_loaded = False
+
 async def load_downloaded_movies():
     """加载已下载的影片记录"""
+    global downloaded_movies_cache, downloaded_movies_loaded
+    
+    if downloaded_movies_loaded:
+        return list(downloaded_movies_cache)
+    
     try:
         if os.path.exists(DOWNLOADED_MOVIES_FILE):
             with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return []
+                data = json.load(f)
+                downloaded_movies_cache = set(record['movie_id'] for record in data)
+        downloaded_movies_loaded = True
+        return list(downloaded_movies_cache)
     except Exception as e:
         logging.error(f"加载下载记录失败: {str(e)}")
         return []
 
-async def save_downloaded_movies(movie_ids):
+async def save_downloaded_movies(movie_ids: List[str]):
     """保存已下载的影片记录"""
+    global downloaded_movies_cache
+    
     try:
-        downloaded_movies = await load_downloaded_movies()
-        current_time = datetime.datetime.now().isoformat()
+        # 更新内存缓存
+        downloaded_movies_cache.update(movie_ids)
         
-        for movie_id in movie_ids:
-            if movie_id not in [record['movie_id'] for record in downloaded_movies]:
-                downloaded_movies.append({
-                    'movie_id': movie_id,
-                    'download_time': current_time
-                })
+        # 保存到文件
+        current_time = datetime.datetime.now().isoformat()
+        downloaded_movies = [
+            {'movie_id': movie_id, 'download_time': current_time}
+            for movie_id in downloaded_movies_cache
+        ]
         
         with open(DOWNLOADED_MOVIES_FILE, 'w', encoding='utf-8') as f:
             json.dump(downloaded_movies, f, ensure_ascii=False, indent=2)
@@ -97,10 +167,14 @@ async def save_downloaded_movies(movie_ids):
     except Exception as e:
         logging.error(f"保存下载记录失败: {str(e)}")
 
-async def is_movie_downloaded(movie_id):
+async def is_movie_downloaded(movie_id: str) -> bool:
     """检查影片是否已下载"""
-    downloaded_movies = await load_downloaded_movies()
-    return movie_id in [record['movie_id'] for record in downloaded_movies]
+    global downloaded_movies_cache, downloaded_movies_loaded
+    
+    if not downloaded_movies_loaded:
+        await load_downloaded_movies()
+    
+    return movie_id in downloaded_movies_cache
 
 # 主页路由
 @app.get("/", response_class=HTMLResponse)
@@ -125,19 +199,12 @@ async def get_movies(request: Request):
     # 转发所有查询参数
     query_params = dict(request.query_params)
     
-    try:
-        # 发送请求到JavBus API
-        async with httpx.AsyncClient() as client:
-            response = await client.get(api_url, params=query_params)
-            
-            # 记录请求日志
-            logging.info(f"[{datetime.datetime.now()}] 请求URL: {api_url}, 响应状态: {response.status_code}")
-            
-        # 返回API响应
-        return response.json()
-    except httpx.HTTPError as e:
-        # 处理API请求错误
-        return {"error": str(e), "message": "获取影片列表失败"}
+    # 使用缓存获取数据
+    data = await fetch_with_cache(api_url, query_params)
+    if data is None:
+        return {"error": "获取影片列表失败", "message": "API请求失败"}
+    
+    return data
 
 @app.get("/api/movies/{movieId}")
 async def get_movie(movieId: str, request: Request):
@@ -150,19 +217,12 @@ async def get_movie(movieId: str, request: Request):
     # 构建目标API URL
     api_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movieId}"
     
-    try:
-        # 发送请求到JavBus API
-        async with httpx.AsyncClient() as client:
-            response = await client.get(api_url)
-            
-            # 记录请求日志
-            logging.info(f"[{datetime.datetime.now()}] 请求URL: {api_url}, 响应状态: {response.status_code}")
-            
-        # 返回API响应
-        return response.json()
-    except httpx.HTTPError as e:
-        # 处理API请求错误
-        return {"error": str(e), "message": "请求影片信息失败"}
+    # 使用缓存获取数据
+    data = await fetch_with_cache(api_url)
+    if data is None:
+        return {"error": "获取影片信息失败", "message": "影片不存在或API请求失败"}
+    
+    return data
 
 @app.get("/api/magnets/{movieId}")
 async def get_magnets(movieId: str, request: Request):
@@ -178,19 +238,87 @@ async def get_magnets(movieId: str, request: Request):
     # 转发查询参数
     query_params = dict(request.query_params)
     
-    try:
-        # 发送请求到JavBus API
-        async with httpx.AsyncClient() as client:
-            response = await client.get(api_url, params=query_params)
+    # 使用缓存获取数据
+    data = await fetch_with_cache(api_url, query_params)
+    if data is None:
+        return {"error": "获取磁力链接失败", "message": "API请求失败"}
+    
+    return data
+
+@app.post("/api/movies/batch")
+async def get_movies_batch(movie_ids: List[str]):
+    """
+    批量获取影片信息和最佳磁力链接
+    :param movie_ids: 影片ID列表
+    :return: 批量影片信息
+    """
+    results = []
+    
+    # 并发获取影片信息
+    async def get_movie_with_magnet(movie_id: str):
+        try:
+            # 获取影片详情
+            movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
+            movie_data = await fetch_with_cache(movie_url)
             
-            # 记录请求日志
-            logging.info(f"[{datetime.datetime.now()}] 请求URL: {api_url}, 响应状态: {response.status_code}")
+            if not movie_data or not movie_data.get('gid') or movie_data.get('uc') is None:
+                return {
+                    "movie_id": movie_id,
+                    "success": False,
+                    "error": "影片不存在或无法获取参数"
+                }
             
-        # 返回API响应
-        return response.json()
-    except httpx.HTTPError as e:
-        # 处理API请求错误
-        return {"error": str(e), "message": "请求磁力链接失败"}
+            # 获取磁力链接
+            magnet_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
+            magnet_params = {
+                'gid': movie_data['gid'],
+                'uc': movie_data['uc'],
+                'sortBy': 'size',
+                'sortOrder': 'desc'
+            }
+            magnet_data = await fetch_with_cache(magnet_url, magnet_params)
+            
+            # 检查下载状态
+            is_downloaded = await is_movie_downloaded(movie_id)
+            
+            # 获取最佳磁力链接
+            best_magnet = None
+            if magnet_data and len(magnet_data) > 0:
+                best_magnet = magnet_data[0]
+            
+            return {
+                "movie_id": movie_id,
+                "success": True,
+                "title": movie_data.get('title', ''),
+                "date": movie_data.get('date', ''),
+                "is_downloaded": is_downloaded,
+                "best_magnet": best_magnet
+            }
+            
+        except Exception as e:
+            logging.error(f"获取影片 {movie_id} 信息失败: {str(e)}")
+            return {
+                "movie_id": movie_id,
+                "success": False,
+                "error": str(e)
+            }
+    
+    # 并发处理，但限制并发数量
+    semaphore = asyncio.Semaphore(2)  # 最多2个并发请求，避免API限制
+    
+    async def limited_get_movie(movie_id: str):
+        async with semaphore:
+            return await get_movie_with_magnet(movie_id)
+    
+    # 执行并发请求
+    tasks = [limited_get_movie(movie_id) for movie_id in movie_ids]
+    results = await asyncio.gather(*tasks)
+    
+    return {
+        "success": True,
+        "results": results,
+        "total_count": len(results)
+    }
 
 # API代理路由
 @app.get("/api/{path:path}")
@@ -207,19 +335,12 @@ async def proxy_api(path: str, request: Request):
     # 转发查询参数
     query_params = dict(request.query_params)
     
-    try:
-        # 发送请求到JavBus API
-        async with httpx.AsyncClient() as client:
-            response = await client.get(api_url, params=query_params)
-            
-            # 记录请求日志
-            logging.info(f"[{datetime.datetime.now()}] 请求URL: {api_url}, 响应状态: {response.status_code}")
-            
-        # 返回API响应
-        return response.json()
-    except httpx.HTTPError as e:
-        # 处理API请求错误
-        return {"error": str(e), "message": "请求JavBus API失败"}
+    # 使用缓存获取数据
+    data = await fetch_with_cache(api_url, query_params)
+    if data is None:
+        return {"error": "请求JavBus API失败", "message": "API请求失败"}
+    
+    return data
 
 # PikPak相关API端点
 @app.post("/api/pikpak/login")
