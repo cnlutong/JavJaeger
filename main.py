@@ -304,7 +304,7 @@ async def get_movies_batch(movie_ids: List[str]):
             }
     
     # 并发处理，但限制并发数量
-    semaphore = asyncio.Semaphore(1)  # 最大安全频率：1个并发请求，完全串行
+    semaphore = asyncio.Semaphore(3)  # 增加并发数量到3，加速查询
     
     async def limited_get_movie(movie_id: str):
         async with semaphore:
@@ -319,6 +319,110 @@ async def get_movies_batch(movie_ids: List[str]):
         "results": results,
         "total_count": len(results)
     }
+
+@app.post("/api/movies/batch-stream")
+async def get_movies_batch_stream(movie_ids: List[str]):
+    """
+    流式批量获取影片信息和最佳磁力链接，逐个返回结果
+    :param movie_ids: 影片ID列表
+    :return: 流式影片信息
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+    
+    async def generate_results():
+        # 并发获取影片信息的函数
+        async def get_movie_with_magnet(movie_id: str):
+            try:
+                # 获取影片详情
+                movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
+                movie_data = await fetch_with_cache(movie_url)
+                
+                if not movie_data or not movie_data.get('gid') or movie_data.get('uc') is None:
+                    return {
+                        "movie_id": movie_id,
+                        "success": False,
+                        "error": "影片不存在或无法获取参数"
+                    }
+                
+                # 获取磁力链接
+                magnet_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
+                magnet_params = {
+                    'gid': movie_data['gid'],
+                    'uc': movie_data['uc'],
+                    'sortBy': 'size',
+                    'sortOrder': 'desc'
+                }
+                magnet_data = await fetch_with_cache(magnet_url, magnet_params)
+                
+                # 检查下载状态
+                is_downloaded = await is_movie_downloaded(movie_id)
+                
+                # 获取最佳磁力链接
+                best_magnet = None
+                if magnet_data and len(magnet_data) > 0:
+                    best_magnet = magnet_data[0]
+                
+                return {
+                    "movie_id": movie_id,
+                    "success": True,
+                    "title": movie_data.get('title', ''),
+                    "date": movie_data.get('date', ''),
+                    "is_downloaded": is_downloaded,
+                    "best_magnet": best_magnet
+                }
+                
+            except Exception as e:
+                logging.error(f"获取影片 {movie_id} 信息失败: {str(e)}")
+                return {
+                    "movie_id": movie_id,
+                    "success": False,
+                    "error": str(e)
+                }
+        
+        # 发送开始信号
+        yield f"data: {json.dumps({'type': 'start', 'total': len(movie_ids)})}\n\n"
+        
+        # 并发处理，但限制并发数量
+        semaphore = asyncio.Semaphore(3)  # 限制并发数量到3
+        
+        async def limited_get_movie(movie_id: str, index: int):
+            async with semaphore:
+                result = await get_movie_with_magnet(movie_id)
+                result['index'] = index + 1
+                result['type'] = 'progress'
+                return result
+        
+        # 批量处理影片，每批处理3个
+        batch_size = 3
+        for i in range(0, len(movie_ids), batch_size):
+            batch_movie_ids = movie_ids[i:i + batch_size]
+            batch_indices = list(range(i, min(i + batch_size, len(movie_ids))))
+            
+            # 并发处理当前批次
+            tasks = [limited_get_movie(movie_id, idx) for movie_id, idx in zip(batch_movie_ids, batch_indices)]
+            batch_results = await asyncio.gather(*tasks)
+            
+            # 按顺序发送结果
+            for result in batch_results:
+                yield f"data: {json.dumps(result)}\n\n"
+            
+            # 添加小延迟以便前端能看到进度更新
+            await asyncio.sleep(0.05)
+        
+        # 发送完成信号
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+    
+    return StreamingResponse(
+        generate_results(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
 
 # API代理路由
 @app.get("/api/{path:path}")

@@ -591,10 +591,12 @@ async function displayMoviesList(data) {
 
     resultContainer.innerHTML = html;
 
-    // 使用批量API获取影片详情和磁力链接
+    // 使用流式批量API获取影片详情和磁力链接
     try {
         const movieIds = data.movies.map(movie => movie.id);
-        const batchData = await simpleFetch('/api/movies/batch', {
+        
+        // 使用fetch进行流式请求
+        const response = await fetch('/api/movies/batch-stream', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -602,65 +604,96 @@ async function displayMoviesList(data) {
             body: JSON.stringify(movieIds)
         });
 
-        if (batchData && batchData.success) {
-            let processedCount = 0;
-            
-            // 逐个更新每个影片的磁力链接信息，以便实时更新进度条
-            for (const result of batchData.results) {
-                const magnetContainer = document.getElementById(`magnet-${result.movie_id}`);
-                if (!magnetContainer) continue;
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-                processedCount++;
-                if (progressManager) {
-                    progressManager.updateProgress(processedCount, movieCount, `正在加载最佳资源... (${processedCount}/${movieCount})`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let processedCount = 0;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            buffer += decoder.decode(value, { stream: true });
+            
+            // 处理完整的数据行
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // 保留不完整的行
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        
+                        if (data.type === 'start') {
+                            console.log(`开始处理 ${data.total} 个影片`);
+                        } else if (data.type === 'progress') {
+                            processedCount++;
+                            
+                            // 更新进度条
+                            if (progressManager) {
+                                progressManager.updateProgress(processedCount, movieCount, `正在加载最佳资源... (${processedCount}/${movieCount})`);
+                            }
+                            
+                            // 更新对应影片的磁力链接信息
+                            const magnetContainer = document.getElementById(`magnet-${data.movie_id}`);
+                            if (magnetContainer) {
+                                if (data.success && data.best_magnet) {
+                                    const downloadedBadge = data.is_downloaded ? '<span class="downloaded-badge">✅ 已下载</span>' : '';
+                                    magnetContainer.innerHTML = `
+                                        <div class="best-magnet ${data.is_downloaded ? 'downloaded' : ''}">
+                                            <span class="best-tag">最佳资源</span>
+                                            ${downloadedBadge}
+                                            <a href="${data.best_magnet.link}" target="_blank">${data.best_magnet.title}</a>
+                                            <p>大小: ${data.best_magnet.size}, 日期: ${data.best_magnet.date}</p>
+                                        </div>
+                                    `;
+                                } else {
+                                    magnetContainer.innerHTML = `<p>${data.error || '暂无可用资源'}</p>`;
+                                }
+                            }
+                        } else if (data.type === 'complete') {
+                            console.log('所有影片处理完成');
+                            
+                            // 完成进度条
+                            if (progressManager) {
+                                progressManager.complete('加载完成');
+                            }
+                            
+                            // 启用复制和下载按钮
+                            const copyButton = document.getElementById('copy-all-links');
+                            const downloadButton = document.getElementById('download-all-links');
+                            
+                            if (copyButton) {
+                                copyButton.disabled = false;
+                                copyButton.textContent = '复制本页全部链接';
+                                copyButton.addEventListener('click', copyAllLinks);
+                            }
+                            
+                            if (downloadButton) {
+                                downloadButton.disabled = !isLoggedIn;
+                                downloadButton.textContent = isLoggedIn ? '📥 下载本页全部影片' : '📥 请先登录';
+                                downloadButton.addEventListener('click', downloadAllMovies);
+                            }
+                            break;
+                        }
+                    } catch (e) {
+                        console.error('解析流式数据失败:', e);
+                    }
                 }
-
-                if (result.success && result.best_magnet) {
-                    const downloadedBadge = result.is_downloaded ? '<span class="downloaded-badge">✅ 已下载</span>' : '';
-                    magnetContainer.innerHTML = `
-                        <div class="best-magnet ${result.is_downloaded ? 'downloaded' : ''}">
-                            <span class="best-tag">最佳资源</span>
-                            ${downloadedBadge}
-                            <a href="${result.best_magnet.link}" target="_blank">${result.best_magnet.title}</a>
-                            <p>大小: ${result.best_magnet.size}, 日期: ${result.best_magnet.date}</p>
-                        </div>
-                    `;
-                } else {
-                    magnetContainer.innerHTML = `<p>${result.error || '暂无可用资源'}</p>`;
-                }
-                
-                // 添加小延迟以便用户能看到进度更新
-                await new Promise(resolve => setTimeout(resolve, 50));
-            }
-
-            // 完成进度条
-            if (progressManager) {
-                progressManager.complete('加载完成');
-            }
-
-            // 启用复制和下载按钮
-            const copyButton = document.getElementById('copy-all-links');
-            const downloadButton = document.getElementById('download-all-links');
-            
-            if (copyButton) {
-                copyButton.disabled = false;
-                copyButton.textContent = '复制本页全部链接';
-                copyButton.addEventListener('click', copyAllLinks);
-            }
-            
-            if (downloadButton) {
-                downloadButton.disabled = !isLoggedIn;
-                downloadButton.textContent = isLoggedIn ? '📥 下载本页全部影片' : '📥 请先登录';
-                downloadButton.addEventListener('click', downloadAllMovies);
             }
         }
     } catch (error) {
-        console.error('批量获取影片信息失败:', error);
+        console.error('流式批量获取影片信息失败:', error);
         // 隐藏进度条
         if (progressManager) {
             progressManager.hide();
         }
-        // 如果批量API失败，回退到原有逻辑
+        // 如果流式API失败，回退到原有逻辑
         data.movies.forEach(movie => {
             const magnetContainer = document.getElementById(`magnet-${movie.id}`);
             if (magnetContainer) {
