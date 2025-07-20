@@ -304,7 +304,7 @@ async def get_movies_batch(movie_ids: List[str]):
             }
     
     # 并发处理，但限制并发数量
-    semaphore = asyncio.Semaphore(3)  # 增加并发数量到3，加速查询
+    semaphore = asyncio.Semaphore(5)  # 增加并发数量到5，进一步加速查询
     
     async def limited_get_movie(movie_id: str):
         async with semaphore:
@@ -384,7 +384,7 @@ async def get_movies_batch_stream(movie_ids: List[str]):
         yield f"data: {json.dumps({'type': 'start', 'total': len(movie_ids)})}\n\n"
         
         # 并发处理，但限制并发数量
-        semaphore = asyncio.Semaphore(3)  # 限制并发数量到3
+        semaphore = asyncio.Semaphore(5)  # 限制并发数量到5
         
         async def limited_get_movie(movie_id: str, index: int):
             async with semaphore:
@@ -393,8 +393,8 @@ async def get_movies_batch_stream(movie_ids: List[str]):
                 result['type'] = 'progress'
                 return result
         
-        # 批量处理影片，每批处理3个
-        batch_size = 3
+        # 批量处理影片，每批处理5个
+        batch_size = 5
         for i in range(0, len(movie_ids), batch_size):
             batch_movie_ids = movie_ids[i:i + batch_size]
             batch_indices = list(range(i, min(i + batch_size, len(movie_ids))))
@@ -407,8 +407,8 @@ async def get_movies_batch_stream(movie_ids: List[str]):
             for result in batch_results:
                 yield f"data: {json.dumps(result)}\n\n"
             
-            # 添加小延迟以便前端能看到进度更新
-            await asyncio.sleep(0.05)
+            # 减少延迟时间以加快响应
+            await asyncio.sleep(0.02)
         
         # 发送完成信号
         yield f"data: {json.dumps({'type': 'complete'})}\n\n"
