@@ -189,6 +189,93 @@ button:disabled {
     box-shadow: none;
 }
 
+/* 进度条样式 */
+.progress-container {
+    margin: 1rem 1.5rem;
+    padding: 1rem;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.progress-text {
+    font-size: 0.875rem;
+    color: #495057;
+    font-weight: 500;
+}
+
+.progress-percentage {
+    font-size: 0.875rem;
+    color: #2383e2;
+    font-weight: 600;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2383e2, #1a73d1);
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.3),
+        transparent
+    );
+    animation: progress-shine 2s infinite;
+}
+
+@keyframes progress-shine {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.progress-details {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+.progress-current {
+    font-weight: 600;
+    color: #2383e2;
+}
+
+.progress-total {
+    font-weight: 500;
+}
+
 /* 中间内容区域 */
 .content-main {
     background: #ffffff;

@@ -9,6 +9,98 @@ let categoriesData = null;
 // 演员数据
 let actorsData = null;
 
+// 进度条管理器
+class ProgressManager {
+    constructor() {
+        this.container = document.getElementById('progress-container');
+        this.textElement = document.getElementById('progress-text');
+        this.percentageElement = document.getElementById('progress-percentage');
+        this.fillElement = document.getElementById('progress-fill');
+        this.currentElement = document.getElementById('progress-current');
+        this.totalElement = document.getElementById('progress-total');
+        this.isVisible = false;
+    }
+
+    show(text = '正在处理请求...', total = 0) {
+        console.log('ProgressManager.show called:', text, total);
+        console.log('Container element:', this.container);
+        
+        if (this.container) {
+            this.container.style.display = 'block';
+            this.isVisible = true;
+            this.updateText(text);
+            this.updateProgress(0, total);
+            console.log('Progress bar shown successfully');
+        } else {
+            console.error('Progress container not found!');
+        }
+    }
+
+    hide() {
+        if (this.container) {
+            this.container.style.display = 'none';
+            this.isVisible = false;
+        }
+    }
+
+    updateText(text) {
+        if (this.textElement) {
+            this.textElement.textContent = text;
+        }
+    }
+
+    updateProgress(current, total = null, text = null) {
+        if (text !== null) {
+            this.updateText(text);
+        }
+        
+        if (total !== null && this.totalElement) {
+            this.totalElement.textContent = total;
+        }
+        
+        if (this.currentElement) {
+            this.currentElement.textContent = current;
+        }
+
+        const totalValue = total || parseInt(this.totalElement?.textContent || '0');
+        const percentage = totalValue > 0 ? Math.round((current / totalValue) * 100) : 0;
+        
+        if (this.percentageElement) {
+            this.percentageElement.textContent = `${percentage}%`;
+        }
+        
+        if (this.fillElement) {
+            this.fillElement.style.width = `${percentage}%`;
+        }
+    }
+
+    setIndeterminate(text = '正在处理...') {
+        this.show(text, 0);
+        if (this.fillElement) {
+            this.fillElement.style.width = '100%';
+            this.fillElement.style.animation = 'progress-shine 1.5s infinite';
+        }
+        if (this.percentageElement) {
+            this.percentageElement.textContent = '';
+        }
+        if (this.currentElement && this.totalElement) {
+            this.currentElement.textContent = '';
+            this.totalElement.textContent = '';
+        }
+    }
+
+    complete(text = '处理完成') {
+        this.updateText(text);
+        this.updateProgress(parseInt(this.totalElement?.textContent || '1'), parseInt(this.totalElement?.textContent || '1'));
+        setTimeout(() => {
+            this.hide();
+        }, 1000);
+    }
+}
+
+// 创建全局进度条管理器实例
+let progressManager;
+
 // 简化的fetch函数（移除复杂的重试逻辑，由后端处理）
 async function simpleFetch(url, options = {}) {
     try {
@@ -268,6 +360,37 @@ function selectOption(code, name, optionType) {
     }
 }
 
+// 处理影片搜索表单提交
+document.getElementById('movie-search').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const keyword = e.target.keyword.value.trim();
+    const resultContainer = document.getElementById('result-container');
+    
+    if (!keyword) {
+        resultContainer.innerHTML = '<p>请输入影片番号</p>';
+        return;
+    }
+    
+    // 显示进度条
+    progressManager.setIndeterminate('正在搜索影片...');
+    resultContainer.innerHTML = '';
+    
+    try {
+        // 调用API搜索影片
+        const data = await simpleFetch(`/api/movies/${encodeURIComponent(keyword)}`);
+        
+        // 完成进度条
+        progressManager.complete('搜索完成');
+        
+        // 显示结果
+        displayResults(data);
+    } catch (error) {
+        console.error('搜索失败:', error);
+        progressManager.hide();
+        resultContainer.innerHTML = '<p>搜索失败，请稍后重试</p>';
+    }
+});
+
 // 处理磁力链接查询表单提交
 document.getElementById('magnet-search').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -275,7 +398,10 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
     const sortBy = e.target.sortBy.value;
     const sortOrder = e.target.sortOrder.value;
     const resultContainer = document.getElementById('result-container');
-    resultContainer.innerHTML = '<p>正在获取影片信息，请稍候...</p>';
+    
+    // 显示进度条
+    progressManager.setIndeterminate('正在获取影片信息...');
+    resultContainer.innerHTML = '';
     
     try {
         // 先获取影片详情
@@ -285,6 +411,9 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
             throw new Error('无法获取影片详情或必要参数');
         }
         
+        // 更新进度条状态
+        progressManager.updateText('正在获取磁力链接...');
+        
         // 构建查询参数
         const queryParams = new URLSearchParams();
         queryParams.append('gid', movieData.gid);
@@ -292,10 +421,11 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
         if (sortBy) queryParams.append('sortBy', sortBy);
         if (sortOrder) queryParams.append('sortOrder', sortOrder);
         
-        resultContainer.innerHTML = '<p>正在获取磁力链接，请稍候...</p>';
-        
         // 调用API获取磁力链接
         const data = await simpleFetch(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);
+        
+        // 完成进度条
+        progressManager.complete('获取完成');
         
         // 显示结果
         if (data && data.length > 0) {
@@ -320,6 +450,7 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
         }
     } catch (error) {
         console.error('获取磁力链接失败:', error);
+        progressManager.hide();
         resultContainer.innerHTML = '<p>获取磁力链接失败，请稍后重试</p>';
     }
 });
@@ -333,7 +464,10 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const magnet = e.target.magnet.value;
     const type = e.target.type.value;
     const resultContainer = document.getElementById('result-container');
-    resultContainer.innerHTML = '<p>正在获取影片列表，请稍候...</p>';
+    
+    // 显示进度条
+    progressManager.setIndeterminate('正在获取影片列表...');
+    resultContainer.innerHTML = '';
     
     try {
         // 构建查询参数
@@ -349,10 +483,14 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         // 调用API获取影片列表
         const data = await simpleFetch(`/api/movies?${queryParams.toString()}`);
         
+        // 不要在这里完成进度条，让displayResults函数处理
+        // progressManager.complete('获取完成');
+        
         // 显示结果
         displayResults(data);
     } catch (error) {
         console.error('筛选失败:', error);
+        progressManager.hide();
         resultContainer.innerHTML = '<p>筛选失败，请稍后重试</p>';
     }
 });
@@ -360,23 +498,27 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
 // 优化的显示查询结果函数
 function displayResults(data) {
     const resultContainer = document.getElementById('result-container');
-    resultContainer.innerHTML = '';
 
     if (!data || (Array.isArray(data.movies) && data.movies.length === 0)) {
+        progressManager.hide();
         resultContainer.innerHTML = '<p>没有找到匹配的结果</p>';
         return;
     }
 
     // 检查是否是影片详情对象
     if (data.id && data.gid !== undefined && data.uc !== undefined) {
+        progressManager.hide();
         displayMovieDetails(data);
         fetchAndDisplayMagnets(data.id, data.gid, data.uc);
     } else if (data.id || data.avatar) {
+        progressManager.hide();
         displayStarDetails(data);
     } else if (data.movies) {
         // 显示影片列表 - 使用批量API优化
+        // 不要在这里隐藏进度条，让displayMoviesList接管
         displayMoviesList(data);
     } else {
+        progressManager.hide();
         resultContainer.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
     }
 }
@@ -384,6 +526,24 @@ function displayResults(data) {
 // 优化的影片列表显示函数
 async function displayMoviesList(data) {
     const resultContainer = document.getElementById('result-container');
+    const movieCount = data.movies.length;
+    
+    // 首先更新进度条文本和状态，从"获取影片列表"转换到"加载最佳资源"
+    console.log('About to show progress bar, progressManager:', progressManager);
+    console.log('Movie count:', movieCount);
+    
+    if (progressManager) {
+        // 直接更新进度条状态，不要重新显示
+        progressManager.updateText('正在加载最佳资源...');
+        progressManager.updateProgress(0, movieCount);
+        // 移除不确定状态的动画
+        if (progressManager.fillElement) {
+            progressManager.fillElement.style.animation = '';
+            progressManager.fillElement.style.width = '0%';
+        }
+    } else {
+        console.error('progressManager is not initialized!');
+    }
     
     let html = '<div class="copy-links-container">' +
         '<button id="copy-all-links" class="copy-btn" disabled>正在加载...</button>' +
@@ -443,10 +603,17 @@ async function displayMoviesList(data) {
         });
 
         if (batchData && batchData.success) {
-            // 更新每个影片的磁力链接信息
-            batchData.results.forEach(result => {
+            let processedCount = 0;
+            
+            // 逐个更新每个影片的磁力链接信息，以便实时更新进度条
+            for (const result of batchData.results) {
                 const magnetContainer = document.getElementById(`magnet-${result.movie_id}`);
-                if (!magnetContainer) return;
+                if (!magnetContainer) continue;
+
+                processedCount++;
+                if (progressManager) {
+                    progressManager.updateProgress(processedCount, movieCount, `正在加载最佳资源... (${processedCount}/${movieCount})`);
+                }
 
                 if (result.success && result.best_magnet) {
                     const downloadedBadge = result.is_downloaded ? '<span class="downloaded-badge">✅ 已下载</span>' : '';
@@ -461,7 +628,15 @@ async function displayMoviesList(data) {
                 } else {
                     magnetContainer.innerHTML = `<p>${result.error || '暂无可用资源'}</p>`;
                 }
-            });
+                
+                // 添加小延迟以便用户能看到进度更新
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+
+            // 完成进度条
+            if (progressManager) {
+                progressManager.complete('加载完成');
+            }
 
             // 启用复制和下载按钮
             const copyButton = document.getElementById('copy-all-links');
@@ -481,6 +656,10 @@ async function displayMoviesList(data) {
         }
     } catch (error) {
         console.error('批量获取影片信息失败:', error);
+        // 隐藏进度条
+        if (progressManager) {
+            progressManager.hide();
+        }
         // 如果批量API失败，回退到原有逻辑
         data.movies.forEach(movie => {
             const magnetContainer = document.getElementById(`magnet-${movie.id}`);
@@ -570,6 +749,9 @@ async function downloadAllMovies() {
     downloadButton.disabled = true;
     downloadButton.textContent = '下载中...';
     
+    // 显示下载进度条
+    progressManager.setIndeterminate('正在提交下载任务...');
+    
     try {
         const response = await fetch('/api/pikpak/download', {
             method: 'POST',
@@ -587,14 +769,17 @@ async function downloadAllMovies() {
         const result = await response.json();
         
         if (result.success) {
+            progressManager.complete('下载任务提交成功');
             downloadButton.textContent = '下载成功！';
             alert(result.message + '\n\n下载记录已保存，下次将自动跳过已下载的影片。');
         } else {
+            progressManager.hide();
             downloadButton.textContent = '下载失败';
             alert('下载失败: ' + (result.message || '未知错误'));
         }
     } catch (error) {
         console.error('下载失败:', error);
+        progressManager.hide();
         downloadButton.textContent = '下载失败';
         alert('下载失败: ' + error.message);
     }
@@ -627,12 +812,20 @@ function addPaginationListeners(data) {
             if (magnet) queryParams.append('magnet', magnet);
             if (type) queryParams.append('type', type);
 
+            // 显示分页加载进度条
+            progressManager.setIndeterminate(`正在加载第 ${page} 页...`);
+
             try {
                 const response = await fetch(`/api/movies?${queryParams.toString()}`);
                 const data = await response.json();
+                
+                // 完成进度条
+                progressManager.complete('页面加载完成');
+                
                 displayResults(data);
             } catch (error) {
                 console.error('加载页面失败:', error);
+                progressManager.hide();
                 const resultContainer = document.getElementById('result-container');
                 resultContainer.innerHTML = '<p>加载页面失败，请稍后重试</p>';
             }
@@ -806,6 +999,15 @@ function handleLogout() {
 
 // 页面加载完成后的初始化
 document.addEventListener('DOMContentLoaded', () => {
+    // 初始化进度条管理器
+    console.log('Initializing ProgressManager...');
+    progressManager = new ProgressManager();
+    console.log('ProgressManager initialized:', progressManager);
+    
+    // 验证进度条元素是否存在
+    const progressContainer = document.getElementById('progress-container');
+    console.log('Progress container found:', progressContainer);
+    
     restorePikPakLogin();
     
     const logoutBtn = document.getElementById('logout-btn');

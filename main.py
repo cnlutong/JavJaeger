@@ -106,8 +106,8 @@ async def fetch_with_cache(url: str, params: dict = None):
     
     # 缓存未命中，发起请求
     try:
-        # 添加请求间隔，避免API限制
-        await asyncio.sleep(0.2)  # 200ms间隔
+        # 最大安全频率：1秒间隔，避免API限制
+        await asyncio.sleep(1.0)  # 1000ms间隔
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, params=params)
@@ -304,7 +304,7 @@ async def get_movies_batch(movie_ids: List[str]):
             }
     
     # 并发处理，但限制并发数量
-    semaphore = asyncio.Semaphore(2)  # 最多2个并发请求，避免API限制
+    semaphore = asyncio.Semaphore(1)  # 最大安全频率：1个并发请求，完全串行
     
     async def limited_get_movie(movie_id: str):
         async with semaphore:

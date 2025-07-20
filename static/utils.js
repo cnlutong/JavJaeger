@@ -1,13 +1,13 @@
 // 请求队列管理器
 class RequestQueue {
-    constructor(maxConcurrent = 1, retryDelay = 2000) {
+    constructor(maxConcurrent = 1, retryDelay = 3000) {
         this.queue = [];
         this.running = 0;
         this.maxConcurrent = maxConcurrent;
         this.baseRetryDelay = retryDelay;
         this.maxRetries = 3;
         this.lastRequestTime = 0;
-        this.minInterval = 500; // 最小请求间隔500ms
+        this.minInterval = 1000; // 最大安全频率：1秒间隔
     }
 
     async add(requestFn) {
@@ -52,7 +52,7 @@ class RequestQueue {
         }
 
         this.running--;
-        // 添加延迟后处理下一个请求
+        // 最大安全频率：1秒间隔后处理下一个请求
         setTimeout(() => this.processQueue(), this.minInterval);
     }
 }

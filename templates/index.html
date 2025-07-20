@@ -88,6 +88,22 @@
                 <div class="content-header">
                     <h2>📊 查询结果</h2>
                 </div>
+                
+                <!-- 进度条容器 -->
+                <div class="progress-container" id="progress-container" style="display: none;">
+                    <div class="progress-info">
+                        <span class="progress-text" id="progress-text">正在处理请求...</span>
+                        <span class="progress-percentage" id="progress-percentage">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-details" id="progress-details">
+                        <span class="progress-current" id="progress-current">0</span> / 
+                        <span class="progress-total" id="progress-total">0</span> 项
+                    </div>
+                </div>
+                
                 <div class="result-box" id="result-container">
                     <div class="empty-state">
                         <div class="empty-icon">🔍</div>
