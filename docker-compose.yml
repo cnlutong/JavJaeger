@@ -1,74 +1,16 @@
 services:
   javjaeger:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    container_name: javjaeger-app
+    build: .
     ports:
-      - "8000:8000"
+      - "18000:8000"
     volumes:
       - ./config.json:/app/config.json:ro
       - ./static:/app/static:ro
       - ./templates:/app/templates:ro
       - downloaded_data:/app/data
     environment:
-      - PYTHONPATH=/app
-      - PYTHONUNBUFFERED=1
       - JAVBUS_API_BASE_URL=http://10.0.1.10:3000
-      # 内存缓存配置
-      - CACHE_EXPIRE_TIME=3600
-      - MAX_CONCURRENT_REQUESTS=5
     restart: unless-stopped
-    networks:
-      - javjaeger-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    # 资源限制 - 轻量化配置
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '1.0'
-        reservations:
-          memory: 256M
-          cpus: '0.5'
-
-  nginx:
-    image: nginx:alpine
-    container_name: javjaeger-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      javjaeger:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - javjaeger-network
-    # 资源限制
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.5'
-        reservations:
-          memory: 64M
-          cpus: '0.25'
 
 volumes:
   downloaded_data:
-    driver: local
-
-networks:
-  javjaeger-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16

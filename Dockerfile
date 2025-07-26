@@ -4,11 +4,11 @@ FROM python:3.13-slim as builder
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖
+# 安装系统依赖（只保留必要的）
 RUN apt-get update && apt-get install -y \
     gcc \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 复制requirements.txt并安装Python依赖到全局位置
 COPY requirements.txt .
