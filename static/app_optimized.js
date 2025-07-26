@@ -1065,4 +1065,65 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    
+    // 添加PikPak登录表单事件监听器
+    const pikpakLoginForm = document.getElementById('pikpak-login');
+    if (pikpakLoginForm) {
+        pikpakLoginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = e.target.username.value;
+            const password = e.target.password.value;
+            const loginBtn = document.getElementById('login-btn');
+            const loginStatus = document.getElementById('login-status');
+            
+            loginBtn.disabled = true;
+            loginBtn.textContent = '登录中...';
+            loginStatus.textContent = '';
+            
+            try {
+                const response = await fetch('/api/pikpak/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    pikpakCredentials = { username, password };
+                    isLoggedIn = true;
+                    
+                    // 保存登录状态到localStorage
+                    savePikPakLogin(pikpakCredentials);
+                    
+                    const logoutBtn = document.getElementById('logout-btn');
+                    
+                    loginStatus.textContent = '登录成功！';
+                    loginStatus.style.color = '#4CAF50';
+                    loginBtn.textContent = '已登录';
+                    loginBtn.disabled = true;
+                    
+                    if (logoutBtn) {
+                        logoutBtn.style.display = 'inline-block';
+                    }
+                } else {
+                    loginStatus.textContent = '登录失败: ' + (result.message || '未知错误');
+                    loginStatus.style.color = '#f44336';
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = '登录';
+                }
+            } catch (error) {
+                console.error('登录失败:', error);
+                loginStatus.textContent = '登录失败: ' + error.message;
+                loginStatus.style.color = '#f44336';
+                loginBtn.disabled = false;
+                loginBtn.textContent = '登录';
+            }
+        });
+    }
 });
