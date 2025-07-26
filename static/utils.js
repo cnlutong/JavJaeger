@@ -58,7 +58,7 @@ class RequestQueue {
 }
 
 // 创建请求队列实例
-const requestQueue = new RequestQueue(5);
+const requestQueue = new RequestQueue(3);
 
 // 带重试和队列管理的fetch函数
 export async function fetchWithRetry(url, options = {}) {

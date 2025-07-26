@@ -247,7 +247,7 @@ async def get_movies(request: Request):
                 return None
         
         # 限制并发数量以避免过多请求
-        semaphore = asyncio.Semaphore(5)
+        semaphore = asyncio.Semaphore(3)
         
         async def limited_check(movie):
             async with semaphore:
@@ -367,7 +367,7 @@ async def get_movies_batch(movie_ids: List[str]):
             }
     
     # 并发处理，但限制并发数量
-    semaphore = asyncio.Semaphore(5)  # 增加并发数量到5，进一步加速查询
+    semaphore = asyncio.Semaphore(3)  # 增加并发数量到3，进一步加速查询
     
     async def limited_get_movie(movie_id: str):
         async with semaphore:
@@ -447,7 +447,7 @@ async def get_movies_batch_stream(movie_ids: List[str]):
         yield f"data: {json.dumps({'type': 'start', 'total': len(movie_ids)})}\n\n"
         
         # 并发处理，但限制并发数量
-        semaphore = asyncio.Semaphore(5)  # 限制并发数量到5
+        semaphore = asyncio.Semaphore(3)  # 限制并发数量到3
         
         async def limited_get_movie(movie_id: str, index: int):
             async with semaphore:
