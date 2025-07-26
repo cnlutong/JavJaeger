@@ -56,6 +56,19 @@
                                 <option value="normal">有码影片</option>
                                 <option value="uncensored">无码影片</option>
                             </select>
+                            <div class="actor-count-filter">
+                                <label for="actorCountFilter">演员人数筛选:</label>
+                                <select name="actorCountFilter">
+                                    <option value="">不限制</option>
+                                    <option value="1">单人作品 (=1)</option>
+                                    <option value="2">双人作品 (=2)</option>
+                                    <option value="3">三人作品 (=3)</option>
+                                    <option value="<=2">少于等于2人</option>
+                                    <option value="<=3">少于等于3人</option>
+                                    <option value=">=3">大于等于3人</option>
+                                    <option value=">=4">大于等于4人</option>
+                                </select>
+                            </div>
                             <button type="submit">筛选</button>
                         </form>
                     </div>

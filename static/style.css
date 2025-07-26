@@ -134,6 +134,30 @@ form {
     padding: 1.25rem;
 }
 
+/* 演员人数筛选样式 */
+.actor-count-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+}
+
+.actor-count-filter label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #495057;
+    margin: 0;
+}
+
+.actor-count-filter select {
+    margin: 0;
+    font-size: 0.8rem;
+}
+
 /* 输入框和选择框样式 */
 input, select {
     width: 100%;

@@ -196,13 +196,76 @@ async def get_movies(request: Request):
     # 构建目标API URL
     api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
     
-    # 转发所有查询参数
+    # 提取演员人数筛选参数
+    actor_count_filter = request.query_params.get('actorCountFilter')
+    
+    # 转发除演员人数筛选外的所有查询参数
     query_params = dict(request.query_params)
+    if 'actorCountFilter' in query_params:
+        del query_params['actorCountFilter']
     
     # 使用缓存获取数据
     data = await fetch_with_cache(api_url, query_params)
     if data is None:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
+    
+    # 如果有演员人数筛选条件，需要获取每个影片的详细信息进行筛选
+    if actor_count_filter and data.get('movies'):
+        filtered_movies = []
+        
+        # 并发获取影片详情以检查演员数量
+        async def check_actor_count(movie):
+            try:
+                movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie['id']}"
+                movie_detail = await fetch_with_cache(movie_url)
+                
+                if not movie_detail or 'stars' not in movie_detail:
+                    return None
+                
+                actor_count = len(movie_detail['stars'])
+                
+                # 根据筛选条件判断是否符合要求
+                if actor_count_filter == '1' and actor_count == 1:
+                    return movie
+                elif actor_count_filter == '2' and actor_count == 2:
+                    return movie
+                elif actor_count_filter == '3' and actor_count == 3:
+                    return movie
+                elif actor_count_filter == '<=2' and actor_count <= 2:
+                    return movie
+                elif actor_count_filter == '<=3' and actor_count <= 3:
+                    return movie
+                elif actor_count_filter == '>=3' and actor_count >= 3:
+                    return movie
+                elif actor_count_filter == '>=4' and actor_count >= 4:
+                    return movie
+                
+                return None
+                
+            except Exception as e:
+                logging.error(f"检查影片 {movie['id']} 演员数量失败: {str(e)}")
+                return None
+        
+        # 限制并发数量以避免过多请求
+        semaphore = asyncio.Semaphore(5)
+        
+        async def limited_check(movie):
+            async with semaphore:
+                return await check_actor_count(movie)
+        
+        # 并发检查所有影片
+        tasks = [limited_check(movie) for movie in data['movies']]
+        results = await asyncio.gather(*tasks)
+        
+        # 过滤掉None结果
+        filtered_movies = [movie for movie in results if movie is not None]
+        
+        # 更新返回数据
+        data['movies'] = filtered_movies
+        
+        # 更新分页信息（如果存在）
+        if 'pagination' in data:
+            data['pagination']['total'] = len(filtered_movies)
     
     return data
 

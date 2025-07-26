@@ -463,6 +463,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const filterCode = e.target.filterCode.value;
     const magnet = e.target.magnet.value;
     const type = e.target.type.value;
+    const actorCountFilter = e.target.actorCountFilter.value;
     const resultContainer = document.getElementById('result-container');
     
     // 显示进度条
@@ -479,6 +480,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         }
         if (magnet) queryParams.append('magnet', magnet);
         if (type) queryParams.append('type', type);
+        if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
         
         // 调用API获取影片列表
         const data = await simpleFetch(`/api/movies?${queryParams.toString()}`);
