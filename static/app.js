@@ -901,6 +901,7 @@ function displayResults(data) {
                 const filterCode = form.filterCode.value;
                 const magnet = form.magnet.value;
                 const type = form.type.value;
+                const actorCountFilter = form.actorCountFilter.value;
 
                 const queryParams = new URLSearchParams();
                 queryParams.append('page', page);
@@ -912,6 +913,7 @@ function displayResults(data) {
                 }
                 if (magnet) queryParams.append('magnet', magnet);
                 if (type) queryParams.append('type', type);
+                if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
 
                 try {
                     const response = await fetch(`/api/movies?${queryParams.toString()}`);
