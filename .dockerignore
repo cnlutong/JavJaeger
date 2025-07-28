@@ -36,8 +36,8 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Git
-.git/
+# Git（注释掉.git/以允许获取版本信息）
+# .git/
 .gitignore
 
 # Docker相关

@@ -42,8 +42,8 @@ def get_version_info():
             ).decode('utf-8').strip()
             if git_tag:
                 version_info['version'] = git_tag if git_tag.startswith('v') else f'v{git_tag}'
-        except subprocess.CalledProcessError:
-            # 如果没有标签，使用提交哈希的前7位
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # 如果没有标签或Git不可用，使用提交哈希的前7位
             try:
                 git_hash = subprocess.check_output(
                     ['git', 'rev-parse', '--short=7', 'HEAD'],
@@ -52,8 +52,8 @@ def get_version_info():
                 ).decode('utf-8').strip()
                 if git_hash:
                     version_info['version'] = f'v1.0.0-{git_hash}'
-            except subprocess.CalledProcessError:
-                pass
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logging.warning("Git不可用，使用默认版本信息")
         
         # 获取最后一次提交的日期作为构建日期
         try:
@@ -64,8 +64,8 @@ def get_version_info():
             ).decode('utf-8').strip()
             if git_date:
                 version_info['build_date'] = git_date
-        except subprocess.CalledProcessError:
-            pass
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logging.warning("无法获取Git提交日期，使用当前日期")
             
     except Exception as e:
         logging.warning(f"获取Git版本信息失败: {str(e)}")

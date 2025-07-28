@@ -4,9 +4,10 @@ FROM python:3.13-slim as builder
 # 设置工作目录
 WORKDIR /app
 
-# 安装系统依赖（只保留必要的）
+# 安装系统依赖（包括Git用于获取版本信息）
 RUN apt-get update && apt-get install -y \
     gcc \
+    git \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -20,6 +21,12 @@ FROM python:3.13-slim
 
 # 设置工作目录
 WORKDIR /app
+
+# 在运行阶段也安装Git（轻量级）
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # 设置环境变量 - 优化性能
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -40,7 +47,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 RUN mkdir -p /app/data /app/static/avatars /app/templates && \
     chown -R appuser:appuser /app
 
-# 复制应用代码
+# 复制应用代码（包括.git目录以获取版本信息）
 COPY --chown=appuser:appuser . /app/
 
 # 设置执行权限
