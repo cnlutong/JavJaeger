@@ -358,6 +358,143 @@ async def get_movies(request: Request):
     
     return data
 
+@app.get("/api/movies/all")
+async def get_all_movies(request: Request):
+    """
+    获取所有页面的影片列表，支持筛选
+    :param request: 请求对象
+    :return: 所有页面的影片列表数据
+    """
+    # 提取演员人数筛选参数
+    actor_count_filter = request.query_params.get('actorCountFilter')
+    
+    # 转发除演员人数筛选、字幕筛选和页码外的所有查询参数
+    query_params = dict(request.query_params)
+    if 'actorCountFilter' in query_params:
+        del query_params['actorCountFilter']
+    if 'hasSubtitle' in query_params:
+        del query_params['hasSubtitle']
+    if 'page' in query_params:
+        del query_params['page']
+    
+    all_movies = []
+    current_page = 1
+    total_pages = None
+    
+    try:
+        while True:
+            # 构建当前页的API URL
+            api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
+            page_params = query_params.copy()
+            page_params['page'] = str(current_page)
+            
+            # 获取当前页数据
+            data = await fetch_with_cache(api_url, page_params)
+            if data is None or not data.get('movies'):
+                break
+            
+            # 添加当前页的影片到总列表
+            all_movies.extend(data['movies'])
+            
+            # 获取总页数信息
+            if total_pages is None and data.get('pagination'):
+                total_pages = data['pagination'].get('totalPages')
+                if total_pages is None:
+                    # 如果没有总页数信息，尝试从页面列表获取
+                    pages = data['pagination'].get('pages', [])
+                    if pages:
+                        total_pages = max(pages)
+            
+            # 检查是否还有下一页
+            if total_pages and current_page >= total_pages:
+                break
+            elif not total_pages and len(data['movies']) < 30:  # 假设每页30个影片
+                break
+            
+            current_page += 1
+            
+            # 安全限制：最多获取100页，避免无限循环
+            if current_page > 100:
+                logging.warning("达到最大页数限制(100页)，停止获取")
+                break
+        
+        # 如果有演员人数筛选条件，需要获取每个影片的详细信息进行筛选
+        if actor_count_filter and all_movies:
+            filtered_movies = []
+            
+            # 并发获取影片详情以检查演员数量
+            async def check_movie_filters(movie):
+                try:
+                    movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie['id']}"
+                    movie_detail = await fetch_with_cache(movie_url)
+                    
+                    if not movie_detail:
+                        return None
+                    
+                    # 检查演员人数筛选条件
+                    if actor_count_filter:
+                        if 'stars' not in movie_detail:
+                            return None
+                        
+                        actor_count = len(movie_detail['stars'])
+                        
+                        if actor_count_filter == '1' and actor_count != 1:
+                            return None
+                        elif actor_count_filter == '2' and actor_count != 2:
+                            return None
+                        elif actor_count_filter == '3' and actor_count != 3:
+                            return None
+                        elif actor_count_filter == '<=2' and actor_count > 2:
+                            return None
+                        elif actor_count_filter == '<=3' and actor_count > 3:
+                            return None
+                        elif actor_count_filter == '>=3' and actor_count < 3:
+                            return None
+                        elif actor_count_filter == '>=4' and actor_count < 4:
+                            return None
+                    
+                    return movie
+                    
+                except Exception as e:
+                    logging.error(f"检查影片 {movie['id']} 筛选条件失败: {str(e)}")
+                    return None
+            
+            # 限制并发数量以避免过多请求
+            semaphore = asyncio.Semaphore(5)
+            
+            async def limited_check(movie):
+                async with semaphore:
+                    return await check_movie_filters(movie)
+            
+            # 分批处理以避免内存问题
+            batch_size = 50
+            for i in range(0, len(all_movies), batch_size):
+                batch = all_movies[i:i + batch_size]
+                tasks = [limited_check(movie) for movie in batch]
+                results = await asyncio.gather(*tasks)
+                
+                # 过滤掉None结果
+                batch_filtered = [movie for movie in results if movie is not None]
+                filtered_movies.extend(batch_filtered)
+            
+            all_movies = filtered_movies
+        
+        return {
+            "movies": all_movies,
+            "total_count": len(all_movies),
+            "total_pages": current_page - 1,
+            "is_all_pages": True,
+            "pagination": {
+                "currentPage": "all",
+                "totalPages": current_page - 1,
+                "total": len(all_movies)
+            }
+        }
+        
+    except Exception as e:
+        logging.error(f"获取所有页面影片失败: {str(e)}")
+        return {"error": "获取所有页面影片失败", "message": str(e)}
+
 @app.get("/api/movies/{movieId}")
 async def get_movie(movieId: str, request: Request):
     """

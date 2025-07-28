@@ -464,11 +464,15 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const magnet = e.target.magnet.value;
     const type = e.target.type.value;
     const actorCountFilter = e.target.actorCountFilter.value;
-    const hasSubtitle = e.target.hasSubtitle.value;
+    const fetchMode = e.target.fetchMode.value; // 获取方式：page 或 all
     const resultContainer = document.getElementById('result-container');
     
-    // 显示进度条
-    progressManager.setIndeterminate('正在获取影片列表...');
+    // 根据获取方式显示不同的进度信息
+    if (fetchMode === 'all') {
+        progressManager.setIndeterminate('正在获取所有页面的影片列表...');
+    } else {
+        progressManager.setIndeterminate('正在获取影片列表...');
+    }
     resultContainer.innerHTML = '';
     
     try {
@@ -485,14 +489,32 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         // 移除 hasSubtitle 参数，因为字幕筛选在磁力链接级别进行
         // if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
         
+        // 根据获取方式选择不同的API端点
+        let apiUrl;
+        if (fetchMode === 'all') {
+            apiUrl = `/api/movies/all?${queryParams.toString()}`;
+        } else {
+            apiUrl = `/api/movies?${queryParams.toString()}`;
+        }
+        
         // 调用API获取影片列表
-        const data = await simpleFetch(`/api/movies?${queryParams.toString()}`);
+        const data = await simpleFetch(apiUrl);
         
-        // 不要在这里完成进度条，让displayResults函数处理
-        // progressManager.complete('获取完成');
-        
-        // 显示结果
-        displayResults(data);
+        // 检查是否需要自动切换到获取全部
+        if (fetchMode === 'page' && (!data || !data.movies || data.movies.length === 0)) {
+            console.log('第一页没有找到结果，自动切换到获取全部模式');
+            progressManager.setIndeterminate('第一页没有找到结果，正在获取所有页面的影片列表...');
+            
+            // 自动切换到获取全部模式
+            const allApiUrl = `/api/movies/all?${queryParams.toString()}`;
+            const allData = await simpleFetch(allApiUrl);
+            
+            // 显示获取全部的结果
+            displayResults(allData);
+        } else {
+            // 显示正常结果
+            displayResults(data);
+        }
     } catch (error) {
         console.error('筛选失败:', error);
         progressManager.hide();
@@ -847,7 +869,7 @@ function addPaginationListeners(data) {
             const magnet = form.magnet.value;
             const type = form.type.value;
             const actorCountFilter = form.actorCountFilter.value;
-            const hasSubtitle = form.hasSubtitle.value;
+            const fetchMode = form.fetchMode.value;
 
             const queryParams = new URLSearchParams();
             queryParams.append('page', page);
@@ -866,6 +888,7 @@ function addPaginationListeners(data) {
             progressManager.setIndeterminate(`正在加载第 ${page} 页...`);
 
             try {
+                // 分页按钮只在逐页模式下使用，所以这里固定使用 /api/movies
                 const response = await fetch(`/api/movies?${queryParams.toString()}`);
                 const data = await response.json();
                 
