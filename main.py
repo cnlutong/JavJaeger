@@ -105,6 +105,15 @@ JAVBUS_API_BASE_URL = os.getenv('JAVBUS_API_BASE_URL', config['javbus_api']['bas
 # 初始化FastAPI应用
 app = FastAPI(title="JavJaeger", description="基于JavBus的高效影片系统")
 
+# 应用启动事件
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时的初始化操作"""
+    logging.info("JavJaeger 应用启动中...")
+    # 初始化下载记录文件
+    await load_downloaded_movies()
+    logging.info("JavJaeger 应用启动完成")
+
 # PikPak客户端实例
 pikpak_client = None
 
@@ -198,6 +207,14 @@ async def load_downloaded_movies():
             with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 downloaded_movies_cache = set(record['movie_id'] for record in data)
+                logging.info(f"已加载 {len(downloaded_movies_cache)} 条下载记录")
+        else:
+            # 如果文件不存在，创建一个空的JSON文件
+            empty_data = []
+            with open(DOWNLOADED_MOVIES_FILE, 'w', encoding='utf-8') as f:
+                json.dump(empty_data, f, ensure_ascii=False, indent=2)
+            logging.info(f"已创建空的下载记录文件: {DOWNLOADED_MOVIES_FILE}")
+            
         downloaded_movies_loaded = True
         return list(downloaded_movies_cache)
     except Exception as e:
