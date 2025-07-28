@@ -464,6 +464,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const magnet = e.target.magnet.value;
     const type = e.target.type.value;
     const actorCountFilter = e.target.actorCountFilter.value;
+    const hasSubtitle = e.target.hasSubtitle.value;
     const resultContainer = document.getElementById('result-container');
     
     // 显示进度条
@@ -481,6 +482,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         if (magnet) queryParams.append('magnet', magnet);
         if (type) queryParams.append('type', type);
         if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
+        if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
         
         // 调用API获取影片列表
         const data = await simpleFetch(`/api/movies?${queryParams.toString()}`);
@@ -837,6 +839,7 @@ function addPaginationListeners(data) {
             const magnet = form.magnet.value;
             const type = form.type.value;
             const actorCountFilter = form.actorCountFilter.value;
+            const hasSubtitle = form.hasSubtitle.value;
 
             const queryParams = new URLSearchParams();
             queryParams.append('page', page);
@@ -848,6 +851,7 @@ function addPaginationListeners(data) {
             if (magnet) queryParams.append('magnet', magnet);
             if (type) queryParams.append('type', type);
             if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
+            if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
 
             // 显示分页加载进度条
             progressManager.setIndeterminate(`正在加载第 ${page} 页...`);

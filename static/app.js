@@ -562,6 +562,8 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const filterCode = e.target.filterCode.value;
     const magnet = e.target.magnet.value;
     const type = e.target.type.value;
+    const actorCountFilter = e.target.actorCountFilter.value;
+    const hasSubtitle = e.target.hasSubtitle.value;
     const resultContainer = document.getElementById('result-container');
     resultContainer.innerHTML = '<p>正在获取影片列表，请稍候...</p>';
     
@@ -576,6 +578,8 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         }
         if (magnet) queryParams.append('magnet', magnet);
         if (type) queryParams.append('type', type);
+        if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
+        if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
         
         // 调用API获取影片列表
         const data = await fetchWithRetry(`/api/movies?${queryParams.toString()}`);
@@ -902,6 +906,7 @@ function displayResults(data) {
                 const magnet = form.magnet.value;
                 const type = form.type.value;
                 const actorCountFilter = form.actorCountFilter.value;
+                const hasSubtitle = form.hasSubtitle.value;
 
                 const queryParams = new URLSearchParams();
                 queryParams.append('page', page);
@@ -914,6 +919,7 @@ function displayResults(data) {
                 if (magnet) queryParams.append('magnet', magnet);
                 if (type) queryParams.append('type', type);
                 if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
+                if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
 
                 try {
                     const response = await fetch(`/api/movies?${queryParams.toString()}`);

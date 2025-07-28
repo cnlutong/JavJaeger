@@ -196,54 +196,76 @@ async def get_movies(request: Request):
     # 构建目标API URL
     api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
     
-    # 提取演员人数筛选参数
+    # 提取演员人数筛选参数和字幕筛选参数
     actor_count_filter = request.query_params.get('actorCountFilter')
+    has_subtitle_filter = request.query_params.get('hasSubtitle')
     
-    # 转发除演员人数筛选外的所有查询参数
+    # 转发除演员人数筛选和字幕筛选外的所有查询参数
     query_params = dict(request.query_params)
     if 'actorCountFilter' in query_params:
         del query_params['actorCountFilter']
+    if 'hasSubtitle' in query_params:
+        del query_params['hasSubtitle']
     
     # 使用缓存获取数据
     data = await fetch_with_cache(api_url, query_params)
     if data is None:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
     
-    # 如果有演员人数筛选条件，需要获取每个影片的详细信息进行筛选
-    if actor_count_filter and data.get('movies'):
+    # 如果有演员人数筛选条件或字幕筛选条件，需要获取每个影片的详细信息进行筛选
+    if (actor_count_filter or has_subtitle_filter) and data.get('movies'):
         filtered_movies = []
         
-        # 并发获取影片详情以检查演员数量
-        async def check_actor_count(movie):
+        # 并发获取影片详情以检查演员数量和字幕信息
+        async def check_movie_filters(movie):
             try:
                 movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie['id']}"
                 movie_detail = await fetch_with_cache(movie_url)
                 
-                if not movie_detail or 'stars' not in movie_detail:
+                if not movie_detail:
                     return None
                 
-                actor_count = len(movie_detail['stars'])
+                # 检查演员人数筛选条件
+                actor_count_match = True
+                if actor_count_filter:
+                    if 'stars' not in movie_detail:
+                        return None
+                    
+                    actor_count = len(movie_detail['stars'])
+                    
+                    if actor_count_filter == '1' and actor_count != 1:
+                        actor_count_match = False
+                    elif actor_count_filter == '2' and actor_count != 2:
+                        actor_count_match = False
+                    elif actor_count_filter == '3' and actor_count != 3:
+                        actor_count_match = False
+                    elif actor_count_filter == '<=2' and actor_count > 2:
+                        actor_count_match = False
+                    elif actor_count_filter == '<=3' and actor_count > 3:
+                        actor_count_match = False
+                    elif actor_count_filter == '>=3' and actor_count < 3:
+                        actor_count_match = False
+                    elif actor_count_filter == '>=4' and actor_count < 4:
+                        actor_count_match = False
                 
-                # 根据筛选条件判断是否符合要求
-                if actor_count_filter == '1' and actor_count == 1:
-                    return movie
-                elif actor_count_filter == '2' and actor_count == 2:
-                    return movie
-                elif actor_count_filter == '3' and actor_count == 3:
-                    return movie
-                elif actor_count_filter == '<=2' and actor_count <= 2:
-                    return movie
-                elif actor_count_filter == '<=3' and actor_count <= 3:
-                    return movie
-                elif actor_count_filter == '>=3' and actor_count >= 3:
-                    return movie
-                elif actor_count_filter == '>=4' and actor_count >= 4:
+                # 检查字幕筛选条件
+                subtitle_match = True
+                if has_subtitle_filter:
+                    has_subtitle = movie_detail.get('hasSubtitle', False)
+                    
+                    if has_subtitle_filter == 'true' and not has_subtitle:
+                        subtitle_match = False
+                    elif has_subtitle_filter == 'false' and has_subtitle:
+                        subtitle_match = False
+                
+                # 只有当所有筛选条件都满足时才返回影片
+                if actor_count_match and subtitle_match:
                     return movie
                 
                 return None
                 
             except Exception as e:
-                logging.error(f"检查影片 {movie['id']} 演员数量失败: {str(e)}")
+                logging.error(f"检查影片 {movie['id']} 筛选条件失败: {str(e)}")
                 return None
         
         # 限制并发数量以避免过多请求
@@ -251,7 +273,7 @@ async def get_movies(request: Request):
         
         async def limited_check(movie):
             async with semaphore:
-                return await check_actor_count(movie)
+                return await check_movie_filters(movie)
         
         # 并发检查所有影片
         tasks = [limited_check(movie) for movie in data['movies']]
@@ -367,7 +389,7 @@ async def get_movies_batch(movie_ids: List[str]):
             }
     
     # 并发处理，但限制并发数量
-    semaphore = asyncio.Semaphore(3)  # 增加并发数量到3，进一步加速查询
+    semaphore = asyncio.Semaphore(3)  
     
     async def limited_get_movie(movie_id: str):
         async with semaphore:
