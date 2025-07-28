@@ -174,18 +174,25 @@ async def fetch_with_cache(url: str, params: dict = None):
         # 最大安全频率：1秒间隔，避免API限制
         await asyncio.sleep(1.0)  # 1000ms间隔
         
+        # 构建完整的请求URL用于日志记录
+        full_url = url
+        if params:
+            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+            full_url = f"{url}?{query_string}"
+        
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, params=params)
-            logging.info(f"API请求: {url}, 状态: {response.status_code}")
+            logging.info(f"API请求: {full_url} 状态: {response.status_code}")
             
             if response.status_code == 200:
                 data = response.json()
                 set_cache(cache_key, data)
                 return data
             else:
+                logging.warning(f"API请求失败: {full_url} 状态: {response.status_code} 响应: {response.text[:200]}")
                 return None
     except Exception as e:
-        logging.error(f"API请求失败: {url}, 错误: {str(e)}")
+        logging.error(f"API请求异常: {url} 错误: {str(e)}")
         return None
 
 # 下载记录管理（使用内存存储以保持轻量化）
@@ -267,6 +274,32 @@ async def home(request: Request):
         "request": request,
         "version_info": VERSION_INFO
     })
+
+@app.get("/api/system/info")
+async def get_system_info():
+    """
+    获取系统信息，用于诊断环境差异
+    :return: 系统信息
+    """
+    import platform
+    import sys
+    
+    system_info = {
+        "version": VERSION_INFO,
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "architecture": platform.architecture(),
+        "hostname": platform.node(),
+        "javbus_api_base_url": JAVBUS_API_BASE_URL,
+        "cache_size": len(memory_cache),
+        "downloaded_movies_count": len(downloaded_movies_cache),
+        "config": config,
+        "environment_variables": {
+            "JAVBUS_API_BASE_URL": os.getenv('JAVBUS_API_BASE_URL'),
+        }
+    }
+    
+    return system_info
 
 @app.get("/api/movies")
 async def get_movies(request: Request):
