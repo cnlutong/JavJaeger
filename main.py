@@ -126,7 +126,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # 下载记录文件路径
-DOWNLOADED_MOVIES_FILE = "static/downloaded_movies.json"
+DOWNLOADED_MOVIES_FILE = "data/downloaded_movies.json"
 
 # 缓存管理函数
 def get_cache_key(url: str, params: dict = None) -> str:
@@ -191,6 +191,9 @@ async def load_downloaded_movies():
         return list(downloaded_movies_cache)
     
     try:
+        # 确保data目录存在
+        os.makedirs(os.path.dirname(DOWNLOADED_MOVIES_FILE), exist_ok=True)
+        
         if os.path.exists(DOWNLOADED_MOVIES_FILE):
             with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -206,6 +209,9 @@ async def save_downloaded_movies(movie_ids: List[str]):
     global downloaded_movies_cache
     
     try:
+        # 确保data目录存在
+        os.makedirs(os.path.dirname(DOWNLOADED_MOVIES_FILE), exist_ok=True)
+        
         # 更新内存缓存
         downloaded_movies_cache.update(movie_ids)
         
