@@ -3,5 +3,11 @@
     "host": "10.0.1.10",
     "port": 3000,
     "base_url": "http://10.0.1.10:3000"
+  },
+  "version": {
+    "version": "dev-1e3faae",
+    "build_date": "2025-07-28",
+    "commit_hash": "1e3faae",
+    "commit_date": "2025-07-28"
   }
 }

@@ -34,6 +34,97 @@ body {
     box-shadow: 0 1px 3px rgba(15, 15, 15, 0.03);
 }
 
+.header-content {
+    display: flex;
+    align-items: center;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+}
+
+.logo {
+    height: 70px;
+    width: auto;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.title-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.subtitle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.subtitle {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #666;
+    font-style: italic;
+    flex: 1;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.version-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.version-info .version {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #2383e2;
+    background: rgba(35, 131, 226, 0.1);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.version-info .build-date {
+    font-size: 0.7rem;
+    color: #666;
+    font-style: italic;
+}
+
+.github-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: #666;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.github-link:hover {
+    color: #333;
+    background: rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+}
+
+.github-icon {
+    width: 18px;
+    height: 18px;
+}
+
 .app-header h1 {
     font-size: 1.5rem;
     font-weight: 600;

@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import hashlib
+import subprocess
 from typing import List, Dict, Optional
 from pikpakapi import PikPakApi
 
@@ -19,6 +20,61 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler()]
 )
+
+# 版本信息获取函数
+def get_version_info():
+    """
+    从Git获取版本信息
+    :return: 包含版本号和构建日期的字典
+    """
+    version_info = {
+        'version': 'v1.0.0',  # 默认版本
+        'build_date': datetime.datetime.now().strftime('%Y-%m-%d')  # 默认构建日期
+    }
+    
+    try:
+        # 获取Git标签作为版本号
+        try:
+            git_tag = subprocess.check_output(
+                ['git', 'describe', '--tags', '--abbrev=0'], 
+                stderr=subprocess.DEVNULL,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            ).decode('utf-8').strip()
+            if git_tag:
+                version_info['version'] = git_tag if git_tag.startswith('v') else f'v{git_tag}'
+        except subprocess.CalledProcessError:
+            # 如果没有标签，使用提交哈希的前7位
+            try:
+                git_hash = subprocess.check_output(
+                    ['git', 'rev-parse', '--short=7', 'HEAD'],
+                    stderr=subprocess.DEVNULL,
+                    cwd=os.path.dirname(os.path.abspath(__file__))
+                ).decode('utf-8').strip()
+                if git_hash:
+                    version_info['version'] = f'v1.0.0-{git_hash}'
+            except subprocess.CalledProcessError:
+                pass
+        
+        # 获取最后一次提交的日期作为构建日期
+        try:
+            git_date = subprocess.check_output(
+                ['git', 'log', '-1', '--format=%cd', '--date=short'],
+                stderr=subprocess.DEVNULL,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            ).decode('utf-8').strip()
+            if git_date:
+                version_info['build_date'] = git_date
+        except subprocess.CalledProcessError:
+            pass
+            
+    except Exception as e:
+        logging.warning(f"获取Git版本信息失败: {str(e)}")
+    
+    return version_info
+
+# 获取版本信息
+VERSION_INFO = get_version_info()
+logging.info(f"应用版本信息: {VERSION_INFO}")
 
 # 内存缓存（替代Redis以保持轻量化）
 memory_cache = {}
@@ -184,7 +240,10 @@ async def home(request: Request):
     :param request: 请求对象
     :return: 渲染后的主页模板
     """
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "version_info": VERSION_INFO
+    })
 
 @app.get("/api/movies")
 async def get_movies(request: Request):
