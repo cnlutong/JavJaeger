@@ -563,7 +563,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const magnet = e.target.magnet.value;
     const type = e.target.type.value;
     const actorCountFilter = e.target.actorCountFilter.value;
-    const hasSubtitle = e.target.hasSubtitle.value;
+    // hasSubtitle 参数不在影片列表级别使用，而是在磁力链接级别使用
     const resultContainer = document.getElementById('result-container');
     resultContainer.innerHTML = '<p>正在获取影片列表，请稍候...</p>';
     
@@ -579,7 +579,8 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         if (magnet) queryParams.append('magnet', magnet);
         if (type) queryParams.append('type', type);
         if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
-        if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
+        // 移除 hasSubtitle 参数，因为字幕筛选在磁力链接级别进行
+        // if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
         
         // 调用API获取影片列表
         const data = await fetchWithRetry(`/api/movies?${queryParams.toString()}`);
@@ -709,6 +710,12 @@ function displayResults(data) {
                     queryParams.append('uc', movieData.uc);
                     queryParams.append('sortBy', 'size');
                     queryParams.append('sortOrder', 'desc');
+                    
+                    // 获取当前的字幕筛选条件
+                    const hasSubtitleFilter = document.querySelector('select[name="hasSubtitle"]')?.value;
+                    if (hasSubtitleFilter) {
+                        queryParams.append('hasSubtitle', hasSubtitleFilter);
+                    }
                     
                     const data = await fetchWithRetry(`/api/magnets/${encodeURIComponent(movie.id)}?${queryParams.toString()}`);
                     
@@ -919,7 +926,8 @@ function displayResults(data) {
                 if (magnet) queryParams.append('magnet', magnet);
                 if (type) queryParams.append('type', type);
                 if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
-                if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
+                // 移除 hasSubtitle 参数，因为字幕筛选在磁力链接级别进行
+                // if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
 
                 try {
                     const response = await fetch(`/api/movies?${queryParams.toString()}`);
@@ -971,6 +979,12 @@ async function fetchAndDisplayMagnets(movieId, gid, uc) {
     queryParams.append('uc', uc);
     queryParams.append('sortBy', 'size');
     queryParams.append('sortOrder', 'desc');
+    
+    // 获取字幕筛选条件
+    const form = document.getElementById('movie-filter');
+    if (form && form.hasSubtitle && form.hasSubtitle.value) {
+        queryParams.append('hasSubtitle', form.hasSubtitle.value);
+    }
 
     try {
         const response = await fetch(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);

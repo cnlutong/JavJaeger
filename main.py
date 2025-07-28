@@ -196,11 +196,11 @@ async def get_movies(request: Request):
     # 构建目标API URL
     api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
     
-    # 提取演员人数筛选参数和字幕筛选参数
+    # 提取演员人数筛选参数
     actor_count_filter = request.query_params.get('actorCountFilter')
-    has_subtitle_filter = request.query_params.get('hasSubtitle')
     
     # 转发除演员人数筛选和字幕筛选外的所有查询参数
+    # 字幕筛选不在影片列表级别进行，而是在磁力链接级别进行
     query_params = dict(request.query_params)
     if 'actorCountFilter' in query_params:
         del query_params['actorCountFilter']
@@ -212,11 +212,11 @@ async def get_movies(request: Request):
     if data is None:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
     
-    # 如果有演员人数筛选条件或字幕筛选条件，需要获取每个影片的详细信息进行筛选
-    if (actor_count_filter or has_subtitle_filter) and data.get('movies'):
+    # 如果有演员人数筛选条件，需要获取每个影片的详细信息进行筛选
+    if actor_count_filter and data.get('movies'):
         filtered_movies = []
         
-        # 并发获取影片详情以检查演员数量和字幕信息
+        # 并发获取影片详情以检查演员数量
         async def check_movie_filters(movie):
             try:
                 movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie['id']}"
@@ -226,7 +226,6 @@ async def get_movies(request: Request):
                     return None
                 
                 # 检查演员人数筛选条件
-                actor_count_match = True
                 if actor_count_filter:
                     if 'stars' not in movie_detail:
                         return None
@@ -234,35 +233,21 @@ async def get_movies(request: Request):
                     actor_count = len(movie_detail['stars'])
                     
                     if actor_count_filter == '1' and actor_count != 1:
-                        actor_count_match = False
+                        return None
                     elif actor_count_filter == '2' and actor_count != 2:
-                        actor_count_match = False
+                        return None
                     elif actor_count_filter == '3' and actor_count != 3:
-                        actor_count_match = False
+                        return None
                     elif actor_count_filter == '<=2' and actor_count > 2:
-                        actor_count_match = False
+                        return None
                     elif actor_count_filter == '<=3' and actor_count > 3:
-                        actor_count_match = False
+                        return None
                     elif actor_count_filter == '>=3' and actor_count < 3:
-                        actor_count_match = False
+                        return None
                     elif actor_count_filter == '>=4' and actor_count < 4:
-                        actor_count_match = False
+                        return None
                 
-                # 检查字幕筛选条件
-                subtitle_match = True
-                if has_subtitle_filter:
-                    has_subtitle = movie_detail.get('hasSubtitle', False)
-                    
-                    if has_subtitle_filter == 'true' and not has_subtitle:
-                        subtitle_match = False
-                    elif has_subtitle_filter == 'false' and has_subtitle:
-                        subtitle_match = False
-                
-                # 只有当所有筛选条件都满足时才返回影片
-                if actor_count_match and subtitle_match:
-                    return movie
-                
-                return None
+                return movie
                 
             except Exception as e:
                 logging.error(f"检查影片 {movie['id']} 筛选条件失败: {str(e)}")
@@ -309,6 +294,37 @@ async def get_movie(movieId: str, request: Request):
     
     return data
 
+def select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter=None):
+    """
+    根据字幕筛选条件选择最佳磁力链接
+    :param magnet_data: 磁力链接数据列表
+    :param has_subtitle_filter: 字幕筛选条件 ('true', 'false', 或 None)
+    :return: 最佳磁力链接
+    """
+    if not magnet_data or len(magnet_data) == 0:
+        return None
+    
+    # 如果没有字幕筛选条件，返回第一个（按大小排序的最大的）
+    if not has_subtitle_filter:
+        return magnet_data[0]
+    
+    # 根据字幕筛选条件过滤磁力链接
+    filtered_magnets = []
+    for magnet in magnet_data:
+        magnet_has_subtitle = magnet.get('hasSubtitle', False)
+        
+        if has_subtitle_filter == 'true' and magnet_has_subtitle:
+            filtered_magnets.append(magnet)
+        elif has_subtitle_filter == 'false' and not magnet_has_subtitle:
+            filtered_magnets.append(magnet)
+    
+    # 如果有符合条件的磁力链接，返回第一个（最大的）
+    if filtered_magnets:
+        return filtered_magnets[0]
+    
+    # 如果没有符合条件的磁力链接，返回None
+    return None
+
 @app.get("/api/magnets/{movieId}")
 async def get_magnets(movieId: str, request: Request):
     """
@@ -320,21 +336,40 @@ async def get_magnets(movieId: str, request: Request):
     # 构建目标API URL
     api_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movieId}"
     
-    # 转发查询参数
+    # 提取字幕筛选参数
+    has_subtitle_filter = request.query_params.get('hasSubtitle')
+    
+    # 转发除字幕筛选外的所有查询参数
     query_params = dict(request.query_params)
+    if 'hasSubtitle' in query_params:
+        del query_params['hasSubtitle']
     
     # 使用缓存获取数据
     data = await fetch_with_cache(api_url, query_params)
     if data is None:
         return {"error": "获取磁力链接失败", "message": "API请求失败"}
     
+    # 如果有字幕筛选条件，根据条件筛选磁力链接
+    if has_subtitle_filter and data:
+        filtered_data = []
+        for magnet in data:
+            magnet_has_subtitle = magnet.get('hasSubtitle', False)
+            
+            if has_subtitle_filter == 'true' and magnet_has_subtitle:
+                filtered_data.append(magnet)
+            elif has_subtitle_filter == 'false' and not magnet_has_subtitle:
+                filtered_data.append(magnet)
+        
+        return filtered_data
+    
     return data
 
 @app.post("/api/movies/batch")
-async def get_movies_batch(movie_ids: List[str]):
+async def get_movies_batch(movie_ids: List[str], has_subtitle_filter: str = None):
     """
     批量获取影片信息和最佳磁力链接
     :param movie_ids: 影片ID列表
+    :param has_subtitle_filter: 字幕筛选条件 ('true', 'false', 或 None)
     :return: 批量影片信息
     """
     results = []
@@ -366,10 +401,8 @@ async def get_movies_batch(movie_ids: List[str]):
             # 检查下载状态
             is_downloaded = await is_movie_downloaded(movie_id)
             
-            # 获取最佳磁力链接
-            best_magnet = None
-            if magnet_data and len(magnet_data) > 0:
-                best_magnet = magnet_data[0]
+            # 根据字幕筛选条件获取最佳磁力链接
+            best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter)
             
             return {
                 "movie_id": movie_id,
@@ -406,14 +439,29 @@ async def get_movies_batch(movie_ids: List[str]):
     }
 
 @app.post("/api/movies/batch-stream")
-async def get_movies_batch_stream(movie_ids: List[str]):
+async def get_movies_batch_stream(request: Request):
     """
     流式批量获取影片信息和最佳磁力链接，逐个返回结果
-    :param movie_ids: 影片ID列表
+    :param request: 请求对象，包含movie_ids和has_subtitle_filter
     :return: 流式影片信息
     """
     from fastapi.responses import StreamingResponse
     import json
+    
+    # 解析请求体
+    try:
+        body = await request.json()
+        if isinstance(body, list):
+            # 兼容旧格式（直接传递影片ID列表）
+            movie_ids = body
+            has_subtitle_filter = None
+        else:
+            # 新格式（包含movie_ids和has_subtitle_filter）
+            movie_ids = body.get('movie_ids', [])
+            has_subtitle_filter = body.get('has_subtitle_filter')
+    except Exception as e:
+        logging.error(f"解析请求体失败: {str(e)}")
+        return {"error": "请求格式错误"}
     
     async def generate_results():
         # 并发获取影片信息的函数
@@ -443,10 +491,8 @@ async def get_movies_batch_stream(movie_ids: List[str]):
                 # 检查下载状态
                 is_downloaded = await is_movie_downloaded(movie_id)
                 
-                # 获取最佳磁力链接
-                best_magnet = None
-                if magnet_data and len(magnet_data) > 0:
-                    best_magnet = magnet_data[0]
+                # 根据字幕筛选条件获取最佳磁力链接
+                best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter)
                 
                 return {
                     "movie_id": movie_id,
@@ -642,3 +688,7 @@ async def check_movie_downloaded(movie_id: str):
     except Exception as e:
         logging.error(f"检查下载状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"检查下载状态失败: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=5000)
