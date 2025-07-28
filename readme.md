@@ -1,125 +1,166 @@
-# JAV猎人
+<div align="center">
 
-基于 JavBus API 的影片信息查询和筛选工具，支持 Docker 容器化部署。
+# JavJaeger
 
-## 功能特点
+<img src="static/logo.jpg" alt="JavJaeger Logo" width="150" height="150">
 
-- 🔍 **影片搜索**: 番号快速查询
-- 🎯 **多条件筛选**: 演员、类别、导演等筛选
-- 📥 **PikPak集成**: 磁力链接云盘下载
-- 📝 **下载记录**: 自动记录，避免重复
-- ⚡ **性能优化**: 批量API，内存缓存
-- 🐳 **容器化**: Docker 一键部署
+**基于 JavBus API 的影片信息查询和筛选工具**
 
-## 快速部署
+*"人类的一切痛苦，都是因为性欲得不到满足"*
 
-### 前置要求
-- Docker 20.10+
-- Docker Compose 2.0+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.95+-green.svg)](https://fastapi.tiangolo.com/)
 
-### 启动服务
+</div>
+
+---
+
+## ✨ 核心功能
+
+<table>
+<tr>
+<td width="50%">
+
+🔍 **批量下载**
+> 根据刷选条件，批量搜索影片并添加在网盘下载
+
+🎯 **智能筛选** 
+> 演员、类别、导演等多维度筛选
+
+🧲 **磁力查询**
+> 获取影片磁力链接，支持排序
+
+</td>
+<td width="50%">
+
+📥 **支持PikPak**
+> 一键云盘下载，批量处理
+
+⚡ **性能优化**
+> 支持内存缓存
+
+🎨 **现代界面**
+> 响应式设计，用户友好
+
+</td>
+</tr>
+</table>
+
+## 🚀 快速开始
+
+### 🐳 Docker 部署（推荐）
+
 ```bash
-# 克隆项目
-git clone <项目仓库地址>
+# 1️⃣ 克隆项目
+git clone <项目地址>
 cd JavJaeger
 
-# 启动服务
+# 2️⃣ 启动服务
 docker-compose up -d
 
-# 查看状态
-docker-compose ps
+# 3️⃣ 访问应用
+# 🔗 http://localhost:18000 (直接访问)
 ```
 
-### 访问地址
-- 主应用: http://localhost
-- 直接访问: http://localhost:8000
+### 💻 直接启动
 
-## 配置说明
+```bash
+# 1️⃣ 安装依赖
+pip install -r requirements.txt
 
-### API配置
-编辑 `config.json` 配置 JavBus API 地址：
+# 2️⃣ 启动应用
+uvicorn main:app --reload
+
+# 3️⃣ 访问应用
+# 🔗 http://localhost:8000
+```
+
+## ⚙️ 配置说明
+
+### 📡 API 配置
+
+修改 `config.json` 中的 JavBus API 地址：
+
 ```json
 {
   "javbus_api": {
-    "base_url": "http://10.0.0.10:3000"
+    "base_url": "http://your-api-server:3000"
   }
 }
 ```
 
-### 环境变量（推荐）
+## 📖 使用指南
+
+| 功能 | 描述 | 操作 |
+|------|------|------|
+| 🎬 **影片搜索** | 输入番号快速查找 | 在搜索框输入番号 |
+| 🎯 **筛选功能** | 按演员、类别等条件筛选 | 选择筛选条件并输入值 |
+| 🧲 **磁力查询** | 获取影片下载链接 | 输入番号查询磁力链接 |
+| 📥 **PikPak下载** | 登录后一键下载到云盘 | 登录PikPak后批量下载 |
+
+### 🚀 推荐配套工具
+
+为了实现更高效的下载体验，推荐配合使用 [**W2A (WebDAV To Aria2)**](https://github.com/cnlutong/W2A) 工具：
+
+- 🌐 **WebDAV网盘支持** - 特别支持PikPak等WebDAV协议网盘
+- ⬇️ **Aria2多线程下载** - 批量添加到Aria2进行高速多线程下载  
+- 🎯 **完美配合** - JavJaeger负责搜索筛选，W2A负责高效下载
+- 📁 **批量管理** - 支持文件夹批量选择和下载管理
+
+## 🛠️ 技术栈
+
+<div align="center">
+
+| 类别 | 技术 |
+|------|------|
+| **后端** | FastAPI + Python |
+| **前端** | HTML/CSS/JavaScript |
+| **部署** | Docker + Nginx |
+| **API** | JavBus API |
+| **下载** | PikPak API |
+
+</div>
+
+## ❓ 常见问题
+
+<details>
+<summary><strong>Q: 端口被占用怎么办？</strong></summary>
+
+A: 修改 `docker-compose.yml` 中的端口映射：
 ```yaml
-environment:
-  - JAVBUS_API_BASE_URL=http://your-api-server:3000
+ports:
+  - "18000:8000" 
 ```
+</details>
 
-## 服务管理
+<details>
+<summary><strong>Q: API 连接失败？</strong></summary>
 
+A: 检查 `config.json` 中的 API 地址是否正确，确保 JavBus API 服务正常运行
+</details>
+
+<details>
+<summary><strong>Q: 如何查看日志？</strong></summary>
+
+A: 使用以下命令查看日志：
 ```bash
-# 基本操作
-docker-compose up -d        # 启动
-docker-compose down         # 停止
-docker-compose restart      # 重启
-docker-compose ps           # 状态
-docker-compose logs -f      # 日志
-
-# 维护操作
-docker-compose build --no-cache  # 重建
-docker system prune -f           # 清理
-```
-
-## 架构说明
-
-### 服务组件
-- **javjaeger**: FastAPI 主应用
-- **nginx**: 反向代理
-
-### 端口映射
-- `80`: Nginx HTTP
-- `8000`: 应用直接访问
-
-## 故障排除
-
-### 常见问题
-1. **端口冲突**: 修改 docker-compose.yml 端口映射
-2. **API连接失败**: 检查 config.json 中的 API 地址
-3. **权限问题**: 确保静态文件目录权限正确
-
-### 调试命令
-```bash
-# 查看日志
 docker-compose logs -f javjaeger
-
-# 进入容器
-docker-compose exec javjaeger bash
-
-# 健康检查
-curl http://localhost:8000/
 ```
+</details>
 
-## 技术栈
+## 📄 许可证
 
-- **后端**: Python (FastAPI)
-- **前端**: HTML/CSS/JavaScript
-- **容器**: Docker, Docker Compose
-- **代理**: Nginx
-
-## 开发环境
-
-```bash
-# 本地开发
-pip install -r requirements.txt
-uvicorn main:app --reload
-```
-
-## 许可证
-
-MIT License
-
-## 相关链接
-
-- [JavBus API](https://github.com/ovnrain/javbus-api)
-- [FastAPI](https://fastapi.tiangolo.com/)
+本项目采用 [MIT License](LICENSE) 开源协议
 
 ---
 
-**注意**: 仅供学习研究使用，请遵守相关法律法规。
+<div align="center">
+
+⚠️ **免责声明**
+
+本项目仅供学习研究使用，请遵守相关法律法规
+
+**如果这个项目对你有帮助，请给个 ⭐ Star！**
+
+</div>
