@@ -503,6 +503,7 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
     const movieId = e.target.movieId.value;
     const sortBy = e.target.sortBy.value;
     const sortOrder = e.target.sortOrder.value;
+    const hasSubtitle = e.target.hasSubtitle.value;
     const resultContainer = document.getElementById('result-container');
     resultContainer.innerHTML = '<p>正在获取影片信息，请稍候...</p>';
     
@@ -520,6 +521,7 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
         queryParams.append('uc', movieData.uc);
         if (sortBy) queryParams.append('sortBy', sortBy);
         if (sortOrder) queryParams.append('sortOrder', sortOrder);
+        if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
         
         resultContainer.innerHTML = '<p>正在获取磁力链接，请稍候...</p>';
         
@@ -620,6 +622,131 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         resultContainer.innerHTML = '<p>筛选失败，请稍后重试</p>';
     }
 });
+
+// 影片识别功能
+document.getElementById('movie-recognition').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const htmlContent = formData.get('htmlContent');
+    const autoDownload = formData.get('autoDownload') === 'on';
+    
+    if (!htmlContent.trim()) {
+        alert('请粘贴HTML源代码');
+        return;
+    }
+    
+    const resultContainer = document.getElementById('result-container');
+         const progressContainer = document.getElementById('progress-container');
+         const submitButton = e.target.querySelector('button[type="submit"]');
+         
+         // 显示进度条和禁用按钮
+         progressContainer.style.display = 'block';
+         resultContainer.innerHTML = '';
+         submitButton.disabled = true;
+         submitButton.textContent = '识别中...';
+    
+    try {
+        const requestBody = {
+            html_content: htmlContent,
+            auto_download: autoDownload
+        };
+        
+        // 如果启用自动下载且已登录PikPak，添加登录信息
+        if (autoDownload && isLoggedIn && pikpakCredentials) {
+            requestBody.username = pikpakCredentials.username;
+            requestBody.password = pikpakCredentials.password;
+        }
+        
+        const response = await fetch('/api/movies/recognize', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+             resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
+         } else {
+             displayRecognitionResults(data);
+         }
+    } catch (error) {
+        console.error('影片识别失败:', error);
+        resultContainer.innerHTML = `<div class="error">识别失败: ${error.message}</div>`;
+    } finally {
+         progressContainer.style.display = 'none';
+         submitButton.disabled = false;
+         submitButton.textContent = '🔍 识别并下载影片';
+     }
+});
+
+// 显示识别结果
+ function displayRecognitionResults(data) {
+     const resultContainer = document.getElementById('result-container');
+     
+     if (!data.movies || data.movies.length === 0) {
+         resultContainer.innerHTML = '<div class="empty-state"><div class="empty-icon">❌</div><p>没有识别到任何影片</p></div>';
+         return;
+     }
+     
+     let html = `
+         <div class="recognition-results">
+             <h3>🎬 识别结果 (${data.movies.length} 部影片)</h3>
+             ${data.download_result ? `
+                 <div class="download-summary">
+                     <h4>📥 下载结果:</h4>
+                     <p>✅ 成功: ${data.download_result.success_count || 0} 部</p>
+                     <p>❌ 失败: ${data.download_result.failed_count || 0} 部</p>
+                     <p>⏭️ 跳过: ${data.download_result.skipped_count || 0} 部</p>
+                 </div>
+             ` : ''}
+             <div class="movies-grid">
+     `;
+     
+     data.movies.forEach((movie, index) => {
+         // 查找对应的磁力链接信息
+         const magnetInfo = data.magnet_results ? data.magnet_results.find(m => m.movie_id === movie.id) : null;
+         
+         // 获取下载状态
+         let statusBadge = '';
+         if (data.download_result && data.download_result.results) {
+             const downloadStatus = data.download_result.results.find(r => r.movie_id === movie.id);
+             if (downloadStatus) {
+                 if (downloadStatus.success) {
+                     statusBadge = '<span class="status-badge success">✅ 下载成功</span>';
+                 } else if (downloadStatus.skipped) {
+                     statusBadge = '<span class="status-badge skipped">⏭️ 已存在</span>';
+                 } else {
+                     statusBadge = '<span class="status-badge failed">❌ 下载失败</span>';
+                 }
+             }
+         }
+         
+         html += `
+             <div class="movie-card">
+                 <div class="movie-header">
+                     <h4 class="movie-title">${movie.title || movie.full_title}</h4>
+                     <div class="movie-meta">
+                         <span class="movie-id"><b>${movie.id}</b></span>
+                         ${statusBadge}
+                     </div>
+                 </div>
+                 ${magnetInfo ? `
+                     <div class="magnet-info">
+                         <p><strong>文件大小:</strong> ${magnetInfo.size || '未知'}</p>
+                         <a href="${magnetInfo.magnet_link}" target="_blank" class="magnet-link">🧲 磁力链接</a>
+                     </div>
+                 ` : '<div class="magnet-info"><p class="no-magnet">❌ 未找到磁力链接</p></div>'}
+             </div>
+         `;
+     });
+     
+     html += '</div></div>';
+     resultContainer.innerHTML = html;
+ }
 
 // 全局变量用于跟踪资源加载状态
 let loadedResources = 0;

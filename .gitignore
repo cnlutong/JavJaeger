@@ -1,5 +1,4 @@
-# Downloaded movies tracking file - should not be committed
-static/downloaded_movies.json
+
 
 # Python cache files
 __pycache__/
@@ -30,3 +29,8 @@ Thumbs.db
 
 # Vercel deployment files
 .vercel/
+
+# Data directory
+data/
+
+

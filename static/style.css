@@ -304,6 +304,110 @@ button:disabled {
     box-shadow: none;
 }
 
+/* 文本域样式 */
+.textarea-container {
+    margin-bottom: 1rem;
+}
+
+textarea {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid #e9e9e7;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: #ffffff;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 120px;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: #2383e2;
+    box-shadow: 0 0 0 3px rgba(35, 131, 226, 0.1);
+    background: #ffffff;
+}
+
+textarea::placeholder {
+    color: #a0a0a0;
+}
+
+.textarea-hint {
+    font-size: 0.75rem;
+    color: #666;
+    margin-top: 0.5rem;
+    font-style: italic;
+}
+
+/* 复选框样式 */
+.recognition-options {
+    margin-bottom: 1rem;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: #37352f;
+    gap: 0.5rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    opacity: 0;
+    position: absolute;
+}
+
+.checkmark {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #e9e9e7;
+    border-radius: 3px;
+    background: #ffffff;
+    transition: all 0.2s ease;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkmark {
+    background: #2383e2;
+    border-color: #2383e2;
+}
+
+.checkbox-label input[type="checkbox"]:checked + .checkmark::after {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 4px;
+    height: 8px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.checkbox-label:hover .checkmark {
+    border-color: #2383e2;
+}
+
+/* 识别按钮特殊样式 */
+.recognition-btn {
+    background: linear-gradient(135deg, #2383e2, #1a73d1);
+    font-weight: 600;
+    padding: 0.875rem 1.5rem;
+    font-size: 0.9rem;
+    box-shadow: 0 2px 8px rgba(35, 131, 226, 0.2);
+}
+
+.recognition-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #1a73d1, #1565c0);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(35, 131, 226, 0.3);
+}
+
 /* 进度条样式 */
 .progress-container {
     margin: 1rem 1.5rem;
@@ -442,6 +546,234 @@ button:disabled {
 .empty-hint {
     font-size: 0.875rem;
     color: #a0a0a0;
+}
+
+/* 识别结果样式 */
+.recognition-results {
+    margin-top: 1rem;
+}
+
+/* 下载摘要 - 紧凑型 */
+.download-summary.compact {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.summary-header {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+    color: #495057;
+}
+
+.summary-stats {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    font-size: 0.9rem;
+    color: #6c757d;
+}
+
+.stat-item strong {
+    font-weight: 600;
+    margin-left: 0.25rem;
+}
+
+.stat-item.success strong {
+    color: #28a745;
+}
+
+.stat-item.failed strong {
+    color: #dc3545;
+}
+
+.stat-item.skipped strong {
+    color: #ffc107;
+}
+
+/* 影片表格样式 */
+.movies-table-container {
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.movies-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.movies-table thead {
+    background: #f8f9fa;
+}
+
+.movies-table th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #495057;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.movies-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #dee2e6;
+    vertical-align: middle;
+}
+
+.movie-row:hover {
+    background-color: #f8f9fa;
+}
+
+.movie-id-cell {
+    width: 120px;
+}
+
+.movie-id-badge {
+    background: #007bff;
+    color: white;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    font-family: monospace;
+}
+
+.movie-title-cell {
+    max-width: 300px;
+}
+
+.movie-title-text {
+    font-weight: 500;
+    color: #212529;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-cell {
+    width: 100px;
+}
+
+.status-badge.compact {
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: default;
+}
+
+.status-badge.compact.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.status-badge.compact.failed {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.status-badge.compact.skipped {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.status-badge.compact.pending {
+    background: #e2e3e5;
+    color: #6c757d;
+    border: 1px solid #d6d8db;
+}
+
+.status-badge.compact.downloading {
+    background: #cce5ff;
+    color: #004085;
+    border: 1px solid #99d6ff;
+    animation: pulse 1.5s ease-in-out infinite alternate;
+}
+
+.status-badge.compact.info {
+    background: #e7f3ff;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+.status-badge.compact.processing {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+    animation: pulse 1.5s ease-in-out infinite alternate;
+}
+
+.stat-item.processing {
+    color: #856404;
+    font-weight: 500;
+}
+
+/* 下载中动画效果 */
+@keyframes pulse {
+    from {
+        opacity: 0.6;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.magnet-cell {
+    width: 120px;
+}
+
+.magnet-info-compact {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.magnet-link.compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: #28a745;
+    color: white;
+    text-decoration: none;
+    border-radius: 50%;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.magnet-link.compact:hover {
+    background: #218838;
+    transform: scale(1.1);
+    text-decoration: none;
+    color: white;
+}
+
+.file-size {
+    font-size: 0.75rem;
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+.no-magnet-compact {
+    color: #6c757d;
+    font-size: 0.8rem;
+    font-style: italic;
 }
 
 /* 结果展示区域 */
@@ -1539,21 +1871,231 @@ button:disabled {
     }
     
     /* 大屏幕类别选项样式 */
-    .options-groups:not(:has(.actor-avatar)) .options-items {
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 0.4rem;
-        padding: 0.4rem;
-    }
-    
-    .options-groups:not(:has(.actor-avatar)) .options-item {
-        padding: 0.5rem 0.8rem;
-        min-height: 36px;
-        font-size: 0.85rem;
-    }
-    
-    .options-groups:not(:has(.actor-avatar)) .options-group-title {
-        padding: 0.4rem 0.8rem;
-        font-size: 0.85rem;
-        margin-bottom: 0.4rem;
-    }
+.options-groups:not(:has(.actor-avatar)) .options-items {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.4rem;
+    padding: 0.4rem;
 }
+
+.options-groups:not(:has(.actor-avatar)) .options-item {
+    padding: 0.5rem 0.8rem;
+    min-height: 36px;
+    font-size: 0.85rem;
+}
+
+.options-groups:not(:has(.actor-avatar)) .options-group-title {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.4rem;
+}
+
+/* 识别结果样式 */
+ .recognition-results {
+     padding: 0;
+     background: transparent;
+ }
+ 
+ .recognition-results h3 {
+     color: #2c3e50;
+     margin-bottom: 20px;
+     font-size: 20px;
+     font-weight: 600;
+     text-align: center;
+     padding: 15px;
+     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+     color: white;
+     border-radius: 8px;
+     margin: 0 0 20px 0;
+ }
+ 
+ .download-summary {
+     background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+     padding: 20px;
+     border-radius: 12px;
+     margin-bottom: 25px;
+     border: 1px solid #e1bee7;
+     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+ }
+ 
+ .download-summary h4 {
+     margin: 0 0 15px 0;
+     color: #1976d2;
+     font-size: 16px;
+     font-weight: 600;
+ }
+ 
+ .download-summary p {
+     margin: 8px 0;
+     color: #424242;
+     font-size: 14px;
+     display: flex;
+     align-items: center;
+     gap: 8px;
+ }
+ 
+ .movies-grid {
+     display: grid;
+     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+     gap: 20px;
+     margin-top: 20px;
+ }
+ 
+ .movie-card {
+     background: white;
+     border: 1px solid #e0e0e0;
+     border-radius: 12px;
+     padding: 20px;
+     transition: all 0.3s ease;
+     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+     position: relative;
+     overflow: hidden;
+ }
+ 
+ .movie-card::before {
+     content: '';
+     position: absolute;
+     top: 0;
+     left: 0;
+     right: 0;
+     height: 4px;
+     background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+ }
+ 
+ .movie-card:hover {
+     box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+     transform: translateY(-4px);
+     border-color: #667eea;
+ }
+ 
+ .movie-header {
+     margin-bottom: 15px;
+ }
+ 
+ .movie-title {
+     margin: 0 0 12px 0;
+     color: #2c3e50;
+     font-size: 16px;
+     font-weight: 600;
+     line-height: 1.4;
+     display: -webkit-box;
+     -webkit-line-clamp: 2;
+     -webkit-box-orient: vertical;
+     overflow: hidden;
+ }
+ 
+ .movie-meta {
+     display: flex;
+     justify-content: space-between;
+     align-items: center;
+     flex-wrap: wrap;
+     gap: 10px;
+ }
+ 
+ .movie-id {
+     background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+     padding: 6px 12px;
+     border-radius: 20px;
+     font-size: 13px;
+     font-weight: 600;
+     color: #495057;
+     border: 1px solid #dee2e6;
+ }
+ 
+ .status-badge {
+     padding: 6px 12px;
+     border-radius: 20px;
+     font-size: 12px;
+     font-weight: 600;
+     display: inline-flex;
+     align-items: center;
+     gap: 4px;
+     cursor: default;
+ }
+ 
+ .status-badge.success {
+     background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+     color: #155724;
+     border: 1px solid #c3e6cb;
+ }
+ 
+ .status-badge.failed {
+     background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+     color: #721c24;
+     border: 1px solid #f5c6cb;
+ }
+ 
+ .status-badge.skipped {
+     background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+     color: #856404;
+     border: 1px solid #ffeaa7;
+ }
+ 
+ .status-badge.downloading {
+     background: linear-gradient(135deg, #cce5ff 0%, #99d6ff 100%);
+     color: #004085;
+     border: 1px solid #99d6ff;
+     animation: pulse 1.5s ease-in-out infinite alternate;
+ }
+ 
+ .status-badge.info {
+     background: linear-gradient(135deg, #e7f3ff 0%, #bee5eb 100%);
+     color: #0c5460;
+     border: 1px solid #bee5eb;
+ }
+ 
+ .magnet-info {
+     margin-top: 15px;
+     padding-top: 15px;
+     border-top: 1px solid #f0f0f0;
+ }
+ 
+ .magnet-info p {
+     margin: 8px 0;
+     color: #666;
+     font-size: 13px;
+ }
+ 
+ .magnet-link {
+     display: inline-flex;
+     align-items: center;
+     gap: 6px;
+     color: #667eea;
+     text-decoration: none;
+     font-size: 14px;
+     font-weight: 500;
+     padding: 8px 12px;
+     background: linear-gradient(135deg, #f8f9ff 0%, #e8f0fe 100%);
+     border: 1px solid #e3f2fd;
+     border-radius: 8px;
+     transition: all 0.3s ease;
+ }
+ 
+ .magnet-link:hover {
+     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+     color: white;
+     transform: translateY(-1px);
+     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+ }
+ 
+ .no-magnet {
+      color: #dc3545;
+      font-style: italic;
+      margin: 0;
+      padding: 8px 0;
+  }
+
+  /* 空状态样式 */
+  .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: #666;
+      font-style: italic;
+  }
+
+  .empty-state::before {
+      content: '📭';
+      display: block;
+      font-size: 48px;
+      margin-bottom: 16px;
+  }
+ }

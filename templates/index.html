@@ -124,7 +124,35 @@
                                 <option value="asc">升序</option>
                                 <option value="desc">降序</option>
                             </select>
+                            <select name="hasSubtitle">
+                                <option value="">字幕筛选 (可选)</option>
+                                <option value="true">有字幕</option>
+                                <option value="false">无字幕</option>
+                            </select>
                             <button type="submit">查询磁力链接</button>
+                        </form>
+                    </div>
+
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>🎯 影片识别</h3>
+                        </div>
+                        <form id="movie-recognition">
+                            <div class="form-group">
+                                <label for="htmlContent">HTML源代码</label>
+                                <textarea name="htmlContent" id="htmlContent" placeholder="请粘贴JAVLibrary网页源代码..." rows="8" required></textarea>
+                                <div class="form-hint">支持解析JAVLibrary排行榜页面的HTML源代码</div>
+                            </div>
+                            <div class="form-group">
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" name="autoDownload" checked>
+                                        <span class="checkmark"></span>
+                                        自动下载无字幕最佳磁力链接
+                                    </label>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">🔍 识别并下载影片</button>
                         </form>
                     </div>
                 </div>

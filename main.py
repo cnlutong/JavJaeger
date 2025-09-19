@@ -13,6 +13,7 @@ import hashlib
 import subprocess
 from typing import List, Dict, Optional
 from pikpakapi import PikPakApi
+import re
 
 # 配置日志
 logging.basicConfig(
@@ -127,6 +128,12 @@ class DownloadRequest(BaseModel):
     movie_ids: list[str]  # 影片番号列表
     username: str
     password: str
+
+class MovieRecognitionRequest(BaseModel):
+    html_content: str
+    auto_download: bool = True
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -254,13 +261,73 @@ async def save_downloaded_movies(movie_ids: List[str]):
         logging.error(f"保存下载记录失败: {str(e)}")
 
 async def is_movie_downloaded(movie_id: str) -> bool:
-    """检查影片是否已下载"""
+    """
+    检查影片是否已下载
+    """
     global downloaded_movies_cache, downloaded_movies_loaded
     
     if not downloaded_movies_loaded:
         await load_downloaded_movies()
     
     return movie_id in downloaded_movies_cache
+
+def parse_movies_from_html(html_content: str) -> List[Dict[str, str]]:
+    """
+    从HTML内容中解析影片信息
+    :param html_content: HTML源代码
+    :return: 影片信息列表
+    """
+    movies = []
+    
+    try:
+        # 查找videothumblist区域
+        videothumblist_match = re.search(
+            r'<div class="videothumblist">(.*?)</div><!-- end of videothumblist -->',
+            html_content, re.DOTALL
+        )
+        
+        if not videothumblist_match:
+            logging.warning("未找到videothumblist区域")
+            return movies
+        
+        videothumblist_content = videothumblist_match.group(1)
+        
+        # 匹配每个video div，包含内部的toolbar
+        video_pattern = r'<div class="video"[^>]*?>(.*?)<div class="toolbar".*?</div>\s*</div>'
+        video_matches = re.findall(video_pattern, html_content, re.DOTALL)
+        
+        logging.info(f"找到 {len(video_matches)} 个影片匹配项")
+        
+        for i, video_content in enumerate(video_matches):
+            # 提取title属性
+            title_match = re.search(r'title="([^"]+)"', video_content)
+            # 提取影片编号
+            id_match = re.search(r'<div class="id">([^<]+)</div>', video_content)
+            
+            if title_match and id_match:
+                full_title = title_match.group(1).strip()
+                movie_id = id_match.group(1).strip()
+                
+                # 处理标题，提取简短标题
+                title_parts = full_title.split(' ', 1)
+                title = title_parts[1] if len(title_parts) > 1 else full_title
+                
+                movie_info = {
+                    "id": movie_id,
+                    "title": title,
+                    "full_title": full_title,
+                    "rank": i + 1
+                }
+                
+                movies.append(movie_info)
+                logging.info(f"成功添加影片: {movie_id} - {title}")
+        
+        logging.info(f"总共解析到 {len(movies)} 部影片")
+        
+    except Exception as e:
+        logging.error(f"解析HTML内容失败: {str(e)}")
+    
+    return movies
 
 # 主页路由
 @app.get("/", response_class=HTMLResponse)
@@ -940,6 +1007,117 @@ async def check_movie_downloaded(movie_id: str):
     except Exception as e:
         logging.error(f"检查下载状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"检查下载状态失败: {str(e)}")
+
+@app.post("/api/movies/recognize")
+async def recognize_movies(request: MovieRecognitionRequest):
+    """
+    识别影片并可选择自动下载
+    :param request: 影片识别请求
+    :return: 识别和下载结果
+    """
+    try:
+        # 解析HTML内容获取影片信息
+        movies = parse_movies_from_html(request.html_content)
+        
+        if not movies:
+            return {"error": "未能从HTML内容中解析到任何影片信息"}
+        
+        logging.info(f"成功解析到 {len(movies)} 部影片")
+        
+        # 如果启用自动下载且提供了登录信息
+        if request.auto_download and request.username and request.password:
+            # 获取影片番号列表
+            movie_ids = [movie["id"] for movie in movies]
+            
+            # 批量获取磁力链接
+            magnet_results = []
+            for movie_id in movie_ids:
+                try:
+                    # 检查是否已下载
+                    if await is_movie_downloaded(movie_id):
+                        logging.info(f"影片 {movie_id} 已下载，跳过")
+                        continue
+                    
+                    # 获取影片详情
+                    movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
+                    movie_data = await fetch_with_cache(movie_url)
+                    
+                    if not movie_data or not movie_data.get('gid') or movie_data.get('uc') is None:
+                        logging.warning(f"影片 {movie_id} 不存在或无法获取参数")
+                        continue
+                    
+                    # 获取磁力链接
+                    magnet_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
+                    magnet_params = {
+                        'gid': movie_data['gid'],
+                        'uc': movie_data['uc'],
+                        'sortBy': 'size',
+                        'sortOrder': 'desc'
+                    }
+                    magnet_data = await fetch_with_cache(magnet_url, magnet_params)
+                    
+                    # 选择最佳磁力链接（优先无字幕的最大文件）
+                    best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false')
+                    if not best_magnet:
+                        # 如果没有无字幕的，选择任意最大的
+                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None)
+                    
+                    if best_magnet:
+                        # 检查磁力链接字段是否存在
+                        magnet_link = best_magnet.get("magnet_link") or best_magnet.get("magnetLink") or best_magnet.get("link")
+                        if magnet_link:
+                            magnet_results.append({
+                                "movie_id": movie_id,
+                                "magnet_link": magnet_link,
+                                "title": best_magnet.get("title", ""),
+                                "size": best_magnet.get("size", "")
+                            })
+                            logging.info(f"为影片 {movie_id} 找到磁力链接")
+                        else:
+                            logging.warning(f"影片 {movie_id} 的磁力数据中缺少链接字段: {list(best_magnet.keys())}")
+                    else:
+                        logging.warning(f"未找到影片 {movie_id} 的磁力链接")
+                        
+                except Exception as e:
+                    logging.error(f"获取影片 {movie_id} 磁力链接失败: {str(e)}")
+            
+            # 如果有磁力链接，进行下载
+            if magnet_results:
+                magnet_links = [result["magnet_link"] for result in magnet_results]
+                download_movie_ids = [result["movie_id"] for result in magnet_results]
+                
+                # 调用下载功能
+                download_request = DownloadRequest(
+                    magnet_links=magnet_links,
+                    movie_ids=download_movie_ids,
+                    username=request.username,
+                    password=request.password
+                )
+                
+                download_result = await pikpak_download(download_request)
+                
+                return {
+                    "success": True,
+                    "movies": movies,
+                    "magnet_results": magnet_results,
+                    "download_result": download_result
+                }
+            else:
+                return {
+                    "success": True,
+                    "movies": movies,
+                    "message": "解析成功，但未找到可下载的磁力链接"
+                }
+        else:
+            # 仅返回解析结果
+            return {
+                "success": True,
+                "movies": movies
+            }
+    
+    except Exception as e:
+        logging.error(f"影片识别失败: {str(e)}")
+        return {"error": f"识别失败: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
