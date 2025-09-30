@@ -1251,6 +1251,83 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // 番号自动下载表单事件监听器
+    const movieCodeDownloadForm = document.getElementById('movie-code-download');
+    if (movieCodeDownloadForm) {
+        movieCodeDownloadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const movieCodes = formData.get('movieCodes');
+            const autoDownload = formData.get('autoDownload') === 'on';
+            
+            if (!movieCodes.trim()) {
+                alert('请输入影片番号');
+                return;
+            }
+            
+            const resultContainer = document.getElementById('result-container');
+            const progressContainer = document.getElementById('progress-container');
+            const submitButton = e.target.querySelector('button[type="submit"]');
+            
+            // 显示进度条和禁用按钮
+            if (progressContainer) progressContainer.style.display = 'block';
+            if (resultContainer) resultContainer.innerHTML = '';
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = '搜索中...';
+            }
+            
+            try {
+                const requestBody = {
+                    movie_codes: movieCodes,
+                    auto_download: autoDownload
+                };
+                
+                // 如果启用自动下载且已登录PikPak，添加登录信息
+                if (autoDownload && isLoggedIn && pikpakCredentials) {
+                    requestBody.username = pikpakCredentials.username;
+                    requestBody.password = pikpakCredentials.password;
+                }
+                
+                // 如果启用自动下载，使用带进度的处理
+                if (autoDownload && isLoggedIn && pikpakCredentials) {
+                    await handleCodeDownloadWithProgress(requestBody, resultContainer, submitButton);
+                } else {
+                    // 普通搜索，不需要实时进度
+                    const response = await fetch('/api/movies/download-by-codes', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        if (resultContainer) {
+                            resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
+                        }
+                    } else {
+                        displayCodeDownloadResults(data);
+                    }
+                }
+            } catch (error) {
+                console.error('番号搜索失败:', error);
+                if (resultContainer) {
+                    resultContainer.innerHTML = `<div class="error">搜索失败: ${error.message}</div>`;
+                }
+            } finally {
+                if (progressContainer) progressContainer.style.display = 'none';
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.textContent = '🎯 搜索并下载影片';
+                }
+            }
+        });
+    }
 });
 
 // 处理带有实时进度的影片识别
@@ -1297,11 +1374,11 @@ async function handleRecognitionWithProgress(requestBody, resultContainer, submi
             
             // 模拟下载进度更新（实际应该从后端获取）
             let completedCount = 0;
-            const downloadResults = data.download_result?.results || {};
+            const downloadResults = data.download_result?.results || [];
             
             // 统计已完成的下载
-            Object.values(downloadResults).forEach(result => {
-                if (result.status === 'success' || result.status === 'failed' || result.status === 'skipped') {
+            downloadResults.forEach(result => {
+                if (result.success !== undefined) {
                     completedCount++;
                 }
             });
@@ -1588,4 +1665,176 @@ function displayRecognitionResults(data) {
     html += '</div>';
     
     resultContainer.innerHTML = html;
+}
+
+// 处理带有实时进度的番号下载
+async function handleCodeDownloadWithProgress(requestBody, resultContainer, submitButton) {
+    // 显示进度管理器
+    if (progressManager) {
+        progressManager.show('正在搜索影片信息...', 0);
+    }
+    
+    try {
+        const response = await fetch('/api/movies/download-by-codes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            if (resultContainer) {
+                resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
+            }
+            return;
+        }
+        
+        // 如果有影片需要下载，显示实时进度
+        if (data.found_movies && data.found_movies.length > 0 && data.auto_download) {
+            const totalMovies = data.found_movies.length;
+            
+            // 更新进度条
+            if (progressManager) {
+                progressManager.updateText(`正在下载 ${totalMovies} 部影片...`);
+                progressManager.updateProgress(0, totalMovies);
+            }
+            
+            // 创建初始结果显示
+            displayCodeDownloadResultsWithProgress(data);
+            
+            // 模拟下载进度更新（实际应该从后端获取）
+            let completedCount = 0;
+            const downloadResults = data.download_result?.results || {};
+            
+            // 统计已完成的下载
+            Object.values(downloadResults).forEach(result => {
+                if (result.status === 'success' || result.status === 'failed' || result.status === 'skipped') {
+                    completedCount++;
+                }
+            });
+            
+            // 更新最终进度
+            if (progressManager) {
+                progressManager.updateProgress(completedCount, totalMovies, 
+                    `下载完成 (${completedCount}/${totalMovies})`);
+                
+                // 延迟隐藏进度条
+                setTimeout(() => {
+                    progressManager.complete('下载处理完成');
+                }, 1000);
+            }
+        } else {
+            // 没有下载任务，直接显示结果
+            displayCodeDownloadResults(data);
+            
+            if (progressManager) {
+                progressManager.complete('搜索完成');
+            }
+        }
+    } catch (error) {
+        console.error('番号下载失败:', error);
+        if (resultContainer) {
+            resultContainer.innerHTML = `<div class="error">处理失败: ${error.message}</div>`;
+        }
+        
+        if (progressManager) {
+            progressManager.hide();
+        }
+    }
+}
+
+// 显示番号下载结果（带进度）
+function displayCodeDownloadResultsWithProgress(data) {
+    const resultContainer = document.getElementById('result-container');
+    if (!resultContainer) return;
+    
+    let html = '<div class="code-download-results">';
+    
+    // 显示搜索统计
+    html += '<div class="search-summary">';
+    html += `<h3>🔍 搜索结果统计</h3>`;
+    html += `<p>找到影片: ${data.found_movies ? data.found_movies.length : 0} 部</p>`;
+    html += `<p>未找到番号: ${data.not_found_codes ? data.not_found_codes.length : 0} 个</p>`;
+    html += '</div>';
+    
+    // 显示找到的影片
+    if (data.found_movies && data.found_movies.length > 0) {
+        html += '<h3>🎬 找到的影片:</h3>';
+        html += '<div class="movies-grid">';
+        
+        data.found_movies.forEach(movie => {
+            html += `
+                <div class="movie-card">
+                    <div class="movie-info">
+                        <h4>${movie.title || movie.id}</h4>
+                        <p><strong>番号:</strong> ${movie.id}</p>
+                        ${movie.actress ? `<p><strong>女优:</strong> ${movie.actress}</p>` : ''}
+                        ${movie.release_date ? `<p><strong>发行日期:</strong> ${movie.release_date}</p>` : ''}
+                        ${movie.duration ? `<p><strong>时长:</strong> ${movie.duration}</p>` : ''}
+                        ${movie.studio ? `<p><strong>制作商:</strong> ${movie.studio}</p>` : ''}
+                        ${movie.series ? `<p><strong>系列:</strong> ${movie.series}</p>` : ''}
+                        ${movie.genres && movie.genres.length > 0 ? `<p><strong>类别:</strong> ${movie.genres.join(', ')}</p>` : ''}
+                    </div>
+                    ${movie.cover_url ? `<img src="${movie.cover_url}" alt="${movie.title || movie.id}" class="movie-cover">` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    }
+    
+    // 显示未找到的番号
+    if (data.not_found_codes && data.not_found_codes.length > 0) {
+        html += '<h3>❌ 未找到的番号:</h3>';
+        html += '<div class="not-found-codes">';
+        data.not_found_codes.forEach(code => {
+            html += `<span class="not-found-code">${code}</span>`;
+        });
+        html += '</div>';
+    }
+    
+    // 显示下载结果
+    if (data.download_result && data.download_result.results) {
+        html += '<h3>📥 下载结果:</h3>';
+        html += '<div class="download-results">';
+        
+        data.download_result.results.forEach((result, index) => {
+            const statusClass = result.success ? 'success' : 'error';
+            const movieId = result.movie_id || `影片${index + 1}`;
+            const message = result.message || (result.success ? '下载成功' : '下载失败');
+            
+            html += `
+                <div class="download-item ${statusClass}">
+                    <strong>${movieId}:</strong> ${message}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+    } else if (data.download_result && data.download_result.message) {
+        // 显示整体下载消息
+        html += '<h3>📥 下载结果:</h3>';
+        html += '<div class="download-results">';
+        html += `
+            <div class="download-item ${data.download_result.success ? 'success' : 'warning'}">
+                ${data.download_result.message}
+            </div>
+        `;
+        html += '</div>';
+    }
+    
+    html += '</div>';
+    resultContainer.innerHTML = html;
+}
+
+// 显示番号下载结果（普通）
+function displayCodeDownloadResults(data) {
+    displayCodeDownloadResultsWithProgress(data);
 }

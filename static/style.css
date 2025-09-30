@@ -2098,4 +2098,109 @@ textarea::placeholder {
       font-size: 48px;
       margin-bottom: 16px;
   }
- }
+
+/* 番号下载功能样式 */
+.code-download-results {
+    padding: 1rem;
+}
+
+.search-summary {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.search-summary h3 {
+    margin: 0 0 0.5rem 0;
+    color: #495057;
+    font-size: 1rem;
+}
+
+.search-summary p {
+    margin: 0.25rem 0;
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.not-found-codes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.not-found-code {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    border: 1px solid #f5c6cb;
+}
+
+.download-results {
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.download-item {
+    padding: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.download-item:last-child {
+    margin-bottom: 0;
+}
+
+.download-item.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.download-item.error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.download-item.warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+/* 番号输入框样式 */
+textarea[name="movieCodes"] {
+    min-height: 100px;
+    resize: vertical;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .not-found-codes {
+        flex-direction: column;
+    }
+    
+    .not-found-code {
+        text-align: center;
+    }
+    
+    .search-summary {
+        padding: 0.75rem;
+    }
+    
+    .download-results {
+        padding: 0.75rem;
+    }
+}

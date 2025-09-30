@@ -135,6 +135,12 @@ class MovieRecognitionRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
 
+class MovieCodeDownloadRequest(BaseModel):
+    movie_codes: str  # 用户输入的番号字符串
+    auto_download: bool = True
+    username: Optional[str] = None
+    password: Optional[str] = None
+
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -270,6 +276,36 @@ async def is_movie_downloaded(movie_id: str) -> bool:
         await load_downloaded_movies()
     
     return movie_id in downloaded_movies_cache
+
+def parse_movie_codes(movie_codes_input: str) -> List[str]:
+    """
+    解析用户输入的番号字符串，支持多种分隔符
+    :param movie_codes_input: 用户输入的番号字符串
+    :return: 番号列表
+    """
+    if not movie_codes_input or not movie_codes_input.strip():
+        return []
+    
+    # 清理输入并转换为大写
+    cleaned_input = movie_codes_input.strip().upper()
+    
+    # 使用正则表达式分割，支持空格、换行、逗号、分号等分隔符
+    movie_codes = re.split(r'[,，\s\n\r\t;；]+', cleaned_input)
+    
+    # 过滤空字符串并去除首尾空格
+    movie_codes = [code.strip() for code in movie_codes if code.strip()]
+    
+    # 验证番号格式（基本的字母数字组合）
+    valid_codes = []
+    for code in movie_codes:
+        # 基本的番号格式验证：包含字母和数字
+        if re.match(r'^[A-Z0-9\-]+$', code) and len(code) >= 3:
+            valid_codes.append(code)
+        else:
+            logging.warning(f"跳过无效番号格式: {code}")
+    
+    logging.info(f"解析到 {len(valid_codes)} 个有效番号: {valid_codes}")
+    return valid_codes
 
 def parse_movies_from_html(html_content: str) -> List[Dict[str, str]]:
     """
@@ -1118,6 +1154,166 @@ async def recognize_movies(request: MovieRecognitionRequest):
     except Exception as e:
         logging.error(f"影片识别失败: {str(e)}")
         return {"error": f"识别失败: {str(e)}"}
+
+@app.post("/api/movies/download-by-codes")
+async def download_movies_by_codes(request: MovieCodeDownloadRequest):
+    """
+    根据番号自动查找最佳影片并添加下载
+    :param request: 番号下载请求
+    :return: 搜索和下载结果
+    """
+    try:
+        # 解析番号
+        movie_codes = parse_movie_codes(request.movie_codes)
+        
+        if not movie_codes:
+            return {"error": "未能解析到有效的番号"}
+        
+        logging.info(f"开始处理 {len(movie_codes)} 个番号: {movie_codes}")
+        
+        # 搜索影片信息
+        found_movies = []
+        not_found_codes = []
+        
+        for movie_code in movie_codes:
+            try:
+                # 检查是否已下载
+                if await is_movie_downloaded(movie_code):
+                    logging.info(f"影片 {movie_code} 已下载，跳过")
+                    found_movies.append({
+                        "id": movie_code,
+                        "title": "已下载",
+                        "status": "already_downloaded"
+                    })
+                    continue
+                
+                # 搜索影片
+                movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_code}"
+                movie_data = await fetch_with_cache(movie_url)
+                
+                if movie_data and movie_data.get('id'):
+                    found_movies.append({
+                        "id": movie_data.get('id'),
+                        "title": movie_data.get('title', ''),
+                        "date": movie_data.get('date', ''),
+                        "cover": movie_data.get('cover', ''),
+                        "status": "found"
+                    })
+                    logging.info(f"找到影片: {movie_code} - {movie_data.get('title', '')}")
+                else:
+                    not_found_codes.append(movie_code)
+                    logging.warning(f"未找到影片: {movie_code}")
+                    
+            except Exception as e:
+                logging.error(f"搜索影片 {movie_code} 失败: {str(e)}")
+                not_found_codes.append(movie_code)
+        
+        # 如果启用自动下载且提供了登录信息
+        if request.auto_download and request.username and request.password:
+            # 获取需要下载的影片（排除已下载的）
+            movies_to_download = [movie for movie in found_movies if movie["status"] == "found"]
+            
+            if movies_to_download:
+                # 批量获取磁力链接
+                magnet_results = []
+                for movie in movies_to_download:
+                    try:
+                        movie_id = movie["id"]
+                        
+                        # 获取影片详情以获取gid和uc参数
+                        movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
+                        movie_data = await fetch_with_cache(movie_url)
+                        
+                        if not movie_data or not movie_data.get('gid') or movie_data.get('uc') is None:
+                            logging.warning(f"影片 {movie_id} 不存在或无法获取参数")
+                            continue
+                        
+                        # 获取磁力链接
+                        magnet_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
+                        magnet_params = {
+                            'gid': movie_data['gid'],
+                            'uc': movie_data['uc'],
+                            'sortBy': 'size',
+                            'sortOrder': 'desc'
+                        }
+                        magnet_data = await fetch_with_cache(magnet_url, magnet_params)
+                        
+                        # 选择最佳磁力链接（优先无字幕的最大文件）
+                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false')
+                        if not best_magnet:
+                            # 如果没有无字幕的，选择任意最大的
+                            best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None)
+                        
+                        if best_magnet:
+                            # 检查磁力链接字段是否存在
+                            magnet_link = best_magnet.get("magnet_link") or best_magnet.get("magnetLink") or best_magnet.get("link")
+                            if magnet_link:
+                                magnet_results.append({
+                                    "movie_id": movie_id,
+                                    "magnet_link": magnet_link,
+                                    "title": best_magnet.get("title", ""),
+                                    "size": best_magnet.get("size", "")
+                                })
+                                logging.info(f"为影片 {movie_id} 找到磁力链接")
+                            else:
+                                logging.warning(f"影片 {movie_id} 的磁力数据中缺少链接字段")
+                        else:
+                            logging.warning(f"未找到影片 {movie_id} 的磁力链接")
+                            
+                    except Exception as e:
+                        logging.error(f"获取影片 {movie['id']} 磁力链接失败: {str(e)}")
+                
+                # 如果有磁力链接，进行下载
+                if magnet_results:
+                    magnet_links = [result["magnet_link"] for result in magnet_results]
+                    download_movie_ids = [result["movie_id"] for result in magnet_results]
+                    
+                    # 调用下载功能
+                    download_request = DownloadRequest(
+                        magnet_links=magnet_links,
+                        movie_ids=download_movie_ids,
+                        username=request.username,
+                        password=request.password
+                    )
+                    
+                    download_result = await pikpak_download(download_request)
+                    
+                    return {
+                        "success": True,
+                        "total_codes": len(movie_codes),
+                        "found_movies": found_movies,
+                        "not_found_codes": not_found_codes,
+                        "magnet_results": magnet_results,
+                        "download_result": download_result
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "total_codes": len(movie_codes),
+                        "found_movies": found_movies,
+                        "not_found_codes": not_found_codes,
+                        "message": "找到影片但未找到可下载的磁力链接"
+                    }
+            else:
+                return {
+                    "success": True,
+                    "total_codes": len(movie_codes),
+                    "found_movies": found_movies,
+                    "not_found_codes": not_found_codes,
+                    "message": "没有需要下载的新影片"
+                }
+        else:
+            # 仅返回搜索结果
+            return {
+                "success": True,
+                "total_codes": len(movie_codes),
+                "found_movies": found_movies,
+                "not_found_codes": not_found_codes
+            }
+    
+    except Exception as e:
+        logging.error(f"番号下载失败: {str(e)}")
+        return {"error": f"处理失败: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
