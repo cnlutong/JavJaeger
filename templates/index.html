@@ -57,7 +57,7 @@
                             </select>
                             <input type="text" name="filterValue" placeholder="输入筛选值">
                             <input type="hidden" name="filterCode" value="">
-                            <button type="button" id="show-options-btn" class="options-btn" title="显示选项">📋</button>
+                            <button type="button" id="show-options-btn" class="btn options-btn" title="显示选项">📋</button>
                             <select name="magnet">
                                 <option value="exist">有磁力链接</option>
                                 <option value="all">全部影片</option>
@@ -87,6 +87,7 @@
                                     <option value="false">无字幕</option>
                                 </select>
                             </div>
+                            
                             <div class="actor-count-filter">
                                 <label for="fetchMode">获取方式:</label>
                                 <select name="fetchMode">
@@ -94,7 +95,7 @@
                                     <option value="all">获取全部 (所有页)</option>
                                 </select>
                             </div>
-                            <button type="submit">筛选</button>
+                            <button type="submit" class="btn btn-primary">筛选</button>
                         </form>
                     </div>
                     
@@ -104,7 +105,7 @@
                         </div>
                         <form id="movie-search">
                             <input type="text" name="keyword" placeholder="输入影片番号">
-                            <button type="submit">搜索</button>
+                            <button type="submit" class="btn btn-primary">搜索</button>
                         </form>
                     </div>
 
@@ -129,7 +130,7 @@
                                 <option value="true">有字幕</option>
                                 <option value="false">无字幕</option>
                             </select>
-                            <button type="submit">查询磁力链接</button>
+                            <button type="submit" class="btn btn-primary">查询磁力链接</button>
                         </form>
                     </div>
 
@@ -227,13 +228,27 @@
                             <input type="text" name="username" placeholder="用户名" required>
                             <input type="password" name="password" placeholder="密码" required>
                             <div class="login-buttons">
-                                <button type="submit" id="login-btn">登录</button>
-                                <button type="button" id="logout-btn" class="logout-btn" style="display: none;">退出</button>
+                            <button type="submit" id="login-btn" class="btn btn-primary">登录</button>
+                            <button type="button" id="logout-btn" class="btn btn-danger logout-btn" style="display: none;">退出</button>
                             </div>
                         </form>
                         <div id="login-status" class="login-status"></div>
                     </div>
                     
+                    <!-- 磁力链接来源选择（全局） -->
+                    <div class="search-form">
+                        <div class="form-header">
+                            <h3>🧲 磁力链接来源</h3>
+                        </div>
+                        <div class="actor-count-filter">
+                            <label for="magnet-source-selector">磁力链接来源:</label>
+                            <select name="magnetSource" id="magnet-source-selector">
+                                <option value="javbus">JavBus API (默认)</option>
+                                <option value="cilisousuo">Cilisousuo</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="download-info">
                         <p class="info-text">📥 下载功能说明</p>
                         <p class="info-desc">登录PikPak后，在影片列表筛选结果页面可使用批量下载功能</p>

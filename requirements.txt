@@ -13,3 +13,5 @@ gunicorn>=21.2.0
 
 # 开发依赖
 python-dotenv>=1.0.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0

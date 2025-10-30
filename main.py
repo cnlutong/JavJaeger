@@ -14,6 +14,7 @@ import subprocess
 from typing import List, Dict, Optional
 from pikpakapi import PikPakApi
 import re
+from cilisousuo_cli import get_best_magnet as cilisousuo_get_best_magnet
 
 # 配置日志
 logging.basicConfig(
@@ -688,16 +689,41 @@ async def get_magnets(movieId: str, request: Request):
     :param request: 请求对象
     :return: 磁力链接数据
     """
+    # 检查是否使用 cilisousuo 作为磁力链接来源
+    magnet_source = request.query_params.get('source', 'javbus')
+    
+    if magnet_source == 'cilisousuo':
+        # 使用 cilisousuo 获取磁力链接
+        try:
+            magnet_link = await cilisousuo_get_best_magnet(movieId)
+            if magnet_link:
+                # 返回符合前端期望的格式
+                return [{
+                    "link": magnet_link,
+                    "title": f"{movieId} - 最佳资源",
+                    "size": "未知",
+                    "date": "未知",
+                    "hasSubtitle": False  # cilisousuo 不提供字幕信息
+                }]
+            else:
+                return []
+        except Exception as e:
+            logging.error(f"从 cilisousuo 获取磁力链接失败: {str(e)}")
+            return {"error": "从 cilisousuo 获取磁力链接失败", "message": str(e)}
+    
+    # 默认使用 javbus-api
     # 构建目标API URL
     api_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movieId}"
     
     # 提取字幕筛选参数
     has_subtitle_filter = request.query_params.get('hasSubtitle')
     
-    # 转发除字幕筛选外的所有查询参数
+    # 转发除字幕筛选和source外的所有查询参数
     query_params = dict(request.query_params)
     if 'hasSubtitle' in query_params:
         del query_params['hasSubtitle']
+    if 'source' in query_params:
+        del query_params['source']
     
     # 使用缓存获取数据
     data = await fetch_with_cache(api_url, query_params)
@@ -810,10 +836,12 @@ async def get_movies_batch_stream(request: Request):
             # 兼容旧格式（直接传递影片ID列表）
             movie_ids = body
             has_subtitle_filter = None
+            magnet_source = 'javbus'
         else:
             # 新格式（包含movie_ids和has_subtitle_filter）
             movie_ids = body.get('movie_ids', [])
             has_subtitle_filter = body.get('has_subtitle_filter')
+            magnet_source = body.get('magnet_source', 'javbus')
     except Exception as e:
         logging.error(f"解析请求体失败: {str(e)}")
         return {"error": "请求格式错误"}
@@ -822,6 +850,48 @@ async def get_movies_batch_stream(request: Request):
         # 并发获取影片信息的函数
         async def get_movie_with_magnet(movie_id: str):
             try:
+                # 检查下载状态
+                is_downloaded = await is_movie_downloaded(movie_id)
+                
+                # 如果使用 cilisousuo，直接从 cilisousuo 获取磁力链接
+                if magnet_source == 'cilisousuo':
+                    try:
+                        magnet_link = await cilisousuo_get_best_magnet(movie_id)
+                        if magnet_link:
+                            best_magnet = {
+                                "link": magnet_link,
+                                "title": f"{movie_id} - 最佳资源",
+                                "size": "未知",
+                                "date": "未知",
+                                "hasSubtitle": False
+                            }
+                            # 获取影片标题（用于显示）
+                            movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
+                            movie_data = await fetch_with_cache(movie_url)
+                            
+                            return {
+                                "movie_id": movie_id,
+                                "success": True,
+                                "title": movie_data.get('title', movie_id) if movie_data else movie_id,
+                                "date": movie_data.get('date', '未知') if movie_data else '未知',
+                                "is_downloaded": is_downloaded,
+                                "best_magnet": best_magnet
+                            }
+                        else:
+                            return {
+                                "movie_id": movie_id,
+                                "success": False,
+                                "error": "未找到磁力链接"
+                            }
+                    except Exception as e:
+                        logging.error(f"从 cilisousuo 获取影片 {movie_id} 磁力链接失败: {str(e)}")
+                        return {
+                            "movie_id": movie_id,
+                            "success": False,
+                            "error": f"cilisousuo 获取失败: {str(e)}"
+                        }
+                
+                # 默认使用 javbus-api
                 # 获取影片详情
                 movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
                 movie_data = await fetch_with_cache(movie_url)
@@ -842,9 +912,6 @@ async def get_movies_batch_stream(request: Request):
                     'sortOrder': 'desc'
                 }
                 magnet_data = await fetch_with_cache(magnet_url, magnet_params)
-                
-                # 检查下载状态
-                is_downloaded = await is_movie_downloaded(movie_id)
                 
                 # 根据字幕筛选条件获取最佳磁力链接
                 best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter)

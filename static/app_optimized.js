@@ -214,7 +214,7 @@ function createOptionsDisplay(optionType, optionsData) {
     title.innerHTML = `📋 选择${optionType}`;
     
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'options-close-btn';
+    closeBtn.className = 'btn btn-text options-close-btn';
     closeBtn.innerHTML = '×';
     closeBtn.onclick = () => {
         resultContainer.innerHTML = `
@@ -405,11 +405,30 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
     resultContainer.innerHTML = '';
     
     try {
-        // 先获取影片详情
-        const movieData = await simpleFetch(`/api/movies/${encodeURIComponent(movieId)}`);
+        // 从表单、本地全局选择器或 localStorage 获取来源，默认 javbus
+        let magnetSource = 'javbus';
+        if (e.target.magnetSource) {
+            magnetSource = e.target.magnetSource.value;
+        } else {
+            const globalSelector = document.getElementById('magnet-source-selector');
+            if (globalSelector && globalSelector.value) {
+                magnetSource = globalSelector.value;
+            } else {
+                const savedSource = localStorage.getItem('magnetSource');
+                if (savedSource) {
+                    magnetSource = savedSource;
+                }
+            }
+        }
         
-        if (!movieData || !movieData.gid || movieData.uc === undefined) {
-            throw new Error('无法获取影片详情或必要参数');
+        let movieData = null;
+        // 如果使用 javbus，需要先获取影片详情
+        if (magnetSource === 'javbus') {
+            movieData = await simpleFetch(`/api/movies/${encodeURIComponent(movieId)}`);
+            
+            if (!movieData || !movieData.gid || movieData.uc === undefined) {
+                throw new Error('无法获取影片详情或必要参数');
+            }
         }
         
         // 更新进度条状态
@@ -417,11 +436,20 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
         
         // 构建查询参数
         const queryParams = new URLSearchParams();
-        queryParams.append('gid', movieData.gid);
-        queryParams.append('uc', movieData.uc);
-        if (sortBy) queryParams.append('sortBy', sortBy);
-        if (sortOrder) queryParams.append('sortOrder', sortOrder);
-        if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
+        
+        queryParams.append('source', magnetSource);
+        
+        // 如果使用 javbus，需要 gid 和 uc 参数
+        if (magnetSource === 'javbus') {
+            if (!movieData || !movieData.gid || movieData.uc === undefined) {
+                throw new Error('无法获取影片详情或必要参数');
+            }
+            queryParams.append('gid', movieData.gid);
+            queryParams.append('uc', movieData.uc);
+            if (sortBy) queryParams.append('sortBy', sortBy);
+            if (sortOrder) queryParams.append('sortOrder', sortOrder);
+            if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
+        }
         
         // 调用API获取磁力链接
         const data = await simpleFetch(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);
@@ -575,26 +603,45 @@ async function displayMoviesList(data) {
     }
     
     let html = '<div class="copy-links-container">' +
-        '<button id="copy-all-links" class="copy-btn" disabled>正在加载...</button>' +
-        '<button id="download-all-links" class="download-btn" disabled>📥 下载本页全部影片</button>' +
-        '</div><div class="movies-grid">';
+        '<button id="copy-all-links" class="btn copy-btn" aria-label="复制当前页全部磁力链接" disabled>正在加载...</button>' +
+        '<button id="download-all-links" class="btn download-btn" aria-label="下载当前页全部影片" disabled>📥 下载本页全部影片</button>' +
+        '</div>';
     
-    // 先显示影片卡片框架
+    // 使用紧凑的表格布局展示影片列表
+    html += '<div class="movies-table-container">';
+    html += '<table class="movies-table-compact">';
+    html += '<thead>';
+    html += '<tr>';
+    html += '<th class="col-id">番号</th>';
+    html += '<th class="col-title">标题</th>';
+    html += '<th class="col-date">日期</th>';
+    html += '<th class="col-magnet">磁力链接</th>';
+    html += '</tr>';
+    html += '</thead>';
+    html += '<tbody>';
+    
+    // 显示影片行
     data.movies.forEach(movie => {
         html += `
-            <div class="movie-card">
-                <div class="movie-header">
-                    <h3 class="movie-title">${movie.title}</h3>
-                    <div class="movie-meta">
-                        <span class="movie-id"><b>${movie.id}</b></span>
-                        <span class="movie-date">${movie.date}</span>
-                    </div>
-                </div>
-                <div class="magnet-container" id="magnet-${movie.id}"><p>正在加载最佳资源...</p></div>
-            </div>
+            <tr class="movie-row-compact">
+                <td class="col-id">
+                    <span class="movie-id-compact">${movie.id}</span>
+                </td>
+                <td class="col-title">
+                    <div class="movie-title-compact">${movie.title}</div>
+                </td>
+                <td class="col-date">
+                    <span class="movie-date-compact">${movie.date}</span>
+                </td>
+                <td class="col-magnet" id="magnet-${movie.id}">
+                    <span class="loading-text">加载中...</span>
+                </td>
+            </tr>
         `;
     });
-
+    
+    html += '</tbody>';
+    html += '</table>';
     html += '</div>';
 
     // 添加分页控件
@@ -603,7 +650,8 @@ async function displayMoviesList(data) {
         if (data.pagination.pages) {
             data.pagination.pages.forEach(page => {
                 const isCurrent = page === data.pagination.currentPage;
-                html += `<button class="page-btn ${isCurrent ? 'current' : ''}" data-page="${page}">${page}</button>`;
+                const aria = isCurrent ? ' aria-current="page"' : '';
+                html += `<button class="btn page-btn ${isCurrent ? 'current' : ''}" data-page="${page}"${aria}>${page}</button>`;
             });
         }
         html += '</div>';
@@ -624,9 +672,19 @@ async function displayMoviesList(data) {
     try {
         const movieIds = data.movies.map(movie => movie.id);
         
-        // 获取字幕筛选条件
+        // 获取字幕筛选条件和磁力链接来源
         const form = document.getElementById('movie-filter');
         const hasSubtitleFilter = form && form.hasSubtitle ? form.hasSubtitle.value : null;
+        let magnetSource = 'javbus';
+        if (form && form.magnetSource) {
+            magnetSource = form.magnetSource.value;
+        } else {
+            // 从 localStorage 获取保存的来源
+            const savedSource = localStorage.getItem('magnetSource');
+            if (savedSource) {
+                magnetSource = savedSource;
+            }
+        }
         
         // 使用fetch进行流式请求
         const response = await fetch('/api/movies/batch-stream', {
@@ -636,7 +694,8 @@ async function displayMoviesList(data) {
             },
             body: JSON.stringify({
                 movie_ids: movieIds,
-                has_subtitle_filter: hasSubtitleFilter
+                has_subtitle_filter: hasSubtitleFilter,
+                magnet_source: magnetSource
             })
         });
 
@@ -679,17 +738,17 @@ async function displayMoviesList(data) {
                             const magnetContainer = document.getElementById(`magnet-${data.movie_id}`);
                             if (magnetContainer) {
                                 if (data.success && data.best_magnet) {
-                                    const downloadedBadge = data.is_downloaded ? '<span class="downloaded-badge">✅ 已下载</span>' : '';
+                                    const downloadedBadge = data.is_downloaded ? '<span class="downloaded-badge-compact">✓</span>' : '';
+                                    const sizeText = data.best_magnet.size ? `<span class="magnet-size-compact">${data.best_magnet.size}</span>` : '';
                                     magnetContainer.innerHTML = `
-                                        <div class="best-magnet ${data.is_downloaded ? 'downloaded' : ''}">
-                                            <span class="best-tag">最佳资源</span>
+                                        <div class="magnet-info-compact-row">
                                             ${downloadedBadge}
-                                            <a href="${data.best_magnet.link}" target="_blank">${data.best_magnet.title}</a>
-                                            <p>大小: ${data.best_magnet.size}, 日期: ${data.best_magnet.date}</p>
+                                            <a href="${data.best_magnet.link}" target="_blank" class="magnet-link-compact" title="${data.best_magnet.title}" aria-label="${data.best_magnet.title || '磁力链接'}">🧲</a>
+                                            ${sizeText}
                                         </div>
                                     `;
                                 } else {
-                                    magnetContainer.innerHTML = `<p>${data.error || '暂无可用资源'}</p>`;
+                                    magnetContainer.innerHTML = `<span class="no-magnet-compact">-</span>`;
                                 }
                             }
                         } else if (data.type === 'complete') {
@@ -733,7 +792,7 @@ async function displayMoviesList(data) {
         data.movies.forEach(movie => {
             const magnetContainer = document.getElementById(`magnet-${movie.id}`);
             if (magnetContainer) {
-                magnetContainer.innerHTML = '<p>获取资源失败</p>';
+                magnetContainer.innerHTML = '<span class="no-magnet-compact">失败</span>';
             }
         });
     }
@@ -744,13 +803,13 @@ async function displayMoviesList(data) {
 
 // 复制所有链接
 async function copyAllLinks() {
-    const movieCards = document.querySelectorAll('.movie-card');
+    const movieRows = document.querySelectorAll('.movie-row-compact');
     let links = [];
     
-    movieCards.forEach(card => {
-        const bestMagnetLink = card.querySelector('.best-magnet a');
-        if (bestMagnetLink) {
-            links.push(bestMagnetLink.href);
+    movieRows.forEach(row => {
+        const magnetLink = row.querySelector('.magnet-link-compact');
+        if (magnetLink) {
+            links.push(magnetLink.href);
         }
     });
 
@@ -778,19 +837,18 @@ async function downloadAllMovies() {
         return;
     }
     
-    const movieCards = document.querySelectorAll('.movie-card');
+    const movieRows = document.querySelectorAll('.movie-row-compact');
     let links = [];
     let movieIds = [];
     
     // 收集未下载的影片
-    for (const card of movieCards) {
-        const magnetContainer = card.querySelector('.magnet-container');
-        const bestMagnetLink = magnetContainer.querySelector('.best-magnet a');
-        const movieIdElement = card.querySelector('.movie-id b');
-        const isDownloaded = magnetContainer.querySelector('.downloaded-badge');
+    for (const row of movieRows) {
+        const magnetLink = row.querySelector('.magnet-link-compact');
+        const movieIdElement = row.querySelector('.movie-id-compact');
+        const isDownloaded = row.querySelector('.downloaded-badge-compact');
         
-        if (bestMagnetLink && movieIdElement && !isDownloaded) {
-            links.push(bestMagnetLink.href);
+        if (magnetLink && movieIdElement && !isDownloaded) {
+            links.push(magnetLink.href);
             movieIds.push(movieIdElement.textContent.trim());
         }
     }
@@ -894,9 +952,6 @@ function addPaginationListeners(data) {
                 const response = await fetch(`/api/movies?${queryParams.toString()}`);
                 const data = await response.json();
                 
-                // 完成进度条
-                progressManager.complete('页面加载完成');
-                
                 displayResults(data);
             } catch (error) {
                 console.error('加载页面失败:', error);
@@ -938,15 +993,41 @@ async function fetchAndDisplayMagnets(movieId, gid, uc) {
     magnetsContainer.innerHTML = '<p>正在加载磁力链接...</p>';
 
     const queryParams = new URLSearchParams();
-    queryParams.append('gid', gid);
-    queryParams.append('uc', uc);
-    queryParams.append('sortBy', 'size');
-    queryParams.append('sortOrder', 'desc');
     
-    // 获取字幕筛选条件
-    const form = document.getElementById('movie-filter');
-    if (form && form.hasSubtitle && form.hasSubtitle.value) {
-        queryParams.append('hasSubtitle', form.hasSubtitle.value);
+    // 获取字幕筛选条件和磁力链接来源
+    // 优先从 movie-filter 表单获取，如果没有则从全局选择器获取，再没有则从 localStorage 获取，默认 javbus
+    let form = document.getElementById('movie-filter');
+    let magnetSource = 'javbus';
+    
+    if (form && form.magnetSource) {
+        magnetSource = form.magnetSource.value;
+    } else {
+        // 尝试从全局选择器获取（可能在其他表单中）
+        const globalSelector = document.getElementById('magnet-source-selector');
+        if (globalSelector) {
+            magnetSource = globalSelector.value;
+        } else {
+            // 从 localStorage 获取保存的来源
+            const savedSource = localStorage.getItem('magnetSource');
+            if (savedSource) {
+                magnetSource = savedSource;
+            }
+        }
+    }
+    
+    queryParams.append('source', magnetSource);
+    
+    // 如果使用 javbus，需要 gid 和 uc 参数
+    if (magnetSource === 'javbus') {
+        queryParams.append('gid', gid);
+        queryParams.append('uc', uc);
+        queryParams.append('sortBy', 'size');
+        queryParams.append('sortOrder', 'desc');
+        
+        // 获取字幕筛选条件
+        if (form && form.hasSubtitle && form.hasSubtitle.value) {
+            queryParams.append('hasSubtitle', form.hasSubtitle.value);
+        }
     }
 
     try {
@@ -1078,6 +1159,25 @@ function handleLogout() {
     }
 }
 
+// 保存磁力链接来源选择
+function saveMagnetSource(source) {
+    localStorage.setItem('magnetSource', source);
+}
+
+// 恢复磁力链接来源选择
+function restoreMagnetSource() {
+    const savedSource = localStorage.getItem('magnetSource');
+    if (savedSource) {
+        // 更新所有磁力链接来源选择器
+        const selectors = document.querySelectorAll('select[name="magnetSource"], #magnet-source-selector');
+        selectors.forEach(selector => {
+            if (selector) {
+                selector.value = savedSource;
+            }
+        });
+    }
+}
+
 // 页面加载完成后的初始化
 document.addEventListener('DOMContentLoaded', () => {
     // 初始化进度条管理器
@@ -1090,6 +1190,17 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('Progress container found:', progressContainer);
     
     restorePikPakLogin();
+    restoreMagnetSource();
+    
+    // 监听磁力链接来源选择器的变化
+    const magnetSourceSelectors = document.querySelectorAll('select[name="magnetSource"], #magnet-source-selector');
+    magnetSourceSelectors.forEach(selector => {
+        if (selector) {
+            selector.addEventListener('change', (e) => {
+                saveMagnetSource(e.target.value);
+            });
+        }
+    });
     
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
@@ -1459,13 +1570,13 @@ function displayRecognitionResultsWithProgress(data) {
     
     // 影片列表 - 紧凑型表格设计
     html += '<div class="movies-table-container">';
-    html += '<table class="movies-table">';
+    html += '<table class="movies-table-compact">';
     html += '<thead>';
     html += '<tr>';
-    html += '<th>番号</th>';
-    html += '<th>标题</th>';
-    html += '<th>状态</th>';
-    html += '<th>磁力链接</th>';
+    html += '<th class="col-id">番号</th>';
+    html += '<th class="col-title">标题</th>';
+    html += '<th class="col-status">状态</th>';
+    html += '<th class="col-magnet">磁力链接</th>';
     html += '</tr>';
     html += '</thead>';
     html += '<tbody>';
@@ -1475,58 +1586,58 @@ function displayRecognitionResultsWithProgress(data) {
         const downloadStatus = downloadResults[movieId];
         const magnetInfo = magnetMap[movieId];
         
-        html += '<tr class="movie-row">';
+        html += '<tr class="movie-row-compact">';
         
         // 番号列
-        html += `<td class="movie-id-cell">`;
-        html += `<span class="movie-id-badge">${movieId}</span>`;
+        html += `<td class="col-id">`;
+        html += `<span class="movie-id-compact">${movieId}</span>`;
         html += `</td>`;
         
         // 标题列
-        html += `<td class="movie-title-cell">`;
-        html += `<div class="movie-title-text">${movie.title || movie.full_title || movieId}</div>`;
+        html += `<td class="col-title">`;
+        html += `<div class="movie-title-compact">${movie.title || movie.full_title || movieId}</div>`;
         html += `</td>`;
         
         // 状态列 - 实时状态显示
-        html += `<td class="status-cell">`;
+        html += `<td class="col-status">`;
         
         if (downloadStatus) {
             if (downloadStatus.status === 'success') {
-                html += `<span class="status-badge compact success">✓ 已下载</span>`;
+                html += `<span class="status-badge-mini success">✓ 已下载</span>`;
             } else if (downloadStatus.status === 'failed') {
                 const errorMsg = downloadStatus.message || downloadStatus.error || '下载失败';
-                html += `<span class="status-badge compact failed" title="${errorMsg}">✗ 失败</span>`;
+                html += `<span class="status-badge-mini failed" title="${errorMsg}">✗ 失败</span>`;
             } else if (downloadStatus.status === 'skipped') {
                 const reason = downloadStatus.message || '已存在';
-                html += `<span class="status-badge compact skipped" title="${reason}">⊘ 跳过</span>`;
+                html += `<span class="status-badge-mini skipped" title="${reason}">⊘ 跳过</span>`;
             } else if (downloadStatus.status === 'downloading') {
-                html += `<span class="status-badge compact downloading">⬇ 下载中</span>`;
+                html += `<span class="status-badge-mini downloading">⬇ 下载中</span>`;
             } else {
-                html += `<span class="status-badge compact pending">⏳ 处理中</span>`;
+                html += `<span class="status-badge-mini pending">⏳ 处理中</span>`;
             }
         } else {
             // 没有下载状态时的处理
             if (movie.downloaded || movie.is_downloaded) {
-                html += `<span class="status-badge compact success">✓ 已存在</span>`;
+                html += `<span class="status-badge-mini success">✓ 已存在</span>`;
             } else if (data.auto_download) {
-                html += `<span class="status-badge compact downloading">⬇ 处理中</span>`;
+                html += `<span class="status-badge-mini downloading">⬇ 处理中</span>`;
             } else {
-                html += `<span class="status-badge compact info">ℹ 未下载</span>`;
+                html += `<span class="status-badge-mini info">ℹ 未下载</span>`;
             }
         }
         html += `</td>`;
         
         // 磁力链接列
-        html += `<td class="magnet-cell">`;
+        html += `<td class="col-magnet">`;
         if (magnetInfo && magnetInfo.magnet_link) {
-            html += `<div class="magnet-info-compact">`;
-            html += `<a href="${magnetInfo.magnet_link}" class="magnet-link compact" title="${magnetInfo.title || ''}">🧲</a>`;
+            html += `<div class="magnet-info-compact-row">`;
+            html += `<a href="${magnetInfo.magnet_link}" class="magnet-link-compact" title="${magnetInfo.title || ''}" aria-label="${magnetInfo.title || '磁力链接'}">🧲</a>`;
             if (magnetInfo.size) {
-                html += `<span class="file-size">${magnetInfo.size}</span>`;
+                html += `<span class="magnet-size-compact">${magnetInfo.size}</span>`;
             }
             html += `</div>`;
         } else {
-            html += `<span class="no-magnet-compact">无链接</span>`;
+            html += `<span class="no-magnet-compact">-</span>`;
         }
         html += `</td>`;
         
@@ -1584,13 +1695,13 @@ function displayRecognitionResults(data) {
     
     // 影片列表 - 紧凑型表格设计
     html += '<div class="movies-table-container">';
-    html += '<table class="movies-table">';
+    html += '<table class="movies-table-compact">';
     html += '<thead>';
     html += '<tr>';
-    html += '<th>番号</th>';
-    html += '<th>标题</th>';
-    html += '<th>状态</th>';
-    html += '<th>磁力链接</th>';
+    html += '<th class="col-id">番号</th>';
+    html += '<th class="col-title">标题</th>';
+    html += '<th class="col-status">状态</th>';
+    html += '<th class="col-magnet">磁力链接</th>';
     html += '</tr>';
     html += '</thead>';
     html += '<tbody>';
@@ -1600,59 +1711,59 @@ function displayRecognitionResults(data) {
         const downloadStatus = downloadResults[movieId];
         const magnetInfo = magnetMap[movieId];
         
-        html += '<tr class="movie-row">';
+        html += '<tr class="movie-row-compact">';
         
         // 番号列
-        html += `<td class="movie-id-cell">`;
-        html += `<span class="movie-id-badge">${movieId}</span>`;
+        html += `<td class="col-id">`;
+        html += `<span class="movie-id-compact">${movieId}</span>`;
         html += `</td>`;
         
         // 标题列
-        html += `<td class="movie-title-cell">`;
-        html += `<div class="movie-title-text">${movie.title || movie.full_title || movieId}</div>`;
+        html += `<td class="col-title">`;
+        html += `<div class="movie-title-compact">${movie.title || movie.full_title || movieId}</div>`;
         html += `</td>`;
         
         // 状态列 - 改进状态显示逻辑
-        html += `<td class="status-cell">`;
+        html += `<td class="col-status">`;
         
         // 检查是否有下载状态信息
         if (downloadStatus) {
             if (downloadStatus.status === 'success') {
-                html += `<span class="status-badge compact success">✓ 已下载</span>`;
+                html += `<span class="status-badge-mini success">✓ 已下载</span>`;
             } else if (downloadStatus.status === 'failed') {
                 const errorMsg = downloadStatus.message || downloadStatus.error || '下载失败';
-                html += `<span class="status-badge compact failed" title="${errorMsg}">✗ 失败</span>`;
+                html += `<span class="status-badge-mini failed" title="${errorMsg}">✗ 失败</span>`;
             } else if (downloadStatus.status === 'skipped') {
                 const reason = downloadStatus.message || '已存在';
-                html += `<span class="status-badge compact skipped" title="${reason}">⊘ 跳过</span>`;
+                html += `<span class="status-badge-mini skipped" title="${reason}">⊘ 跳过</span>`;
             } else if (downloadStatus.status === 'downloading') {
-                html += `<span class="status-badge compact downloading">⬇ 下载中</span>`;
+                html += `<span class="status-badge-mini downloading">⬇ 下载中</span>`;
             } else {
-                html += `<span class="status-badge compact pending">⏳ 处理中</span>`;
+                html += `<span class="status-badge-mini pending">⏳ 处理中</span>`;
             }
         } else {
             // 没有下载状态时，检查是否已存在于系统中
             if (movie.downloaded || movie.is_downloaded) {
-                html += `<span class="status-badge compact success">✓ 已存在</span>`;
+                html += `<span class="status-badge-mini success">✓ 已存在</span>`;
             } else if (data.auto_download) {
-                html += `<span class="status-badge compact pending">⏳ 等待处理</span>`;
+                html += `<span class="status-badge-mini pending">⏳ 等待处理</span>`;
             } else {
-                html += `<span class="status-badge compact info">ℹ 未下载</span>`;
+                html += `<span class="status-badge-mini info">ℹ 未下载</span>`;
             }
         }
         html += `</td>`;
         
         // 磁力链接列
-        html += `<td class="magnet-cell">`;
+        html += `<td class="col-magnet">`;
         if (magnetInfo && magnetInfo.magnet_link) {
-            html += `<div class="magnet-info-compact">`;
-            html += `<a href="${magnetInfo.magnet_link}" class="magnet-link compact" title="${magnetInfo.title || ''}">🧲</a>`;
+            html += `<div class="magnet-info-compact-row">`;
+            html += `<a href="${magnetInfo.magnet_link}" class="magnet-link-compact" title="${magnetInfo.title || ''}" aria-label="${magnetInfo.title || '磁力链接'}">🧲</a>`;
             if (magnetInfo.size) {
-                html += `<span class="file-size">${magnetInfo.size}</span>`;
+                html += `<span class="magnet-size-compact">${magnetInfo.size}</span>`;
             }
             html += `</div>`;
         } else {
-            html += `<span class="no-magnet-compact">无链接</span>`;
+            html += `<span class="no-magnet-compact">-</span>`;
         }
         html += `</td>`;
         
@@ -1766,27 +1877,52 @@ function displayCodeDownloadResultsWithProgress(data) {
     
     // 显示找到的影片
     if (data.found_movies && data.found_movies.length > 0) {
-        html += '<h3>🎬 找到的影片:</h3>';
-        html += '<div class="movies-grid">';
+        html += '<div class="movies-table-container">';
+        html += '<table class="movies-table-compact">';
+        html += '<thead>';
+        html += '<tr>';
+        html += '<th class="col-id">番号</th>';
+        html += '<th class="col-title">标题</th>';
+        html += '<th class="col-date">日期</th>';
+        html += '<th class="col-status">状态</th>';
+        html += '</tr>';
+        html += '</thead>';
+        html += '<tbody>';
         
         data.found_movies.forEach(movie => {
-            html += `
-                <div class="movie-card">
-                    <div class="movie-info">
-                        <h4>${movie.title || movie.id}</h4>
-                        <p><strong>番号:</strong> ${movie.id}</p>
-                        ${movie.actress ? `<p><strong>女优:</strong> ${movie.actress}</p>` : ''}
-                        ${movie.release_date ? `<p><strong>发行日期:</strong> ${movie.release_date}</p>` : ''}
-                        ${movie.duration ? `<p><strong>时长:</strong> ${movie.duration}</p>` : ''}
-                        ${movie.studio ? `<p><strong>制作商:</strong> ${movie.studio}</p>` : ''}
-                        ${movie.series ? `<p><strong>系列:</strong> ${movie.series}</p>` : ''}
-                        ${movie.genres && movie.genres.length > 0 ? `<p><strong>类别:</strong> ${movie.genres.join(', ')}</p>` : ''}
-                    </div>
-                    ${movie.cover_url ? `<img src="${movie.cover_url}" alt="${movie.title || movie.id}" class="movie-cover">` : ''}
-                </div>
-            `;
+            const movieId = movie.id;
+            
+            html += '<tr class="movie-row-compact">';
+            
+            // 番号列
+            html += `<td class="col-id">`;
+            html += `<span class="movie-id-compact">${movieId}</span>`;
+            html += `</td>`;
+            
+            // 标题列
+            html += `<td class="col-title">`;
+            html += `<div class="movie-title-compact">${movie.title || movieId}</div>`;
+            html += `</td>`;
+            
+            // 日期列
+            html += `<td class="col-date">`;
+            html += `<span class="movie-date-compact">${movie.release_date || '-'}</span>`;
+            html += `</td>`;
+            
+            // 状态列
+            html += `<td class="col-status">`;
+            if (movie.downloaded || movie.is_downloaded) {
+                html += `<span class="status-badge-mini success">✓ 已存在</span>`;
+            } else {
+                html += `<span class="status-badge-mini info">ℹ 待下载</span>`;
+            }
+            html += `</td>`;
+            
+            html += '</tr>';
         });
         
+        html += '</tbody>';
+        html += '</table>';
         html += '</div>';
     }
     

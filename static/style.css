@@ -410,46 +410,47 @@ textarea::placeholder {
 
 /* 进度条样式 */
 .progress-container {
-    margin: 1rem 1.5rem;
-    padding: 1rem;
+    margin: 0;
+    padding: 0.75rem 1rem;
     background: #f8f9fa;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border: none;
+    border-bottom: 1px solid #e9ecef;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 .progress-info {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.375rem;
 }
 
 .progress-text {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: #495057;
     font-weight: 500;
 }
 
 .progress-percentage {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     color: #2383e2;
     font-weight: 600;
 }
 
 .progress-bar {
     width: 100%;
-    height: 8px;
+    height: 4px;
     background: #e9ecef;
-    border-radius: 4px;
+    border-radius: 2px;
     overflow: hidden;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.375rem;
 }
 
 .progress-fill {
     height: 100%;
     background: linear-gradient(90deg, #2383e2, #1a73d1);
-    border-radius: 4px;
+    border-radius: 2px;
     width: 0%;
     transition: width 0.3s ease;
     position: relative;
@@ -482,7 +483,7 @@ textarea::placeholder {
 
 .progress-details {
     text-align: center;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: #6c757d;
 }
 
@@ -504,13 +505,13 @@ textarea::placeholder {
 }
 
 .content-header {
-    padding: 1.5rem 2rem 1rem;
+    padding: 1rem 1.5rem;
     border-bottom: 1px solid #f1f1ef;
     background: #fafafa;
 }
 
 .content-header h2 {
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     color: #37352f;
     margin: 0;
@@ -557,15 +558,15 @@ textarea::placeholder {
 .download-summary.compact {
     background: #f8f9fa;
     border: 1px solid #e9ecef;
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 1.5rem;
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
 }
 
 .summary-header {
     font-weight: 600;
-    font-size: 1.1rem;
-    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
     color: #495057;
 }
 
@@ -576,7 +577,7 @@ textarea::placeholder {
 }
 
 .stat-item {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     color: #6c757d;
 }
 
@@ -779,7 +780,7 @@ textarea::placeholder {
 /* 结果展示区域 */
 .result-box {
     flex: 1;
-    padding: 2rem;
+    padding: 1rem 1.5rem;
     overflow-y: auto;
 }
 
@@ -1006,6 +1007,14 @@ textarea::placeholder {
 .options-item:hover {
     background-color: #f1f1ef;
     border-color: #37352f;
+}
+
+/* 选项项的键盘焦点可视化 */
+.options-item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    border-color: var(--primary);
+    background-color: var(--surface-2);
 }
 
 /* 演员头像样式 */
@@ -1448,109 +1457,209 @@ textarea::placeholder {
     border-bottom: 1px solid #e9e9e9;
 }
 
-/* 影片列表样式 */
-.movies-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    padding: 1rem 1.5rem;
-}
-
-.movie-card {
-    background: #ffffff;
-    border: none;
-    border-bottom: 1px solid #e9e9e7;
-    border-radius: 0;
-    overflow: hidden;
-    transition: all 0.2s ease;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    padding: 0.75rem 0;
-}
-
-.movie-card:hover {
-    background: #f7f6f3;
-    transform: none;
-    box-shadow: none;
-}
-
-.movie-card:first-child {
-    border-top: 1px solid #e9e9e7;
-}
-
-.movie-header {
-    flex: 1;
+/* 影片列表样式 - 紧凑型表格布局 */
+.movies-table-container {
     padding: 0;
-    border-bottom: none;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+    overflow-x: auto;
+    margin: 0 -0.5rem;
 }
 
-.movie-title {
-    font-size: 0.95rem;
+.movies-table-compact {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    background: #ffffff;
+}
+
+.movies-table-compact thead {
+    background: #fafafa;
+    border-bottom: 2px solid #e9e9e7;
+}
+
+.movies-table-compact th {
+    padding: 0.5rem 0.75rem;
+    text-align: left;
     font-weight: 600;
     color: #37352f;
-    margin: 0;
-    line-height: 1.3;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-}
-
-.movie-meta {
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
     font-size: 0.8rem;
+    white-space: nowrap;
 }
 
-.movie-id {
+.movies-table-compact .col-id {
+    width: 140px;
+}
+
+.movies-table-compact .col-title {
+    min-width: 300px;
+}
+
+.movies-table-compact .col-date {
+    width: 100px;
+}
+
+.movies-table-compact .col-magnet {
+    width: 150px;
+}
+
+.movies-table-compact td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #f1f1ef;
+    vertical-align: middle;
+}
+
+.movie-row-compact:hover {
+    background: #f7f6f3;
+}
+
+.movie-id-compact {
+    display: inline-block;
     color: #2383e2;
     font-weight: 600;
     background: #f0f7ff;
     padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-family: monospace;
 }
 
-.movie-date {
+.movie-title-compact {
+    color: #37352f;
+    font-weight: 500;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    max-width: 100%;
+}
+
+.movie-date-compact {
+    color: #6b6b6b;
+    font-size: 0.8rem;
+}
+
+.magnet-info-compact-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.magnet-link-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: #22c55e;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.magnet-link-compact:hover {
+    background: #16a34a;
+    transform: scale(1.1);
+}
+
+/* 磁力链接图标的焦点态 */
+.magnet-link-compact:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.magnet-size-compact {
     color: #6b6b6b;
     font-size: 0.75rem;
+    white-space: nowrap;
 }
 
-.movie-cover {
-    width: 100px;
-    height: 56px;
-    border-radius: 4px;
-    object-fit: cover;
-    margin-right: 0.75rem;
-    flex-shrink: 0;
-}
-
-/* 磁力链接容器在行布局中的样式 */
-.movie-card .magnet-container {
-    margin-left: 0.75rem;
-    width: 180px;
-    flex-shrink: 0;
-    padding: 0.375rem;
-    background: #f8f9fa;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column;
+.downloaded-badge-compact {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    min-height: 60px;
+    width: 20px;
+    height: 20px;
+    background: #2196f3;
+    color: white;
+    border-radius: 50%;
+    font-size: 0.7rem;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.no-magnet-compact {
+    color: #a0a0a0;
+    font-size: 0.8rem;
+    font-style: italic;
+}
+
+.loading-text {
+    color: #a0a0a0;
+    font-size: 0.75rem;
+}
+
+/* 紧凑型状态徽章 */
+.status-badge-mini {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.status-badge-mini.success {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.status-badge-mini.failed {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.status-badge-mini.skipped {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
+.status-badge-mini.pending {
+    background: #e2e3e5;
+    color: #6c757d;
+    border: 1px solid #d6d8db;
+}
+
+.status-badge-mini.downloading {
+    background: #cce5ff;
+    color: #004085;
+    border: 1px solid #99d6ff;
+    animation: pulse 1.5s ease-in-out infinite alternate;
+}
+
+.status-badge-mini.info {
+    background: #e7f3ff;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+/* 紧凑型表格中的状态列 */
+.movies-table-compact .col-status {
+    width: 120px;
 }
 
 /* 复制链接容器 */
 .copy-links-container {
-    padding: 0.75rem 1.5rem;
+    padding: 0.625rem 1rem;
     border-bottom: 1px solid #f1f1ef;
     background: #fafafa;
     display: flex;
-    gap: 10px;
+    gap: 8px;
     justify-content: center;
     flex-wrap: wrap;
 }
@@ -1559,16 +1668,16 @@ textarea::placeholder {
     background: #2383e2;
     color: #ffffff;
     border: none;
-    padding: 0.75rem 1.5rem;
+    padding: 0.625rem 1.25rem;
     border-radius: 6px;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    min-width: 160px;
+    min-width: 140px;
 }
 
 .download-btn {
@@ -1601,7 +1710,7 @@ textarea::placeholder {
     display: flex;
     justify-content: center;
     gap: 0.375rem;
-    padding: 1rem;
+    padding: 0.75rem;
     border-top: 1px solid #f1f1ef;
     background: #fafafa;
 }
@@ -1636,9 +1745,20 @@ textarea::placeholder {
     border-color: #1a73d1;
 }
 
+/* 当前页的无障碍等价选择器 */
+.page-btn[aria-current="page"] {
+    background: #2383e2;
+    color: #ffffff;
+    border-color: #2383e2;
+}
+.page-btn[aria-current="page"]:hover {
+    background: #1a73d1;
+    border-color: #1a73d1;
+}
+
 /* 筛选信息 */
 .filter-info {
-    padding: 0.5rem 1.5rem;
+    padding: 0.5rem 1rem;
     background: linear-gradient(135deg, #f0f7ff 0%, #e8f4fd 100%);
     border-bottom: 1px solid #d1e7ff;
     border-left: 3px solid #2383e2;
@@ -1672,19 +1792,25 @@ textarea::placeholder {
         grid-template-columns: 260px 1fr 260px;
     }
     
-    .movies-grid {
-        padding: 1rem;
+    .movies-table-compact .col-id {
+        width: 120px;
     }
     
-    .movie-cover {
+    .movies-table-compact .col-title {
+        min-width: 200px;
+    }
+    
+    .movies-table-compact .col-date {
         width: 90px;
-        height: 50px;
     }
     
-    .movie-card .magnet-container {
-        width: 140px;
-        padding: 0.25rem;
-        min-height: 50px;
+    .movies-table-compact .col-magnet {
+        width: 120px;
+    }
+    
+    .movies-table-compact th,
+    .movies-table-compact td {
+        padding: 0.5rem 0.625rem;
     }
 }
 
@@ -1716,34 +1842,34 @@ textarea::placeholder {
         padding: 1rem;
     }
     
-    .movies-grid {
-        padding: 1rem;
+    .movies-table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
     
-    .movie-card {
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 0.75rem;
-        gap: 0.75rem;
+    .movies-table-compact {
+        font-size: 0.8rem;
+        min-width: 600px;
     }
     
-    .movie-cover {
-        width: 100%;
-        height: auto;
-        aspect-ratio: 16/9;
-        margin-right: 0;
-        margin-bottom: 0.5rem;
+    .movies-table-compact .col-id {
+        width: 100px;
     }
     
-    .movie-header {
-        width: 100%;
+    .movies-table-compact .col-title {
+        min-width: 250px;
     }
     
-    .movie-card .magnet-container {
-        margin-left: 0;
-        width: 100%;
-        min-width: auto;
-        min-height: 50px;
+    .movies-table-compact .col-date {
+        width: 80px;
+    }
+    
+    .movies-table-compact .col-magnet {
+        width: 100px;
+    }
+    
+    .movies-table-compact th,
+    .movies-table-compact td {
         padding: 0.5rem;
     }
     
@@ -2111,6 +2237,130 @@ textarea::placeholder {
     padding: 1rem;
     margin-bottom: 1.5rem;
 }
+
+/* =========================
+   微改清单 - 可回退的增强层
+   1) 设计令牌与暗黑模式
+   2) 焦点可视化与可访问性
+   3) 表格粘性表头
+   4) 按钮体系补齐（.btn 类）
+   5) 输入/文本域可读性统一
+   ========================= */
+
+/* 1) 设计令牌（不破坏原色，优先作为覆盖） */
+:root {
+    --bg: #e8e6e3;
+    --text: #37352f;
+    --muted: #6b6b6b;
+    --subtle: #a0a0a0;
+    --surface: #ffffff;
+    --surface-2: #fafafa;
+    --border: #e9e9e7;
+    --border-2: #f1f1ef;
+    --accent: #f7f6f3;
+    --primary: #2383e2;
+    --primary-600: #1a73d1;
+    --success: #28a745;
+    --danger: #dc3545;
+    --warning: #ffc107;
+    --focus-ring: rgba(35, 131, 226, 0.25);
+    /* 排版与布局变量 */
+    --font-size-xs: 12px;
+    --font-size-sm: 14px;
+    --font-size-md: 16px;
+    --font-size-lg: 20px;
+    --font-size-xl: 24px;
+    --font-size-2xl: 32px;
+    --line-height-tight: 1.3;
+    --line-height-base: 1.6;
+    --line-height-loose: 1.8;
+    --container-max: 1400px;
+    --rhythm-4: 4px; /* 基础间距刻度 4/8 制 */
+    --rhythm-8: 8px;
+    --rhythm-12: 12px;
+    --rhythm-16: 16px;
+    --rhythm-20: 20px;
+    --rhythm-24: 24px;
+    --control-min-h: 36px; /* 命中区最小高度 */
+}
+
+/* 暗黑模式已移除 */
+
+/* 应用关键容器的基础覆盖（不改变结构） */
+body { background-color: var(--bg); color: var(--text); line-height: var(--line-height-base); }
+.app-header, .sidebar-left, .sidebar-right, .content-main { background: var(--surface); }
+.sidebar-header, .content-header { background: var(--surface-2); border-color: var(--border-2); }
+.search-form, .movies-table-container, .download-results { background: var(--surface); border-color: var(--border); }
+.copy-links-container, .pagination, .filter-info { background: var(--surface-2); border-color: var(--border-2); }
+
+/* 视觉与排版系统：标题字号与行高（不覆盖已有局部自定义） */
+h1 { font-size: var(--font-size-2xl); line-height: var(--line-height-tight); }
+h2 { font-size: var(--font-size-xl); line-height: var(--line-height-tight); }
+h3 { font-size: var(--font-size-lg); line-height: var(--line-height-tight); }
+p, li { line-height: var(--line-height-base); }
+small { font-size: var(--font-size-xs); }
+
+/* 2) 焦点可视化（键盘友好） */
+:where(a, button, input, select, textarea, [role="button"]) { outline: none; }
+:where(a, button, input, select, textarea, [role="button"]):focus-visible {
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    border-color: var(--primary);
+}
+
+/* 3) 表格粘性表头（紧凑与普通） */
+.movies-table-compact thead th,
+.movies-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-2);
+}
+
+/* 组件与状态：粘性工具栏（复制/下载区域） */
+.content-main .copy-links-container { position: sticky; top: 0; z-index: 5; }
+
+/* 组件与状态：表格选中/焦点态（无JS也可用） */
+.movie-row-compact:focus-within,
+.movie-row-compact[aria-selected="true"] {
+    background: var(--accent);
+    box-shadow: inset 2px 0 0 0 var(--primary);
+}
+.movie-row-compact:hover { background: var(--accent); }
+
+/* 组件与状态：命中区与禁用态 */
+input, select, textarea, button { min-height: var(--control-min-h); }
+button:disabled, .btn:disabled { pointer-events: none; }
+.page-btn { min-height: var(--control-min-h); }
+
+/* 4) 补齐按钮体系（与现有 button 共存，不破坏既有按钮） */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.625rem 1rem; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all 0.2s ease; }
+.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary-600); border-color: var(--primary-600); }
+.btn-secondary { background: var(--surface); color: var(--primary); border-color: var(--primary); }
+.btn-secondary:hover { background: rgba(35,131,226,0.06); }
+.btn-text { background: transparent; color: var(--primary); border-color: transparent; padding-left: 0; padding-right: 0; }
+.btn[disabled], .btn:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+/* 危险态按钮 */
+.btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.btn-danger:hover { filter: brightness(0.95); }
+
+/* 让 options-btn 继承 .btn 的交互与尺寸，同时保持灰色外观 */
+.btn.options-btn { background-color: #6c757d; color: #fff; border-color: #6c757d; min-width: 40px; }
+.btn.options-btn:hover { background-color: #5a6268; }
+
+/* 5) 输入/文本域可读性统一与聚焦反馈 */
+input, select, textarea { background: var(--surface); color: var(--text); border-color: var(--border); }
+input::placeholder, textarea::placeholder { color: var(--subtle); }
+input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-ring); }
+
+/* 细节：紧凑表格的语义色与悬停 */
+.movie-id-compact { color: var(--primary); background: rgba(35,131,226,0.08); }
+.movie-row-compact:hover { background: var(--accent); }
+.magnet-link-compact { background: var(--success); }
+.magnet-link-compact:hover { background: #178d43; }
+.magnet-size-compact, .movie-date-compact { color: var(--muted); }
+.no-magnet-compact, .loading-text { color: var(--subtle); }
+
 
 .search-summary h3 {
     margin: 0 0 0.5rem 0;
