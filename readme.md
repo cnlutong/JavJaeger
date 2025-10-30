@@ -4,7 +4,7 @@
 
 <img src="static/logo.jpg" alt="JavJaeger Logo" width="150" height="150">
 
-**基于 JavBus API 的影片信息查询和筛选工具**
+**一个聚合多资源站、支持高级筛选和云端下载的 Jav 影片信息与磁力检索工具**
 
 *"人类的一切痛苦，都是因为性欲得不到满足"*
 
