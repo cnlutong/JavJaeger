@@ -142,6 +142,22 @@ volumes:
 - 🎯 **完美配合** - JavJaeger负责搜索筛选，W2A负责高效下载
 - 📁 **批量管理** - 支持文件夹批量选择和下载管理
 
+## 🖼️ 界面预览
+
+下面为部分界面截图（截图存放于 `demo photo/` 目录）：
+
+<div align="center">
+
+<img src="demo photo/演员刷选0.png" alt="演员筛选-网格" width="45%" />
+<img src="demo photo/演员刷选1.png" alt="演员筛选-详情" width="45%" />
+
+<img src="demo photo/演员刷选2.png" alt="演员筛选-多条件" width="45%" />
+<img src="demo photo/类别筛选0.png" alt="类别筛选" width="45%" />
+
+<img src="demo photo/排行榜获取影片0.png" alt="排行榜获取影片" width="90%" />
+
+</div>
+
 ## 🧩 API 速览
 
 后端提供了若干 HTTP API，前端已封装常用路径：
