@@ -858,7 +858,7 @@ async function downloadAllMovies() {
         return;
     }
     
-    const totalMovies = movieCards.length;
+    const totalMovies = movieRows.length;
     const newMovies = links.length;
     const skippedMovies = totalMovies - newMovies;
     
