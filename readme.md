@@ -53,20 +53,6 @@ JavJaeger 是一个基于 FastAPI + 前端静态页面的高效影片信息聚�
 
 ## 🚀 快速开始
 
-### 🐳 Docker 部署（推荐）
-
-```bash
-# 1️⃣ 克隆项目
-git clone <项目地址>
-cd JavJaeger
-
-# 2️⃣ 启动服务
-docker-compose up -d
-
-# 3️⃣ 访问应用
-# 🔗 http://localhost:18000 (反向到容器 8000)
-```
-
 ### 💻 源码直接运行（Windows/macOS/Linux）
 
 ```bash
@@ -107,16 +93,6 @@ JAVBUS_API_BASE_URL=http://10.0.0.20:3000
 - 下载记录持久化文件：`data/downloaded_movies.json`
 - 前端静态资源目录：`static/`
 - 模板目录：`templates/`
-
-Docker 下默认卷映射（见 `docker-compose.yml`）：
-
-```yaml
-volumes:
-  - ./config.json:/app/config.json:ro
-  - ./static:/app/static:ro
-  - ./templates:/app/templates:ro
-  - downloaded_data:/app/data
-```
 
 ## 📖 使用指南
 
@@ -194,7 +170,7 @@ GET  /api/downloaded-movies/{movie_id}  # 检查是否已下载
 |------|------|
 | **后端** | FastAPI + Python |
 | **前端** | HTML/CSS/JavaScript |
-| **部署** | Docker + Nginx |
+| **部署** | Nginx |
 | **API** | JavBus API |
 | **下载** | PikPak API |
 
@@ -211,8 +187,6 @@ JavJaeger/
 ├─ data/
 │  └─ downloaded_movies.json# 已下载记录
 ├─ config.json              # API 配置（可被环境变量覆盖）
-├─ docker-compose.yml       # 一键部署
-├─ Dockerfile               # 最小化镜像，多阶段构建
 └─ cilisousuo_cli.py        # 备用磁力源（cilisousuo）
 ```
 
@@ -224,20 +198,20 @@ JavJaeger/
 
 ## 📦 生产部署建议
 
-- 推荐 Docker 方式，容器内使用 `uvicorn` 以单进程运行，前置 Nginx 静态与反向代理（仓库含 `nginx.conf` 可参考自配）。
+- 使用 `uvicorn` 以单进程运行，前置 Nginx 静态与反向代理（仓库含 `nginx.conf` 可参考自配）。
 - 设置 `JAVBUS_API_BASE_URL` 为内网可达地址，减少跨网延迟。
-- 挂载 `data/` 目录至持久卷以保存下载记录。
+- 确保 `data/` 目录可持久化保存下载记录。
 
 ## ❓ 常见问题
 
 <details>
 <summary><strong>Q: 端口被占用怎么办？</strong></summary>
 
-A: 修改 `docker-compose.yml` 中的端口映射：
-```yaml
-ports:
-  - "18000:8000" 
+A: 修改启动命令中的端口参数，例如：
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8001
 ```
+或修改 `main.py` 中的默认端口配置。
 </details>
 
 <details>
@@ -249,10 +223,7 @@ A: 检查 `config.json` 中的 API 地址是否正确，确保 JavBus API 服务
 <details>
 <summary><strong>Q: 如何查看日志？</strong></summary>
 
-A: 使用以下命令查看日志：
-```bash
-docker-compose logs -f javjaeger
-```
+A: 日志会直接输出到控制台，如果使用 Nginx 等反向代理，可以查看 Nginx 的访问日志和错误日志。
 </details>
 
 <details>
