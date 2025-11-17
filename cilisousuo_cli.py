@@ -17,12 +17,14 @@ BASE_URL = "https://cilisousuo.cc"
 # ===================== 相关性过滤逻辑 =====================
 _FILTER_ENABLED = True
 _ALLOW_COLLECTIONS = False
+_ALLOW_CHINESE_SUBTITLES = False
 
 
-def set_filter_options(enable_filter: bool, allow_collections: bool) -> None:
-    global _FILTER_ENABLED, _ALLOW_COLLECTIONS
+def set_filter_options(enable_filter: bool, allow_collections: bool, allow_chinese_subtitles: bool = False) -> None:
+    global _FILTER_ENABLED, _ALLOW_COLLECTIONS, _ALLOW_CHINESE_SUBTITLES
     _FILTER_ENABLED = enable_filter
     _ALLOW_COLLECTIONS = allow_collections
+    _ALLOW_CHINESE_SUBTITLES = allow_chinese_subtitles
 
 
 def _extract_code_parts(query: str) -> Optional[Tuple[str, str]]:
@@ -104,6 +106,56 @@ def _looks_like_4k(text: str) -> bool:
     return False
 
 
+def _has_chinese_subtitle(text: str) -> bool:
+    """
+    判断文本是否包含中文字幕相关标识
+    关键词示例：中文字幕、简中、繁中、chs、cht、ch、-c、chinese subtitle
+    """
+    if not text:
+        return False
+    t = text.lower()
+    
+    # 明确的中文字幕标识
+    chinese_subtitle_keywords = [
+        "中文字幕",
+        "中文 字幕",
+        "简中",
+        "繁中",
+        "简体中文",
+        "繁体中文",
+        "chs",  # Chinese Simplified
+        "cht",  # Chinese Traditional
+        "chinese subtitle",
+        "chinese sub",
+        "chinese srt",
+        "中文 srt",
+        "简中字幕",
+        "繁中字幕",
+        "中字",
+        "内嵌中字",
+        "内封中字",
+        "内挂中字",
+    ]
+    
+    for keyword in chinese_subtitle_keywords:
+        if keyword in t:
+            return True
+    
+    # 检查 "chinese" 后跟 "sub" 或 "srt" 的情况
+    if re.search(r"chinese\s+(sub|srt|subtitle)", t):
+        return True
+    
+    # 检查独立的 "ch" 标记（作为单词边界，避免误匹配 "chunk" 等）
+    if re.search(r"(?<![a-z])ch(?![a-z])", t):
+        return True
+    
+    # 检查 "-c" 标记（通常出现在文件名中，如 "xxx-c.mp4"）
+    if re.search(r"[-_\s]c(?![a-z])", t):
+        return True
+    
+    return False
+
+
 def is_relevant(result: 'SearchResult', query: str) -> bool:
     if not _FILTER_ENABLED:
         return True
@@ -135,6 +187,11 @@ def is_relevant(result: 'SearchResult', query: str) -> bool:
     size_bytes = parse_size_to_bytes(result.size)
     if size_bytes is not None and size_bytes > 15 * (1024 ** 3):
         if not (_looks_like_4k(result.title) or _looks_like_4k(result.filename)):
+            return False
+
+    # 4) 如果包含中文字幕且不允许中文字幕，过滤
+    if not _ALLOW_CHINESE_SUBTITLES:
+        if _has_chinese_subtitle(result.title) or _has_chinese_subtitle(result.filename):
             return False
 
     return True
@@ -423,6 +480,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--debug", action="store_true", help="输出调试日志")
     parser.add_argument("--no-filter", action="store_true", help="不过滤明显无关的结果")
     parser.add_argument("--allow-collections", action="store_true", help="不过滤包含‘合集’等集合词的结果")
+    parser.add_argument("--allow-chinese-subtitles", action="store_true", help="不过滤包含中文字幕的结果（默认会过滤）")
     parser.add_argument("--all", action="store_true", help="返回所有结果（而非只返回最佳源）")
     parser.add_argument("--magnet-only", action="store_true", help="仅输出最佳源的磁力链接（纯文本，便于脚本使用）")
 
@@ -431,7 +489,11 @@ def main(argv: List[str]) -> int:
 
     try:
         # 将过滤选项注入到全局过滤函数行为
-        set_filter_options(enable_filter=not args.no_filter, allow_collections=args.allow_collections)
+        set_filter_options(
+            enable_filter=not args.no_filter,
+            allow_collections=args.allow_collections,
+            allow_chinese_subtitles=args.allow_chinese_subtitles
+        )
         
         # 默认选择最佳结果，除非使用了 --all
         best_only = not args.all
