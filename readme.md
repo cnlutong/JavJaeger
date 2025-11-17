@@ -53,6 +53,53 @@ JavJaeger 是一个基于 FastAPI + 前端静态页面的高效影片信息聚�
 
 ## 🚀 快速开始
 
+### 🐳 Docker 运行（推荐）
+
+```bash
+# 1️⃣ 配置 JavBus API 地址（必需）
+# 编辑 docker-compose.yml，修改 JAVBUS_API_BASE_URL 环境变量：
+# environment:
+#   - JAVBUS_API_BASE_URL=http://your-api-host:port
+
+# 2️⃣ 构建并启动容器
+docker-compose up -d
+
+# 3️⃣ 查看日志
+docker-compose logs -f
+
+# 4️⃣ 访问应用
+# 🔗 http://localhost:8000
+
+# 停止服务
+docker-compose down
+```
+
+**常用 Docker 命令：**
+```bash
+# 查看实时日志
+docker-compose logs -f javjaeger
+
+# 查看最近 100 行日志
+docker-compose logs --tail=100 javjaeger
+
+# 进入容器调试
+docker-compose exec javjaeger bash
+
+# 重启服务
+docker-compose restart
+
+# 重新构建镜像
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+**配置说明：**
+- 端口配置：主机端口 8000 映射到容器端口 5000
+- 数据持久化：`data/` 目录已挂载，下载记录会自动保存
+- 环境变量：`JAVBUS_API_BASE_URL` 优先级高于 `config.json`
+
+> 📖 更多详细信息请参考 [DOCKER.md](DOCKER.md) 文件
+
 ### 💻 源码直接运行（Windows/macOS/Linux）
 
 ```bash
