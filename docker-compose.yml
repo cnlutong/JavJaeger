@@ -8,12 +8,11 @@ services:
     container_name: javjaeger
     restart: unless-stopped
     ports:
-      # 主机端口:容器端口（容器内固定为 5000）
+      # host:container (container port fixed at 5000)
       - "8000:5000"
     environment:
-      # JavBus API 地址（修改为你的 API 地址）
+      # JavBus API URL (change to your API address)
       - JAVBUS_API_BASE_URL=http://10.0.0.20:3000
     volumes:
-      # 持久化数据目录
+      # Persistent data directory
       - ./data:/app/data
-
