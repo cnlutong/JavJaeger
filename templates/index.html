@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JavJaeger</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
+
 <body>
     <div class="app-container">
         <header class="app-header">
@@ -21,9 +23,11 @@
                                     <span class="version">{{ version_info.version }}</span>
                                     <span class="build-date">{{ version_info.build_date }}</span>
                                 </div>
-                                <a href="https://github.com/cnlutong/JavJaeger" target="_blank" class="github-link" title="查看GitHub仓库">
+                                <a href="https://github.com/cnlutong/JavJaeger" target="_blank" class="github-link"
+                                    title="查看GitHub仓库">
                                     <svg class="github-icon" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+                                        <path
+                                            d="M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
                                     </svg>
                                 </a>
                             </div>
@@ -32,14 +36,14 @@
                 </div>
             </div>
         </header>
-        
+
         <div class="main-layout">
             <!-- 左侧查询功能区域 -->
             <aside class="sidebar-left">
                 <div class="sidebar-header">
                     <h2>🔍 查询功能</h2>
                 </div>
-                
+
                 <div class="search-forms-container">
                     <div class="search-form">
                         <div class="form-header">
@@ -87,7 +91,7 @@
                                     <option value="false">无字幕</option>
                                 </select>
                             </div>
-                            
+
                             <div class="actor-count-filter">
                                 <label for="fetchMode">获取方式:</label>
                                 <select name="fetchMode">
@@ -98,7 +102,7 @@
                             <button type="submit" class="btn btn-primary">筛选</button>
                         </form>
                     </div>
-                    
+
                     <div class="search-form">
                         <div class="form-header">
                             <h3>🎬 影片查询</h3>
@@ -141,7 +145,8 @@
                         <form id="movie-recognition">
                             <div class="form-group">
                                 <label for="htmlContent">HTML源代码</label>
-                                <textarea name="htmlContent" id="htmlContent" placeholder="请粘贴JAVLibrary网页源代码..." rows="8" required></textarea>
+                                <textarea name="htmlContent" id="htmlContent" placeholder="请粘贴JAVLibrary网页源代码..."
+                                    rows="8" required></textarea>
                                 <div class="form-hint">支持解析JAVLibrary排行榜页面的HTML源代码</div>
                             </div>
                             <div class="form-group">
@@ -150,6 +155,15 @@
                                         <input type="checkbox" name="autoDownload" checked>
                                         <span class="checkmark"></span>
                                         自动下载无字幕最佳磁力链接
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" name="exclude4k">
+                                        <span class="checkmark"></span>
+                                        排除4K资源（避免下载过大文件）
                                     </label>
                                 </div>
                             </div>
@@ -164,7 +178,9 @@
                         <form id="movie-code-download">
                             <div class="form-group">
                                 <label for="movieCodes">影片番号</label>
-                                <textarea name="movieCodes" id="movieCodes" placeholder="请输入影片番号，支持多种分隔符：&#10;SSIS-001 SSIS-002&#10;SSIS-003,SSIS-004&#10;SSIS-005，SSIS-006" rows="6" required></textarea>
+                                <textarea name="movieCodes" id="movieCodes"
+                                    placeholder="请输入影片番号，支持多种分隔符：&#10;SSIS-001 SSIS-002&#10;SSIS-003,SSIS-004&#10;SSIS-005，SSIS-006"
+                                    rows="6" required></textarea>
                                 <div class="form-hint">支持空格、换行、逗号等分隔符，自动识别多个番号</div>
                             </div>
                             <div class="form-group">
@@ -173,6 +189,15 @@
                                         <input type="checkbox" name="autoDownload" checked>
                                         <span class="checkmark"></span>
                                         自动下载无字幕最佳磁力链接
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" name="exclude4k">
+                                        <span class="checkmark"></span>
+                                        排除4K资源（避免下载过大文件）
                                     </label>
                                 </div>
                             </div>
@@ -187,7 +212,7 @@
                 <div class="content-header">
                     <h2>📊 查询结果</h2>
                 </div>
-                
+
                 <!-- 进度条容器 -->
                 <div class="progress-container" id="progress-container" style="display: none;">
                     <div class="progress-info">
@@ -198,11 +223,11 @@
                         <div class="progress-fill" id="progress-fill"></div>
                     </div>
                     <div class="progress-details" id="progress-details">
-                        <span class="progress-current" id="progress-current">0</span> / 
+                        <span class="progress-current" id="progress-current">0</span> /
                         <span class="progress-total" id="progress-total">0</span> 项
                     </div>
                 </div>
-                
+
                 <div class="result-box" id="result-container">
                     <div class="empty-state">
                         <div class="empty-icon">🔍</div>
@@ -217,7 +242,7 @@
                 <div class="sidebar-header">
                     <h2>📥 下载管理</h2>
                 </div>
-                
+
                 <div class="download-section">
                     <!-- PikPak登录区域 -->
                     <div class="search-form">
@@ -228,13 +253,14 @@
                             <input type="text" name="username" placeholder="用户名" required>
                             <input type="password" name="password" placeholder="密码" required>
                             <div class="login-buttons">
-                            <button type="submit" id="login-btn" class="btn btn-primary">登录</button>
-                            <button type="button" id="logout-btn" class="btn btn-danger logout-btn" style="display: none;">退出</button>
+                                <button type="submit" id="login-btn" class="btn btn-primary">登录</button>
+                                <button type="button" id="logout-btn" class="btn btn-danger logout-btn"
+                                    style="display: none;">退出</button>
                             </div>
                         </form>
                         <div id="login-status" class="login-status"></div>
                     </div>
-                    
+
                     <!-- 磁力链接来源选择（全局） -->
                     <div class="search-form">
                         <div class="form-header">
@@ -247,6 +273,16 @@
                                 <option value="cilisousuo">Cilisousuo</option>
                             </select>
                         </div>
+                        <div class="form-group" style="margin-top: 10px;">
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="globalExclude4k" id="global-exclude-4k">
+                                    <span class="checkmark"></span>
+                                    全局排除4K资源
+                                </label>
+                            </div>
+                            <div class="form-hint">启用后，影片列表中的磁力链接将自动排除4K资源</div>
+                        </div>
                     </div>
 
                     <div class="download-info">
@@ -257,7 +293,8 @@
             </aside>
         </div>
     </div>
-    
+
     <script src="/static/app_optimized.js"></script>
 </body>
+
 </html>

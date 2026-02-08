@@ -14,7 +14,7 @@ import subprocess
 from typing import List, Dict, Optional
 from pikpakapi import PikPakApi
 import re
-from cilisousuo_cli import get_best_magnet as cilisousuo_get_best_magnet
+from cilisousuo_cli import get_best_magnet as cilisousuo_get_best_magnet, is_4k_resource
 
 # 配置日志
 logging.basicConfig(
@@ -135,12 +135,14 @@ class MovieRecognitionRequest(BaseModel):
     auto_download: bool = True
     username: Optional[str] = None
     password: Optional[str] = None
+    exclude_4k: bool = False  # 是否排除4K资源
 
 class MovieCodeDownloadRequest(BaseModel):
     movie_codes: str  # 用户输入的番号字符串
     auto_download: bool = True
     username: Optional[str] = None
     password: Optional[str] = None
+    exclude_4k: bool = False  # 是否排除4K资源
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -650,15 +652,29 @@ async def get_movie(movieId: str, request: Request):
     
     return data
 
-def select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter=None):
+def select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter=None, exclude_4k=False):
     """
     根据字幕筛选条件选择最佳磁力链接
     :param magnet_data: 磁力链接数据列表
     :param has_subtitle_filter: 字幕筛选条件 ('true', 'false', 或 None)
+    :param exclude_4k: 是否排除4K资源
     :return: 最佳磁力链接
     """
     if not magnet_data or len(magnet_data) == 0:
         return None
+    
+    # 如果需要排除4K资源，先过滤
+    if exclude_4k:
+        filtered_data = []
+        for magnet in magnet_data:
+            title = magnet.get('title', '')
+            if not is_4k_resource(title):
+                filtered_data.append(magnet)
+        if filtered_data:
+            magnet_data = filtered_data
+            logging.info(f"排除4K后剩余 {len(magnet_data)} 个磁力链接")
+        else:
+            logging.warning("排除4K后没有可用的磁力链接，将使用原始列表")
     
     # 如果没有字幕筛选条件，返回第一个（按大小排序的最大的）
     if not has_subtitle_filter:
@@ -717,18 +733,34 @@ async def get_magnets(movieId: str, request: Request):
     
     # 提取字幕筛选参数
     has_subtitle_filter = request.query_params.get('hasSubtitle')
+    exclude_4k = request.query_params.get('exclude4k', 'false').lower() == 'true'
     
-    # 转发除字幕筛选和source外的所有查询参数
+    # 转发除字幕筛选、source和exclude4k外的所有查询参数
     query_params = dict(request.query_params)
     if 'hasSubtitle' in query_params:
         del query_params['hasSubtitle']
     if 'source' in query_params:
         del query_params['source']
+    if 'exclude4k' in query_params:
+        del query_params['exclude4k']
     
     # 使用缓存获取数据
     data = await fetch_with_cache(api_url, query_params)
     if data is None:
         return {"error": "获取磁力链接失败", "message": "API请求失败"}
+    
+    # 如果需要排除4K资源，先过滤
+    if exclude_4k and data:
+        filtered_data = []
+        for magnet in data:
+            title = magnet.get('title', '')
+            if not is_4k_resource(title):
+                filtered_data.append(magnet)
+        if filtered_data:
+            logging.info(f"排除4K后剩余 {len(filtered_data)} 个磁力链接")
+            data = filtered_data
+        else:
+            logging.warning("排除4K后没有可用的磁力链接，将返回原始列表")
     
     # 如果有字幕筛选条件，根据条件筛选磁力链接
     if has_subtitle_filter and data:
@@ -1160,10 +1192,10 @@ async def recognize_movies(request: MovieRecognitionRequest):
                     magnet_data = await fetch_with_cache(magnet_url, magnet_params)
                     
                     # 选择最佳磁力链接（优先无字幕的最大文件）
-                    best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false')
+                    best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false', request.exclude_4k)
                     if not best_magnet:
                         # 如果没有无字幕的，选择任意最大的
-                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None)
+                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None, request.exclude_4k)
                     
                     if best_magnet:
                         # 检查磁力链接字段是否存在
@@ -1306,10 +1338,10 @@ async def download_movies_by_codes(request: MovieCodeDownloadRequest):
                         magnet_data = await fetch_with_cache(magnet_url, magnet_params)
                         
                         # 选择最佳磁力链接（优先无字幕的最大文件）
-                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false')
+                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false', request.exclude_4k)
                         if not best_magnet:
                             # 如果没有无字幕的，选择任意最大的
-                            best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None)
+                            best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None, request.exclude_4k)
                         
                         if best_magnet:
                             # 检查磁力链接字段是否存在

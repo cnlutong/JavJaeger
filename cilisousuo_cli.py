@@ -18,13 +18,15 @@ BASE_URL = "https://cilisousuo.cc"
 _FILTER_ENABLED = True
 _ALLOW_COLLECTIONS = False
 _ALLOW_CHINESE_SUBTITLES = False
+_ALLOW_4K = True  # 是否允许4K资源，默认允许
 
 
-def set_filter_options(enable_filter: bool, allow_collections: bool, allow_chinese_subtitles: bool = False) -> None:
-    global _FILTER_ENABLED, _ALLOW_COLLECTIONS, _ALLOW_CHINESE_SUBTITLES
+def set_filter_options(enable_filter: bool, allow_collections: bool, allow_chinese_subtitles: bool = False, allow_4k: bool = True) -> None:
+    global _FILTER_ENABLED, _ALLOW_COLLECTIONS, _ALLOW_CHINESE_SUBTITLES, _ALLOW_4K
     _FILTER_ENABLED = enable_filter
     _ALLOW_COLLECTIONS = allow_collections
     _ALLOW_CHINESE_SUBTITLES = allow_chinese_subtitles
+    _ALLOW_4K = allow_4k
 
 
 def _extract_code_parts(query: str) -> Optional[Tuple[str, str]]:
@@ -90,7 +92,7 @@ def _find_all_codes(text: str) -> set:
 def _looks_like_4k(text: str) -> bool:
     """
     判断文本是否包含4K/超高清相关标识
-    关键词示例：4k、uhd、2160p、ultra hd
+    关键词示例：4k、uhd、2160p、ultra hd、ultrahd
     """
     if not text:
         return False
@@ -100,6 +102,8 @@ def _looks_like_4k(text: str) -> bool:
     if "uhd" in t:
         return True
     if "ultra hd" in t:
+        return True
+    if "ultrahd" in t:
         return True
     if re.search(r"(?<!\d)2160p(?!\d)", t):
         return True
@@ -350,12 +354,43 @@ def parse_size_to_bytes(size_str: str) -> Optional[float]:
         return None
 
 
-def select_best_result(results: List[SearchResult]) -> Optional[SearchResult]:
+def is_4k_resource(title: str, filename: str = "") -> bool:
+    """
+    判断资源是否为4K资源
+    :param title: 资源标题
+    :param filename: 文件名（可选）
+    :return: 是否为4K资源
+    """
+    return _looks_like_4k(title) or _looks_like_4k(filename)
+
+
+def filter_4k_results(results: List[SearchResult]) -> List[SearchResult]:
+    """
+    过滤掉4K资源
+    :param results: 搜索结果列表
+    :return: 过滤后的结果列表
+    """
+    filtered = [r for r in results if not is_4k_resource(r.title, r.filename)]
+    dropped = len(results) - len(filtered)
+    if dropped:
+        logging.info("已过滤4K资源: %d", dropped)
+    return filtered
+
+
+def select_best_result(results: List[SearchResult], exclude_4k: bool = False) -> Optional[SearchResult]:
     """
     从结果中选择最佳源（文件大小最大的）
+    :param results: 搜索结果列表
+    :param exclude_4k: 是否排除4K资源
     """
     if not results:
         return None
+    
+    # 如果需要排除4K资源，先过滤
+    if exclude_4k:
+        results = filter_4k_results(results)
+        if not results:
+            return None
     
     best = None
     best_size = -1

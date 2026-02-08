@@ -24,7 +24,7 @@ class ProgressManager {
     show(text = '正在处理请求...', total = 0) {
         console.log('ProgressManager.show called:', text, total);
         console.log('Container element:', this.container);
-        
+
         if (this.container) {
             this.container.style.display = 'block';
             this.isVisible = true;
@@ -53,22 +53,22 @@ class ProgressManager {
         if (text !== null) {
             this.updateText(text);
         }
-        
+
         if (total !== null && this.totalElement) {
             this.totalElement.textContent = total;
         }
-        
+
         if (this.currentElement) {
             this.currentElement.textContent = current;
         }
 
         const totalValue = total || parseInt(this.totalElement?.textContent || '0');
         const percentage = totalValue > 0 ? Math.round((current / totalValue) * 100) : 0;
-        
+
         if (this.percentageElement) {
             this.percentageElement.textContent = `${percentage}%`;
         }
-        
+
         if (this.fillElement) {
             this.fillElement.style.width = `${percentage}%`;
         }
@@ -120,7 +120,7 @@ async function loadCategoriesData() {
     if (categoriesData) {
         return categoriesData;
     }
-    
+
     try {
         const response = await fetch('/static/categories.json');
         if (response.ok) {
@@ -130,7 +130,7 @@ async function loadCategoriesData() {
     } catch (error) {
         console.error('加载类别数据失败:', error);
     }
-    
+
     return {};
 }
 
@@ -139,7 +139,7 @@ async function loadActorsData() {
     if (actorsData) {
         return actorsData;
     }
-    
+
     try {
         const response = await fetch('/static/actors.json');
         if (response.ok) {
@@ -149,7 +149,7 @@ async function loadActorsData() {
     } catch (error) {
         console.error('加载演员数据失败:', error);
     }
-    
+
     return {};
 }
 
@@ -157,7 +157,7 @@ async function loadActorsData() {
 function showOptionsSelector() {
     const filterTypeSelect = document.querySelector('#movie-filter select[name="filterType"]');
     const selectedType = filterTypeSelect.value;
-    
+
     if (selectedType === 'genre') {
         loadCategoriesData().then(categories => {
             createOptionsDisplay('类别', categories);
@@ -189,9 +189,9 @@ function showOptionsSelector() {
 // 创建选项展示（保持原有逻辑）
 function createOptionsDisplay(optionType, optionsData) {
     const resultContainer = document.getElementById('result-container');
-    
+
     resultContainer.innerHTML = '';
-    
+
     if (!optionsData || Object.keys(optionsData).length === 0) {
         resultContainer.innerHTML = `
             <div class="empty-state">
@@ -202,17 +202,17 @@ function createOptionsDisplay(optionType, optionsData) {
         `;
         return;
     }
-    
+
     const optionsDisplay = document.createElement('div');
     optionsDisplay.className = 'options-display';
-    
+
     const header = document.createElement('div');
     header.className = 'options-display-header';
-    
+
     const title = document.createElement('h3');
     title.className = 'options-display-title';
     title.innerHTML = `📋 选择${optionType}`;
-    
+
     const closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-text options-close-btn';
     closeBtn.innerHTML = '×';
@@ -225,25 +225,25 @@ function createOptionsDisplay(optionType, optionsData) {
             </div>
         `;
     };
-    
+
     header.appendChild(title);
     header.appendChild(closeBtn);
-    
+
     const groupsContainer = document.createElement('div');
     groupsContainer.className = 'options-groups';
-    
+
     if (optionType === '演员') {
         const actorsList = optionsData['演员'] || [];
         const group = document.createElement('div');
         group.className = 'options-group';
-        
+
         const itemsContainer = document.createElement('div');
         itemsContainer.className = 'options-items';
-        
+
         actorsList.forEach(item => {
             const itemBtn = document.createElement('button');
             itemBtn.className = 'options-item';
-            
+
             if (item.avatar) {
                 const avatar = document.createElement('img');
                 avatar.src = item.avatar;
@@ -251,7 +251,7 @@ function createOptionsDisplay(optionType, optionsData) {
                 avatar.alt = item.name;
                 avatar.crossOrigin = 'anonymous';
                 avatar.loading = 'lazy';
-                
+
                 avatar.onerror = () => {
                     avatar.style.display = 'none';
                     const defaultIcon = document.createElement('span');
@@ -259,26 +259,26 @@ function createOptionsDisplay(optionType, optionsData) {
                     defaultIcon.className = 'actor-default-icon';
                     itemBtn.insertBefore(defaultIcon, avatar);
                 };
-                
+
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = item.name;
                 nameSpan.className = 'actor-name';
-                
+
                 itemBtn.appendChild(avatar);
                 itemBtn.appendChild(nameSpan);
             } else {
                 const defaultIcon = document.createElement('span');
                 defaultIcon.textContent = '👤';
                 defaultIcon.className = 'actor-default-icon';
-                
+
                 const nameSpan = document.createElement('span');
                 nameSpan.textContent = item.name;
                 nameSpan.className = 'actor-name';
-                
+
                 itemBtn.appendChild(defaultIcon);
                 itemBtn.appendChild(nameSpan);
             }
-            
+
             itemBtn.title = item.name;
             itemBtn.onclick = () => {
                 selectOption(item.code, item.name, optionType);
@@ -292,21 +292,21 @@ function createOptionsDisplay(optionType, optionsData) {
             };
             itemsContainer.appendChild(itemBtn);
         });
-        
+
         group.appendChild(itemsContainer);
         groupsContainer.appendChild(group);
     } else {
         Object.keys(optionsData).forEach(type => {
             const group = document.createElement('div');
             group.className = 'options-group';
-            
+
             const groupTitle = document.createElement('h4');
             groupTitle.className = 'options-group-title';
             groupTitle.textContent = type;
-            
+
             const itemsContainer = document.createElement('div');
             itemsContainer.className = 'options-items';
-            
+
             optionsData[type].forEach(item => {
                 const itemBtn = document.createElement('button');
                 itemBtn.className = 'options-item';
@@ -324,13 +324,13 @@ function createOptionsDisplay(optionType, optionsData) {
                 };
                 itemsContainer.appendChild(itemBtn);
             });
-            
+
             group.appendChild(groupTitle);
             group.appendChild(itemsContainer);
             groupsContainer.appendChild(group);
         });
     }
-    
+
     optionsDisplay.appendChild(header);
     optionsDisplay.appendChild(groupsContainer);
     resultContainer.appendChild(optionsDisplay);
@@ -341,7 +341,7 @@ function selectOption(code, name, optionType) {
     const filterTypeSelect = document.querySelector('#movie-filter select[name="filterType"]');
     const filterValueInput = document.querySelector('#movie-filter input[name="filterValue"]');
     const filterCodeInput = document.querySelector('#movie-filter input[name="filterCode"]');
-    
+
     if (filterTypeSelect && filterValueInput && filterCodeInput) {
         const typeMapping = {
             '类别': 'genre',
@@ -351,7 +351,7 @@ function selectOption(code, name, optionType) {
             '发行商': 'label',
             '系列': 'series'
         };
-        
+
         const filterType = typeMapping[optionType] || filterTypeSelect.value;
         filterTypeSelect.value = filterType;
         filterValueInput.value = name;
@@ -365,23 +365,23 @@ document.getElementById('movie-search').addEventListener('submit', async (e) => 
     e.preventDefault();
     const keyword = e.target.keyword.value.trim();
     const resultContainer = document.getElementById('result-container');
-    
+
     if (!keyword) {
         resultContainer.innerHTML = '<p>请输入影片番号</p>';
         return;
     }
-    
+
     // 显示进度条
     progressManager.setIndeterminate('正在搜索影片...');
     resultContainer.innerHTML = '';
-    
+
     try {
         // 调用API搜索影片
         const data = await simpleFetch(`/api/movies/${encodeURIComponent(keyword)}`);
-        
+
         // 完成进度条
         progressManager.complete('搜索完成');
-        
+
         // 显示结果
         displayResults(data);
     } catch (error) {
@@ -399,11 +399,11 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
     const sortOrder = e.target.sortOrder.value;
     const hasSubtitle = e.target.hasSubtitle.value;
     const resultContainer = document.getElementById('result-container');
-    
+
     // 显示进度条
     progressManager.setIndeterminate('正在获取影片信息...');
     resultContainer.innerHTML = '';
-    
+
     try {
         // 从表单、本地全局选择器或 localStorage 获取来源，默认 javbus
         let magnetSource = 'javbus';
@@ -420,25 +420,25 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
                 }
             }
         }
-        
+
         let movieData = null;
         // 如果使用 javbus，需要先获取影片详情
         if (magnetSource === 'javbus') {
             movieData = await simpleFetch(`/api/movies/${encodeURIComponent(movieId)}`);
-            
+
             if (!movieData || !movieData.gid || movieData.uc === undefined) {
                 throw new Error('无法获取影片详情或必要参数');
             }
         }
-        
+
         // 更新进度条状态
         progressManager.updateText('正在获取磁力链接...');
-        
+
         // 构建查询参数
         const queryParams = new URLSearchParams();
-        
+
         queryParams.append('source', magnetSource);
-        
+
         // 如果使用 javbus，需要 gid 和 uc 参数
         if (magnetSource === 'javbus') {
             if (!movieData || !movieData.gid || movieData.uc === undefined) {
@@ -450,13 +450,13 @@ document.getElementById('magnet-search').addEventListener('submit', async (e) =>
             if (sortOrder) queryParams.append('sortOrder', sortOrder);
             if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
         }
-        
+
         // 调用API获取磁力链接
         const data = await simpleFetch(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);
-        
+
         // 完成进度条
         progressManager.complete('获取完成');
-        
+
         // 显示结果
         if (data && data.length > 0) {
             const sortedData = [...data].sort((a, b) => {
@@ -496,7 +496,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
     const actorCountFilter = e.target.actorCountFilter.value;
     const fetchMode = e.target.fetchMode.value; // 获取方式：page 或 all
     const resultContainer = document.getElementById('result-container');
-    
+
     // 根据获取方式显示不同的进度信息
     if (fetchMode === 'all') {
         progressManager.setIndeterminate('正在获取所有页面的影片列表...');
@@ -504,7 +504,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         progressManager.setIndeterminate('正在获取影片列表...');
     }
     resultContainer.innerHTML = '';
-    
+
     try {
         // 构建查询参数
         const queryParams = new URLSearchParams();
@@ -518,7 +518,7 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         if (actorCountFilter) queryParams.append('actorCountFilter', actorCountFilter);
         // 移除 hasSubtitle 参数，因为字幕筛选在磁力链接级别进行
         // if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
-        
+
         // 根据获取方式选择不同的API端点
         let apiUrl;
         if (fetchMode === 'all') {
@@ -526,19 +526,19 @@ document.getElementById('movie-filter').addEventListener('submit', async (e) => 
         } else {
             apiUrl = `/api/movies?${queryParams.toString()}`;
         }
-        
+
         // 调用API获取影片列表
         const data = await simpleFetch(apiUrl);
-        
+
         // 检查是否需要自动切换到获取全部
         if (fetchMode === 'page' && (!data || !data.movies || data.movies.length === 0)) {
             console.log('第一页没有找到结果，自动切换到获取全部模式');
             progressManager.setIndeterminate('第一页没有找到结果，正在获取所有页面的影片列表...');
-            
+
             // 自动切换到获取全部模式
             const allApiUrl = `/api/movies/all?${queryParams.toString()}`;
             const allData = await simpleFetch(allApiUrl);
-            
+
             // 显示获取全部的结果
             displayResults(allData);
         } else {
@@ -584,11 +584,11 @@ function displayResults(data) {
 async function displayMoviesList(data) {
     const resultContainer = document.getElementById('result-container');
     const movieCount = data.movies.length;
-    
+
     // 首先更新进度条文本和状态，从"获取影片列表"转换到"加载最佳资源"
     console.log('About to show progress bar, progressManager:', progressManager);
     console.log('Movie count:', movieCount);
-    
+
     if (progressManager) {
         // 直接更新进度条状态，不要重新显示
         progressManager.updateText('正在加载最佳资源...');
@@ -601,12 +601,12 @@ async function displayMoviesList(data) {
     } else {
         console.error('progressManager is not initialized!');
     }
-    
+
     let html = '<div class="copy-links-container">' +
         '<button id="copy-all-links" class="btn copy-btn" aria-label="复制当前页全部磁力链接" disabled>正在加载...</button>' +
         '<button id="download-all-links" class="btn download-btn" aria-label="下载当前页全部影片" disabled>📥 下载本页全部影片</button>' +
         '</div>';
-    
+
     // 使用紧凑的表格布局展示影片列表
     html += '<div class="movies-table-container">';
     html += '<table class="movies-table-compact">';
@@ -619,7 +619,7 @@ async function displayMoviesList(data) {
     html += '</tr>';
     html += '</thead>';
     html += '<tbody>';
-    
+
     // 显示影片行
     data.movies.forEach(movie => {
         html += `
@@ -639,7 +639,7 @@ async function displayMoviesList(data) {
             </tr>
         `;
     });
-    
+
     html += '</tbody>';
     html += '</table>';
     html += '</div>';
@@ -671,7 +671,7 @@ async function displayMoviesList(data) {
     // 使用流式批量API获取影片详情和磁力链接
     try {
         const movieIds = data.movies.map(movie => movie.id);
-        
+
         // 获取字幕筛选条件和磁力链接来源
         const form = document.getElementById('movie-filter');
         const hasSubtitleFilter = form && form.hasSubtitle ? form.hasSubtitle.value : null;
@@ -685,7 +685,7 @@ async function displayMoviesList(data) {
                 magnetSource = savedSource;
             }
         }
-        
+
         // 使用fetch进行流式请求
         const response = await fetch('/api/movies/batch-stream', {
             method: 'POST',
@@ -710,30 +710,30 @@ async function displayMoviesList(data) {
 
         while (true) {
             const { done, value } = await reader.read();
-            
+
             if (done) break;
-            
+
             buffer += decoder.decode(value, { stream: true });
-            
+
             // 处理完整的数据行
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // 保留不完整的行
-            
+
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
-                        
+
                         if (data.type === 'start') {
                             console.log(`开始处理 ${data.total} 个影片`);
                         } else if (data.type === 'progress') {
                             processedCount++;
-                            
+
                             // 更新进度条
                             if (progressManager) {
                                 progressManager.updateProgress(processedCount, movieCount, `正在加载最佳资源... (${processedCount}/${movieCount})`);
                             }
-                            
+
                             // 更新对应影片的磁力链接信息
                             const magnetContainer = document.getElementById(`magnet-${data.movie_id}`);
                             if (magnetContainer) {
@@ -753,22 +753,22 @@ async function displayMoviesList(data) {
                             }
                         } else if (data.type === 'complete') {
                             console.log('所有影片处理完成');
-                            
+
                             // 完成进度条
                             if (progressManager) {
                                 progressManager.complete('加载完成');
                             }
-                            
+
                             // 启用复制和下载按钮
                             const copyButton = document.getElementById('copy-all-links');
                             const downloadButton = document.getElementById('download-all-links');
-                            
+
                             if (copyButton) {
                                 copyButton.disabled = false;
                                 copyButton.textContent = '复制本页全部链接';
                                 copyButton.addEventListener('click', copyAllLinks);
                             }
-                            
+
                             if (downloadButton) {
                                 downloadButton.disabled = !isLoggedIn;
                                 downloadButton.textContent = isLoggedIn ? '📥 下载本页全部影片' : '📥 请先登录';
@@ -805,7 +805,7 @@ async function displayMoviesList(data) {
 async function copyAllLinks() {
     const movieRows = document.querySelectorAll('.movie-row-compact');
     let links = [];
-    
+
     movieRows.forEach(row => {
         const magnetLink = row.querySelector('.magnet-link-compact');
         if (magnetLink) {
@@ -836,17 +836,17 @@ async function downloadAllMovies() {
         alert('请先登录PikPak账户');
         return;
     }
-    
+
     const movieRows = document.querySelectorAll('.movie-row-compact');
     let links = [];
     let movieIds = [];
-    
+
     // 收集未下载的影片
     for (const row of movieRows) {
         const magnetLink = row.querySelector('.magnet-link-compact');
         const movieIdElement = row.querySelector('.movie-id-compact');
         const isDownloaded = row.querySelector('.downloaded-badge-compact');
-        
+
         if (magnetLink && movieIdElement && !isDownloaded) {
             links.push(magnetLink.href);
             movieIds.push(movieIdElement.textContent.trim());
@@ -857,28 +857,28 @@ async function downloadAllMovies() {
         alert('暂无可用链接或所有影片已下载');
         return;
     }
-    
+
     const totalMovies = movieRows.length;
     const newMovies = links.length;
     const skippedMovies = totalMovies - newMovies;
-    
+
     let confirmMessage = `准备下载 ${newMovies} 部影片`;
     if (skippedMovies > 0) {
         confirmMessage += `\n跳过 ${skippedMovies} 部已下载的影片`;
     }
     confirmMessage += '\n\n确认下载吗？';
-    
+
     if (!confirm(confirmMessage)) {
         return;
     }
-    
+
     const downloadButton = document.getElementById('download-all-links');
     downloadButton.disabled = true;
     downloadButton.textContent = '下载中...';
-    
+
     // 显示下载进度条
     progressManager.setIndeterminate('正在提交下载任务...');
-    
+
     try {
         const response = await fetch('/api/pikpak/download', {
             method: 'POST',
@@ -892,9 +892,9 @@ async function downloadAllMovies() {
                 password: pikpakCredentials.password
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             progressManager.complete('下载任务提交成功');
             downloadButton.textContent = '下载成功！';
@@ -910,7 +910,7 @@ async function downloadAllMovies() {
         downloadButton.textContent = '下载失败';
         alert('下载失败: ' + error.message);
     }
-    
+
     setTimeout(() => {
         downloadButton.disabled = false;
         downloadButton.textContent = '📥 下载本页全部影片';
@@ -951,7 +951,7 @@ function addPaginationListeners(data) {
                 // 分页按钮只在逐页模式下使用，所以这里固定使用 /api/movies
                 const response = await fetch(`/api/movies?${queryParams.toString()}`);
                 const data = await response.json();
-                
+
                 displayResults(data);
             } catch (error) {
                 console.error('加载页面失败:', error);
@@ -993,12 +993,12 @@ async function fetchAndDisplayMagnets(movieId, gid, uc) {
     magnetsContainer.innerHTML = '<p>正在加载磁力链接...</p>';
 
     const queryParams = new URLSearchParams();
-    
+
     // 获取字幕筛选条件和磁力链接来源
     // 优先从 movie-filter 表单获取，如果没有则从全局选择器获取，再没有则从 localStorage 获取，默认 javbus
     let form = document.getElementById('movie-filter');
     let magnetSource = 'javbus';
-    
+
     if (form && form.magnetSource) {
         magnetSource = form.magnetSource.value;
     } else {
@@ -1014,19 +1014,25 @@ async function fetchAndDisplayMagnets(movieId, gid, uc) {
             }
         }
     }
-    
+
     queryParams.append('source', magnetSource);
-    
+
     // 如果使用 javbus，需要 gid 和 uc 参数
     if (magnetSource === 'javbus') {
         queryParams.append('gid', gid);
         queryParams.append('uc', uc);
         queryParams.append('sortBy', 'size');
         queryParams.append('sortOrder', 'desc');
-        
+
         // 获取字幕筛选条件
         if (form && form.hasSubtitle && form.hasSubtitle.value) {
             queryParams.append('hasSubtitle', form.hasSubtitle.value);
+        }
+
+        // 获取全局4K排除设置
+        const globalExclude4k = localStorage.getItem('globalExclude4k');
+        if (globalExclude4k === 'true') {
+            queryParams.append('exclude4k', 'true');
         }
     }
 
@@ -1083,29 +1089,29 @@ function displayStarDetails(star) {
 function restorePikPakLogin() {
     const savedCredentials = localStorage.getItem('pikpakCredentials');
     const savedLoginStatus = localStorage.getItem('pikpakLoginStatus');
-    
+
     if (savedCredentials && savedLoginStatus === 'true') {
         try {
             pikpakCredentials = JSON.parse(savedCredentials);
             isLoggedIn = true;
-            
+
             const loginBtn = document.getElementById('login-btn');
             const logoutBtn = document.getElementById('logout-btn');
             const loginStatus = document.getElementById('login-status');
             const usernameInput = document.querySelector('#pikpak-login input[name="username"]');
             const passwordInput = document.querySelector('#pikpak-login input[name="password"]');
-            
+
             if (loginBtn && loginStatus) {
                 loginBtn.textContent = '已登录';
                 loginBtn.disabled = true;
                 loginStatus.textContent = '已登录 (' + pikpakCredentials.username + ')';
                 loginStatus.style.color = '#4CAF50';
             }
-            
+
             if (logoutBtn) {
                 logoutBtn.style.display = 'inline-block';
             }
-            
+
             if (usernameInput && passwordInput) {
                 usernameInput.value = pikpakCredentials.username;
                 passwordInput.value = pikpakCredentials.password;
@@ -1132,27 +1138,27 @@ function clearPikPakLogin() {
 
 function handleLogout() {
     clearPikPakLogin();
-    
+
     const loginBtn = document.getElementById('login-btn');
     const logoutBtn = document.getElementById('logout-btn');
     const loginStatus = document.getElementById('login-status');
     const usernameInput = document.querySelector('#pikpak-login input[name="username"]');
     const passwordInput = document.querySelector('#pikpak-login input[name="password"]');
-    
+
     if (loginBtn) {
         loginBtn.textContent = '登录';
         loginBtn.disabled = false;
     }
-    
+
     if (logoutBtn) {
         logoutBtn.style.display = 'none';
     }
-    
+
     if (loginStatus) {
         loginStatus.textContent = '未登录';
         loginStatus.style.color = '#f44336';
     }
-    
+
     if (usernameInput && passwordInput) {
         usernameInput.value = '';
         passwordInput.value = '';
@@ -1184,14 +1190,14 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('Initializing ProgressManager...');
     progressManager = new ProgressManager();
     console.log('ProgressManager initialized:', progressManager);
-    
+
     // 验证进度条元素是否存在
     const progressContainer = document.getElementById('progress-container');
     console.log('Progress container found:', progressContainer);
-    
+
     restorePikPakLogin();
     restoreMagnetSource();
-    
+
     // 监听磁力链接来源选择器的变化
     const magnetSourceSelectors = document.querySelectorAll('select[name="magnetSource"], #magnet-source-selector');
     magnetSourceSelectors.forEach(selector => {
@@ -1201,21 +1207,36 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     });
-    
+
+    // 恢复和监听全局4K排除开关
+    const globalExclude4kCheckbox = document.getElementById('global-exclude-4k');
+    if (globalExclude4kCheckbox) {
+        // 恢复保存的状态
+        const savedExclude4k = localStorage.getItem('globalExclude4k');
+        if (savedExclude4k === 'true') {
+            globalExclude4kCheckbox.checked = true;
+        }
+
+        // 监听变化
+        globalExclude4kCheckbox.addEventListener('change', (e) => {
+            localStorage.setItem('globalExclude4k', e.target.checked ? 'true' : 'false');
+        });
+    }
+
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', handleLogout);
     }
-    
+
     const showOptionsBtn = document.getElementById('show-options-btn');
     if (showOptionsBtn) {
         showOptionsBtn.addEventListener('click', showOptionsSelector);
     }
-    
+
     // 监听筛选值输入框的变化
     const filterValueInput = document.querySelector('#movie-filter input[name="filterValue"]');
     const filterCodeInput = document.querySelector('#movie-filter input[name="filterCode"]');
-    
+
     if (filterValueInput && filterCodeInput) {
         filterValueInput.addEventListener('input', (e) => {
             if (e.target.value === '') {
@@ -1224,7 +1245,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
-    
+
     // 添加PikPak登录表单事件监听器
     const pikpakLoginForm = document.getElementById('pikpak-login');
     if (pikpakLoginForm) {
@@ -1234,11 +1255,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const password = e.target.password.value;
             const loginBtn = document.getElementById('login-btn');
             const loginStatus = document.getElementById('login-status');
-            
+
             loginBtn.disabled = true;
             loginBtn.textContent = '登录中...';
             loginStatus.textContent = '';
-            
+
             try {
                 const response = await fetch('/api/pikpak/login', {
                     method: 'POST',
@@ -1250,23 +1271,23 @@ document.addEventListener('DOMContentLoaded', () => {
                         password: password
                     })
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (result.success) {
                     pikpakCredentials = { username, password };
                     isLoggedIn = true;
-                    
+
                     // 保存登录状态到localStorage
                     savePikPakLogin(pikpakCredentials);
-                    
+
                     const logoutBtn = document.getElementById('logout-btn');
-                    
+
                     loginStatus.textContent = '登录成功！';
                     loginStatus.style.color = '#4CAF50';
                     loginBtn.textContent = '已登录';
                     loginBtn.disabled = true;
-                    
+
                     if (logoutBtn) {
                         logoutBtn.style.display = 'inline-block';
                     }
@@ -1291,20 +1312,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (movieRecognitionForm) {
         movieRecognitionForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const formData = new FormData(e.target);
             const htmlContent = formData.get('htmlContent');
             const autoDownload = formData.get('autoDownload') === 'on';
-            
+
             if (!htmlContent.trim()) {
                 alert('请粘贴HTML源代码');
                 return;
             }
-            
+
             const resultContainer = document.getElementById('result-container');
             const progressContainer = document.getElementById('progress-container');
             const submitButton = e.target.querySelector('button[type="submit"]');
-            
+
             // 显示进度条和禁用按钮
             if (progressContainer) progressContainer.style.display = 'block';
             if (resultContainer) resultContainer.innerHTML = '';
@@ -1312,19 +1333,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 submitButton.disabled = true;
                 submitButton.textContent = '识别中...';
             }
-            
+
             try {
                 const requestBody = {
                     html_content: htmlContent,
-                    auto_download: autoDownload
+                    auto_download: autoDownload,
+                    exclude_4k: formData.get('exclude4k') === 'on'
                 };
-                
+
                 // 如果启用自动下载且已登录PikPak，添加登录信息
                 if (autoDownload && isLoggedIn && pikpakCredentials) {
                     requestBody.username = pikpakCredentials.username;
                     requestBody.password = pikpakCredentials.password;
                 }
-                
+
                 // 如果启用自动下载，使用流式响应获取实时进度
                 if (autoDownload && isLoggedIn && pikpakCredentials) {
                     await handleRecognitionWithProgress(requestBody, resultContainer, submitButton);
@@ -1337,9 +1359,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         },
                         body: JSON.stringify(requestBody)
                     });
-                    
+
                     const data = await response.json();
-                    
+
                     if (data.error) {
                         if (resultContainer) {
                             resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
@@ -1368,20 +1390,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (movieCodeDownloadForm) {
         movieCodeDownloadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
             const formData = new FormData(e.target);
             const movieCodes = formData.get('movieCodes');
             const autoDownload = formData.get('autoDownload') === 'on';
-            
+
             if (!movieCodes.trim()) {
                 alert('请输入影片番号');
                 return;
             }
-            
+
             const resultContainer = document.getElementById('result-container');
             const progressContainer = document.getElementById('progress-container');
             const submitButton = e.target.querySelector('button[type="submit"]');
-            
+
             // 显示进度条和禁用按钮
             if (progressContainer) progressContainer.style.display = 'block';
             if (resultContainer) resultContainer.innerHTML = '';
@@ -1389,19 +1411,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 submitButton.disabled = true;
                 submitButton.textContent = '搜索中...';
             }
-            
+
             try {
                 const requestBody = {
                     movie_codes: movieCodes,
-                    auto_download: autoDownload
+                    auto_download: autoDownload,
+                    exclude_4k: formData.get('exclude4k') === 'on'
                 };
-                
+
                 // 如果启用自动下载且已登录PikPak，添加登录信息
                 if (autoDownload && isLoggedIn && pikpakCredentials) {
                     requestBody.username = pikpakCredentials.username;
                     requestBody.password = pikpakCredentials.password;
                 }
-                
+
                 // 如果启用自动下载，使用带进度的处理
                 if (autoDownload && isLoggedIn && pikpakCredentials) {
                     await handleCodeDownloadWithProgress(requestBody, resultContainer, submitButton);
@@ -1414,9 +1437,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         },
                         body: JSON.stringify(requestBody)
                     });
-                    
+
                     const data = await response.json();
-                    
+
                     if (data.error) {
                         if (resultContainer) {
                             resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
@@ -1447,7 +1470,7 @@ async function handleRecognitionWithProgress(requestBody, resultContainer, submi
     if (progressManager) {
         progressManager.show('正在解析影片信息...', 0);
     }
-    
+
     try {
         const response = await fetch('/api/movies/recognize', {
             method: 'POST',
@@ -1456,49 +1479,49 @@ async function handleRecognitionWithProgress(requestBody, resultContainer, submi
             },
             body: JSON.stringify(requestBody)
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
+
         if (data.error) {
             if (resultContainer) {
                 resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
             }
             return;
         }
-        
+
         // 如果有影片需要下载，显示实时进度
         if (data.movies && data.movies.length > 0 && data.auto_download) {
             const totalMovies = data.movies.length;
-            
+
             // 更新进度条
             if (progressManager) {
                 progressManager.updateText(`正在下载 ${totalMovies} 部影片...`);
                 progressManager.updateProgress(0, totalMovies);
             }
-            
+
             // 创建初始结果显示
             displayRecognitionResultsWithProgress(data);
-            
+
             // 模拟下载进度更新（实际应该从后端获取）
             let completedCount = 0;
             const downloadResults = data.download_result?.results || [];
-            
+
             // 统计已完成的下载
             downloadResults.forEach(result => {
                 if (result.success !== undefined) {
                     completedCount++;
                 }
             });
-            
+
             // 更新最终进度
             if (progressManager) {
-                progressManager.updateProgress(completedCount, totalMovies, 
+                progressManager.updateProgress(completedCount, totalMovies,
                     `下载完成 (${completedCount}/${totalMovies})`);
-                
+
                 // 延迟隐藏进度条
                 setTimeout(() => {
                     progressManager.complete('下载处理完成');
@@ -1511,7 +1534,7 @@ async function handleRecognitionWithProgress(requestBody, resultContainer, submi
             }
             displayRecognitionResults(data);
         }
-        
+
     } catch (error) {
         console.error('识别处理失败:', error);
         if (resultContainer) {
@@ -1527,25 +1550,25 @@ async function handleRecognitionWithProgress(requestBody, resultContainer, submi
 function displayRecognitionResultsWithProgress(data) {
     const resultContainer = document.getElementById('result-container');
     if (!resultContainer) return;
-    
+
     if (!data.movies || data.movies.length === 0) {
         resultContainer.innerHTML = '<div class="empty-state">未找到影片信息</div>';
         return;
     }
-    
+
     // 处理下载结果数据结构
     const downloadResult = data.download_result || {};
     const downloadResults = downloadResult.results || {};
     const magnetResults = data.magnet_results || [];
-    
+
     // 创建磁力链接映射
     const magnetMap = {};
     magnetResults.forEach(magnet => {
         magnetMap[magnet.movie_id] = magnet;
     });
-    
+
     let html = '<div class="recognition-results">';
-    
+
     // 实时下载摘要
     if (data.auto_download) {
         const totalMovies = data.movies.length;
@@ -1553,7 +1576,7 @@ function displayRecognitionResultsWithProgress(data) {
         const failedCount = Object.values(downloadResults).filter(r => r.status === 'failed').length;
         const skippedCount = Object.values(downloadResults).filter(r => r.status === 'skipped').length;
         const processingCount = totalMovies - successCount - failedCount - skippedCount;
-        
+
         html += '<div class="download-summary compact">';
         html += '<div class="summary-header">📥 下载进度</div>';
         html += '<div class="summary-stats">';
@@ -1567,7 +1590,7 @@ function displayRecognitionResultsWithProgress(data) {
         html += '</div>';
         html += '</div>';
     }
-    
+
     // 影片列表 - 紧凑型表格设计
     html += '<div class="movies-table-container">';
     html += '<table class="movies-table-compact">';
@@ -1580,27 +1603,27 @@ function displayRecognitionResultsWithProgress(data) {
     html += '</tr>';
     html += '</thead>';
     html += '<tbody>';
-    
+
     data.movies.forEach(movie => {
         const movieId = movie.id || movie.movie_id;
         const downloadStatus = downloadResults[movieId];
         const magnetInfo = magnetMap[movieId];
-        
+
         html += '<tr class="movie-row-compact">';
-        
+
         // 番号列
         html += `<td class="col-id">`;
         html += `<span class="movie-id-compact">${movieId}</span>`;
         html += `</td>`;
-        
+
         // 标题列
         html += `<td class="col-title">`;
         html += `<div class="movie-title-compact">${movie.title || movie.full_title || movieId}</div>`;
         html += `</td>`;
-        
+
         // 状态列 - 实时状态显示
         html += `<td class="col-status">`;
-        
+
         if (downloadStatus) {
             if (downloadStatus.status === 'success') {
                 html += `<span class="status-badge-mini success">✓ 已下载</span>`;
@@ -1626,7 +1649,7 @@ function displayRecognitionResultsWithProgress(data) {
             }
         }
         html += `</td>`;
-        
+
         // 磁力链接列
         html += `<td class="col-magnet">`;
         if (magnetInfo && magnetInfo.magnet_link) {
@@ -1640,15 +1663,15 @@ function displayRecognitionResultsWithProgress(data) {
             html += `<span class="no-magnet-compact">-</span>`;
         }
         html += `</td>`;
-        
+
         html += '</tr>';
     });
-    
+
     html += '</tbody>';
     html += '</table>';
     html += '</div>';
     html += '</div>';
-    
+
     resultContainer.innerHTML = html;
 }
 
@@ -1656,32 +1679,32 @@ function displayRecognitionResultsWithProgress(data) {
 function displayRecognitionResults(data) {
     const resultContainer = document.getElementById('result-container');
     if (!resultContainer) return;
-    
+
     if (!data.movies || data.movies.length === 0) {
         resultContainer.innerHTML = '<div class="empty-state">未找到影片信息</div>';
         return;
     }
-    
+
     // 处理下载结果数据结构
     const downloadResult = data.download_result || {};
     const downloadResults = downloadResult.results || {};
     const magnetResults = data.magnet_results || [];
-    
+
     // 创建磁力链接映射
     const magnetMap = {};
     magnetResults.forEach(magnet => {
         magnetMap[magnet.movie_id] = magnet;
     });
-    
+
     let html = '<div class="recognition-results">';
-    
+
     // 下载摘要 - 紧凑型设计
     if (data.auto_download && downloadResult.success !== undefined) {
         const totalMovies = data.movies.length;
         const successCount = Object.values(downloadResults).filter(r => r.status === 'success').length;
         const failedCount = Object.values(downloadResults).filter(r => r.status === 'failed').length;
         const skippedCount = totalMovies - successCount - failedCount;
-        
+
         html += '<div class="download-summary compact">';
         html += '<div class="summary-header">📥 下载摘要</div>';
         html += '<div class="summary-stats">';
@@ -1692,7 +1715,7 @@ function displayRecognitionResults(data) {
         html += '</div>';
         html += '</div>';
     }
-    
+
     // 影片列表 - 紧凑型表格设计
     html += '<div class="movies-table-container">';
     html += '<table class="movies-table-compact">';
@@ -1705,27 +1728,27 @@ function displayRecognitionResults(data) {
     html += '</tr>';
     html += '</thead>';
     html += '<tbody>';
-    
+
     data.movies.forEach(movie => {
         const movieId = movie.id || movie.movie_id;
         const downloadStatus = downloadResults[movieId];
         const magnetInfo = magnetMap[movieId];
-        
+
         html += '<tr class="movie-row-compact">';
-        
+
         // 番号列
         html += `<td class="col-id">`;
         html += `<span class="movie-id-compact">${movieId}</span>`;
         html += `</td>`;
-        
+
         // 标题列
         html += `<td class="col-title">`;
         html += `<div class="movie-title-compact">${movie.title || movie.full_title || movieId}</div>`;
         html += `</td>`;
-        
+
         // 状态列 - 改进状态显示逻辑
         html += `<td class="col-status">`;
-        
+
         // 检查是否有下载状态信息
         if (downloadStatus) {
             if (downloadStatus.status === 'success') {
@@ -1752,7 +1775,7 @@ function displayRecognitionResults(data) {
             }
         }
         html += `</td>`;
-        
+
         // 磁力链接列
         html += `<td class="col-magnet">`;
         if (magnetInfo && magnetInfo.magnet_link) {
@@ -1766,15 +1789,15 @@ function displayRecognitionResults(data) {
             html += `<span class="no-magnet-compact">-</span>`;
         }
         html += `</td>`;
-        
+
         html += '</tr>';
     });
-    
+
     html += '</tbody>';
     html += '</table>';
     html += '</div>';
     html += '</div>';
-    
+
     resultContainer.innerHTML = html;
 }
 
@@ -1784,7 +1807,7 @@ async function handleCodeDownloadWithProgress(requestBody, resultContainer, subm
     if (progressManager) {
         progressManager.show('正在搜索影片信息...', 0);
     }
-    
+
     try {
         const response = await fetch('/api/movies/download-by-codes', {
             method: 'POST',
@@ -1793,49 +1816,49 @@ async function handleCodeDownloadWithProgress(requestBody, resultContainer, subm
             },
             body: JSON.stringify(requestBody)
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
+
         if (data.error) {
             if (resultContainer) {
                 resultContainer.innerHTML = `<div class="error">错误: ${data.error}</div>`;
             }
             return;
         }
-        
+
         // 如果有影片需要下载，显示实时进度
         if (data.found_movies && data.found_movies.length > 0 && data.auto_download) {
             const totalMovies = data.found_movies.length;
-            
+
             // 更新进度条
             if (progressManager) {
                 progressManager.updateText(`正在下载 ${totalMovies} 部影片...`);
                 progressManager.updateProgress(0, totalMovies);
             }
-            
+
             // 创建初始结果显示
             displayCodeDownloadResultsWithProgress(data);
-            
+
             // 模拟下载进度更新（实际应该从后端获取）
             let completedCount = 0;
             const downloadResults = data.download_result?.results || {};
-            
+
             // 统计已完成的下载
             Object.values(downloadResults).forEach(result => {
                 if (result.status === 'success' || result.status === 'failed' || result.status === 'skipped') {
                     completedCount++;
                 }
             });
-            
+
             // 更新最终进度
             if (progressManager) {
-                progressManager.updateProgress(completedCount, totalMovies, 
+                progressManager.updateProgress(completedCount, totalMovies,
                     `下载完成 (${completedCount}/${totalMovies})`);
-                
+
                 // 延迟隐藏进度条
                 setTimeout(() => {
                     progressManager.complete('下载处理完成');
@@ -1844,7 +1867,7 @@ async function handleCodeDownloadWithProgress(requestBody, resultContainer, subm
         } else {
             // 没有下载任务，直接显示结果
             displayCodeDownloadResults(data);
-            
+
             if (progressManager) {
                 progressManager.complete('搜索完成');
             }
@@ -1854,7 +1877,7 @@ async function handleCodeDownloadWithProgress(requestBody, resultContainer, subm
         if (resultContainer) {
             resultContainer.innerHTML = `<div class="error">处理失败: ${error.message}</div>`;
         }
-        
+
         if (progressManager) {
             progressManager.hide();
         }
@@ -1865,16 +1888,16 @@ async function handleCodeDownloadWithProgress(requestBody, resultContainer, subm
 function displayCodeDownloadResultsWithProgress(data) {
     const resultContainer = document.getElementById('result-container');
     if (!resultContainer) return;
-    
+
     let html = '<div class="code-download-results">';
-    
+
     // 显示搜索统计
     html += '<div class="search-summary">';
     html += `<h3>🔍 搜索结果统计</h3>`;
     html += `<p>找到影片: ${data.found_movies ? data.found_movies.length : 0} 部</p>`;
     html += `<p>未找到番号: ${data.not_found_codes ? data.not_found_codes.length : 0} 个</p>`;
     html += '</div>';
-    
+
     // 显示找到的影片
     if (data.found_movies && data.found_movies.length > 0) {
         html += '<div class="movies-table-container">';
@@ -1888,27 +1911,27 @@ function displayCodeDownloadResultsWithProgress(data) {
         html += '</tr>';
         html += '</thead>';
         html += '<tbody>';
-        
+
         data.found_movies.forEach(movie => {
             const movieId = movie.id;
-            
+
             html += '<tr class="movie-row-compact">';
-            
+
             // 番号列
             html += `<td class="col-id">`;
             html += `<span class="movie-id-compact">${movieId}</span>`;
             html += `</td>`;
-            
+
             // 标题列
             html += `<td class="col-title">`;
             html += `<div class="movie-title-compact">${movie.title || movieId}</div>`;
             html += `</td>`;
-            
+
             // 日期列
             html += `<td class="col-date">`;
             html += `<span class="movie-date-compact">${movie.release_date || '-'}</span>`;
             html += `</td>`;
-            
+
             // 状态列
             html += `<td class="col-status">`;
             if (movie.downloaded || movie.is_downloaded) {
@@ -1917,15 +1940,15 @@ function displayCodeDownloadResultsWithProgress(data) {
                 html += `<span class="status-badge-mini info">ℹ 待下载</span>`;
             }
             html += `</td>`;
-            
+
             html += '</tr>';
         });
-        
+
         html += '</tbody>';
         html += '</table>';
         html += '</div>';
     }
-    
+
     // 显示未找到的番号
     if (data.not_found_codes && data.not_found_codes.length > 0) {
         html += '<h3>❌ 未找到的番号:</h3>';
@@ -1935,24 +1958,24 @@ function displayCodeDownloadResultsWithProgress(data) {
         });
         html += '</div>';
     }
-    
+
     // 显示下载结果
     if (data.download_result && data.download_result.results) {
         html += '<h3>📥 下载结果:</h3>';
         html += '<div class="download-results">';
-        
+
         data.download_result.results.forEach((result, index) => {
             const statusClass = result.success ? 'success' : 'error';
             const movieId = result.movie_id || `影片${index + 1}`;
             const message = result.message || (result.success ? '下载成功' : '下载失败');
-            
+
             html += `
                 <div class="download-item ${statusClass}">
                     <strong>${movieId}:</strong> ${message}
                 </div>
             `;
         });
-        
+
         html += '</div>';
     } else if (data.download_result && data.download_result.message) {
         // 显示整体下载消息
@@ -1965,7 +1988,7 @@ function displayCodeDownloadResultsWithProgress(data) {
         `;
         html += '</div>';
     }
-    
+
     html += '</div>';
     resultContainer.innerHTML = html;
 }
