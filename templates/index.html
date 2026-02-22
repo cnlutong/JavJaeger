@@ -5,296 +5,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JavJaeger</title>
+    <!-- Ant Design CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.23.0/dist/reset.css">
     <link rel="stylesheet" href="/static/style.css">
+    <!-- React & ReactDOM -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <!-- Babel for in-browser JSX -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+    <!-- Ant Design -->
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.13/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/antd@5.23.0/dist/antd.min.js"></script>
 </head>
 
 <body>
-    <div class="app-container">
-        <header class="app-header">
-            <div class="header-content">
-                <div class="header-left">
-                    <img src="/static/logo.jpg" alt="JavJaeger Logo" class="logo">
-                    <div class="title-section">
-                        <h1>JavJaeger</h1>
-                        <div class="subtitle-row">
-                            <div class="subtitle">人类的一切痛苦，都是因为性欲得不到满足</div>
-                            <div class="header-right">
-                                <div class="version-info">
-                                    <span class="version">{{ version_info.version }}</span>
-                                    <span class="build-date">{{ version_info.build_date }}</span>
-                                </div>
-                                <a href="https://github.com/cnlutong/JavJaeger" target="_blank" class="github-link"
-                                    title="查看GitHub仓库">
-                                    <svg class="github-icon" viewBox="0 0 24 24" fill="currentColor">
-                                        <path
-                                            d="M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
-                                    </svg>
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </header>
+    <div id="root"></div>
 
-        <div class="main-layout">
-            <!-- 左侧查询功能区域 -->
-            <aside class="sidebar-left">
-                <div class="sidebar-header">
-                    <h2>🔍 查询功能</h2>
-                </div>
-
-                <div class="search-forms-container">
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>📋 影片列表筛选</h3>
-                        </div>
-                        <form id="movie-filter">
-                            <select name="filterType">
-                                <option value="">选择筛选类型</option>
-                                <option value="star">演员</option>
-                                <option value="genre">类别</option>
-                                <option value="director">导演</option>
-                                <option value="studio">制作商</option>
-                                <option value="label">发行商</option>
-                                <option value="series">系列</option>
-                            </select>
-                            <input type="text" name="filterValue" placeholder="输入筛选值">
-                            <input type="hidden" name="filterCode" value="">
-                            <button type="button" id="show-options-btn" class="btn options-btn" title="显示选项">📋</button>
-                            <select name="magnet">
-                                <option value="exist">有磁力链接</option>
-                                <option value="all">全部影片</option>
-                            </select>
-                            <select name="type">
-                                <option value="normal">有码影片</option>
-                                <option value="uncensored">无码影片</option>
-                            </select>
-                            <div class="actor-count-filter">
-                                <label for="actorCountFilter">演员人数筛选:</label>
-                                <select name="actorCountFilter">
-                                    <option value="">不限制</option>
-                                    <option value="1">单人作品 (=1)</option>
-                                    <option value="2">双人作品 (=2)</option>
-                                    <option value="3">三人作品 (=3)</option>
-                                    <option value="<=2">少于等于2人</option>
-                                    <option value="<=3">少于等于3人</option>
-                                    <option value=">=3">大于等于3人</option>
-                                    <option value=">=4">大于等于4人</option>
-                                </select>
-                            </div>
-                            <div class="actor-count-filter">
-                                <label for="hasSubtitle">字幕筛选:</label>
-                                <select name="hasSubtitle">
-                                    <option value="">不限制</option>
-                                    <option value="true">有字幕</option>
-                                    <option value="false">无字幕</option>
-                                </select>
-                            </div>
-
-                            <div class="actor-count-filter">
-                                <label for="fetchMode">获取方式:</label>
-                                <select name="fetchMode">
-                                    <option value="page">逐页获取 (每页30个)</option>
-                                    <option value="all">获取全部 (所有页)</option>
-                                </select>
-                            </div>
-                            <button type="submit" class="btn btn-primary">筛选</button>
-                        </form>
-                    </div>
-
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>🎬 影片查询</h3>
-                        </div>
-                        <form id="movie-search">
-                            <input type="text" name="keyword" placeholder="输入影片番号">
-                            <button type="submit" class="btn btn-primary">搜索</button>
-                        </form>
-                    </div>
-
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>🧲 磁力链接查询</h3>
-                        </div>
-                        <form id="magnet-search">
-                            <input type="text" name="movieId" placeholder="输入影片番号" required>
-                            <select name="sortBy">
-                                <option value="">排序方式 (可选)</option>
-                                <option value="date">日期</option>
-                                <option value="size">大小</option>
-                            </select>
-                            <select name="sortOrder">
-                                <option value="">排序顺序 (可选)</option>
-                                <option value="asc">升序</option>
-                                <option value="desc">降序</option>
-                            </select>
-                            <select name="hasSubtitle">
-                                <option value="">字幕筛选 (可选)</option>
-                                <option value="true">有字幕</option>
-                                <option value="false">无字幕</option>
-                            </select>
-                            <button type="submit" class="btn btn-primary">查询磁力链接</button>
-                        </form>
-                    </div>
-
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>🎯 影片识别</h3>
-                        </div>
-                        <form id="movie-recognition">
-                            <div class="form-group">
-                                <label for="htmlContent">HTML源代码</label>
-                                <textarea name="htmlContent" id="htmlContent" placeholder="请粘贴JAVLibrary网页源代码..."
-                                    rows="8" required></textarea>
-                                <div class="form-hint">支持解析JAVLibrary排行榜页面的HTML源代码</div>
-                            </div>
-                            <div class="form-group">
-                                <div class="checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="autoDownload" checked>
-                                        <span class="checkmark"></span>
-                                        自动下载无字幕最佳磁力链接
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <div class="checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="exclude4k">
-                                        <span class="checkmark"></span>
-                                        排除4K资源（避免下载过大文件）
-                                    </label>
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary">🔍 识别并下载影片</button>
-                        </form>
-                    </div>
-
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>🎬 番号自动下载</h3>
-                        </div>
-                        <form id="movie-code-download">
-                            <div class="form-group">
-                                <label for="movieCodes">影片番号</label>
-                                <textarea name="movieCodes" id="movieCodes"
-                                    placeholder="请输入影片番号，支持多种分隔符：&#10;SSIS-001 SSIS-002&#10;SSIS-003,SSIS-004&#10;SSIS-005，SSIS-006"
-                                    rows="6" required></textarea>
-                                <div class="form-hint">支持空格、换行、逗号等分隔符，自动识别多个番号</div>
-                            </div>
-                            <div class="form-group">
-                                <div class="checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="autoDownload" checked>
-                                        <span class="checkmark"></span>
-                                        自动下载无字幕最佳磁力链接
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <div class="checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="exclude4k">
-                                        <span class="checkmark"></span>
-                                        排除4K资源（避免下载过大文件）
-                                    </label>
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary">🚀 搜索并下载影片</button>
-                        </form>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- 中间结果展示区 -->
-            <main class="content-main">
-                <div class="content-header">
-                    <h2>📊 查询结果</h2>
-                </div>
-
-                <!-- 进度条容器 -->
-                <div class="progress-container" id="progress-container" style="display: none;">
-                    <div class="progress-info">
-                        <span class="progress-text" id="progress-text">正在处理请求...</span>
-                        <span class="progress-percentage" id="progress-percentage">0%</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
-                    </div>
-                    <div class="progress-details" id="progress-details">
-                        <span class="progress-current" id="progress-current">0</span> /
-                        <span class="progress-total" id="progress-total">0</span> 项
-                    </div>
-                </div>
-
-                <div class="result-box" id="result-container">
-                    <div class="empty-state">
-                        <div class="empty-icon">🔍</div>
-                        <p>查询结果将显示在这里</p>
-                        <span class="empty-hint">请在左侧选择查询功能开始搜索</span>
-                    </div>
-                </div>
-            </main>
-
-            <!-- 右侧下载板块 -->
-            <aside class="sidebar-right">
-                <div class="sidebar-header">
-                    <h2>📥 下载管理</h2>
-                </div>
-
-                <div class="download-section">
-                    <!-- PikPak登录区域 -->
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>🔐 PikPak 登录</h3>
-                        </div>
-                        <form id="pikpak-login">
-                            <input type="text" name="username" placeholder="用户名" required>
-                            <input type="password" name="password" placeholder="密码" required>
-                            <div class="login-buttons">
-                                <button type="submit" id="login-btn" class="btn btn-primary">登录</button>
-                                <button type="button" id="logout-btn" class="btn btn-danger logout-btn"
-                                    style="display: none;">退出</button>
-                            </div>
-                        </form>
-                        <div id="login-status" class="login-status"></div>
-                    </div>
-
-                    <!-- 磁力链接来源选择（全局） -->
-                    <div class="search-form">
-                        <div class="form-header">
-                            <h3>🧲 磁力链接来源</h3>
-                        </div>
-                        <div class="actor-count-filter">
-                            <label for="magnet-source-selector">磁力链接来源:</label>
-                            <select name="magnetSource" id="magnet-source-selector">
-                                <option value="javbus">JavBus API (默认)</option>
-                                <option value="cilisousuo">Cilisousuo</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin-top: 10px;">
-                            <div class="checkbox-group">
-                                <label class="checkbox-label">
-                                    <input type="checkbox" name="globalExclude4k" id="global-exclude-4k">
-                                    <span class="checkmark"></span>
-                                    全局排除4K资源
-                                </label>
-                            </div>
-                            <div class="form-hint">启用后，影片列表中的磁力链接将自动排除4K资源</div>
-                        </div>
-                    </div>
-
-                    <div class="download-info">
-                        <p class="info-text">📥 下载功能说明</p>
-                        <p class="info-desc">登录PikPak后，在影片列表筛选结果页面可使用批量下载功能</p>
-                    </div>
-                </div>
-            </aside>
-        </div>
-    </div>
-
-    <script src="/static/app_optimized.js"></script>
+    <!-- Inject Version Information -->
+    <script>
+        window.versionInfo = {
+            version: "{{ version_info.version }}",
+            build_date: "{{ version_info.build_date }}"
+        };
+    </script>
+    
+    <!-- React Application -->
+    <script type="text/babel" src="/static/react_app.js"></script>
 </body>
 
 </html>
