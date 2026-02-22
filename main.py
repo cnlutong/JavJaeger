@@ -212,7 +212,7 @@ async def fetch_with_cache(url: str, params: dict = None):
         return None
 
 # 下载记录管理（使用内存存储以保持轻量化）
-downloaded_movies_cache = set()
+downloaded_movies_cache = {}
 downloaded_movies_loaded = False
 
 async def load_downloaded_movies():
@@ -220,7 +220,7 @@ async def load_downloaded_movies():
     global downloaded_movies_cache, downloaded_movies_loaded
     
     if downloaded_movies_loaded:
-        return list(downloaded_movies_cache)
+        return list(downloaded_movies_cache.values())
     
     try:
         # 确保data目录存在
@@ -229,7 +229,7 @@ async def load_downloaded_movies():
         if os.path.exists(DOWNLOADED_MOVIES_FILE):
             with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                downloaded_movies_cache = set(record['movie_id'] for record in data)
+                downloaded_movies_cache = {record['movie_id']: record for record in data}
                 logging.info(f"已加载 {len(downloaded_movies_cache)} 条下载记录")
         else:
             # 如果文件不存在，创建一个空的JSON文件
@@ -237,43 +237,57 @@ async def load_downloaded_movies():
             with open(DOWNLOADED_MOVIES_FILE, 'w', encoding='utf-8') as f:
                 json.dump(empty_data, f, ensure_ascii=False, indent=2)
             logging.info(f"已创建空的下载记录文件: {DOWNLOADED_MOVIES_FILE}")
+            downloaded_movies_cache = {}
             
         downloaded_movies_loaded = True
-        return list(downloaded_movies_cache)
+        return list(downloaded_movies_cache.values())
     except Exception as e:
         logging.error(f"加载下载记录失败: {str(e)}")
+        downloaded_movies_cache = {}
         return []
 
 async def save_downloaded_movies(movie_ids: List[str]):
-    """保存已下载的影片记录，并保留原有的下载时间"""
+    """保存已下载的影片记录，保留原有时间并补全详细信息"""
     global downloaded_movies_cache
     
     try:
         # 确保data目录存在
         os.makedirs(os.path.dirname(DOWNLOADED_MOVIES_FILE), exist_ok=True)
         
-        # 更新内存缓存
-        downloaded_movies_cache.update(movie_ids)
-        
-        # 读取现有文件以保留原有时间记录
-        existing_data = []
-        existing_map = {}
-        if os.path.exists(DOWNLOADED_MOVIES_FILE):
-            with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
-                try:
-                    existing_data = json.load(f)
-                    existing_map = {item['movie_id']: item.get('download_time') for item in existing_data}
-                except json.JSONDecodeError:
-                    pass
-        
         current_time = datetime.datetime.now().isoformat()
-        downloaded_movies = []
         
-        for movie_id in downloaded_movies_cache:
-            downloaded_movies.append({
-                'movie_id': movie_id,
-                'download_time': existing_map.get(movie_id, current_time)
-            })
+        for movie_id in movie_ids:
+            if movie_id not in downloaded_movies_cache or 'title' not in downloaded_movies_cache[movie_id]:
+                # 尝试获取详细信息
+                try:
+                    movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
+                    movie_data = await fetch_with_cache(movie_url)
+                    if not movie_data: movie_data = {}
+                except Exception as e:
+                    logging.warning(f"获取影片 {movie_id} 详情失败: {str(e)}")
+                    movie_data = {}
+                
+                record = downloaded_movies_cache.get(movie_id, {
+                    'movie_id': movie_id,
+                    'download_time': current_time
+                })
+                
+                # 更新详细信息
+                record['title'] = movie_data.get('title', '')
+                record['date'] = movie_data.get('date', '')
+                
+                stars = movie_data.get('stars', [])
+                record['stars'] = [s.get('name', '') for s in stars] if isinstance(stars, list) else []
+                
+                genres = movie_data.get('genres', [])
+                record['genres'] = [g.get('name', '') for g in genres] if isinstance(genres, list) else []
+                
+                record['cover'] = movie_data.get('cover', '')
+                
+                downloaded_movies_cache[movie_id] = record
+        
+        # 转换为列表保存
+        downloaded_movies = list(downloaded_movies_cache.values())
         
         # 按下载时间降序排序
         downloaded_movies.sort(key=lambda x: x.get('download_time', ''), reverse=True)

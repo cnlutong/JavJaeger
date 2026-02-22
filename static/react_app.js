@@ -371,6 +371,46 @@ const App = () => {
                             render: text => <Text strong>{text}</Text>
                         },
                         {
+                            title: '影片名',
+                            dataIndex: 'title',
+                            key: 'title',
+                            render: text => text ? <Text ellipsis={{ tooltip: text }} style={{ maxWidth: 200 }}>{text}</Text> : '-'
+                        },
+                        {
+                            title: '演员',
+                            dataIndex: 'stars',
+                            key: 'stars',
+                            render: tags => (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {tags && Array.isArray(tags) ? tags.map(tag => (
+                                        <Tag color="magenta" key={tag}>
+                                            {tag}
+                                        </Tag>
+                                    )) : '-'}
+                                </div>
+                            )
+                        },
+                        {
+                            title: '类型',
+                            dataIndex: 'genres',
+                            key: 'genres',
+                            render: tags => (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                    {tags && Array.isArray(tags) ? tags.map(tag => (
+                                        <Tag color="cyan" key={tag}>
+                                            {tag}
+                                        </Tag>
+                                    )) : '-'}
+                                </div>
+                            )
+                        },
+                        {
+                            title: '发布时间',
+                            dataIndex: 'date',
+                            key: 'date',
+                            render: text => text || '-'
+                        },
+                        {
                             title: '下载时间',
                             dataIndex: 'download_time',
                             key: 'download_time',
