@@ -31,6 +31,7 @@ const App = () => {
     const [loading, setLoading] = React.useState(false);
     const [moviesData, setMoviesData] = React.useState(null);
     const [magnetDataMap, setMagnetDataMap] = React.useState({});
+    const [movieDetailMap, setMovieDetailMap] = React.useState({});
     const [historyData, setHistoryData] = React.useState(null);
 
     // Filter Data State
@@ -67,16 +68,25 @@ const App = () => {
     }, []);
 
     // ---- API Calls ----
+    const fetchMovieDetail = async (id) => {
+        try {
+            const detail = await fetchWithRetry(`/api/movies/${encodeURIComponent(id)}`);
+            if (detail && detail.id) {
+                setMovieDetailMap(prev => ({ ...prev, [id]: detail }));
+            }
+        } catch (e) { /* silent */ }
+    };
+
     const searchMovie = async (values) => {
         setLoading(true);
         try {
             const data = await fetchWithRetry(`/api/movies/${encodeURIComponent(values.keyword)}`);
             setMoviesData(data.movies ? data : { movies: [data] }); // Adapt payload
             if (data.movies) {
-                // Fetch best magnet for each
-                data.movies.forEach(m => fetchBestMagnet(m.id, m.gid, m.uc));
+                data.movies.forEach(m => { fetchBestMagnet(m.id, m.gid, m.uc); fetchMovieDetail(m.id); });
             } else if (data.id) {
                 fetchBestMagnet(data.id, data.gid, data.uc);
+                fetchMovieDetail(data.id);
             }
         } catch (error) {
             message.error('搜索失败，请稍后重试');
@@ -104,7 +114,7 @@ const App = () => {
             const data = await fetchWithRetry(apiUrl);
             setMoviesData(data);
             if (data.movies) {
-                data.movies.forEach(m => fetchBestMagnet(m.id, m.gid, m.uc));
+                data.movies.forEach(m => { fetchBestMagnet(m.id, m.gid, m.uc); fetchMovieDetail(m.id); });
             }
         } catch (error) {
             message.error('筛选失败，请稍后重试');
@@ -226,6 +236,60 @@ const App = () => {
         message.info('番号批量下载功能准备中...');
     };
 
+    const handleDownloadAllMovies = async () => {
+        if (!isLoggedIn || !pikpakCredentials) {
+            message.warning('请先登录 PikPak');
+            return;
+        }
+        if (!moviesData || !moviesData.movies || moviesData.movies.length === 0) {
+            message.warning('没有可下载的影片');
+            return;
+        }
+
+        const magnetLinks = [];
+        const movieIds = [];
+        for (const movie of moviesData.movies) {
+            const magnets = magnetDataMap[movie.id];
+            if (magnets && magnets.length > 0) {
+                const best = magnets[0];
+                const link = best.link || best.magnetLink || best.magnet_link;
+                if (link) {
+                    magnetLinks.push(link);
+                    movieIds.push(movie.id);
+                }
+            }
+        }
+
+        if (magnetLinks.length === 0) {
+            message.warning('暂无可用的磁力链接，请等待加载完成');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await fetch('/api/pikpak/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    magnet_links: magnetLinks,
+                    movie_ids: movieIds,
+                    username: pikpakCredentials.username,
+                    password: pikpakCredentials.password
+                })
+            });
+            const result = await response.json();
+            if (result.success) {
+                message.success(result.message || `已添加 ${magnetLinks.length} 个下载任务`);
+            } else {
+                message.error('下载失败: ' + (result.message || '未知错误'));
+            }
+        } catch (error) {
+            message.error('下载请求失败');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const fetchHistory = async () => {
         setLoading(true);
         setViewMode('history');
@@ -293,7 +357,7 @@ const App = () => {
             return (
                 <div>
                     <div style={{ marginBottom: 16 }}>
-                        <Button type="primary" disabled={!isLoggedIn} icon={<span role="img" aria-label="download">📥</span>}>下载本页全部影片</Button>
+                        <Button type="primary" disabled={!isLoggedIn} loading={loading} icon={<span role="img" aria-label="download">📥</span>} onClick={handleDownloadAllMovies}>下载本页全部影片</Button>
                     </div>
                     {moviesData.movies.map(movie => renderMovieCard(movie))}
                 </div>
@@ -476,35 +540,80 @@ const App = () => {
         const magnets = magnetDataMap[movie.id];
         const hasMagnets = magnets && magnets.length > 0;
         const bestMagnet = hasMagnets ? magnets[0] : null;
+        const magnetLoading = !magnets;
+        const detail = movieDetailMap[movie.id];
+        const stars = detail && detail.stars ? detail.stars.map(s => s.name || s).filter(Boolean) : [];
+        const genres = detail && detail.genres ? detail.genres.map(g => g.name || g).filter(Boolean) : [];
 
         return (
-            <Card key={movie.id} style={{ marginBottom: 16, borderColor: '#f0f0f0', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }} size="small" hoverable>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Title level={5} style={{ margin: 0 }}>{movie.title || movie.full_title}</Title>
-                    <Tag color="blue" bordered={false}>{movie.id}</Tag>
+            <div key={movie.id} style={{
+                background: '#fff',
+                border: '1px solid #f0f0f0',
+                borderRadius: 8,
+                marginBottom: 10,
+                padding: '10px 16px',
+                transition: 'box-shadow 0.2s',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)'}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
+            >
+                {/* Row 1: ID + date */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>{movie.id}</Tag>
+                    {movie.date && <Text type="secondary" style={{ fontSize: 12 }}>📅 {movie.date}</Text>}
                 </div>
-                <div style={{ marginTop: 8 }}>
-                    {movie.date && <Text type="secondary" style={{ fontSize: '13px' }}>发行日期: {movie.date}</Text>}
+
+                {/* Row 2: Title */}
+                <div style={{ fontWeight: 600, fontSize: 14, color: '#1f1f1f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}
+                    title={movie.title || movie.full_title}>
+                    {movie.title || movie.full_title}
                 </div>
-                <Divider style={{ margin: '12px 0 8px 0', borderColor: '#f0f0f0' }} />
-                <div style={{ background: '#fafafa', padding: '12px', borderRadius: 4, border: '1px solid #f0f0f0' }}>
-                    {!magnets && <Spin size="small" />}
-                    {magnets && magnets.length === 0 && <Text type="danger">暂无可用资源</Text>}
+
+                {/* Row 3: Stars */}
+                {stars.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>👤</Text>
+                        {stars.map(s => <Tag key={s} color="magenta" style={{ margin: 0, fontSize: 11 }}>{s}</Tag>)}
+                    </div>
+                )}
+
+                {/* Row 4: Genres */}
+                {genres.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 11 }}>🏷</Text>
+                        {genres.slice(0, 8).map(g => <Tag key={g} color="cyan" style={{ margin: 0, fontSize: 11 }}>{g}</Tag>)}
+                        {genres.length > 8 && <Text type="secondary" style={{ fontSize: 11 }}>+{genres.length - 8}</Text>}
+                    </div>
+                )}
+
+                {/* Row 5: Magnet — compact inline */}
+                <div style={{ borderTop: '1px solid #f5f5f5', marginTop: 6, paddingTop: 6, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    {magnetLoading && <><Spin size="small" /><Text type="secondary" style={{ fontSize: 12 }}>搜索磁力链接...</Text></>}
+                    {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>⚠ 暂无可用资源</Text>}
                     {hasMagnets && (
-                        <div>
-                            <Tag color="gold">最佳资源</Tag>
-                            <a href={bestMagnet.link} target="_blank" rel="noreferrer" style={{ marginLeft: 8, wordBreak: 'break-all' }}>
-                                {bestMagnet.title}
+                        <>
+                            <Tag color="gold" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>最佳</Tag>
+                            {bestMagnet.hasSubtitle && <Tag color="green" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>字幕</Tag>}
+                            <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.size}</Text>
+                            {bestMagnet.date && <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.date}</Text>}
+                            <a
+                                href={bestMagnet.link}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ fontSize: 12, color: '#1677ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
+                                title={bestMagnet.title}
+                            >
+                                🧲 {bestMagnet.title}
                             </a>
-                            <div style={{ marginTop: 4 }}>
-                                <Text type="secondary" style={{ fontSize: '12px' }}>大小: {bestMagnet.size} | 日期: {bestMagnet.date}</Text>
-                            </div>
-                        </div>
+                        </>
                     )}
                 </div>
-            </Card>
+            </div>
         );
     };
+
+
 
     // ---- Render ---
     return (
