@@ -792,6 +792,19 @@ async def get_magnets(movieId: str, request: Request):
     if 'exclude4k' in query_params:
         del query_params['exclude4k']
     
+    # 如果缺少 gid 或 uc，自动从影片详情获取（javbus-api 需要这些参数才能获取磁力链接）
+    if 'gid' not in query_params or 'uc' not in query_params:
+        try:
+            movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movieId}"
+            movie_data = await fetch_with_cache(movie_url)
+            if movie_data and 'gid' in movie_data and 'uc' in movie_data:
+                query_params['gid'] = str(movie_data['gid'])
+                query_params['uc'] = str(movie_data['uc'])
+            else:
+                logging.warning(f"无法从影片详情获取必需的 gid/uc 参数: {movieId}")
+        except Exception as e:
+            logging.error(f"获取影片详情(为了gid/uc)失败: {movieId} - {str(e)}")
+    
     # 使用缓存获取数据
     data = await fetch_with_cache(api_url, query_params)
     if data is None:
