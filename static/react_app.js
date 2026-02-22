@@ -31,6 +31,7 @@ const App = () => {
     const [loading, setLoading] = React.useState(false);
     const [moviesData, setMoviesData] = React.useState(null);
     const [magnetDataMap, setMagnetDataMap] = React.useState({});
+    const [historyData, setHistoryData] = React.useState(null);
 
     // Filter Data State
     const [categories, setCategories] = React.useState({});
@@ -222,14 +223,28 @@ const App = () => {
     };
 
     const handleCodeDownload = async (values) => {
-        // Mocking the code parsing and triggering recognize endpoint logic or batch fetch logic.
-        // The original app.js sends parsing/request data depending on implementation.
-        // Note: I will map this to the recognize endpoint if applicable or just search batch.
         message.info('番号批量下载功能准备中...');
+    };
+
+    const fetchHistory = async () => {
+        setLoading(true);
+        setViewMode('history');
+        try {
+            const data = await fetchWithRetry('/api/history');
+            setHistoryData(data);
+            message.success('已加载历史记录');
+        } catch (error) {
+            message.error('获取历史记录失败');
+        } finally {
+            setLoading(false);
+        }
     };
 
     // ---- Render Helpers ----
     const renderContent = () => {
+        if (viewMode === 'history') {
+            return renderHistory();
+        }
         if (viewMode === 'browseCategory') {
             return renderCategoryGroups();
         }
@@ -293,13 +308,13 @@ const App = () => {
     };
 
     // ---- Browse Handlers ----
-    const handleCategorySelect = (code) => {
-        filterForm.setFieldsValue({ filterType: 'genre', filterValue: code });
+    const handleCategorySelect = (code, name) => {
+        filterForm.setFieldsValue({ filterType: 'genre', filterValue: code, filterValueName: name });
         setViewMode('search');
     };
 
-    const handleActorSelect = (code) => {
-        filterForm.setFieldsValue({ filterType: 'star', filterValue: code });
+    const handleActorSelect = (code, name) => {
+        filterForm.setFieldsValue({ filterType: 'star', filterValue: code, filterValueName: name });
         setViewMode('search');
     };
 
@@ -314,20 +329,71 @@ const App = () => {
                 {Object.keys(categories).map(group => (
                     <div key={group} style={{ marginBottom: 24 }}>
                         <Title level={5}>{group}</Title>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                            {categories[group].map(cat => (
-                                <Tag
-                                    key={cat.code}
-                                    color="cyan"
-                                    style={{ cursor: 'pointer', padding: '6px 12px', fontSize: 14 }}
-                                    onClick={() => handleCategorySelect(cat.code)}
-                                >
-                                    {cat.name}
-                                </Tag>
-                            ))}
-                        </div>
+                        <List
+                            grid={{ gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }}
+                            dataSource={categories[group]}
+                            renderItem={cat => (
+                                <List.Item>
+                                    <Card
+                                        hoverable
+                                        size="small"
+                                        style={{ textAlign: 'center', borderColor: '#e8e6e1', cursor: 'pointer', background: '#fcfcfc' }}
+                                        onClick={() => handleCategorySelect(cat.code, cat.name)}
+                                    >
+                                        <Text strong style={{ fontSize: 16 }}>{cat.name}</Text>
+                                    </Card>
+                                </List.Item>
+                            )}
+                        />
                     </div>
                 ))}
+            </div>
+        );
+    };
+
+    const renderHistory = () => {
+        return (
+            <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Title level={4} style={{ margin: 0 }}>📂 历史下载记录</Title>
+                    <Button onClick={() => setViewMode('search')}>返回查询</Button>
+                </div>
+                <Divider />
+                <antd.Table
+                    dataSource={historyData || []}
+                    rowKey="movie_id"
+                    pagination={{ pageSize: 20 }}
+                    columns={[
+                        {
+                            title: '影片番号',
+                            dataIndex: 'movie_id',
+                            key: 'movie_id',
+                            render: text => <Text strong>{text}</Text>
+                        },
+                        {
+                            title: '下载时间',
+                            dataIndex: 'download_time',
+                            key: 'download_time',
+                            render: text => {
+                                if (!text) return '未知时间';
+                                const d = new Date(text);
+                                return isNaN(d.getTime()) ? text : d.toLocaleString();
+                            }
+                        },
+                        {
+                            title: '操作',
+                            key: 'action',
+                            render: (_, record) => (
+                                <Button type="primary" size="small" onClick={() => {
+                                    setViewMode('search');
+                                    searchMovie({ keyword: record.movie_id });
+                                }}>
+                                    详情搜索
+                                </Button>
+                            )
+                        }
+                    ]}
+                />
             </div>
         );
     };
@@ -341,7 +407,7 @@ const App = () => {
                 </div>
                 <Divider />
                 <List
-                    grid={{ gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 6 }}
+                    grid={{ gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 5, xxl: 5 }}
                     dataSource={Array.isArray(actors) ? actors : Object.values(actors).flat()}
                     renderItem={actor => {
                         const actorName = actor.name || actor;
@@ -353,7 +419,7 @@ const App = () => {
                                 <Card
                                     hoverable
                                     cover={actor.avatar ? <img alt={actorName} src={actor.avatar} style={{ height: 200, objectFit: 'cover' }} /> : fallbackImage}
-                                    onClick={() => handleActorSelect(actorCode)}
+                                    onClick={() => handleActorSelect(actorCode, actorName)}
                                     size="small"
                                 >
                                     <Card.Meta title={actorName} style={{ textAlign: 'center' }} />
@@ -372,16 +438,16 @@ const App = () => {
         const bestMagnet = hasMagnets ? magnets[0] : null;
 
         return (
-            <Card key={movie.id} style={{ marginBottom: 16, borderColor: '#e8e6e1' }} size="small" hoverable>
+            <Card key={movie.id} style={{ marginBottom: 16, borderColor: '#f0f0f0', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }} size="small" hoverable>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Title level={5} style={{ margin: 0 }}>{movie.title || movie.full_title}</Title>
-                    <Tag color="blue">{movie.id}</Tag>
+                    <Tag color="blue" bordered={false}>{movie.id}</Tag>
                 </div>
                 <div style={{ marginTop: 8 }}>
-                    {movie.date && <Text type="secondary">发行日期: {movie.date}</Text>}
+                    {movie.date && <Text type="secondary" style={{ fontSize: '13px' }}>发行日期: {movie.date}</Text>}
                 </div>
-                <Divider style={{ margin: '8px 0', borderColor: '#e8e6e1' }} />
-                <div style={{ background: '#f5f4ef', padding: '8px 12px', borderRadius: 6 }}>
+                <Divider style={{ margin: '12px 0 8px 0', borderColor: '#f0f0f0' }} />
+                <div style={{ background: '#fafafa', padding: '12px', borderRadius: 4, border: '1px solid #f0f0f0' }}>
                     {!magnets && <Spin size="small" />}
                     {magnets && magnets.length === 0 && <Text type="danger">暂无可用资源</Text>}
                     {hasMagnets && (
@@ -405,28 +471,30 @@ const App = () => {
         <ConfigProvider
             theme={{
                 token: {
-                    colorPrimary: '#8c7a6b', // Softer, warmer primary color
-                    colorBgBase: '#fcfcfc',
-                    colorBgContainer: '#fffbfa', // Warm off-white for cards/containers
-                    colorBgLayout: '#f4f2ee', // Softer layout background
-                    colorTextBase: '#4a4440', // Softer text color
-                    colorBorder: '#e8e6e1', // Softer borders
-                    borderRadius: 8,
+                    colorPrimary: '#1677ff', // Professional crisp blue
+                    colorBgBase: '#ffffff',
+                    colorBgContainer: '#ffffff', // Clean white background
+                    colorBgLayout: '#f0f2f5', // Standard concise gray layout
+                    colorTextBase: '#1f1f1f', // Sharp dark grey text
+                    colorBorder: '#f0f0f0', // Crisp subtle borders
+                    borderRadius: 6,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
                 },
             }}
         >
-            <div style={{ backgroundColor: '#f4f2ee', minHeight: '100vh' }}>
-                <Layout style={{ minHeight: '100vh', maxWidth: 1600, margin: '0 auto', boxShadow: '0 0 20px rgba(0,0,0,0.03)' }}>
-                    <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fffbfa', padding: '0 20px', borderBottom: '1px solid #e8e6e1' }}>
+            <div style={{ backgroundColor: '#f0f2f5', minHeight: '100vh' }}>
+                <Layout style={{ minHeight: '100vh', maxWidth: 1600, margin: '0 auto', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                    <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#ffffff', padding: '0 24px', height: '72px', borderBottom: '1px solid #f0f0f0' }}>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <img src="/static/logo.jpg" alt="Logo" style={{ height: '40px', marginRight: '16px' }} />
-                            <Title level={4} style={{ margin: 0 }}>JavJaeger</Title>
-                            <Text type="secondary" style={{ marginLeft: '16px', display: 'none' }} className="subtitle-hidden-mobile">
-                                人类的一切痛苦，都是因为性欲得不到满足
+                            <img src="/static/logo.jpg" alt="Logo" style={{ height: '52px', marginRight: '16px', borderRadius: '4px', border: '1px solid #f0f0f0' }} />
+                            <Title level={3} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: '#1f1f1f' }}>JavJaeger</Title>
+                            <Divider type="vertical" style={{ height: '28px', margin: '0 20px', borderColor: '#e8e8e8' }} />
+                            <Text type="secondary" style={{ fontSize: '14px', letterSpacing: '1px', fontWeight: 500 }} className="subtitle-hidden-mobile">
+                                人类的一切痛苦，都是因为性欲得不到满足。
                             </Text>
                         </div>
-                        <Space>
-                            <Text type="secondary">
+                        <Space size="large">
+                            <Text type="secondary" style={{ fontSize: '13px' }}>
                                 v{versionInfo.version} ({versionInfo.build_date})
                             </Text>
                             <a href="https://github.com/cnlutong/JavJaeger" target="_blank" rel="noreferrer">
@@ -437,7 +505,7 @@ const App = () => {
                         </Space>
                     </Header>
 
-                    <Layout>
+                    <Layout style={{ background: '#f0f2f5' }}>
                         {/* Left Sidebar */}
                         <Sider
                             width={320}
@@ -445,7 +513,7 @@ const App = () => {
                             collapsible
                             collapsed={collapsedLeft}
                             onCollapse={(value) => setCollapsedLeft(value)}
-                            style={{ overflow: 'auto', height: '100%', borderRight: '1px solid #e8e6e1', background: '#f8f7f4' }}
+                            style={{ overflow: 'auto', height: '100%', borderRight: '1px solid #f0f0f0' }}
                         >
                             <div style={{ padding: '16px' }}>
                                 <Title level={5}>🔍 查询功能</Title>
@@ -454,32 +522,36 @@ const App = () => {
                                 <Card title="📋 影片列表筛选" size="small" style={{ marginBottom: 16 }}>
                                     <Form form={filterForm} onFinish={filterMovies} layout="vertical" initialValues={{ magnet: 'exist', type: 'normal', fetchMode: 'page' }}>
                                         <Form.Item name="filterType" style={{ marginBottom: 8 }}>
-                                            <Select placeholder="选择筛选类型" allowClear>
-                                                <Option value="star">演员</Option>
-                                                <Option value="genre">类别</Option>
-                                                <Option value="director">导演</Option>
-                                                <Option value="studio">制作商</Option>
-                                                <Option value="label">发行商</Option>
-                                                <Option value="series">系列</Option>
+                                            <Select placeholder="选择筛选类型" allowClear optionLabelProp="label">
+                                                <Option value="star" label="演员">
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <span>演员</span>
+                                                        <a onClick={(e) => { e.stopPropagation(); filterForm.setFieldsValue({ filterType: 'star' }); setViewMode('browseActor'); }}>浏览</a>
+                                                    </div>
+                                                </Option>
+                                                <Option value="genre" label="类别">
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <span>类别</span>
+                                                        <a onClick={(e) => { e.stopPropagation(); filterForm.setFieldsValue({ filterType: 'genre' }); setViewMode('browseCategory'); }}>浏览</a>
+                                                    </div>
+                                                </Option>
+                                                <Option value="director" label="导演">导演</Option>
+                                                <Option value="studio" label="制作商">制作商</Option>
+                                                <Option value="label" label="发行商">发行商</Option>
+                                                <Option value="series" label="系列">系列</Option>
                                             </Select>
                                         </Form.Item>
+                                        <Form.Item name="filterValue" hidden>
+                                            <Input />
+                                        </Form.Item>
                                         <Form.Item style={{ marginBottom: 8 }}>
-                                            <Space.Compact style={{ width: '100%' }}>
-                                                <Form.Item name="filterValue" noStyle>
-                                                    <Input placeholder="输入筛选值 (代码)" style={{ width: 'calc(100% - 60px)' }} />
-                                                </Form.Item>
-                                                <Button
-                                                    onClick={() => {
-                                                        const type = filterForm.getFieldValue('filterType');
-                                                        if (type === 'genre') setViewMode('browseCategory');
-                                                        else if (type === 'star') setViewMode('browseActor');
-                                                        else message.info('请先选择 类别 或 演员');
-                                                    }}
-                                                    style={{ width: '60px' }}
-                                                >
-                                                    浏览
-                                                </Button>
-                                            </Space.Compact>
+                                            <Form.Item name="filterValueName" noStyle>
+                                                <Input
+                                                    placeholder="输入筛选代码或名称"
+                                                    onChange={(e) => filterForm.setFieldsValue({ filterValue: e.target.value })}
+                                                    allowClear
+                                                />
+                                            </Form.Item>
                                         </Form.Item>
                                         <Form.Item name="magnet" style={{ marginBottom: 8 }}>
                                             <Select placeholder="磁力链接状态">
@@ -607,8 +679,8 @@ const App = () => {
                         </Sider>
 
                         {/* Main Content */}
-                        <Content style={{ padding: '24px', margin: 0, minHeight: 280, background: '#f4f2ee', overflow: 'auto' }}>
-                            <div style={{ background: '#fffbfa', padding: '24px', borderRadius: '8px', minHeight: '100%', border: '1px solid #e8e6e1' }}>
+                        <Content style={{ padding: '24px', margin: 0, minHeight: 280, background: '#f0f2f5', overflow: 'auto' }}>
+                            <div style={{ background: '#ffffff', padding: '24px', borderRadius: '6px', minHeight: '100%', border: '1px solid #f0f0f0', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
                                 {viewMode === 'search' && (
                                     <>
                                         <Title level={4}>📊 查询结果</Title>
@@ -626,12 +698,23 @@ const App = () => {
                             collapsible
                             collapsed={collapsedRight}
                             onCollapse={(value) => setCollapsedRight(value)}
-                            style={{ overflow: 'auto', height: '100%', borderLeft: '1px solid #e8e6e1', background: '#f8f7f4' }}
+                            style={{ overflow: 'auto', height: '100%', borderLeft: '1px solid #f0f0f0' }}
                             reverseArrow
                         >
                             <div style={{ padding: '16px' }}>
                                 <Title level={5}>📥 下载管理</Title>
                                 <Divider style={{ margin: '12px 0', borderColor: '#e8e6e1' }} />
+
+                                <Button
+                                    type="primary"
+                                    block
+                                    icon={<span role="img" aria-label="history">📂</span>}
+                                    onClick={fetchHistory}
+                                    style={{ marginBottom: '16px', background: '#52c41a', borderColor: '#52c41a' }}
+                                >
+                                    查看历史记录
+                                </Button>
+
                                 <Card title="🔐 PikPak 登录" size="small" style={{ marginBottom: '16px' }}>
                                     {!isLoggedIn ? (
                                         <Form layout="vertical" onFinish={handlePikPakLogin}>

@@ -245,7 +245,7 @@ async def load_downloaded_movies():
         return []
 
 async def save_downloaded_movies(movie_ids: List[str]):
-    """保存已下载的影片记录"""
+    """保存已下载的影片记录，并保留原有的下载时间"""
     global downloaded_movies_cache
     
     try:
@@ -255,12 +255,28 @@ async def save_downloaded_movies(movie_ids: List[str]):
         # 更新内存缓存
         downloaded_movies_cache.update(movie_ids)
         
-        # 保存到文件
+        # 读取现有文件以保留原有时间记录
+        existing_data = []
+        existing_map = {}
+        if os.path.exists(DOWNLOADED_MOVIES_FILE):
+            with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
+                try:
+                    existing_data = json.load(f)
+                    existing_map = {item['movie_id']: item.get('download_time') for item in existing_data}
+                except json.JSONDecodeError:
+                    pass
+        
         current_time = datetime.datetime.now().isoformat()
-        downloaded_movies = [
-            {'movie_id': movie_id, 'download_time': current_time}
-            for movie_id in downloaded_movies_cache
-        ]
+        downloaded_movies = []
+        
+        for movie_id in downloaded_movies_cache:
+            downloaded_movies.append({
+                'movie_id': movie_id,
+                'download_time': existing_map.get(movie_id, current_time)
+            })
+        
+        # 按下载时间降序排序
+        downloaded_movies.sort(key=lambda x: x.get('download_time', ''), reverse=True)
         
         with open(DOWNLOADED_MOVIES_FILE, 'w', encoding='utf-8') as f:
             json.dump(downloaded_movies, f, ensure_ascii=False, indent=2)
@@ -406,6 +422,24 @@ async def get_system_info():
     }
     
     return system_info
+
+@app.get("/api/history")
+async def get_history():
+    """
+    获取历史下载记录
+    :return: 历史下载记录列表
+    """
+    try:
+        if os.path.exists(DOWNLOADED_MOVIES_FILE):
+            with open(DOWNLOADED_MOVIES_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # 按下载时间降序排序（以防文件中的顺序不是最新的在最前）
+                data.sort(key=lambda x: x.get('download_time', ''), reverse=True)
+                return data
+        return []
+    except Exception as e:
+        logging.error(f"读取历史记录失败: {str(e)}")
+        return []
 
 @app.get("/api/movies")
 async def get_movies(request: Request):

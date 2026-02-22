@@ -1,292 +1,1120 @@
 {
-  "主題": [
-    {"name": "折磨", "code": "62"},
-    {"name": "嘔吐", "code": "5g"},
-    {"name": "觸手", "code": "59"},
-    {"name": "蠻橫嬌羞", "code": "57"},
-    {"name": "處男", "code": "52"},
-    {"name": "正太控", "code": "4y"},
-    {"name": "出軌", "code": "4r"},
-    {"name": "瘙癢", "code": "4e"},
-    {"name": "運動", "code": "4d"},
-    {"name": "女同接吻", "code": "4a"},
-    {"name": "性感的", "code": "49"},
-    {"name": "美容院", "code": "44"},
-    {"name": "處女", "code": "41"},
-    {"name": "爛醉如泥的", "code": "40"},
-    {"name": "殘忍畫面", "code": "3x"},
-    {"name": "妄想", "code": "3w"},
-    {"name": "惡作劇", "code": "3v"},
-    {"name": "學校作品", "code": "3t"},
-    {"name": "粗暴", "code": "3r"},
-    {"name": "通姦", "code": "3g"},
-    {"name": "姐妹", "code": "3e"},
-    {"name": "雙性人", "code": "3d"},
-    {"name": "跳舞", "code": "3c"},
-    {"name": "性奴", "code": "3b"},
-    {"name": "倒追", "code": "37"},
-    {"name": "性騷擾", "code": "35"},
-    {"name": "其他", "code": "2y"},
-    {"name": "戀腿癖", "code": "2x"},
-    {"name": "偷窥", "code": "2v"},
-    {"name": "花癡", "code": "2t"},
-    {"name": "男同性恋", "code": "2r"},
-    {"name": "情侶", "code": "2e"},
-    {"name": "戀乳癖", "code": "2d"},
-    {"name": "亂倫", "code": "20"},
-    {"name": "其他戀物癖", "code": "1y"},
-    {"name": "偶像藝人", "code": "1u"},
-    {"name": "野外・露出", "code": "1i"},
-    {"name": "獵豔", "code": "1e"},
-    {"name": "女同性戀", "code": "1d"},
-    {"name": "企畫", "code": "11"},
-    {"name": "10枚組", "code": "6h"},
-    {"name": "科幻", "code": "61"},
-    {"name": "女優ベスト・総集編", "code": "6i"},
-    {"name": "温泉", "code": "6j"},
-    {"name": "M男", "code": "6k"},
-    {"name": "原作コラボ", "code": "6l"},
-    {"name": "16時間以上作品", "code": "6n"},
-    {"name": "デカチン・巨根", "code": "6o"},
-    {"name": "ファン感謝・訪問", "code": "6p"},
-    {"name": "動画", "code": "6q"},
-    {"name": "巨尻", "code": "6r"},
-    {"name": "ハーレム", "code": "6s"},
-    {"name": "日焼け", "code": "6t"},
-    {"name": "早漏", "code": "6u"},
-    {"name": "キス・接吻", "code": "6v"},
-    {"name": "汗だく", "code": "6w"},
-    {"name": "スマホ専用縦動画", "code": "77"},
-    {"name": "Vシネマ", "code": "7d"},
-    {"name": "Don Cipote's choice", "code": "7c"},
-    {"name": "アニメ", "code": "7f"},
-    {"name": "アクション", "code": "7g"},
-    {"name": "イメージビデオ（男性）", "code": "7h"},
-    {"name": "孕ませ", "code": "7i"},
-    {"name": "ボーイズラブ", "code": "7j"},
-    {"name": "ビッチ", "code": "7t"},
-    {"name": "特典あり（AVベースボール）", "code": "7u"},
-    {"name": "コミック雑誌", "code": "7v"},
-    {"name": "時間停止", "code": "7w"}
+  "主题": [
+    {
+      "name": "折磨",
+      "code": "62"
+    },
+    {
+      "name": "呕吐",
+      "code": "5g"
+    },
+    {
+      "name": "触手",
+      "code": "59"
+    },
+    {
+      "name": "蛮横娇羞",
+      "code": "57"
+    },
+    {
+      "name": "处男",
+      "code": "52"
+    },
+    {
+      "name": "正太控",
+      "code": "4y"
+    },
+    {
+      "name": "出轨",
+      "code": "4r"
+    },
+    {
+      "name": "瘙痒",
+      "code": "4e"
+    },
+    {
+      "name": "运动",
+      "code": "4d"
+    },
+    {
+      "name": "女同接吻",
+      "code": "4a"
+    },
+    {
+      "name": "性感的",
+      "code": "49"
+    },
+    {
+      "name": "美容院",
+      "code": "44"
+    },
+    {
+      "name": "处女",
+      "code": "41"
+    },
+    {
+      "name": "烂醉如泥的",
+      "code": "40"
+    },
+    {
+      "name": "残忍画面",
+      "code": "3x"
+    },
+    {
+      "name": "妄想",
+      "code": "3w"
+    },
+    {
+      "name": "恶作剧",
+      "code": "3v"
+    },
+    {
+      "name": "学校作品",
+      "code": "3t"
+    },
+    {
+      "name": "粗暴",
+      "code": "3r"
+    },
+    {
+      "name": "通奸",
+      "code": "3g"
+    },
+    {
+      "name": "姐妹",
+      "code": "3e"
+    },
+    {
+      "name": "双性人",
+      "code": "3d"
+    },
+    {
+      "name": "跳舞",
+      "code": "3c"
+    },
+    {
+      "name": "性奴",
+      "code": "3b"
+    },
+    {
+      "name": "倒追",
+      "code": "37"
+    },
+    {
+      "name": "性骚扰",
+      "code": "35"
+    },
+    {
+      "name": "其他",
+      "code": "2y"
+    },
+    {
+      "name": "恋腿癖",
+      "code": "2x"
+    },
+    {
+      "name": "偷窥",
+      "code": "2v"
+    },
+    {
+      "name": "花痴",
+      "code": "2t"
+    },
+    {
+      "name": "男同性恋",
+      "code": "2r"
+    },
+    {
+      "name": "情侣",
+      "code": "2e"
+    },
+    {
+      "name": "恋乳癖",
+      "code": "2d"
+    },
+    {
+      "name": "乱伦",
+      "code": "20"
+    },
+    {
+      "name": "其他恋物癖",
+      "code": "1y"
+    },
+    {
+      "name": "偶像艺人",
+      "code": "1u"
+    },
+    {
+      "name": "野外・露出",
+      "code": "1i"
+    },
+    {
+      "name": "猎艳",
+      "code": "1e"
+    },
+    {
+      "name": "女同性恋",
+      "code": "1d"
+    },
+    {
+      "name": "企划",
+      "code": "11"
+    },
+    {
+      "name": "10枚组",
+      "code": "6h"
+    },
+    {
+      "name": "科幻",
+      "code": "61"
+    },
+    {
+      "name": "女优精选・总集篇",
+      "code": "6i"
+    },
+    {
+      "name": "温泉",
+      "code": "6j"
+    },
+    {
+      "name": "M男",
+      "code": "6k"
+    },
+    {
+      "name": "原作联动",
+      "code": "6l"
+    },
+    {
+      "name": "16小时以上作品",
+      "code": "6n"
+    },
+    {
+      "name": "巨根",
+      "code": "6o"
+    },
+    {
+      "name": "粉丝感谢・访问",
+      "code": "6p"
+    },
+    {
+      "name": "视频",
+      "code": "6q"
+    },
+    {
+      "name": "巨尻",
+      "code": "6r"
+    },
+    {
+      "name": "后宫",
+      "code": "6s"
+    },
+    {
+      "name": "晒黑",
+      "code": "6t"
+    },
+    {
+      "name": "早泄",
+      "code": "6u"
+    },
+    {
+      "name": "接吻",
+      "code": "6v"
+    },
+    {
+      "name": "大汗淋漓",
+      "code": "6w"
+    },
+    {
+      "name": "智能手机专用竖屏视频",
+      "code": "77"
+    },
+    {
+      "name": "V影院",
+      "code": "7d"
+    },
+    {
+      "name": "Don Cipote's choice",
+      "code": "7c"
+    },
+    {
+      "name": "动画",
+      "code": "7f"
+    },
+    {
+      "name": "动作",
+      "code": "7g"
+    },
+    {
+      "name": "形象视频（男性）",
+      "code": "7h"
+    },
+    {
+      "name": "怀孕",
+      "code": "7i"
+    },
+    {
+      "name": "BL",
+      "code": "7j"
+    },
+    {
+      "name": "荡妇",
+      "code": "7t"
+    },
+    {
+      "name": "附带特典（AV棒球）",
+      "code": "7u"
+    },
+    {
+      "name": "漫画杂志",
+      "code": "7v"
+    },
+    {
+      "name": "时间停止",
+      "code": "7w"
+    }
   ],
   "角色": [
-    {"name": "黑幫成員", "code": "5w"},
-    {"name": "童年朋友", "code": "5k"},
-    {"name": "公主", "code": "5i"},
-    {"name": "亞洲女演員", "code": "5f"},
-    {"name": "伴侶", "code": "58"},
-    {"name": "講師", "code": "4s"},
-    {"name": "婆婆", "code": "4l"},
-    {"name": "格鬥家", "code": "4h"},
-    {"name": "女檢察官", "code": "3o"},
-    {"name": "明星臉", "code": "39"},
-    {"name": "女主人、女老板", "code": "38"},
-    {"name": "模特兒", "code": "34"},
-    {"name": "秘書", "code": "32"},
-    {"name": "美少女", "code": "30"},
-    {"name": "新娘、年輕妻子", "code": "2z"},
-    {"name": "姐姐", "code": "2w"},
-    {"name": "格鬥家", "code": "2q"},
-    {"name": "車掌小姐", "code": "2o"},
-    {"name": "寡婦", "code": "2f"},
-    {"name": "千金小姐", "code": "2b"},
-    {"name": "白人", "code": "2a"},
-    {"name": "已婚婦女", "code": "29"},
-    {"name": "女醫生", "code": "27"},
-    {"name": "各種職業", "code": "26"},
-    {"name": "妓女", "code": "23"},
-    {"name": "賽車女郎", "code": "21"},
-    {"name": "女大學生", "code": "1x"},
-    {"name": "展場女孩", "code": "1v"},
-    {"name": "女教師", "code": "1n"},
-    {"name": "母親", "code": "1k"},
-    {"name": "家教", "code": "1c"},
-    {"name": "护士", "code": "17"},
-    {"name": "蕩婦", "code": "10"},
-    {"name": "黑人演員", "code": "z"},
-    {"name": "女生", "code": "p"},
-    {"name": "女主播", "code": "c"},
-    {"name": "高中女生", "code": "b"},
-    {"name": "服務生", "code": "7"},
-    {"name": "魔法少女", "code": "5r"},
-    {"name": "學生（其他）", "code": "65"},
-    {"name": "動畫人物", "code": "64"},
-    {"name": "遊戲的真人版", "code": "6c"},
-    {"name": "超級女英雄", "code": "6f"}
+    {
+      "name": "黑帮成员",
+      "code": "5w"
+    },
+    {
+      "name": "青梅竹马",
+      "code": "5k"
+    },
+    {
+      "name": "公主",
+      "code": "5i"
+    },
+    {
+      "name": "亚洲女演员",
+      "code": "5f"
+    },
+    {
+      "name": "伴侣",
+      "code": "58"
+    },
+    {
+      "name": "讲师",
+      "code": "4s"
+    },
+    {
+      "name": "婆婆",
+      "code": "4l"
+    },
+    {
+      "name": "格斗家",
+      "code": "4h"
+    },
+    {
+      "name": "女检察官",
+      "code": "3o"
+    },
+    {
+      "name": "明星脸",
+      "code": "39"
+    },
+    {
+      "name": "女主人、女老板",
+      "code": "38"
+    },
+    {
+      "name": "模特儿",
+      "code": "34"
+    },
+    {
+      "name": "秘书",
+      "code": "32"
+    },
+    {
+      "name": "美少女",
+      "code": "30"
+    },
+    {
+      "name": "新娘、年轻妻子",
+      "code": "2z"
+    },
+    {
+      "name": "姐姐",
+      "code": "2w"
+    },
+    {
+      "name": "乘务员",
+      "code": "2o"
+    },
+    {
+      "name": "格斗家",
+      "code": "2q"
+    },
+    {
+      "name": "寡妇",
+      "code": "2f"
+    },
+    {
+      "name": "千金小姐",
+      "code": "2b"
+    },
+    {
+      "name": "白人",
+      "code": "2a"
+    },
+    {
+      "name": "已婚妇女",
+      "code": "29"
+    },
+    {
+      "name": "女医生",
+      "code": "27"
+    },
+    {
+      "name": "各种职业",
+      "code": "26"
+    },
+    {
+      "name": "妓女",
+      "code": "23"
+    },
+    {
+      "name": "赛车女郎",
+      "code": "21"
+    },
+    {
+      "name": "女大学生",
+      "code": "1x"
+    },
+    {
+      "name": "展场女孩",
+      "code": "1v"
+    },
+    {
+      "name": "女教师",
+      "code": "1n"
+    },
+    {
+      "name": "母亲",
+      "code": "1k"
+    },
+    {
+      "name": "家教",
+      "code": "1c"
+    },
+    {
+      "name": "护士",
+      "code": "17"
+    },
+    {
+      "name": "荡妇",
+      "code": "10"
+    },
+    {
+      "name": "黑人演员",
+      "code": "z"
+    },
+    {
+      "name": "女生",
+      "code": "p"
+    },
+    {
+      "name": "女主播",
+      "code": "c"
+    },
+    {
+      "name": "高中女生",
+      "code": "b"
+    },
+    {
+      "name": "服务生",
+      "code": "7"
+    },
+    {
+      "name": "魔法少女",
+      "code": "5r"
+    },
+    {
+      "name": "学生（其他）",
+      "code": "65"
+    },
+    {
+      "name": "动画人物",
+      "code": "64"
+    },
+    {
+      "name": "游戏真人版",
+      "code": "6c"
+    },
+    {
+      "name": "超级女英雄",
+      "code": "6f"
+    }
   ],
-  "服裝": [
-    {"name": "女戰士", "code": "5h"},
-    {"name": "及膝襪", "code": "5c"},
-    {"name": "娃娃", "code": "5b"},
-    {"name": "女忍者", "code": "56"},
-    {"name": "女裝人妖", "code": "55"},
-    {"name": "內衣", "code": "50"},
-    {"name": "猥褻穿著", "code": "4z"},
-    {"name": "兔女郎", "code": "4p"},
-    {"name": "貓耳女", "code": "4n"},
-    {"name": "女祭司", "code": "4k"},
-    {"name": "泡泡襪", "code": "4i"},
-    {"name": "制服", "code": "3i"},
-    {"name": "緊身衣", "code": "3a"},
-    {"name": "裸體圍裙", "code": "2s"},
-    {"name": "迷你裙警察", "code": "2m"},
-    {"name": "空中小姐", "code": "2l"},
-    {"name": "連褲襪", "code": "28"},
-    {"name": "身體意識", "code": "1w"},
-    {"name": "OL", "code": "18"},
-    {"name": "和服・喪服", "code": "12"},
-    {"name": "體育服", "code": "y"},
-    {"name": "內衣", "code": "v"},
-    {"name": "水手服", "code": "m"},
-    {"name": "學校泳裝", "code": "l"},
-    {"name": "旗袍", "code": "k"},
-    {"name": "女傭", "code": "j"},
-    {"name": "迷你裙", "code": "i"},
-    {"name": "校服", "code": "a"},
-    {"name": "泳裝", "code": "9"},
-    {"name": "眼鏡", "code": "8"},
-    {"name": "角色扮演", "code": "1"},
-    {"name": "哥德蘿莉", "code": "6b"}
+  "服装": [
+    {
+      "name": "女战士",
+      "code": "5h"
+    },
+    {
+      "name": "及膝袜",
+      "code": "5c"
+    },
+    {
+      "name": "娃娃",
+      "code": "5b"
+    },
+    {
+      "name": "女忍者",
+      "code": "56"
+    },
+    {
+      "name": "女装人妖",
+      "code": "55"
+    },
+    {
+      "name": "内衣",
+      "code": "50"
+    },
+    {
+      "name": "猥亵穿着",
+      "code": "4z"
+    },
+    {
+      "name": "兔女郎",
+      "code": "4p"
+    },
+    {
+      "name": "猫耳女",
+      "code": "4n"
+    },
+    {
+      "name": "女祭司",
+      "code": "4k"
+    },
+    {
+      "name": "泡泡袜",
+      "code": "4i"
+    },
+    {
+      "name": "制服",
+      "code": "3i"
+    },
+    {
+      "name": "紧身衣",
+      "code": "3a"
+    },
+    {
+      "name": "裸体围裙",
+      "code": "2s"
+    },
+    {
+      "name": "迷你裙警察",
+      "code": "2m"
+    },
+    {
+      "name": "空中小姐",
+      "code": "2l"
+    },
+    {
+      "name": "连裤袜",
+      "code": "28"
+    },
+    {
+      "name": "身体意识",
+      "code": "1w"
+    },
+    {
+      "name": "OL",
+      "code": "18"
+    },
+    {
+      "name": "和服・丧服",
+      "code": "12"
+    },
+    {
+      "name": "体育服",
+      "code": "y"
+    },
+    {
+      "name": "内衣",
+      "code": "v"
+    },
+    {
+      "name": "水手服",
+      "code": "m"
+    },
+    {
+      "name": "学校泳装",
+      "code": "l"
+    },
+    {
+      "name": "旗袍",
+      "code": "k"
+    },
+    {
+      "name": "女佣",
+      "code": "j"
+    },
+    {
+      "name": "迷你裙",
+      "code": "i"
+    },
+    {
+      "name": "校服",
+      "code": "a"
+    },
+    {
+      "name": "泳装",
+      "code": "9"
+    },
+    {
+      "name": "眼镜",
+      "code": "8"
+    },
+    {
+      "name": "角色扮演",
+      "code": "1"
+    },
+    {
+      "name": "哥特萝莉",
+      "code": "6b"
+    }
   ],
-  "體型": [
-    {"name": "超乳", "code": "5d"},
-    {"name": "肌肉", "code": "4x"},
-    {"name": "乳房", "code": "3n"},
-    {"name": "嬌小的", "code": "3k"},
-    {"name": "屁股", "code": "2k"},
-    {"name": "高", "code": "2i"},
-    {"name": "變性者", "code": "2g"},
-    {"name": "無毛", "code": "22"},
-    {"name": "胖女人", "code": "1t"},
-    {"name": "苗條", "code": "1f"},
-    {"name": "孕婦", "code": "15"},
-    {"name": "成熟的女人", "code": "13"},
-    {"name": "蘿莉塔", "code": "w"},
-    {"name": "貧乳・微乳", "code": "t"},
-    {"name": "巨乳", "code": "e"}
+  "体型": [
+    {
+      "name": "超乳",
+      "code": "5d"
+    },
+    {
+      "name": "肌肉",
+      "code": "4x"
+    },
+    {
+      "name": "乳房",
+      "code": "3n"
+    },
+    {
+      "name": "娇小的",
+      "code": "3k"
+    },
+    {
+      "name": "屁股",
+      "code": "2k"
+    },
+    {
+      "name": "高",
+      "code": "2i"
+    },
+    {
+      "name": "变性者",
+      "code": "2g"
+    },
+    {
+      "name": "无毛",
+      "code": "22"
+    },
+    {
+      "name": "胖女人",
+      "code": "1t"
+    },
+    {
+      "name": "苗条",
+      "code": "1f"
+    },
+    {
+      "name": "孕妇",
+      "code": "15"
+    },
+    {
+      "name": "成熟的女人",
+      "code": "13"
+    },
+    {
+      "name": "萝莉塔",
+      "code": "w"
+    },
+    {
+      "name": "贫乳・微乳",
+      "code": "t"
+    },
+    {
+      "name": "巨乳",
+      "code": "e"
+    }
   ],
-  "行為": [
-    {"name": "顏面騎乘", "code": "4w"},
-    {"name": "食糞", "code": "4t"},
-    {"name": "足交", "code": "4j"},
-    {"name": "母乳", "code": "47"},
-    {"name": "手指插入", "code": "46"},
-    {"name": "按摩", "code": "45"},
-    {"name": "女上位", "code": "42"},
-    {"name": "舔陰", "code": "3q"},
-    {"name": "拳交", "code": "3l"},
-    {"name": "深喉", "code": "3f"},
-    {"name": "69", "code": "2h"},
-    {"name": "淫語", "code": "24"},
-    {"name": "潮吹", "code": "1z"},
-    {"name": "乳交", "code": "1s"},
-    {"name": "排便", "code": "1r"},
-    {"name": "飲尿", "code": "1p"},
-    {"name": "口交", "code": "1o"},
-    {"name": "濫交", "code": "1j"},
-    {"name": "放尿", "code": "19"},
-    {"name": "打手槍", "code": "x"},
-    {"name": "吞精", "code": "u"},
-    {"name": "肛交", "code": "r"},
-    {"name": "顏射", "code": "n"},
-    {"name": "自慰", "code": "h"},
-    {"name": "顏射", "code": "5"},
-    {"name": "中出", "code": "4"},
-    {"name": "肛内中出", "code": "6m"}
+  "行为": [
+    {
+      "name": "颜面骑乘",
+      "code": "4w"
+    },
+    {
+      "name": "食粪",
+      "code": "4t"
+    },
+    {
+      "name": "足交",
+      "code": "4j"
+    },
+    {
+      "name": "母乳",
+      "code": "47"
+    },
+    {
+      "name": "手指插入",
+      "code": "46"
+    },
+    {
+      "name": "按摩",
+      "code": "45"
+    },
+    {
+      "name": "女上位",
+      "code": "42"
+    },
+    {
+      "name": "舔阴",
+      "code": "3q"
+    },
+    {
+      "name": "拳交",
+      "code": "3l"
+    },
+    {
+      "name": "深喉",
+      "code": "3f"
+    },
+    {
+      "name": "69",
+      "code": "2h"
+    },
+    {
+      "name": "淫语",
+      "code": "24"
+    },
+    {
+      "name": "潮吹",
+      "code": "1z"
+    },
+    {
+      "name": "乳交",
+      "code": "1s"
+    },
+    {
+      "name": "排便",
+      "code": "1r"
+    },
+    {
+      "name": "饮尿",
+      "code": "1p"
+    },
+    {
+      "name": "口交",
+      "code": "1o"
+    },
+    {
+      "name": "滥交",
+      "code": "1j"
+    },
+    {
+      "name": "放尿",
+      "code": "19"
+    },
+    {
+      "name": "打手枪",
+      "code": "x"
+    },
+    {
+      "name": "吞精",
+      "code": "u"
+    },
+    {
+      "name": "肛交",
+      "code": "r"
+    },
+    {
+      "name": "颜射",
+      "code": "n"
+    },
+    {
+      "name": "自慰",
+      "code": "h"
+    },
+    {
+      "name": "颜射",
+      "code": "5"
+    },
+    {
+      "name": "中出",
+      "code": "4"
+    },
+    {
+      "name": "肛内中出",
+      "code": "6m"
+    }
   ],
   "玩法": [
-    {"name": "立即口交", "code": "51"},
-    {"name": "女優按摩棒", "code": "4f"},
-    {"name": "子宮頸", "code": "4c"},
-    {"name": "催眠", "code": "4b"},
-    {"name": "乳液", "code": "3z"},
-    {"name": "羞恥", "code": "3y"},
-    {"name": "凌辱", "code": "3s"},
-    {"name": "拘束", "code": "3p"},
-    {"name": "輪姦", "code": "3m"},
-    {"name": "插入異物", "code": "3h"},
-    {"name": "鴨嘴", "code": "36"},
-    {"name": "灌腸", "code": "2u"},
-    {"name": "監禁", "code": "25"},
-    {"name": "紧缚", "code": "1q"},
-    {"name": "強姦", "code": "1m"},
-    {"name": "藥物", "code": "1l"},
-    {"name": "汽車性愛", "code": "1h"},
-    {"name": "SM", "code": "1b"},
-    {"name": "糞便", "code": "1a"},
-    {"name": "玩具", "code": "14"},
-    {"name": "跳蛋", "code": "q"},
-    {"name": "緊縛", "code": "d"},
-    {"name": "按摩棒", "code": "6"},
-    {"name": "多P", "code": "3"},
-    {"name": "性愛", "code": "5m"},
-    {"name": "假陽具", "code": "5y"},
-    {"name": "逆強姦", "code": "63"}
+    {
+      "name": "立即口交",
+      "code": "51"
+    },
+    {
+      "name": "女优按摩棒",
+      "code": "4f"
+    },
+    {
+      "name": "子宫颈",
+      "code": "4c"
+    },
+    {
+      "name": "催眠",
+      "code": "4b"
+    },
+    {
+      "name": "乳液",
+      "code": "3z"
+    },
+    {
+      "name": "羞耻",
+      "code": "3y"
+    },
+    {
+      "name": "凌辱",
+      "code": "3s"
+    },
+    {
+      "name": "拘束",
+      "code": "3p"
+    },
+    {
+      "name": "轮奸",
+      "code": "3m"
+    },
+    {
+      "name": "插入异物",
+      "code": "3h"
+    },
+    {
+      "name": "鸭嘴",
+      "code": "36"
+    },
+    {
+      "name": "灌肠",
+      "code": "2u"
+    },
+    {
+      "name": "监禁",
+      "code": "25"
+    },
+    {
+      "name": "紧缚",
+      "code": "1q"
+    },
+    {
+      "name": "强奸",
+      "code": "1m"
+    },
+    {
+      "name": "药物",
+      "code": "1l"
+    },
+    {
+      "name": "汽车性爱",
+      "code": "1h"
+    },
+    {
+      "name": "SM",
+      "code": "1b"
+    },
+    {
+      "name": "粪便",
+      "code": "1a"
+    },
+    {
+      "name": "玩具",
+      "code": "14"
+    },
+    {
+      "name": "跳蛋",
+      "code": "q"
+    },
+    {
+      "name": "紧缚",
+      "code": "d"
+    },
+    {
+      "name": "按摩棒",
+      "code": "6"
+    },
+    {
+      "name": "多P",
+      "code": "3"
+    },
+    {
+      "name": "性爱",
+      "code": "5m"
+    },
+    {
+      "name": "假阳具",
+      "code": "5y"
+    },
+    {
+      "name": "逆强奸",
+      "code": "63"
+    }
   ],
-  "類別": [
-    {"name": "合作作品", "code": "60"},
-    {"name": "恐怖", "code": "5z"},
-    {"name": "給女性觀眾", "code": "5t"},
-    {"name": "教學", "code": "5s"},
-    {"name": "DMM專屬", "code": "5q"},
-    {"name": "R-15", "code": "5o"},
-    {"name": "R-18", "code": "5n"},
-    {"name": "3D", "code": "5e"},
-    {"name": "特效", "code": "5a"},
-    {"name": "故事集", "code": "54"},
-    {"name": "限時降價", "code": "53"},
-    {"name": "複刻版", "code": "4v"},
-    {"name": "戲劇", "code": "4u"},
-    {"name": "戀愛", "code": "4q"},
-    {"name": "高畫質", "code": "4o"},
-    {"name": "主觀視角", "code": "4m"},
-    {"name": "介紹影片", "code": "48"},
-    {"name": "4小時以上作品", "code": "43"},
-    {"name": "薄馬賽克", "code": "3u"},
-    {"name": "經典", "code": "3j"},
-    {"name": "首次亮相", "code": "33"},
-    {"name": "數位馬賽克", "code": "31"},
-    {"name": "投稿", "code": "2p"},
-    {"name": "纪录片", "code": "2n"},
-    {"name": "國外進口", "code": "2c"},
-    {"name": "第一人稱攝影", "code": "1g"},
-    {"name": "業餘", "code": "16"},
-    {"name": "局部特寫", "code": "s"},
-    {"name": "獨立製作", "code": "o"},
-    {"name": "DMM獨家", "code": "g"},
-    {"name": "單體作品", "code": "f"},
-    {"name": "合集", "code": "2"},
-    {"name": "高清", "code": "hd"},
-    {"name": "字幕", "code": "sub"},
-    {"name": "天堂TV", "code": "2j"},
-    {"name": "DVD多士爐", "code": "4g"},
-    {"name": "AV OPEN 2014 スーパーヘビー", "code": "66"},
-    {"name": "AV OPEN 2014 ヘビー級", "code": "69"},
-    {"name": "AV OPEN 2014 ミドル級", "code": "6a"},
-    {"name": "AV OPEN 2015 マニア/フェチ部門", "code": "70"},
-    {"name": "AV OPEN 2015 熟女部門", "code": "71"},
-    {"name": "AV OPEN 2015 企画部門", "code": "72"},
-    {"name": "AV OPEN 2015 乙女部門", "code": "73"},
-    {"name": "AV OPEN 2015 素人部門", "code": "74"},
-    {"name": "AV OPEN 2015 SM/ハード部門", "code": "75"},
-    {"name": "AV OPEN 2015 女優部門", "code": "76"},
-    {"name": "AVOPEN2016人妻・熟女部門", "code": "7k"},
-    {"name": "AVOPEN2016企画部門", "code": "7l"},
-    {"name": "AVOPEN2016ハード部門", "code": "7m"},
-    {"name": "AVOPEN2016マニア・フェチ部門", "code": "7n"},
-    {"name": "AVOPEN2016乙女部門", "code": "7o"},
-    {"name": "AVOPEN2016女優部門", "code": "7p"},
-    {"name": "AVOPEN2016ドラマ・ドキュメンタリー部門", "code": "7q"},
-    {"name": "AVOPEN2016素人部門", "code": "7r"},
-    {"name": "AVOPEN2016バラエティ部門", "code": "7s"},
-    {"name": "VR専用", "code": "7x"},
-    {"name": "堵嘴·喜劇", "code": "7y"},
-    {"name": "幻想", "code": "7z"},
-    {"name": "性別轉型·女性化", "code": "80"},
-    {"name": "為智能手機推薦垂直視頻", "code": "81"},
-    {"name": "設置項目", "code": "82"},
-    {"name": "迷你係列", "code": "83"},
-    {"name": "體驗懺悔", "code": "84"},
-    {"name": "黑暗系統", "code": "85"}
+  "类别": [
+    {
+      "name": "合作作品",
+      "code": "60"
+    },
+    {
+      "name": "恐怖",
+      "code": "5z"
+    },
+    {
+      "name": "面向女性观众",
+      "code": "5t"
+    },
+    {
+      "name": "教学",
+      "code": "5s"
+    },
+    {
+      "name": "DMM专属",
+      "code": "5q"
+    },
+    {
+      "name": "R-15",
+      "code": "5o"
+    },
+    {
+      "name": "R-18",
+      "code": "5n"
+    },
+    {
+      "name": "3D",
+      "code": "5e"
+    },
+    {
+      "name": "特效",
+      "code": "5a"
+    },
+    {
+      "name": "故事集",
+      "code": "54"
+    },
+    {
+      "name": "限时降价",
+      "code": "53"
+    },
+    {
+      "name": "复刻版",
+      "code": "4v"
+    },
+    {
+      "name": "戏剧",
+      "code": "4u"
+    },
+    {
+      "name": "恋爱",
+      "code": "4q"
+    },
+    {
+      "name": "高画质",
+      "code": "4o"
+    },
+    {
+      "name": "主观视角",
+      "code": "4m"
+    },
+    {
+      "name": "介绍影片",
+      "code": "48"
+    },
+    {
+      "name": "4小时以上作品",
+      "code": "43"
+    },
+    {
+      "name": "薄马赛克",
+      "code": "3u"
+    },
+    {
+      "name": "经典",
+      "code": "3j"
+    },
+    {
+      "name": "首次亮相",
+      "code": "33"
+    },
+    {
+      "name": "数码马赛克",
+      "code": "31"
+    },
+    {
+      "name": "投稿",
+      "code": "2p"
+    },
+    {
+      "name": "纪录片",
+      "code": "2n"
+    },
+    {
+      "name": "国外进口",
+      "code": "2c"
+    },
+    {
+      "name": "第一人称摄影",
+      "code": "1g"
+    },
+    {
+      "name": "业余",
+      "code": "16"
+    },
+    {
+      "name": "局部特写",
+      "code": "s"
+    },
+    {
+      "name": "独立制作",
+      "code": "o"
+    },
+    {
+      "name": "DMM独家",
+      "code": "g"
+    },
+    {
+      "name": "单体作品",
+      "code": "f"
+    },
+    {
+      "name": "合集",
+      "code": "2"
+    },
+    {
+      "name": "高清",
+      "code": "hd"
+    },
+    {
+      "name": "字幕",
+      "code": "sub"
+    },
+    {
+      "name": "天堂TV",
+      "code": "2j"
+    },
+    {
+      "name": "DVD多士炉",
+      "code": "4g"
+    },
+    {
+      "name": "AV OPEN 2014 超重量级",
+      "code": "66"
+    },
+    {
+      "name": "AV OPEN 2014 重量级",
+      "code": "69"
+    },
+    {
+      "name": "AV OPEN 2014 中量级",
+      "code": "6a"
+    },
+    {
+      "name": "AV OPEN 2015 发烧友/恋物癖部门",
+      "code": "70"
+    },
+    {
+      "name": "AV OPEN 2015 熟女部门",
+      "code": "71"
+    },
+    {
+      "name": "AV OPEN 2015 企划部门",
+      "code": "72"
+    },
+    {
+      "name": "AV OPEN 2015 少女部门",
+      "code": "73"
+    },
+    {
+      "name": "AV OPEN 2015 素人部门",
+      "code": "74"
+    },
+    {
+      "name": "AV OPEN 2015 SM/重口部门",
+      "code": "75"
+    },
+    {
+      "name": "AV OPEN 2015 女优部门",
+      "code": "76"
+    },
+    {
+      "name": "AV OPEN 2016 人妻・熟女部门",
+      "code": "7k"
+    },
+    {
+      "name": "AV OPEN 2016 企划部门",
+      "code": "7l"
+    },
+    {
+      "name": "AV OPEN 2016 重口部门",
+      "code": "7m"
+    },
+    {
+      "name": "AV OPEN 2016 发烧友・恋物癖部门",
+      "code": "7n"
+    },
+    {
+      "name": "AV OPEN 2016 少女部门",
+      "code": "7o"
+    },
+    {
+      "name": "AV OPEN 2016 女优部门",
+      "code": "7p"
+    },
+    {
+      "name": "AV OPEN 2016 剧情・纪录片部门",
+      "code": "7q"
+    },
+    {
+      "name": "AV OPEN 2016 素人部门",
+      "code": "7r"
+    },
+    {
+      "name": "AV OPEN 2016 综艺部门",
+      "code": "7s"
+    },
+    {
+      "name": "VR专用",
+      "code": "7x"
+    },
+    {
+      "name": "堵嘴·喜剧",
+      "code": "7y"
+    },
+    {
+      "name": "幻想",
+      "code": "7z"
+    },
+    {
+      "name": "性别转型·女性化",
+      "code": "80"
+    },
+    {
+      "name": "智能手机推荐竖屏视频",
+      "code": "81"
+    },
+    {
+      "name": "设置项目",
+      "code": "82"
+    },
+    {
+      "name": "迷你系列",
+      "code": "83"
+    },
+    {
+      "name": "体验忏悔",
+      "code": "84"
+    },
+    {
+      "name": "黑暗系统",
+      "code": "85"
+    }
   ]
 }
