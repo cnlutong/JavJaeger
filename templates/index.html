@@ -28,9 +28,9 @@
             build_date: "{{ version_info.build_date }}"
         };
     </script>
-    
+
     <!-- React Application -->
-    <script type="text/babel" src="/static/react_app.js"></script>
+    <script type="text/babel" src="/static/react_app.js?v={{ version_info.version }}"></script>
 </body>
 
 </html>

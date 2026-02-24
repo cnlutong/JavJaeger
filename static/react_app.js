@@ -1,4 +1,4 @@
-const { Layout, Menu, Button, Input, Form, Select, Card, Switch, Spin, message, Typography, Badge, Progress, Row, Col, Space, Divider, List, Tag, ConfigProvider, Segmented } = antd;
+const { Layout, Menu, Button, Input, Form, Select, Card, Switch, Spin, message, Typography, Badge, Progress, Row, Col, Space, Divider, List, Tag, ConfigProvider, Segmented, Popconfirm } = antd;
 const { Header, Content, Sider } = Layout;
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -33,6 +33,8 @@ const App = () => {
     const [magnetDataMap, setMagnetDataMap] = React.useState({});
     const [movieDetailMap, setMovieDetailMap] = React.useState({});
     const [historyData, setHistoryData] = React.useState(null);
+    const [currentPage, setCurrentPage] = React.useState(1);
+    const [lastFilterValues, setLastFilterValues] = React.useState(null);
 
     // Filter Data State
     const [categories, setCategories] = React.useState({});
@@ -95,7 +97,7 @@ const App = () => {
         }
     };
 
-    const filterMovies = async (values) => {
+    const filterMovies = async (values, page = 1) => {
         setLoading(true);
         try {
             const queryParams = new URLSearchParams();
@@ -106,6 +108,7 @@ const App = () => {
             if (values.magnet) queryParams.append('magnet', values.magnet);
             if (values.type) queryParams.append('type', values.type);
             if (values.actorCountFilter) queryParams.append('actorCountFilter', values.actorCountFilter);
+            if (page > 1) queryParams.append('page', page);
 
             const apiUrl = values.fetchMode === 'all'
                 ? `/api/movies/all?${queryParams.toString()}`
@@ -113,6 +116,8 @@ const App = () => {
 
             const data = await fetchWithRetry(apiUrl);
             setMoviesData(data);
+            setCurrentPage(page);
+            setLastFilterValues(values);
             if (data.movies) {
                 data.movies.forEach(m => { fetchBestMagnet(m.id, m.gid, m.uc); fetchMovieDetail(m.id); });
             }
@@ -157,6 +162,9 @@ const App = () => {
         if (uc !== undefined) queryParams.append('uc', uc);
         queryParams.append('sortBy', 'size');
         queryParams.append('sortOrder', 'desc');
+
+        const hasSubtitle = filterForm.getFieldValue('hasSubtitle');
+        if (hasSubtitle) queryParams.append('hasSubtitle', hasSubtitle);
 
         try {
             const data = await fetchWithRetry(`/api/magnets/${encodeURIComponent(id)}?${queryParams.toString()}`);
@@ -205,7 +213,8 @@ const App = () => {
         try {
             const requestBody = {
                 html_content: values.htmlContent,
-                auto_download: values.autoDownload || false
+                auto_download: values.autoDownload || false,
+                allow_chinese_subtitles: values.allowChineseSubtitles || false
             };
             if (values.autoDownload && isLoggedIn && pikpakCredentials) {
                 requestBody.username = pikpakCredentials.username;
@@ -304,6 +313,24 @@ const App = () => {
         }
     };
 
+    const handleClearHistory = async () => {
+        setLoading(true);
+        try {
+            const response = await fetch('/api/history', { method: 'DELETE' });
+            const result = await response.json();
+            if (result.success) {
+                message.success('历史记录已清空');
+                setHistoryData([]);
+            } else {
+                message.error('清空历史记录失败: ' + (result.message || '未知错误'));
+            }
+        } catch (error) {
+            message.error('请求清空历史记录失败');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // ---- Render Helpers ----
     const renderContent = () => {
         if (viewMode === 'history') {
@@ -354,12 +381,31 @@ const App = () => {
 
         // Handle Array of Movies
         if (moviesData.movies && moviesData.movies.length > 0) {
+            const canGoPrev = lastFilterValues && currentPage > 1;
+            const canGoNext = lastFilterValues && moviesData.movies.length >= 30;
+            const paginationBar = lastFilterValues && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <Button
+                        icon={<span>←</span>}
+                        disabled={!canGoPrev || loading}
+                        onClick={() => filterMovies(lastFilterValues, currentPage - 1)}
+                    >上一页</Button>
+                    <Text type="secondary">第 {currentPage} 页</Text>
+                    <Button
+                        icon={<span>→</span>}
+                        disabled={!canGoNext || loading}
+                        onClick={() => filterMovies(lastFilterValues, currentPage + 1)}
+                    >下一页</Button>
+                </div>
+            );
             return (
                 <div>
-                    <div style={{ marginBottom: 16 }}>
-                        <Button type="primary" disabled={!isLoggedIn} loading={loading} icon={<span role="img" aria-label="download">📥</span>} onClick={handleDownloadAllMovies}>下载本页全部影片</Button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>共 {moviesData.movies.length} 部</Text>
                     </div>
+                    {paginationBar}
                     {moviesData.movies.map(movie => renderMovieCard(movie))}
+                    {paginationBar}
                 </div>
             );
         }
@@ -401,7 +447,7 @@ const App = () => {
                                     <Card
                                         hoverable
                                         size="small"
-                                        style={{ textAlign: 'center', borderColor: '#e8e6e1', cursor: 'pointer', background: '#fcfcfc' }}
+                                        style={{ textAlign: 'center', cursor: 'pointer' }}
                                         onClick={() => handleCategorySelect(cat.code, cat.name)}
                                     >
                                         <Text strong style={{ fontSize: 16 }}>{cat.name}</Text>
@@ -420,7 +466,17 @@ const App = () => {
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                     <Title level={4} style={{ margin: 0 }}>📂 历史下载记录</Title>
-                    <Button onClick={() => setViewMode('search')}>返回查询</Button>
+                    <Space>
+                        <Popconfirm
+                            title="确定要清空所有历史记录吗？"
+                            onConfirm={handleClearHistory}
+                            okText="确定"
+                            cancelText="取消"
+                        >
+                            <Button danger disabled={!historyData || historyData.length === 0} loading={loading}>清空查阅记录</Button>
+                        </Popconfirm>
+                        <Button onClick={() => setViewMode('search')}>返回查询</Button>
+                    </Space>
                 </div>
                 <Divider />
                 <antd.Table
@@ -516,7 +572,7 @@ const App = () => {
                     renderItem={actor => {
                         const actorName = actor.name || actor;
                         const actorCode = actor.code || actor;
-                        const fallbackImage = <div style={{ height: 200, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Text type="secondary">无头像</Text></div>;
+                        const fallbackImage = <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--ant-color-bg-layout, #f5f5f5)' }}><Text type="secondary">无头像</Text></div>;
 
                         return (
                             <List.Item>
@@ -546,17 +602,12 @@ const App = () => {
         const genres = detail && detail.genres ? detail.genres.map(g => g.name || g).filter(Boolean) : [];
 
         return (
-            <div key={movie.id} style={{
-                background: '#fff',
-                border: '1px solid #f0f0f0',
-                borderRadius: 8,
-                marginBottom: 10,
-                padding: '10px 16px',
-                transition: 'box-shadow 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            }}
-                onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)'}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)'}
+            <Card
+                key={movie.id}
+                size="small"
+                hoverable
+                style={{ marginBottom: 8 }}
+                styles={{ body: { padding: '10px 16px' } }}
             >
                 {/* Row 1: ID + date */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -565,10 +616,10 @@ const App = () => {
                 </div>
 
                 {/* Row 2: Title */}
-                <div style={{ fontWeight: 600, fontSize: 14, color: '#1f1f1f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}
+                <Text strong style={{ display: 'block', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}
                     title={movie.title || movie.full_title}>
                     {movie.title || movie.full_title}
-                </div>
+                </Text>
 
                 {/* Row 3: Stars */}
                 {stars.length > 0 && (
@@ -588,7 +639,8 @@ const App = () => {
                 )}
 
                 {/* Row 5: Magnet — compact inline */}
-                <div style={{ borderTop: '1px solid #f5f5f5', marginTop: 6, paddingTop: 6, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <Divider style={{ margin: '6px 0' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                     {magnetLoading && <><Spin size="small" /><Text type="secondary" style={{ fontSize: 12 }}>搜索磁力链接...</Text></>}
                     {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>⚠ 暂无可用资源</Text>}
                     {hasMagnets && (
@@ -601,7 +653,7 @@ const App = () => {
                                 href={bestMagnet.link}
                                 target="_blank"
                                 rel="noreferrer"
-                                style={{ fontSize: 12, color: '#1677ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
+                                style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
                                 title={bestMagnet.title}
                             >
                                 🧲 {bestMagnet.title}
@@ -609,9 +661,10 @@ const App = () => {
                         </>
                     )}
                 </div>
-            </div>
+            </Card>
         );
     };
+
 
 
 
@@ -620,25 +673,20 @@ const App = () => {
         <ConfigProvider
             theme={{
                 token: {
-                    colorPrimary: '#1677ff', // Professional crisp blue
-                    colorBgBase: '#ffffff',
-                    colorBgContainer: '#ffffff', // Clean white background
-                    colorBgLayout: '#f0f2f5', // Standard concise gray layout
-                    colorTextBase: '#1f1f1f', // Sharp dark grey text
-                    colorBorder: '#f0f0f0', // Crisp subtle borders
+                    colorPrimary: '#1677ff',
                     borderRadius: 6,
                     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
                 },
             }}
         >
-            <div style={{ backgroundColor: '#f0f2f5', minHeight: '100vh' }}>
-                <Layout style={{ minHeight: '100vh', maxWidth: 1600, margin: '0 auto', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                    <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#ffffff', padding: '0 24px', height: '72px', borderBottom: '1px solid #f0f0f0' }}>
+            <div>
+                <Layout style={{ minHeight: '100vh', maxWidth: 1600, margin: '0 auto' }}>
+                    <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: '72px' }}>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
-                            <img src="/static/logo.jpg" alt="Logo" style={{ height: '52px', marginRight: '16px', borderRadius: '4px', border: '1px solid #f0f0f0' }} />
-                            <Title level={3} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: '#1f1f1f' }}>JavJaeger</Title>
-                            <Divider type="vertical" style={{ height: '28px', margin: '0 20px', borderColor: '#e8e8e8' }} />
-                            <Text type="secondary" style={{ fontSize: '14px', letterSpacing: '1px', fontWeight: 500 }} className="subtitle-hidden-mobile">
+                            <img src="/static/logo.jpg" alt="Logo" style={{ height: '52px', marginRight: '16px', borderRadius: '4px' }} />
+                            <Title level={3} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: '#fff' }}>JavJaeger</Title>
+                            <Divider type="vertical" style={{ height: '28px', margin: '0 20px' }} />
+                            <Text style={{ fontSize: '14px', letterSpacing: '1px', fontWeight: 500, color: 'rgba(255,255,255,0.75)' }} className="subtitle-hidden-mobile">
                                 人类的一切痛苦，都是因为性欲得不到满足。
                             </Text>
                         </div>
@@ -654,7 +702,7 @@ const App = () => {
                         </Space>
                     </Header>
 
-                    <Layout style={{ background: '#f0f2f5' }}>
+                    <Layout>
                         {/* Left Sidebar */}
                         <Sider
                             width={320}
@@ -662,11 +710,11 @@ const App = () => {
                             collapsible
                             collapsed={collapsedLeft}
                             onCollapse={(value) => setCollapsedLeft(value)}
-                            style={{ overflow: 'auto', height: '100%', borderRight: '1px solid #f0f0f0' }}
+                            style={{ overflow: 'auto', height: '100%' }}
                         >
                             <div style={{ padding: '16px' }}>
                                 <Title level={5}>🔍 查询功能</Title>
-                                <Divider style={{ margin: '12px 0', borderColor: '#e8e6e1' }} />
+                                <Divider style={{ margin: '12px 0' }} />
 
                                 <Card title="📋 影片列表筛选" size="small" style={{ marginBottom: 16 }}>
                                     <Form form={filterForm} onFinish={filterMovies} layout="vertical" initialValues={{ magnet: 'exist', type: 'normal', fetchMode: 'page' }}>
@@ -723,6 +771,13 @@ const App = () => {
                                                 <Option value="<=3">少于等于3人</Option>
                                                 <Option value=">=3">大于等于3人</Option>
                                                 <Option value=">=4">大于等于4人</Option>
+                                            </Select>
+                                        </Form.Item>
+                                        <Form.Item name="hasSubtitle" label="字幕要求" style={{ marginBottom: 8 }}>
+                                            <Select placeholder="不限制" allowClear>
+                                                <Option value="">包含或不包含都可以</Option>
+                                                <Option value="true">包含字幕</Option>
+                                                <Option value="false">不含字幕</Option>
                                             </Select>
                                         </Form.Item>
                                         <Form.Item name="fetchMode" label="获取方式" style={{ marginBottom: 8 }}>
@@ -828,16 +883,25 @@ const App = () => {
                         </Sider>
 
                         {/* Main Content */}
-                        <Content style={{ padding: '24px', margin: 0, minHeight: 280, background: '#f0f2f5', overflow: 'auto' }}>
-                            <div style={{ background: '#ffffff', padding: '24px', borderRadius: '6px', minHeight: '100%', border: '1px solid #f0f0f0', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+                        <Content style={{ padding: '24px', margin: 0, minHeight: 280, overflow: 'auto' }}>
+                            <Card bordered={false} style={{ minHeight: '100%' }}>
                                 {viewMode === 'search' && (
                                     <>
-                                        <Title level={4}>📊 查询结果</Title>
-                                        <Divider style={{ borderColor: '#e8e6e1' }} />
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                                            <Title level={4} style={{ margin: 0 }}>📊 查询结果</Title>
+                                            <Button
+                                                type="primary"
+                                                disabled={!isLoggedIn || !moviesData || !moviesData.movies || moviesData.movies.length === 0}
+                                                loading={loading}
+                                                icon={<span role="img" aria-label="download">📥</span>}
+                                                onClick={handleDownloadAllMovies}
+                                            >下载本页全部影片</Button>
+                                        </div>
+                                        <Divider style={{ margin: '0 0 16px 0' }} />
                                     </>
                                 )}
                                 {renderContent()}
-                            </div>
+                            </Card>
                         </Content>
 
                         {/* Right Sidebar */}
@@ -847,19 +911,19 @@ const App = () => {
                             collapsible
                             collapsed={collapsedRight}
                             onCollapse={(value) => setCollapsedRight(value)}
-                            style={{ overflow: 'auto', height: '100%', borderLeft: '1px solid #f0f0f0' }}
+                            style={{ overflow: 'auto', height: '100%' }}
                             reverseArrow
                         >
                             <div style={{ padding: '16px' }}>
                                 <Title level={5}>📥 下载管理</Title>
-                                <Divider style={{ margin: '12px 0', borderColor: '#e8e6e1' }} />
+                                <Divider style={{ margin: '12px 0' }} />
 
                                 <Button
-                                    type="primary"
+                                    type="default"
                                     block
                                     icon={<span role="img" aria-label="history">📂</span>}
                                     onClick={fetchHistory}
-                                    style={{ marginBottom: '16px', background: '#52c41a', borderColor: '#52c41a' }}
+                                    style={{ marginBottom: '16px' }}
                                 >
                                     查看历史记录
                                 </Button>

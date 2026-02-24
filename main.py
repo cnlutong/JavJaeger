@@ -14,7 +14,7 @@ import subprocess
 from typing import List, Dict, Optional
 from pikpakapi import PikPakApi
 import re
-from cilisousuo_cli import get_best_magnet as cilisousuo_get_best_magnet, is_4k_resource
+from cilisousuo_cli import get_best_magnet as cilisousuo_get_best_magnet, is_4k_resource, _has_chinese_subtitle
 
 # 配置日志
 logging.basicConfig(
@@ -136,6 +136,7 @@ class MovieRecognitionRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     exclude_4k: bool = False  # 是否排除4K资源
+    allow_chinese_subtitles: bool = False  # 是否允许中文字幕
 
 class MovieCodeDownloadRequest(BaseModel):
     movie_codes: str  # 用户输入的番号字符串
@@ -143,6 +144,7 @@ class MovieCodeDownloadRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     exclude_4k: bool = False  # 是否排除4K资源
+    allow_chinese_subtitles: bool = False  # 是否允许中文字幕
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -455,6 +457,22 @@ async def get_history():
         logging.error(f"读取历史记录失败: {str(e)}")
         return []
 
+@app.delete("/api/history")
+async def clear_history():
+    """
+    清空历史下载记录
+    :return: 成功信息
+    """
+    try:
+        if os.path.exists(DOWNLOADED_MOVIES_FILE):
+            with open(DOWNLOADED_MOVIES_FILE, 'w', encoding='utf-8') as f:
+                json.dump([], f, ensure_ascii=False)
+        downloaded_movies_cache.clear()
+        return {"success": True, "message": "历史记录已清空"}
+    except Exception as e:
+        logging.error(f"清空历史记录失败: {str(e)}")
+        return {"error": "清空历史记录失败", "message": str(e)}
+
 @app.get("/api/movies")
 async def get_movies(request: Request):
     """
@@ -732,6 +750,9 @@ def select_best_magnet_with_subtitle_filter(magnet_data, has_subtitle_filter=Non
     filtered_magnets = []
     for magnet in magnet_data:
         magnet_has_subtitle = magnet.get('hasSubtitle', False)
+        # 补充基于标题的关键字匹配，以防元数据缺失
+        if not magnet_has_subtitle and _has_chinese_subtitle(magnet.get('title', '')):
+            magnet_has_subtitle = True
         
         if has_subtitle_filter == 'true' and magnet_has_subtitle:
             filtered_magnets.append(magnet)
@@ -755,11 +776,12 @@ async def get_magnets(movieId: str, request: Request):
     """
     # 检查是否使用 cilisousuo 作为磁力链接来源
     magnet_source = request.query_params.get('source', 'javbus')
+    allow_chinese_subtitles = request.query_params.get('allowChineseSubtitles', 'false').lower() == 'true'
     
     if magnet_source == 'cilisousuo':
         # 使用 cilisousuo 获取磁力链接
         try:
-            magnet_link = await cilisousuo_get_best_magnet(movieId)
+            magnet_link = await cilisousuo_get_best_magnet(movieId, allow_chinese_subtitles=allow_chinese_subtitles)
             if magnet_link:
                 # 返回符合前端期望的格式
                 return [{
@@ -828,6 +850,9 @@ async def get_magnets(movieId: str, request: Request):
         filtered_data = []
         for magnet in data:
             magnet_has_subtitle = magnet.get('hasSubtitle', False)
+            # 补充基于标题的关键字匹配，以防元数据缺失
+            if not magnet_has_subtitle and _has_chinese_subtitle(magnet.get('title', '')):
+                magnet_has_subtitle = True
             
             if has_subtitle_filter == 'true' and magnet_has_subtitle:
                 filtered_data.append(magnet)
@@ -839,11 +864,12 @@ async def get_magnets(movieId: str, request: Request):
     return data
 
 @app.post("/api/movies/batch")
-async def get_movies_batch(movie_ids: List[str], has_subtitle_filter: str = None):
+async def get_movies_batch(movie_ids: List[str], has_subtitle_filter: str = None, allow_chinese_subtitles: bool = False):
     """
     批量获取影片信息和最佳磁力链接
     :param movie_ids: 影片ID列表
     :param has_subtitle_filter: 字幕筛选条件 ('true', 'false', 或 None)
+    :param allow_chinese_subtitles: 是否允许/偏好中文字幕 (用于 cilisousuo)
     :return: 批量影片信息
     """
     results = []
@@ -930,11 +956,13 @@ async def get_movies_batch_stream(request: Request):
             movie_ids = body
             has_subtitle_filter = None
             magnet_source = 'javbus'
+            allow_chinese_subtitles = False
         else:
             # 新格式（包含movie_ids和has_subtitle_filter）
             movie_ids = body.get('movie_ids', [])
             has_subtitle_filter = body.get('has_subtitle_filter')
             magnet_source = body.get('magnet_source', 'javbus')
+            allow_chinese_subtitles = body.get('allow_chinese_subtitles', False)
     except Exception as e:
         logging.error(f"解析请求体失败: {str(e)}")
         return {"error": "请求格式错误"}
@@ -949,7 +977,7 @@ async def get_movies_batch_stream(request: Request):
                 # 如果使用 cilisousuo，直接从 cilisousuo 获取磁力链接
                 if magnet_source == 'cilisousuo':
                     try:
-                        magnet_link = await cilisousuo_get_best_magnet(movie_id)
+                        magnet_link = await cilisousuo_get_best_magnet(movie_id, allow_chinese_subtitles=allow_chinese_subtitles)
                         if magnet_link:
                             best_magnet = {
                                 "link": magnet_link,
@@ -1234,49 +1262,20 @@ async def recognize_movies(request: MovieRecognitionRequest):
                         logging.info(f"影片 {movie_id} 已下载，跳过")
                         continue
                     
-                    # 获取影片详情
-                    movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
-                    movie_data = await fetch_with_cache(movie_url)
+                    magnet_link = await cilisousuo_get_best_magnet(movie_id, allow_chinese_subtitles=request.allow_chinese_subtitles)
                     
-                    if not movie_data or not movie_data.get('gid') or movie_data.get('uc') is None:
-                        logging.warning(f"影片 {movie_id} 不存在或无法获取参数")
-                        continue
-                    
-                    # 获取磁力链接
-                    magnet_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
-                    magnet_params = {
-                        'gid': movie_data['gid'],
-                        'uc': movie_data['uc'],
-                        'sortBy': 'size',
-                        'sortOrder': 'desc'
-                    }
-                    magnet_data = await fetch_with_cache(magnet_url, magnet_params)
-                    
-                    # 选择最佳磁力链接（优先无字幕的最大文件）
-                    best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, 'false', request.exclude_4k)
-                    if not best_magnet:
-                        # 如果没有无字幕的，选择任意最大的
-                        best_magnet = select_best_magnet_with_subtitle_filter(magnet_data, None, request.exclude_4k)
-                    
-                    if best_magnet:
-                        # 检查磁力链接字段是否存在
-                        magnet_link = best_magnet.get("magnet_link") or best_magnet.get("magnetLink") or best_magnet.get("link")
-                        if magnet_link:
-                            magnet_results.append({
-                                "movie_id": movie_id,
-                                "magnet_link": magnet_link,
-                                "title": best_magnet.get("title", ""),
-                                "size": best_magnet.get("size", "")
-                            })
-                            logging.info(f"为影片 {movie_id} 找到磁力链接")
-                        else:
-                            logging.warning(f"影片 {movie_id} 的磁力数据中缺少链接字段: {list(best_magnet.keys())}")
+                    if magnet_link:
+                        magnet_results.append({
+                            "movie_id": movie_id,
+                            "magnet_link": magnet_link,
+                            "title": "Best Filtered Magnet",
+                            "size": "Unknown"
+                        })
+                        logging.info(f"为影片 {movie_id} 找到磁力链接")
                     else:
                         logging.warning(f"未找到影片 {movie_id} 的磁力链接")
-                        
                 except Exception as e:
-                    logging.error(f"获取影片 {movie_id} 磁力链接失败: {str(e)}")
-            
+                    logging.error(f"获取影片 {movie_id} 磁力链接失败: {str(e)}")            
             # 如果有磁力链接，进行下载
             if magnet_results:
                 magnet_links = [result["magnet_link"] for result in magnet_results]
