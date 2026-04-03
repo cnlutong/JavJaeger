@@ -9,6 +9,8 @@ __pycache__/
 venv/
 env/
 .env
+config.local.json
+node_modules/
 
 # IDE files
 .vscode/

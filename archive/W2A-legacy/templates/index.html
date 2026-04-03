@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebDAV网盘监控工具</title>
+    <!-- Custom CSS overrides -->
+    <link href="/static/style.css" rel="stylesheet">
+    <!-- Ant Design reset CSS (optional but good idea) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.12.5/dist/reset.css" />
+
+    <!-- React & ReactDOM -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel for JSX -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.6/babel.min.js"></script>
+
+    <!-- Day.js (Required by Ant Design) -->
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+
+    <!-- Ant Design -->
+    <script src="https://cdn.jsdelivr.net/npm/antd@5.12.5/dist/antd.min.js"></script>
+
+    <!-- Ant Design Icons -->
+    <script src="https://cdn.jsdelivr.net/npm/@ant-design/icons@5.2.6/dist/index.umd.js"></script>
+</head>
+
+<body>
+    <div id="root"></div>
+    <!-- Load custom app script as Babel type -->
+    <script type="text/babel" data-type="module" src="/static/app.js"></script>
+</body>
+
+</html>

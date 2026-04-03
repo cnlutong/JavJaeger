@@ -13,6 +13,10 @@ services:
     environment:
       # JavBus API URL (change to your API address)
       - JAVBUS_API_BASE_URL=http://10.0.0.20:3000
+      # Strongly recommended in real deployments
+      - APP_SESSION_SECRET=change-this-session-secret
     volumes:
       # Persistent data directory
       - ./data:/app/data
+      # Optional: mount your runtime config file
+      # - ./config.json:/app/config.json:ro

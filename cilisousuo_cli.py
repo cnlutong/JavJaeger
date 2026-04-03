@@ -376,6 +376,28 @@ def filter_4k_results(results: List[SearchResult]) -> List[SearchResult]:
     return filtered
 
 
+def result_has_chinese_subtitle(result: SearchResult) -> bool:
+    """
+    基于标题和文件名推断是否为中文字幕资源
+    """
+    return _has_chinese_subtitle(result.title) or _has_chinese_subtitle(result.filename)
+
+
+def filter_results_by_subtitle(results: List[SearchResult], has_subtitle_filter: Optional[str]) -> List[SearchResult]:
+    """
+    按字幕条件过滤结果
+    :param results: 搜索结果列表
+    :param has_subtitle_filter: 'true' | 'false' | None
+    """
+    if has_subtitle_filter not in ("true", "false"):
+        return results
+
+    expected = has_subtitle_filter == "true"
+    filtered = [r for r in results if result_has_chinese_subtitle(r) == expected]
+    logging.info("按字幕条件筛选后剩余 %d 个结果", len(filtered))
+    return filtered
+
+
 def select_best_result(results: List[SearchResult], exclude_4k: bool = False) -> Optional[SearchResult]:
     """
     从结果中选择最佳源（文件大小最大的）
@@ -467,6 +489,51 @@ async def search_cilisousuo(query: str, resolve_detail: bool = True, limit: Opti
         return results
 
 
+async def get_best_result(query: str, has_subtitle_filter: Optional[str] = None, exclude_4k: bool = False) -> Optional[SearchResult]:
+    """
+    获取最佳结果及其元数据
+    :param query: 搜索关键词（通常是影片番号）
+    :param has_subtitle_filter: 字幕筛选条件 ('true', 'false', 或 None)
+    :param exclude_4k: 是否排除4K资源
+    :return: 最佳搜索结果，如果未找到则返回 None
+    """
+    allow_chinese_subtitles = has_subtitle_filter != "false"
+    results = await search_cilisousuo(
+        query,
+        resolve_detail=False,
+        allow_chinese_subtitles=allow_chinese_subtitles,
+    )
+    if not results:
+        return None
+
+    if exclude_4k:
+        results = filter_4k_results(results)
+        if not results:
+            return None
+
+    results = filter_results_by_subtitle(results, has_subtitle_filter)
+    if not results:
+        return None
+
+    sized_results = [r for r in results if _get_size_bytes_safe(r) is not None]
+    sized_results.sort(key=lambda r: _get_size_bytes_safe(r) or -1, reverse=True)
+    candidates = sized_results[:5] if sized_results else results[:5]
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        for result in candidates:
+            try:
+                detail_html = await fetch_text(client, result.detail_url)
+                result.magnet = parse_detail_for_magnet(detail_html)
+                if result.magnet:
+                    logging.info("已选择最佳源: %s (%s)", result.title, result.size)
+                    return result
+            except Exception as e:
+                logging.warning("获取详情失败 %s: %s", result.detail_path, e)
+
+    logging.warning("未在候选中找到有效的磁力链接")
+    return None
+
+
 async def get_best_magnet(query: str, allow_chinese_subtitles: bool = False) -> Optional[str]:
     """
     获取最佳磁力链接的便捷函数
@@ -474,9 +541,10 @@ async def get_best_magnet(query: str, allow_chinese_subtitles: bool = False) -> 
     :param allow_chinese_subtitles: 是否不过滤中文字幕版本
     :return: 最佳磁力链接，如果未找到则返回 None
     """
-    results = await search_cilisousuo(query, resolve_detail=True, best_only=True, allow_chinese_subtitles=allow_chinese_subtitles)
-    if results and results[0].magnet:
-        return results[0].magnet
+    has_subtitle_filter = None if allow_chinese_subtitles else "false"
+    best_result = await get_best_result(query, has_subtitle_filter=has_subtitle_filter)
+    if best_result and best_result.magnet:
+        return best_result.magnet
     return None
 
 

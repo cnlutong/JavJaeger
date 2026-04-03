@@ -1,0 +1,27 @@
+{
+  "session_secret": "replace-this-in-production",
+  "javbus_api": {
+    "host": "10.0.0.20",
+    "port": 3000,
+    "base_url": "http://10.0.0.20:3000"
+  },
+  "webdav": {
+    "enabled": false,
+    "url": "",
+    "username": "",
+    "password": "",
+    "auto_connect": false
+  },
+  "aria2": {
+    "enabled": false,
+    "url": "http://127.0.0.1:6800/jsonrpc",
+    "secret": "",
+    "auto_connect": false
+  },
+  "pikpak": {
+    "enabled": false,
+    "username": "",
+    "password": "",
+    "auto_login": false
+  }
+}

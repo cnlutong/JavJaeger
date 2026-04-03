@@ -10,6 +10,8 @@ build/
 venv/
 env/
 ENV/
+node_modules/
+npm-debug.log*
 
 # IDE
 .vscode/
@@ -30,6 +32,7 @@ docker-compose.yml
 # 文档和演示
 readme.md
 demo photo/
+archive/
 
 # 数据文件（通过 volume 挂载，不需要打包进镜像）
 data/

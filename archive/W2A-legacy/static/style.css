@@ -1,0 +1,57 @@
+body {
+    background-color: #f5f5f5;
+    margin: 0;
+}
+
+#root {
+    min-height: 100vh;
+}
+
+.file-row-video {
+    background-color: #f6ffed;
+}
+
+.file-row-video:hover > td {
+    background-color: #d9f7be !important;
+}
+
+.video-icon {
+    color: #52c41a;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+.app-layout {
+    min-height: 100vh;
+}
+
+.logo-container {
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: white;
+}
+
+.header-status-badge {
+    margin-left: 8px;
+}

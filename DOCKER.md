@@ -1,139 +1,222 @@
 # Docker 容器化部署指南
 
-## 📦 快速开始
+## 概览
 
-### 1. 配置（必需）
+当前 Docker 运行方式有两个关键点：
 
-修改 `docker-compose.yml` 中的 JavBus API 地址：
+- 应用容器内部监听 `5000` 端口
+- 宿主机默认映射为 `8000:5000`
+
+如果你使用仓库中的 `nginx.conf` 作为反向代理，上游后端也必须指向 `javjaeger:5000`。这一点已经与当前配置对齐。
+
+## 快速开始
+
+### 1. 准备配置
+
+最少需要确认两类配置：
+
+- `JAVBUS_API_BASE_URL`
+- `APP_SESSION_SECRET`
+
+当前 `docker-compose.yml` 已提供示例：
 
 ```yaml
 environment:
-  - JAVBUS_API_BASE_URL=http://your-api-host:port
+  - JAVBUS_API_BASE_URL=http://10.0.0.20:3000
+  - APP_SESSION_SECRET=change-this-session-secret
 ```
 
-**注意**：
-- 服务端口固定为 `8000`，如需修改请编辑端口映射
-- 将 `http://10.0.0.20:3000` 替换为你的实际 JavBus API 地址
+说明：
 
-### 2. 启动服务
+- `JAVBUS_API_BASE_URL` 用于覆盖 `config.json` 中的 JavBus API 地址
+- `APP_SESSION_SECRET` 用于覆盖 `config.json` 中的 `session_secret`
+- 生产环境不要使用默认或弱会话密钥
+
+### 2. 可选挂载 config.json
+
+如果你希望容器直接使用本地配置文件中的 WebDAV、Aria2、PikPak 默认配置，可以先复制 `config.example.json` 为 `config.json`，再在 `docker-compose.yml` 中打开只读挂载：
+
+```yaml
+volumes:
+  - ./data:/app/data
+  - ./config.json:/app/config.json:ro
+```
+
+推荐把以下内容写进 `config.json`：
+
+```json
+{
+  "session_secret": "replace-this-in-production",
+  "javbus_api": {
+    "base_url": "http://10.0.0.20:3000"
+  },
+  "webdav": {
+    "enabled": true,
+    "url": "https://dav.example.com/",
+    "username": "your-webdav-user",
+    "password": "your-webdav-password",
+    "auto_connect": true
+  },
+  "aria2": {
+    "enabled": true,
+    "url": "http://127.0.0.1:6800/jsonrpc",
+    "secret": "your-aria2-secret",
+    "auto_connect": true
+  },
+  "pikpak": {
+    "enabled": true,
+    "username": "your-pikpak-user",
+    "password": "your-pikpak-password",
+    "auto_login": false
+  }
+}
+```
+
+注意：
+
+- 环境变量优先级高于 `config.json`
+- 前端不会收到密码或 secret，只会收到脱敏默认值
+- 只有对应模块设置了 `enabled: true`，页面才会显示“使用配置连接/登录”
+
+### 3. 构建并启动
 
 ```bash
-# 构建并启动容器
-docker-compose up -d
+docker-compose up -d --build
+```
 
-# 查看日志
-docker-compose logs -f
+常用命令：
+
+```bash
+# 查看实时日志
+docker-compose logs -f javjaeger
+
+# 查看最近 100 行日志
+docker-compose logs --tail=100 javjaeger
 
 # 停止服务
 docker-compose down
+
+# 重新构建
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
-### 3. 访问应用
+### 4. 访问应用
 
-启动后，访问：`http://localhost:8000`
+默认地址：
 
-## ⚙️ 配置说明
+- [http://localhost:8000](http://localhost:8000)
 
-### JavBus API 配置（必需）
+## 当前 compose 配置说明
 
-直接修改 `docker-compose.yml` 中的 JavBus API 地址：
-
-```yaml
-environment:
-  - JAVBUS_API_BASE_URL=http://your-api-host:port
-```
-
-**注意**：如果容器内存在 `config.json` 文件，环境变量 `JAVBUS_API_BASE_URL` 的优先级更高。
-
-### 端口配置
-
-- 主机端口固定为 **8000**
-- 容器内端口固定为 **5000**
-
-如需修改端口，直接编辑 `docker-compose.yml`：
+当前仓库中的 `docker-compose.yml` 约定如下：
 
 ```yaml
 ports:
-  - "9000:5000"  # 修改左侧的主机端口
+  - "8000:5000"
 ```
 
-## 📁 数据持久化
+含义：
 
-`data/` 目录已通过 volume 挂载，确保下载记录持久化保存：
+- 容器内应用始终监听 `5000`
+- 宿主机通过 `8000` 访问
+
+如需修改外部访问端口，只改左侧宿主机端口即可：
+
+```yaml
+ports:
+  - "9000:5000"
+```
+
+## 数据持久化
+
+当前下载历史保存在：
+
+- `/app/data/downloaded_movies.json`
+
+compose 中已经做了持久化挂载：
 
 ```yaml
 volumes:
   - ./data:/app/data
 ```
 
-## 🔧 其他配置
+这意味着：
 
-### 自定义 config.json
+- 容器重启不会丢失下载历史
+- 备份时优先保留 `data/`
 
-如果需要使用自定义的 `config.json`，可以取消注释 docker-compose.yml 中的配置：
+## 关于前端构建
 
-```yaml
-volumes:
-  - ./config.json:/app/config.json:ro
+当前 Dockerfile 已升级为多阶段构建：
+
+- 第一阶段使用 Node 执行 `npm ci` 和 `npm run build:frontend`
+- 第二阶段使用 Python 运行 FastAPI 应用
+
+这意味着：
+
+- 构建镜像时会自动生成 `static/app.js`
+- 即使宿主机没有提前执行 `npm run build:frontend`，容器镜像也能完成前端打包
+- 如果你修改了 `frontend/src/`，重新执行 `docker-compose up -d --build` 即可
+
+## 反向代理说明
+
+如果你使用仓库内的 `nginx.conf`，请注意当前上游配置已经匹配容器端口：
+
+```nginx
+upstream javjaeger_backend {
+    server javjaeger:5000;
+}
 ```
 
-### 查看容器日志
+这与 Dockerfile 的默认启动命令一致：
 
 ```bash
-# 实时查看日志
-docker-compose logs -f javjaeger
-
-# 查看最近 100 行日志
-docker-compose logs --tail=100 javjaeger
+uvicorn main:app --host 0.0.0.0 --port ${PORT:-5000}
 ```
 
-### 进入容器调试
+## 生产环境建议
+
+- 使用单独的 `.env` 或密钥管理方式维护 `APP_SESSION_SECRET`
+- 不要把真实凭据直接提交到仓库中的 `config.json`
+- 如果使用 `config.json` 挂载，建议通过部署环境注入该文件
+- 反向代理层应限制访问来源，并开启 HTTPS
+- 定期备份 `data/`
+
+## 常见问题
+
+### Q: 容器启动了，但反向代理访问 502？
+
+A: 检查 Nginx 上游是否指向 `javjaeger:5000`，不要写成 `8000`。`8000` 是宿主机映射端口，不是容器内服务端口。
+
+### Q: 为什么页面里没有“使用配置连接/登录”按钮？
+
+A: 检查 `config.json` 中对应模块是否同时满足：
+
+- `enabled: true`
+- 必要字段已填写
+
+例如：
+
+- `webdav` 需要至少有 `url`
+- `aria2` 需要至少有 `url`
+- `pikpak` 需要有 `username` 和 `password`
+
+### Q: 我修改了前端代码，为什么容器里页面没变化？
+
+A: 先在宿主机执行：
 
 ```bash
-docker-compose exec javjaeger bash
+docker-compose up -d --build
 ```
 
-## 🚀 生产环境建议
+因为当前镜像会在构建阶段自动执行前端打包，关键是要重新构建镜像。
 
-1. **使用环境变量文件**：创建 `.env` 文件管理敏感配置
-2. **配置反向代理**：使用 Nginx 作为反向代理（参考项目中的 `nginx.conf`）
-3. **数据备份**：定期备份 `data/` 目录
-4. **资源限制**：根据需要设置容器的 CPU 和内存限制
+### Q: 是否必须挂载 config.json？
 
-示例：
+A: 不是。你也可以：
 
-```yaml
-services:
-  javjaeger:
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.5'
-          memory: 256M
-```
+- 只使用环境变量配置 JavBus API 和会话密钥
+- 在页面中手动填写 WebDAV / Aria2 / PikPak 信息
 
-## ❓ 常见问题
-
-**Q: 如何修改 JavBus API 地址？**
-
-A: 直接修改 `docker-compose.yml` 中的 `JAVBUS_API_BASE_URL` 值，然后重启容器：
-```bash
-docker-compose down
-docker-compose up -d
-```
-
-**Q: 端口被占用怎么办？**
-
-A: 直接修改 `docker-compose.yml` 中的端口映射，将 `8000:5000` 改为其他端口，如 `9000:5000`。
-
-**Q: 如何更新应用？**
-
-A: 重新构建镜像：
-```bash
-docker-compose build --no-cache
-docker-compose up -d
-```
-
+但如果希望“打开页面即可使用默认连接/默认登录”，就需要提供 `config.json`。

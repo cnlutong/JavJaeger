@@ -1,0 +1,11 @@
+.webdav-page .file-row-video {
+    background-color: #f6ffed;
+}
+
+.webdav-page .file-row-video:hover > td {
+    background-color: #d9f7be !important;
+}
+
+.webdav-page .video-icon {
+    color: #52c41a;
+}

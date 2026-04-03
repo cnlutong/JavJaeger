@@ -1,0 +1,7 @@
+version: '3.8'
+
+services:
+  webdav-monitor:
+    build: .
+    ports:
+      - "18000:8000"

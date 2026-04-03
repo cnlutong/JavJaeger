@@ -1,0 +1,10 @@
+{
+  "name": "javjaeger",
+  "private": true,
+  "scripts": {
+    "build:frontend": "esbuild frontend/src/main.jsx --bundle --format=iife --outfile=static/app.js --loader:.js=jsx --loader:.jsx=jsx"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.3"
+  }
+}
