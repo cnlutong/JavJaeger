@@ -1,9 +1,12 @@
 {
   "session_secret": "replace-this-in-production",
-  "javbus_api": {
-    "host": "10.0.0.20",
-    "port": 3000,
-    "base_url": "http://10.0.0.20:3000"
+  "javbus": {
+    "base_url": "https://www.javbus.com",
+    "timeout_seconds": 8,
+    "proxy": "",
+    "request_interval_seconds": 0.3,
+    "cache_expire_seconds": 3600,
+    "cache_max_size": 1000
   },
   "webdav": {
     "enabled": false,

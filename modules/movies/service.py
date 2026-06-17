@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import Request
 
-from modules.common.runtime import JAVBUS_API_BASE_URL, api_client
+from modules.javbus_api import javbus_api_service
 from .schemas import BatchMoviesRequest
 
 
@@ -13,8 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 async def get_movie_detail(movie_id: str) -> Any | None:
-    movie_url = f"{JAVBUS_API_BASE_URL}/api/movies/{movie_id}"
-    return await api_client.get_json(movie_url)
+    try:
+        return await javbus_api_service.get_movie_detail(movie_id)
+    except Exception as exc:
+        logger.error("Failed to get movie detail %s: %s", movie_id, exc)
+        return None
 
 
 def _matches_actor_count_filter(actor_count: int, actor_count_filter: str) -> bool:
@@ -36,14 +39,13 @@ def _matches_actor_count_filter(actor_count: int, actor_count_filter: str) -> bo
 
 
 async def get_movies_payload(request: Request) -> dict[str, Any]:
-    api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
     actor_count_filter = request.query_params.get("actorCountFilter")
 
     query_params = dict(request.query_params)
     query_params.pop("actorCountFilter", None)
     query_params.pop("hasSubtitle", None)
 
-    data = await api_client.get_json(api_url, query_params)
+    data = await javbus_api_service.get_movies_by_page(query_params)
     if data is None:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
 
@@ -87,12 +89,11 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
     total_pages = None
 
     while True:
-        api_url = f"{JAVBUS_API_BASE_URL}/api/movies"
         page_params = query_params.copy()
         page_params["page"] = str(current_page)
 
-        data = await api_client.get_json(api_url, page_params)
-        if data is None or not data.get("movies"):
+        data = await javbus_api_service.get_movies_by_page(page_params)
+        if not data.get("movies"):
             break
 
         all_movies.extend(data["movies"])
@@ -152,6 +153,32 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
             "total": len(all_movies),
         },
     }
+
+
+async def get_movies_search_payload(request: Request) -> dict[str, Any]:
+    keyword = (request.query_params.get("keyword") or "").strip()
+    page = request.query_params.get("page") or "1"
+    magnet = request.query_params.get("magnet") or "exist"
+    movie_type = request.query_params.get("type")
+    if not keyword:
+        return {"error": "`keyword` is required", "messages": ["`keyword` is required"]}
+
+    try:
+        return await javbus_api_service.get_movies_by_keyword_and_page(keyword, page, magnet, movie_type)
+    except Exception as exc:
+        if "404" in str(exc):
+            return {
+                "movies": [],
+                "pagination": {
+                    "currentPage": int(page),
+                    "hasNextPage": False,
+                    "nextPage": None,
+                    "pages": [],
+                },
+                "keyword": keyword,
+            }
+        logger.error("Failed to search movies by keyword %s: %s", keyword, exc)
+        return {"error": "Failed to search movies", "message": "JavBus request failed"}
 
 
 def parse_movie_codes(movie_codes_input: str) -> list[str]:

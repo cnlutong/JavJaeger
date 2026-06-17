@@ -3,8 +3,8 @@ from typing import Any
 
 from cilisousuo_cli import _has_chinese_subtitle, get_best_result as cilisousuo_get_best_result, is_4k_resource
 
-from modules.common.runtime import JAVBUS_API_BASE_URL, api_client
-from modules.history.service import download_history_service
+from modules.history.service import download_history_service, local_movie_library_service
+from modules.javbus_api import javbus_api_service
 from modules.movies.service import get_movie_detail
 
 
@@ -84,14 +84,13 @@ async def fetch_javbus_magnet_data(movie_id: str, movie_data: dict[str, Any]) ->
     if not has_valid_javbus_movie_params(movie_data):
         return None
 
-    magnet_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
-    magnet_params = {
-        "gid": movie_data["gid"],
-        "uc": movie_data["uc"],
-        "sortBy": "size",
-        "sortOrder": "desc",
-    }
-    return await api_client.get_json(magnet_url, magnet_params)
+    return await javbus_api_service.get_movie_magnets(
+        movie_id,
+        str(movie_data["gid"]),
+        str(movie_data["uc"]),
+        sort_by="size",
+        sort_order="desc",
+    )
 
 
 async def get_cilisousuo_best_magnet_payload(
@@ -172,12 +171,14 @@ async def build_movie_with_best_magnet_result(
         movie_data=movie_data,
     )
 
+    in_local_library = await local_movie_library_service.is_movie_present(movie_id)
     return {
         "movie_id": movie_id,
         "success": True,
         "title": movie_data.get("title", movie_id) if movie_data else movie_id,
         "date": movie_data.get("date", "未知") if movie_data else "未知",
-        "is_downloaded": await download_history_service.is_movie_downloaded(movie_id),
+        "is_downloaded": await download_history_service.is_movie_downloaded(movie_id) or in_local_library,
+        "in_local_library": in_local_library,
         "best_magnet": best_magnet,
     }
 
@@ -199,7 +200,6 @@ async def get_magnets_payload(movie_id: str, request_query: dict[str, str]) -> A
         )
         return [best_magnet] if best_magnet else []
 
-    api_url = f"{JAVBUS_API_BASE_URL}/api/magnets/{movie_id}"
     query_params = dict(request_query)
     query_params.pop("hasSubtitle", None)
     query_params.pop("source", None)
@@ -213,7 +213,13 @@ async def get_magnets_payload(movie_id: str, request_query: dict[str, str]) -> A
         else:
             logger.warning("无法从影片详情获取必需的 gid/uc 参数: %s", movie_id)
 
-    data = await api_client.get_json(api_url, query_params)
+    data = await javbus_api_service.get_movie_magnets(
+        movie_id,
+        str(query_params.get("gid") or ""),
+        str(query_params.get("uc") or ""),
+        sort_by=query_params.get("sortBy"),
+        sort_order=query_params.get("sortOrder"),
+    )
     if data is None:
         return {"error": "获取磁力链接失败", "message": "API请求失败"}
 

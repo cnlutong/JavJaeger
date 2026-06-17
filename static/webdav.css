@@ -9,3 +9,518 @@
 .webdav-page .video-icon {
     color: #52c41a;
 }
+
+.webdav-page {
+    padding: 20px;
+    background: #f5f7fb;
+}
+
+.webdav-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 18px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.webdav-page-header .ant-typography {
+    margin-top: 0;
+}
+
+.webdav-status-cluster {
+    flex-shrink: 0;
+}
+
+.webdav-connection-card,
+.webdav-work-card {
+    border-color: #e5e7eb;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.webdav-work-card {
+    margin-top: 20px;
+}
+
+.webdav-connection-card .ant-card-head-title,
+.webdav-work-card .ant-card-head-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 650;
+}
+
+.webdav-toolbar {
+    justify-content: flex-end;
+}
+
+.webdav-page .ant-table-wrapper {
+    overflow: hidden;
+}
+
+@media (max-width: 760px) {
+    .webdav-page {
+        padding: 14px;
+    }
+
+    .webdav-page-header {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 14px;
+    }
+
+    .webdav-status-cluster {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .webdav-work-card .ant-card-head {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .webdav-work-card .ant-card-extra {
+        width: 100%;
+        margin-left: 0;
+    }
+
+.webdav-toolbar,
+.webdav-toolbar .ant-space-item,
+.webdav-toolbar .ant-btn {
+        width: 100%;
+    }
+}
+
+/* WebDAV professional finish */
+.webdav-page {
+    background: #f5f5f5;
+}
+
+.webdav-page-header {
+    border-radius: 12px;
+    border-color: #d9d9d9;
+    background: #ffffff;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.webdav-page-header h3.ant-typography {
+    font-size: 24px;
+    font-weight: 780;
+}
+
+.webdav-status-cluster {
+    padding: 8px 10px;
+    border: 1px solid #f0f0f0;
+    border-radius: 10px;
+    background: #fafafa;
+}
+
+.webdav-connection-card,
+.webdav-work-card {
+    border-radius: 12px;
+    border-color: #d9d9d9;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    overflow: hidden;
+}
+
+.webdav-connection-card:hover,
+.webdav-work-card:hover {
+    border-color: #91caff;
+}
+
+.webdav-connection-card .ant-card-head,
+.webdav-work-card .ant-card-head {
+    min-height: 50px;
+    padding-inline: 16px;
+    background: #fafafa;
+}
+
+.webdav-connection-card .ant-card-head-title,
+.webdav-work-card .ant-card-head-title {
+    color: #262626;
+    font-size: 14px;
+    font-weight: 760;
+}
+
+.webdav-connection-card .ant-card-head-title .anticon,
+.webdav-work-card .ant-card-head-title .anticon {
+    color: #1677ff;
+}
+
+.webdav-page .ant-form-item-label > label {
+    color: #595959;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.webdav-page .ant-input,
+.webdav-page .ant-input-affix-wrapper,
+.webdav-page .ant-input-number,
+.webdav-page .ant-select-selector {
+    border-radius: 8px !important;
+    background: #fff;
+}
+
+.webdav-page .ant-btn {
+    border-radius: 8px;
+}
+
+.webdav-page .ant-btn-primary {
+    background: #1677ff;
+    border-color: #1677ff;
+}
+
+.webdav-page .ant-breadcrumb {
+    margin-bottom: 14px !important;
+    border-color: #d9d9d9;
+    background: #fafafa;
+}
+
+.webdav-page .ant-table-wrapper {
+    border: 1px solid #f0f0f0;
+    border-radius: 10px;
+}
+
+.webdav-page .ant-table-container {
+    border-radius: 10px;
+}
+
+.webdav-page .ant-table-thead > tr > th {
+    border-bottom-color: #f0f0f0 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.webdav-page .ant-progress-line {
+    margin-bottom: 0;
+}
+
+.webdav-page .ant-tag {
+    border-radius: 999px;
+    font-weight: 650;
+}
+
+@media (max-width: 760px) {
+    .webdav-page-header {
+        border-radius: 10px;
+    }
+
+    .webdav-status-cluster {
+        padding: 8px 0 0;
+        border: 0;
+        background: transparent;
+    }
+}
+
+/* WebDAV visual upgrade */
+.webdav-page {
+    background: #f5f5f5;
+}
+
+.webdav-page-header,
+.webdav-connection-card,
+.webdav-work-card {
+    border-color: #d9d9d9;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.webdav-page-header h3.ant-typography {
+    color: #262626;
+    font-weight: 760;
+}
+
+.webdav-page-header .ant-badge-status-text {
+    color: #595959;
+    font-weight: 600;
+}
+
+.webdav-connection-card .ant-card-head,
+.webdav-work-card .ant-card-head {
+    min-height: 48px;
+    background: #fafafa;
+    border-bottom-color: #f0f0f0;
+}
+
+.webdav-connection-card .ant-card-body {
+    padding: 18px;
+}
+
+.webdav-work-card .ant-card-body {
+    padding: 16px 18px 18px;
+}
+
+.webdav-page .ant-input,
+.webdav-page .ant-input-affix-wrapper,
+.webdav-page .ant-input-number,
+.webdav-page .ant-input-number-input,
+.webdav-page .ant-select-selector {
+    min-height: 36px;
+    border-color: #d9d9d9 !important;
+}
+
+.webdav-page .ant-input:focus,
+.webdav-page .ant-input-affix-wrapper-focused,
+.webdav-page .ant-input-number-focused {
+    border-color: #1677ff !important;
+    box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1) !important;
+}
+
+.webdav-page .ant-btn {
+    min-height: 36px;
+    font-weight: 650;
+}
+
+.webdav-page .ant-btn-primary {
+    background: #1677ff;
+    box-shadow: none;
+}
+
+.webdav-page .ant-btn-primary:hover {
+    background: #4096ff !important;
+}
+
+.webdav-page .ant-table {
+    color: #262626;
+}
+
+.webdav-page .ant-table-thead > tr > th {
+    background: #fafafa !important;
+    color: #595959;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.webdav-page .ant-table-tbody > tr > td {
+    border-bottom-color: #f0f0f0;
+}
+
+.webdav-page .ant-table-tbody > tr:hover > td {
+    background: #fafafa !important;
+}
+
+.webdav-page .ant-breadcrumb {
+    padding: 10px 12px;
+    background: #fafafa;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+}
+
+.webdav-page .file-row-video > td {
+    background: #f6ffed;
+}
+
+.webdav-page .file-row-video:hover > td {
+    background-color: #d9f7be !important;
+}
+
+@media (max-width: 760px) {
+    .webdav-page .ant-row .ant-col-12 {
+        max-width: 100%;
+        flex: 0 0 100%;
+    }
+
+    .webdav-connection-card .ant-card-body,
+    .webdav-work-card .ant-card-body {
+        padding: 14px;
+    }
+}
+
+/* ERP palette override: Ant Design 5 default enterprise tokens */
+.webdav-page {
+    background: #f5f5f5 !important;
+}
+
+.webdav-page-header,
+.webdav-connection-card,
+.webdav-work-card {
+    background: #ffffff !important;
+    border-color: #d9d9d9 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+.webdav-page-header h3.ant-typography,
+.webdav-connection-card .ant-card-head-title,
+.webdav-work-card .ant-card-head-title {
+    color: #262626 !important;
+}
+
+.webdav-page-header .ant-typography,
+.webdav-status-cluster,
+.webdav-page .ant-badge-status-text {
+    color: #595959 !important;
+}
+
+.webdav-status-cluster,
+.webdav-page .ant-breadcrumb {
+    background: #fafafa !important;
+    border-color: #d9d9d9 !important;
+}
+
+.webdav-connection-card .ant-card-head,
+.webdav-work-card .ant-card-head,
+.webdav-page .ant-table-thead > tr > th {
+    background: #fafafa !important;
+    border-bottom-color: #f0f0f0 !important;
+}
+
+.webdav-connection-card .ant-card-head-title .anticon,
+.webdav-work-card .ant-card-head-title .anticon {
+    color: #1677ff !important;
+}
+
+.webdav-page .ant-input,
+.webdav-page .ant-input-affix-wrapper,
+.webdav-page .ant-input-number,
+.webdav-page .ant-input-number-input,
+.webdav-page .ant-select-selector {
+    border-color: #d9d9d9 !important;
+}
+
+.webdav-page .ant-input:focus,
+.webdav-page .ant-input-affix-wrapper-focused,
+.webdav-page .ant-input-number-focused {
+    border-color: #1677ff !important;
+    box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1) !important;
+}
+
+.webdav-page .ant-btn-primary {
+    background: #1677ff !important;
+    border-color: #1677ff !important;
+    box-shadow: none !important;
+}
+
+.webdav-page .ant-btn-primary:hover {
+    background: #4096ff !important;
+    border-color: #4096ff !important;
+}
+
+.webdav-page .ant-table {
+    color: #262626 !important;
+}
+
+.webdav-page .ant-table-thead > tr > th {
+    color: #595959 !important;
+}
+
+.webdav-page .ant-table-tbody > tr > td {
+    border-bottom-color: #f0f0f0 !important;
+}
+
+.webdav-page .ant-table-tbody > tr:hover > td {
+    background: #fafafa !important;
+}
+
+.webdav-page .file-row-video > td {
+    background: #f6ffed !important;
+}
+
+.webdav-page .file-row-video:hover > td {
+    background: #d9f7be !important;
+}
+
+/* WebDAV workspace fit and form density */
+.jav-webdav-shell {
+    height: calc(100vh - 68px);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.webdav-page {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
+    padding: 20px 20px 24px !important;
+    scrollbar-gutter: stable;
+}
+
+.webdav-page > .ant-layout-content {
+    min-height: 0;
+}
+
+.webdav-page-header {
+    margin-bottom: 16px;
+    padding: 16px 18px !important;
+    border-radius: 8px !important;
+}
+
+.webdav-page-header h3.ant-typography {
+    font-size: 22px !important;
+    line-height: 1.2;
+}
+
+.webdav-status-cluster {
+    border-radius: 8px !important;
+}
+
+.webdav-connection-card,
+.webdav-work-card {
+    border-radius: 8px !important;
+}
+
+.webdav-connection-card .ant-card-head,
+.webdav-work-card .ant-card-head {
+    min-height: 44px !important;
+}
+
+.webdav-connection-card .ant-card-body {
+    padding: 16px !important;
+}
+
+.webdav-connection-card .ant-form-item {
+    margin-bottom: 14px;
+}
+
+.webdav-connection-card .ant-row {
+    row-gap: 0 !important;
+}
+
+.webdav-page .ant-input,
+.webdav-page .ant-input-affix-wrapper,
+.webdav-page .ant-input-number,
+.webdav-page .ant-input-number-input,
+.webdav-page .ant-select-selector {
+    min-height: 34px;
+}
+
+.webdav-page .ant-btn {
+    min-height: 34px;
+}
+
+.webdav-page .ant-btn-primary:disabled,
+.webdav-page .ant-btn-primary.ant-btn-disabled,
+.webdav-page .ant-btn-primary:disabled:hover {
+    background: #f5f5f5 !important;
+    border-color: #d9d9d9 !important;
+    color: rgba(0, 0, 0, 0.25) !important;
+    box-shadow: none !important;
+}
+
+.webdav-page input:-webkit-autofill,
+.webdav-page input:-webkit-autofill:hover,
+.webdav-page input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+    -webkit-text-fill-color: #262626 !important;
+    caret-color: #262626;
+}
+
+@media (max-width: 760px) {
+    .jav-webdav-shell {
+        height: auto;
+        min-height: calc(100vh - 62px);
+        overflow: visible;
+    }
+
+    .webdav-page {
+        height: auto;
+        overflow: visible;
+        padding: 14px !important;
+    }
+}

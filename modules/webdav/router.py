@@ -62,19 +62,25 @@ async def establish_webdav_connection(
     password: str = "",
 ) -> dict[str, Any]:
     state = await session_store.get_state(request)
+    client: WebDavClient | None = None
     try:
         client = WebDavClient(webdav_url, username, password)
         await asyncio.to_thread(client.list_directory, "/")
+        old_client = state.webdav_client
         state.webdav_client = client
         state.webdav_url = webdav_url
         state.webdav_username = username or None
+        if old_client is not None and old_client is not client:
+            old_client.close()
         return {"success": True, "message": "WebDAV连接成功"}
     except Exception as exc:
+        if client is not None:
+            client.close()
         state.webdav_client = None
         state.webdav_url = None
         state.webdav_username = None
         logger.error("WebDAV连接失败: %s", exc)
-        return {"success": False, "message": f"WebDAV连接失败: {exc}"}
+        return {"success": False, "error": "webdav_connect_failed", "message": "WebDAV连接失败"}
 
 
 async def establish_aria2_connection(request: Request, aria2_url: str, aria2_secret: str = "") -> dict[str, Any]:
@@ -94,7 +100,7 @@ async def establish_aria2_connection(request: Request, aria2_url: str, aria2_sec
         state.aria2_client = None
         state.aria2_url = None
         logger.error("Aria2连接失败: %s", exc)
-        return {"success": False, "message": f"Aria2连接失败: {exc}"}
+        return {"success": False, "error": "aria2_connect_failed", "message": "Aria2连接失败"}
 
 
 def get_folder_files_recursive(webdav_client: WebDavClient, folder_path: str) -> list[WebDavFile]:
@@ -243,7 +249,8 @@ async def list_files(request: Request, path: str = "/"):
             "current_path": path,
         }
     except Exception as exc:
-        return {"success": False, "message": f"获取文件列表失败: {exc}"}
+        logger.error("获取 WebDAV 文件列表失败: %s", exc)
+        return {"success": False, "error": "webdav_list_failed", "message": "获取文件列表失败"}
 
 
 @router.post("/api/webdav/download")
@@ -291,7 +298,8 @@ async def add_downloads(request: Request, payload: AddDownloadsRequest):
             gid = await asyncio.to_thread(state.aria2_client.add_download, download_url, options)
             results.append({"filename": file_info.name, "success": True, "gid": gid, "message": "添加成功"})
         except Exception as exc:
-            results.append({"filename": file_info.name, "success": False, "message": f"添加失败: {exc}"})
+            logger.error("添加 WebDAV 下载任务失败: %s", exc)
+            results.append({"filename": file_info.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
 
     return {"success": True, "results": results}
 
@@ -317,7 +325,8 @@ async def get_aria2_downloads(request: Request):
         downloads = await asyncio.to_thread(state.aria2_client.get_downloads)
         return {"success": True, "downloads": downloads}
     except Exception as exc:
-        return {"success": False, "message": f"获取下载列表失败: {exc}"}
+        logger.error("获取 Aria2 下载列表失败: %s", exc)
+        return {"success": False, "error": "aria2_downloads_failed", "message": "获取下载列表失败"}
 
 
 @router.post("/api/aria2/pause/{gid}")
@@ -329,7 +338,8 @@ async def pause_download(request: Request, gid: str):
         success = await asyncio.to_thread(state.aria2_client.pause_download, gid)
         return {"success": success, "message": "暂停成功" if success else "暂停失败"}
     except Exception as exc:
-        return {"success": False, "message": f"暂停失败: {exc}"}
+        logger.error("暂停 Aria2 下载失败: %s", exc)
+        return {"success": False, "error": "aria2_pause_failed", "message": "暂停失败"}
 
 
 @router.post("/api/aria2/resume/{gid}")
@@ -341,7 +351,8 @@ async def resume_download(request: Request, gid: str):
         success = await asyncio.to_thread(state.aria2_client.resume_download, gid)
         return {"success": success, "message": "恢复成功" if success else "恢复失败"}
     except Exception as exc:
-        return {"success": False, "message": f"恢复失败: {exc}"}
+        logger.error("恢复 Aria2 下载失败: %s", exc)
+        return {"success": False, "error": "aria2_resume_failed", "message": "恢复失败"}
 
 
 @router.delete("/api/aria2/remove/{gid}")
@@ -353,4 +364,5 @@ async def remove_download(request: Request, gid: str):
         success = await asyncio.to_thread(state.aria2_client.remove_download, gid)
         return {"success": success, "message": "删除成功" if success else "删除失败"}
     except Exception as exc:
-        return {"success": False, "message": f"删除失败: {exc}"}
+        logger.error("删除 Aria2 下载失败: %s", exc)
+        return {"success": False, "error": "aria2_remove_failed", "message": "删除失败"}

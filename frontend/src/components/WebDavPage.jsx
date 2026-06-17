@@ -576,13 +576,13 @@ export default function WebDavPage() {
         }, []);
 
         return (
-            <div className="webdav-page" style={{ padding: 24 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div className="webdav-page">
+                <div className="webdav-page-header">
                     <div>
                         <Title level={3} style={{ marginBottom: 4 }}>WebDAV 下载中心</Title>
                         <Text type="secondary">浏览网盘目录并将直链批量发送到 Aria2。</Text>
                     </div>
-                    <Space size="large">
+                    <Space size="large" className="webdav-status-cluster">
                         <span><Text>WebDAV:</Text><Badge status={webdavConnected ? "success" : "default"} text={webdavConnected ? "已连接" : "未连接"} style={{ marginInlineStart: 8 }} /></span>
                         <span><Text>Aria2:</Text><Badge status={aria2Connected ? "success" : "default"} text={aria2Connected ? "已连接" : "未连接"} style={{ marginInlineStart: 8 }} /></span>
                     </Space>
@@ -591,7 +591,7 @@ export default function WebDavPage() {
                 <Content>
                     <Row gutter={[24, 24]}>
                         <Col xs={24} md={12}>
-                            <Card title={<><CloudOutlined /> WebDAV服务器</>} extra={<Badge status={webdavConnected ? "success" : "default"} text={webdavConnected ? "已连接" : "未连接"} />}>
+                            <Card className="webdav-connection-card" title={<><CloudOutlined /> WebDAV服务器</>} extra={<Badge status={webdavConnected ? "success" : "default"} text={webdavConnected ? "已连接" : "未连接"} />}>
                                 <Form form={webdavForm} layout="vertical" onFinish={handleWebdavConnect}>
                                     <Form.Item label="WebDAV URL" name="url" rules={[{ required: true, message: "请输入WebDAV URL" }]}>
                                         <Input placeholder="https://..." autoComplete="url" />
@@ -620,7 +620,7 @@ export default function WebDavPage() {
                             </Card>
                         </Col>
                         <Col xs={24} md={12}>
-                            <Card title={<><CloudServerOutlined /> Aria2下载器</>} extra={<Badge status={aria2Connected ? "success" : "default"} text={aria2Connected ? "已连接" : "未连接"} />}>
+                            <Card className="webdav-connection-card" title={<><CloudServerOutlined /> Aria2下载器</>} extra={<Badge status={aria2Connected ? "success" : "default"} text={aria2Connected ? "已连接" : "未连接"} />}>
                                 <Form form={aria2Form} layout="vertical" onFinish={handleAria2Connect}>
                                     <Form.Item label="Aria2 RPC URL" name="url" rules={[{ required: true, message: "请输入Aria2 URL" }]}>
                                         <Input placeholder="http://localhost:6800/jsonrpc" autoComplete="url" />
@@ -643,10 +643,10 @@ export default function WebDavPage() {
 
                     {webdavConnected && (
                         <Card
-                            style={{ marginTop: 24 }}
+                            className="webdav-work-card"
                             title={<><FolderFilled /> 文件浏览器</>}
                             extra={
-                                <Space wrap>
+                                <Space wrap className="webdav-toolbar">
                                     <Button icon={<ReloadOutlined />} onClick={() => loadFiles(currentPath)}>刷新</Button>
                                     <Switch checkedChildren="仅视频" unCheckedChildren="全部文件" checked={videoFilter} onChange={setVideoFilter} />
                                     <Space.Compact>
@@ -672,6 +672,7 @@ export default function WebDavPage() {
                                 dataSource={files}
                                 loading={filesLoading}
                                 pagination={false}
+                                scroll={{ x: 760 }}
                                 rowSelection={{
                                     selectedRowKeys,
                                     onChange: (newSelectedRowKeys, newSelectedRows) => {
@@ -689,8 +690,8 @@ export default function WebDavPage() {
                     )}
 
                     {aria2Connected && (
-                        <Card style={{ marginTop: 24 }} title={<><CloudDownloadOutlined /> 下载管理</>} extra={<Button icon={<ReloadOutlined />} onClick={loadDownloads} loading={downloadsLoading}>刷新列表</Button>}>
-                            <Table columns={downloadColumns} dataSource={downloads} rowKey="gid" loading={downloadsLoading} pagination={false} locale={{ emptyText: "暂无下载任务" }} />
+                        <Card className="webdav-work-card" title={<><CloudDownloadOutlined /> 下载管理</>} extra={<Button icon={<ReloadOutlined />} onClick={loadDownloads} loading={downloadsLoading}>刷新列表</Button>}>
+                            <Table columns={downloadColumns} dataSource={downloads} rowKey="gid" loading={downloadsLoading} pagination={false} scroll={{ x: 920 }} locale={{ emptyText: "暂无下载任务" }} />
                         </Card>
                     )}
                 </Content>

@@ -16,4 +16,4 @@ async def get_magnets(movie_id: str, request: Request):
         return await get_magnets_payload(movie_id, dict(request.query_params))
     except Exception as exc:
         logger.error("获取磁力链接失败: %s", exc)
-        return {"error": "获取磁力链接失败", "message": str(exc)}
+        return {"error": "magnet_fetch_failed", "message": "获取磁力链接失败"}

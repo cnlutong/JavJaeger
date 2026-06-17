@@ -15,21 +15,25 @@
 
 最少需要确认两类配置：
 
-- `JAVBUS_API_BASE_URL`
 - `APP_SESSION_SECRET`
+- 可选：`JAVBUS_BASE_URL` / `JAVBUS_PROXY`
 
 当前 `docker-compose.yml` 已提供示例：
 
 ```yaml
 environment:
-  - JAVBUS_API_BASE_URL=http://10.0.0.20:3000
   - APP_SESSION_SECRET=change-this-session-secret
+  # - JAVBUS_BASE_URL=https://www.javbus.com
+  # - JAVBUS_PROXY=http://127.0.0.1:7890
+  # - JAVBUS_REQUEST_INTERVAL_SECONDS=0.3
 ```
 
 说明：
 
-- `JAVBUS_API_BASE_URL` 用于覆盖 `config.json` 中的 JavBus API 地址
 - `APP_SESSION_SECRET` 用于覆盖 `config.json` 中的 `session_secret`
+- `JAVBUS_BASE_URL` 用于覆盖内置 provider 的 JavBus 原站地址
+- `JAVBUS_PROXY` 用于配置访问 JavBus 的代理
+- `JAVBUS_REQUEST_INTERVAL_SECONDS` 用于覆盖 JavBus 请求间隔；`0` 表示关闭限速
 - 生产环境不要使用默认或弱会话密钥
 
 ### 2. 可选挂载 config.json
@@ -47,8 +51,11 @@ volumes:
 ```json
 {
   "session_secret": "replace-this-in-production",
-  "javbus_api": {
-    "base_url": "http://10.0.0.20:3000"
+  "javbus": {
+    "base_url": "https://www.javbus.com",
+    "timeout_seconds": 8,
+    "proxy": "",
+    "request_interval_seconds": 0.3
   },
   "webdav": {
     "enabled": true,
@@ -216,7 +223,7 @@ docker-compose up -d --build
 
 A: 不是。你也可以：
 
-- 只使用环境变量配置 JavBus API 和会话密钥
+- 只使用环境变量配置内置 JavBus provider 和会话密钥
 - 在页面中手动填写 WebDAV / Aria2 / PikPak 信息
 
 但如果希望“打开页面即可使用默认连接/默认登录”，就需要提供 `config.json`。

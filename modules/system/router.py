@@ -5,13 +5,12 @@ import sys
 from fastapi import APIRouter
 
 from modules.common.runtime import (
-    JAVBUS_API_BASE_URL,
     VERSION_INFO,
-    api_client,
     build_client_config,
     build_system_config_summary,
 )
 from modules.history.service import download_history_service
+from modules.javbus_api import javbus_api_service
 
 
 router = APIRouter(tags=["system"])
@@ -26,12 +25,13 @@ async def get_system_info():
         "platform": platform.platform(),
         "architecture": platform.architecture(),
         "hostname": platform.node(),
-        "javbus_api_base_url": JAVBUS_API_BASE_URL,
-        "cache_size": api_client.cache_size,
+        "javbus_base_url": javbus_api_service.base_url,
+        "cache_size": javbus_api_service.cache_size,
         "downloaded_movies_count": len(downloaded_movies),
         "config_summary": build_system_config_summary(),
         "environment_variables": {
-            "JAVBUS_API_BASE_URL": os.getenv("JAVBUS_API_BASE_URL"),
+            "JAVBUS_BASE_URL": os.getenv("JAVBUS_BASE_URL"),
+            "JAVBUS_PROXY": "***" if os.getenv("JAVBUS_PROXY") else None,
         },
     }
 

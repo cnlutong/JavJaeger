@@ -1,0 +1,716 @@
+import asyncio
+import base64
+import datetime
+import logging
+import re
+import shutil
+import xml.etree.ElementTree as ET
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
+from modules.history.service import local_movie_library_service
+from modules.javbus_api import javbus_api_service
+from .schemas import LocalScrapeApplyRequest, LocalScrapePreviewRequest
+
+
+logger = logging.getLogger(__name__)
+
+
+VIDEO_EXTENSIONS = {
+    ".mp4",
+    ".mkv",
+    ".avi",
+    ".mov",
+    ".wmv",
+    ".flv",
+    ".webm",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".3gp",
+    ".ts",
+}
+SUBTITLE_EXTENSIONS = {
+    ".srt",
+    ".ass",
+    ".ssa",
+    ".vtt",
+    ".sub",
+    ".idx",
+    ".smi",
+    ".sup",
+}
+SKIPPED_DIRECTORY_NAMES = {"behind the scenes", "backdrops"}
+TS_MIN_VIDEO_SIZE = 10 * 1024 * 1024
+MPEG_TS_PACKET_SIZE = 188
+MPEG_TS_SYNC_BYTE = 0x47
+
+
+DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
+    (re.compile(r"(?i)(FC2)-?PPV-?(\d{6,8})"), 100),
+    (re.compile(r"(?i)(\d{3}[A-Z]{2,6})-(\d{3,5})"), 95),
+    (re.compile(r"(?i)([A-Z]{2,6})-(\d{3,5})"), 90),
+    (re.compile(r"(?i)([A-Z]+\d+)-(\d{3,5})"), 85),
+    (re.compile(r"(?i)([A-Z]{2,6})(\d{3,5})(?:[^A-Z0-9]|$)"), 80),
+    (re.compile(r"(?i)(\d{6})[_-](\d{3,5})"), 70),
+]
+RESOLUTION_NUMBERS = {"800", "1080", "720", "480", "360"}
+INVALID_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+PART_MARKER_PATTERN = re.compile(r"(?i)(?:^|[._\-\s])(?P<kind>part|pt|cd|disc|disk)[._\-\s]*(?P<number>\d{1,2})(?:[^A-Z0-9]|$)")
+
+
+@dataclass(frozen=True)
+class LocalFileCandidate:
+    path: Path
+    code: str | None
+    recognition_method: str
+    recognition_message: str
+
+
+def recognize_designation(filename: str) -> str | None:
+    candidates: list[tuple[str, int, int]] = []
+    for pattern, priority in DESIGNATION_PATTERNS:
+        for match in pattern.finditer(filename):
+            designation = f"{match.group(1)}-{match.group(2)}"
+            candidates.append((designation, priority, match.start()))
+
+    candidates.sort(key=lambda item: (item[1], item[2]), reverse=True)
+    for designation, _, _ in candidates:
+        parts = designation.split("-", 1)
+        if len(parts) != 2:
+            continue
+        prefix, number = parts
+        valid_alpha_prefix = 2 <= len(prefix) <= 6
+        valid_numeric_brand_prefix = bool(re.fullmatch(r"(?i)\d{3}[A-Z]{2,6}", prefix))
+        if not ((valid_alpha_prefix or valid_numeric_brand_prefix) and 3 <= len(number) <= 8):
+            continue
+        if number in RESOLUTION_NUMBERS:
+            continue
+        return designation.upper()
+    return None
+
+
+def _is_skipped_directory(path: Path) -> bool:
+    return path.name.lower() in SKIPPED_DIRECTORY_NAMES
+
+
+def _is_mpeg_ts_header(path: Path) -> bool:
+    try:
+        with path.open("rb") as file:
+            data = file.read(MPEG_TS_PACKET_SIZE * 4)
+    except OSError:
+        return False
+
+    if len(data) < MPEG_TS_PACKET_SIZE * 2:
+        return False
+
+    try:
+        offset = data[:MPEG_TS_PACKET_SIZE].index(MPEG_TS_SYNC_BYTE)
+    except ValueError:
+        return False
+
+    for index in range(1, 3):
+        pos = offset + index * MPEG_TS_PACKET_SIZE
+        if pos >= len(data) or data[pos] != MPEG_TS_SYNC_BYTE:
+            return False
+    return True
+
+
+def _should_scan_as_video(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    if suffix not in VIDEO_EXTENSIONS:
+        return False
+    if suffix != ".ts":
+        return True
+    try:
+        if path.stat().st_size < TS_MIN_VIDEO_SIZE:
+            return False
+    except OSError:
+        return False
+    return _is_mpeg_ts_header(path)
+
+
+def _walk_video_files(root: Path, recursive: bool, max_depth: int | None) -> list[Path]:
+    files: list[Path] = []
+    root = root.resolve()
+
+    def walk(current: Path, depth: int) -> None:
+        try:
+            entries = list(current.iterdir())
+        except OSError as exc:
+            logger.warning("Failed to read local scrape directory %s: %s", current, exc)
+            return
+
+        for entry in entries:
+            if entry.name.startswith(".") or entry.is_symlink():
+                continue
+            if entry.is_dir():
+                if _is_skipped_directory(entry):
+                    continue
+                if recursive and (max_depth is None or depth < max_depth):
+                    walk(entry, depth + 1)
+                continue
+            if entry.is_file() and _should_scan_as_video(entry):
+                try:
+                    if entry.stat().st_size > 0:
+                        files.append(entry.resolve())
+                except OSError:
+                    continue
+
+    walk(root, 0)
+    return sorted(files, key=lambda path: str(path).lower())
+
+
+def _sanitize_path_segment(value: str, fallback: str) -> str:
+    cleaned = INVALID_PATH_CHARS.sub("_", value).strip().strip(". ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    if not cleaned:
+        cleaned = fallback
+    return cleaned[:180].rstrip(". ")
+
+
+def _name_from_link(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("title") or value.get("id") or "").strip()
+    return str(value or "").strip()
+
+
+def _list_names(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    names = [_name_from_link(value) for value in values]
+    return [name for name in names if name]
+
+
+def _single_name(value: Any) -> str:
+    return _name_from_link(value)
+
+
+def _render_template(template: str, code: str, title: str, source_stem: str) -> str:
+    if (template or "{code} {title}") == "{code} {title}" and code:
+        if not title or title.upper() == code.upper():
+            return _sanitize_path_segment(code, source_stem)
+        if title.upper().startswith(code.upper()):
+            remainder = title[len(code):]
+            if not remainder or remainder[0].isspace() or remainder[0] in "-_":
+                return _sanitize_path_segment(title, code or source_stem)
+    rendered = template or "{code} {title}"
+    rendered = rendered.replace("{code}", code or source_stem)
+    rendered = rendered.replace("{title}", title or source_stem)
+    rendered = rendered.replace("{original}", source_stem)
+    return _sanitize_path_segment(rendered, code or source_stem)
+
+
+def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem: str) -> dict[str, Any]:
+    movie = movie or {}
+    local_id = str(movie.get("id") or code or "").strip().upper()
+    title = str(movie.get("title") or local_id or source_stem).strip()
+    genres = _list_names(movie.get("genres"))
+    stars = _list_names(movie.get("stars"))
+    samples = movie.get("samples") if isinstance(movie.get("samples"), list) else []
+    return {
+        "id": local_id,
+        "title": title,
+        "date": movie.get("date") or "",
+        "duration_minutes": movie.get("videoLength") or movie.get("duration_minutes"),
+        "director": _single_name(movie.get("director")),
+        "studio": _single_name(movie.get("producer") or movie.get("studio")),
+        "publisher": _single_name(movie.get("publisher")),
+        "series": _single_name(movie.get("series")),
+        "genres": genres,
+        "stars": stars,
+        "cover_url": movie.get("img") or movie.get("cover_url") or "",
+        "samples": samples,
+        "raw": movie,
+    }
+
+
+def _metadata_full_text(movie_id: str, metadata: dict[str, Any]) -> str:
+    parts: list[str] = [movie_id]
+
+    def add(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, list):
+            for item in value:
+                add(item)
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                add(item)
+            return
+        text = str(value).strip()
+        if text:
+            parts.append(text)
+
+    for key in (
+        "title",
+        "date",
+        "director",
+        "studio",
+        "publisher",
+        "series",
+        "genres",
+        "stars",
+        "raw",
+    ):
+        add(metadata.get(key))
+    return "\n".join(parts)
+
+
+def _build_target_paths(
+    source_path: Path,
+    metadata: dict[str, Any],
+    organize: bool,
+    target_directory: str | None,
+    naming_template: str,
+) -> tuple[Path, Path, str]:
+    code = str(metadata.get("id") or "").strip()
+    title = str(metadata.get("title") or "").strip()
+    directory_stem = _render_template(naming_template, code, title, source_path.stem)
+    target_stem = directory_stem
+
+    if organize:
+        root = resolve_user_path(target_directory) if target_directory else source_path.parent
+        target_dir = root / directory_stem
+        part_marker = _source_part_marker(source_path.stem)
+        if part_marker and part_marker.lower() not in target_stem.lower():
+            target_stem = _sanitize_path_segment(f"{target_stem}-{part_marker}", source_path.stem)
+        target_video = target_dir / f"{target_stem}{source_path.suffix}"
+    else:
+        target_dir = source_path.parent
+        target_video = source_path
+        target_stem = source_path.stem
+
+    return target_dir, target_video, target_stem
+
+
+def _source_part_marker(source_stem: str) -> str | None:
+    match = PART_MARKER_PATTERN.search(source_stem)
+    if not match:
+        return None
+    kind = match.group("kind").lower()
+    number = match.group("number")
+    if kind in {"part", "pt"}:
+        return f"part{number}"
+    if kind in {"disc", "disk"}:
+        return f"disc{number}"
+    return f"{kind}{number}"
+
+
+def _subtitle_matches(video_path: Path, candidate: Path) -> bool:
+    if candidate.suffix.lower() not in SUBTITLE_EXTENSIONS:
+        return False
+    if candidate.parent != video_path.parent:
+        return False
+    stem = candidate.stem.lower()
+    video_stem = video_path.stem.lower()
+    return stem == video_stem or stem.startswith(f"{video_stem}.") or stem.startswith(f"{video_stem}-") or stem.startswith(f"{video_stem}_")
+
+
+def _related_subtitles(video_path: Path) -> list[Path]:
+    try:
+        return [entry for entry in video_path.parent.iterdir() if entry.is_file() and _subtitle_matches(video_path, entry)]
+    except OSError:
+        return []
+
+
+def _subtitle_target_path(subtitle_path: Path, source_video_path: Path, target_dir: Path, target_stem: str) -> Path:
+    subtitle_stem = subtitle_path.stem
+    source_stem = source_video_path.stem
+    subtitle_marker = ""
+    if subtitle_stem.lower().startswith(source_stem.lower()):
+        subtitle_marker = subtitle_stem[len(source_stem):]
+    return target_dir / f"{target_stem}{subtitle_marker}{subtitle_path.suffix}"
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _iso_mtime(path: Path) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat()
+    except OSError:
+        return ""
+
+
+def _safe_relative_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
+def _library_root_for_applied_video(request: LocalScrapeApplyRequest, source_path: Path, current_video: Path) -> Path:
+    if request.target_directory:
+        return resolve_user_path(request.target_directory)
+    if request.organize:
+        return source_path.parent.resolve()
+    return current_video.parent.resolve()
+
+
+def _build_library_record_for_applied_video(
+    current_video: Path,
+    library_root: Path,
+    metadata: dict[str, Any],
+    scraped_at: str,
+) -> dict[str, Any] | None:
+    movie_id = str(metadata.get("id") or "").strip().upper()
+    if not movie_id:
+        return None
+    raw = metadata.get("raw")
+    scrape_status = "found" if isinstance(raw, dict) and raw.get("id") else "recognized"
+    return {
+        "movie_id": movie_id,
+        "path": str(current_video),
+        "relative_path": _safe_relative_path(current_video, library_root),
+        "file_name": current_video.name,
+        "size": _file_size(current_video),
+        "modified_at": _iso_mtime(current_video),
+        "extension": current_video.suffix.lower(),
+        "part": _source_part_marker(current_video.stem),
+        "metadata": metadata,
+        "scrape_status": scrape_status,
+        "scrape_error": None,
+        "scraped_at": scraped_at,
+        "full_text": _metadata_full_text(movie_id, metadata),
+    }
+
+
+async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, Any]:
+    try:
+        directory = resolve_existing_directory(request.directory)
+        if request.target_directory:
+            resolve_user_path(request.target_directory)
+    except UserPathError as exc:
+        return {"success": False, "error": exc.code, "message": exc.message}
+
+    video_files = _walk_video_files(directory, request.recursive, request.max_depth)
+    candidates = [
+        LocalFileCandidate(
+            path=path,
+            code=recognize_designation(path.stem),
+            recognition_method="regex",
+            recognition_message="recognized" if recognize_designation(path.stem) else "unrecognized",
+        )
+        for path in video_files
+    ]
+
+    semaphore = asyncio.Semaphore(max(1, min(request.concurrent, 5)))
+
+    async def enrich(candidate: LocalFileCandidate) -> dict[str, Any]:
+        movie_detail = None
+        scrape_status = "skipped"
+        error = None
+        if candidate.code and request.scrape:
+            async with semaphore:
+                try:
+                    movie_detail = await javbus_api_service.get_movie_detail(candidate.code)
+                    scrape_status = "found" if movie_detail and movie_detail.get("id") else "not_found"
+                except Exception as exc:
+                    logger.warning("Local scrape metadata fetch failed for %s: %s", candidate.code, exc)
+                    scrape_status = "failed"
+                    error = "metadata_fetch_failed"
+        elif candidate.code:
+            scrape_status = "recognized"
+        else:
+            scrape_status = "unrecognized"
+
+        metadata = _build_metadata(movie_detail, candidate.code, candidate.path.stem)
+        target_dir, target_video, target_stem = _build_target_paths(
+            candidate.path,
+            metadata,
+            request.organize,
+            request.target_directory,
+            request.naming_template,
+        )
+
+        current_nfo = candidate.path.with_suffix(".nfo")
+        current_poster = candidate.path.with_name(f"{candidate.path.stem}-poster.jpg")
+        already_scraped = current_nfo.exists() and current_poster.exists()
+        conflict = target_video.exists() and target_video.resolve() != candidate.path.resolve()
+
+        return {
+            "source_path": str(candidate.path),
+            "relative_path": str(candidate.path.relative_to(directory.resolve())),
+            "file_name": candidate.path.name,
+            "file_size": _file_size(candidate.path),
+            "code": candidate.code,
+            "recognition_method": candidate.recognition_method if candidate.code else "failed",
+            "recognition_message": candidate.recognition_message,
+            "scrape_status": scrape_status,
+            "error": error,
+            "already_scraped": already_scraped,
+            "metadata": metadata,
+            "target_stem": target_stem,
+            "target_dir": str(target_dir),
+            "target_video_path": str(target_video),
+            "target_exists": conflict,
+            "will_write_nfo": bool(request.write_nfo and metadata.get("id")),
+            "will_download_images": bool(request.download_images and candidate.code and movie_detail),
+            "will_move": str(target_video.resolve()) != str(candidate.path.resolve()),
+        }
+
+    items = await asyncio.gather(*[enrich(candidate) for candidate in candidates])
+    target_counts = Counter(str(item.get("target_video_path") or "").lower() for item in items)
+    for item in items:
+        target_key = str(item.get("target_video_path") or "").lower()
+        target_duplicate = bool(target_key and target_counts[target_key] > 1)
+        item["target_duplicate"] = target_duplicate
+        if target_duplicate:
+            item["target_exists"] = True
+    return {
+        "success": True,
+        "directory": str(directory.resolve()),
+        "total_files": len(video_files),
+        "recognized_count": sum(1 for item in items if item.get("code")),
+        "found_count": sum(1 for item in items if item.get("scrape_status") == "found"),
+        "already_scraped_count": sum(1 for item in items if item.get("already_scraped")),
+        "conflict_count": sum(1 for item in items if item.get("target_exists")),
+        "items": items,
+    }
+
+
+def _move_file(source: Path, target: Path, overwrite: bool) -> None:
+    if source.resolve() == target.resolve():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if not overwrite:
+            raise FileExistsError(f"目标文件已存在: {target}")
+        if target.is_file():
+            target.unlink()
+        else:
+            raise FileExistsError(f"目标路径不是文件: {target}")
+    try:
+        source.rename(target)
+    except OSError:
+        shutil.copy2(source, target)
+        source.unlink()
+
+
+def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | None, sample_names: list[str]) -> Path:
+    root = ET.Element("movie")
+
+    def add(tag: str, value: Any) -> None:
+        text = "" if value is None else str(value).strip()
+        ET.SubElement(root, tag).text = text
+
+    add("title", metadata.get("title"))
+    add("originaltitle", metadata.get("title"))
+    add("sorttitle", metadata.get("title"))
+    add("num", metadata.get("id"))
+    unique = ET.SubElement(root, "uniqueid", {"type": "local", "default": "true"})
+    unique.text = str(metadata.get("id") or "")
+    add("premiered", metadata.get("date"))
+    add("releasedate", metadata.get("date"))
+    add("release", metadata.get("date"))
+    add("year", str(metadata.get("date") or "")[:4] if metadata.get("date") else "")
+    add("runtime", metadata.get("duration_minutes") or "")
+    add("studio", metadata.get("studio"))
+    add("maker", metadata.get("studio"))
+    add("publisher", metadata.get("publisher"))
+    add("director", metadata.get("director"))
+
+    if metadata.get("series"):
+        series = ET.SubElement(root, "set")
+        ET.SubElement(series, "name").text = str(metadata.get("series"))
+
+    if metadata.get("cover_url"):
+        add("poster", metadata.get("cover_url"))
+        add("cover", metadata.get("cover_url"))
+    if poster_name:
+        thumb = ET.SubElement(root, "thumb", {"aspect": "poster"})
+        thumb.text = poster_name
+    for sample_name in sample_names:
+        ET.SubElement(root, "thumb").text = sample_name
+
+    for actor in metadata.get("stars") or []:
+        actor_node = ET.SubElement(root, "actor")
+        ET.SubElement(actor_node, "name").text = actor
+        ET.SubElement(actor_node, "type").text = "Actor"
+    for genre in metadata.get("genres") or []:
+        ET.SubElement(root, "genre").text = genre
+        ET.SubElement(root, "tag").text = genre
+
+    xml = ET.tostring(root, encoding="utf-8")
+    nfo_path = video_path.with_suffix(".nfo")
+    nfo_path.write_bytes(b'\xef\xbb\xbf<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml)
+    return nfo_path
+
+
+async def _download_image(url: str, target: Path, overwrite: bool) -> str | None:
+    if not url:
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and not overwrite:
+        return target.name
+    if url.startswith("data:"):
+        _, _, payload = url.partition(",")
+        target.write_bytes(base64.b64decode(payload))
+        return target.name
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        response = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        target.write_bytes(response.content)
+    return target.name
+
+
+async def _write_images(video_path: Path, metadata: dict[str, Any], overwrite: bool) -> tuple[str | None, list[str]]:
+    stem = video_path.stem
+    poster_name = None
+    sample_names: list[str] = []
+    if metadata.get("cover_url"):
+        poster_name = await _download_image(
+            str(metadata.get("cover_url")),
+            video_path.with_name(f"{stem}-poster.jpg"),
+            overwrite,
+        )
+
+    samples = metadata.get("samples") or []
+    if samples:
+        fanart_dir = video_path.parent / "extrafanart"
+        for index, sample in enumerate(samples, start=1):
+            url = sample.get("src") or sample.get("thumbnail") if isinstance(sample, dict) else None
+            if not url:
+                continue
+            name = await _download_image(str(url), fanart_dir / f"fanart{index}.jpg", overwrite)
+            if name:
+                sample_names.append(str(Path("extrafanart") / name))
+    return poster_name, sample_names
+
+
+async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    library_records_by_root: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    success_count = 0
+
+    if request.target_directory:
+        try:
+            resolve_user_path(request.target_directory)
+        except UserPathError as exc:
+            return {
+                "success": False,
+                "error": exc.code,
+                "message": exc.message,
+                "success_count": 0,
+                "failed_count": len(request.items),
+                "library_recorded_count": 0,
+                "library_failed_count": 0,
+                "library_updates": [],
+                "results": [],
+            }
+
+    for item in request.items:
+        try:
+            source_path = resolve_existing_file(item.source_path)
+        except UserPathError as exc:
+            results.append({"source_path": item.source_path, "success": False, "error": exc.code, "message": exc.message})
+            continue
+
+        metadata = _build_metadata(item.metadata, item.code, source_path.stem)
+        if not metadata.get("id") and item.code:
+            metadata["id"] = item.code
+
+        target_dir, target_video, target_stem = _build_target_paths(
+            source_path,
+            metadata,
+            request.organize,
+            request.target_directory,
+            request.naming_template,
+        )
+
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            current_video = source_path
+            moved_assets: list[str] = []
+
+            subtitles = _related_subtitles(source_path)
+            _move_file(source_path, target_video, request.overwrite_existing)
+            current_video = target_video
+
+            for subtitle in subtitles:
+                subtitle_target = _subtitle_target_path(subtitle, source_path, target_dir, target_stem)
+                _move_file(subtitle, subtitle_target, request.overwrite_existing)
+                moved_assets.append(str(subtitle_target))
+
+            poster_name = None
+            sample_names: list[str] = []
+            image_error = None
+            if request.download_images and metadata.get("id"):
+                try:
+                    poster_name, sample_names = await _write_images(current_video, metadata, request.overwrite_existing)
+                except Exception as exc:
+                    image_error = "image_download_failed"
+                    logger.warning("Local scrape image download failed for %s: %s", metadata.get("id"), exc)
+
+            nfo_path = None
+            if request.write_nfo and metadata.get("id"):
+                nfo_path = _write_nfo(current_video, metadata, poster_name, sample_names)
+
+            library_recorded = False
+            library_root = _library_root_for_applied_video(request, source_path, current_video)
+            library_record = _build_library_record_for_applied_video(
+                current_video,
+                library_root,
+                metadata,
+                datetime.datetime.now().isoformat(),
+            )
+            if library_record:
+                library_records_by_root[str(library_root)].append(library_record)
+                library_recorded = True
+
+            success_count += 1
+            results.append(
+                {
+                    "source_path": item.source_path,
+                    "success": True,
+                    "code": metadata.get("id"),
+                    "target_video_path": str(current_video),
+                    "target_dir": str(target_dir),
+                    "nfo_path": str(nfo_path) if nfo_path else None,
+                    "poster": poster_name,
+                    "samples": sample_names,
+                    "image_error": image_error,
+                    "moved_assets": moved_assets,
+                    "library_recorded": library_recorded,
+                }
+            )
+        except Exception as exc:
+            logger.error("Local scrape apply failed for %s: %s", source_path, exc)
+            results.append({"source_path": item.source_path, "success": False, "error": "apply_failed"})
+
+    library_updates: list[dict[str, Any]] = []
+    for root, records in library_records_by_root.items():
+        try:
+            update_result = await local_movie_library_service.update_from_scan(
+                root,
+                records,
+                remove_missing=False,
+            )
+            library_updates.append(update_result)
+        except Exception as exc:
+            logger.error("Local scrape library update failed for %s: %s", root, exc)
+            library_updates.append({"success": False, "scan_root": root, "error": "library_update_failed", "message": "本地影片库更新失败"})
+
+    library_recorded_count = sum(len(records) for records in library_records_by_root.values())
+    library_failed_count = sum(1 for update in library_updates if not update.get("success"))
+
+    return {
+        "success": success_count == len(request.items) and library_failed_count == 0,
+        "success_count": success_count,
+        "failed_count": len(request.items) - success_count,
+        "library_recorded_count": library_recorded_count,
+        "library_failed_count": library_failed_count,
+        "library_updates": library_updates,
+        "results": results,
+    }

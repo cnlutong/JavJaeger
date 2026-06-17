@@ -1,14 +1,53 @@
-import WebDavPage from "./WebDavPage.jsx";
+﻿import WebDavPage from "./WebDavPage.jsx";
+import LocalScrapePage from "./LocalScrapePage.jsx";
+import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
 import { clearPikPakSession, loadPikPakSession, persistPikPakSession } from "../utils/storage.js";
 
 const React = window.React;
 const antd = window.antd;
+const icons = window.icons || {};
 
-const { Layout, Menu, Button, Input, Form, Select, Card, Switch, Spin, message, Typography, Badge, Progress, Row, Col, Space, Divider, List, Tag, ConfigProvider, Segmented, Popconfirm } = antd;
+const { Layout, Button, Input, Form, Select, Card, Spin, message, Typography, Space, Divider, List, Tag, ConfigProvider, Segmented, Popconfirm } = antd;
 const { Header, Content, Sider } = Layout;
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { Option } = Select;
+const {
+    ArrowLeftOutlined,
+    ArrowRightOutlined,
+    DatabaseOutlined,
+    DownloadOutlined,
+    FilterOutlined,
+    GithubOutlined,
+    HistoryOutlined,
+    LinkOutlined,
+    LoginOutlined,
+    LogoutOutlined,
+    SafetyCertificateOutlined,
+    SearchOutlined,
+    ThunderboltOutlined,
+} = icons;
+
+const Icon = ({ as: Component }) => Component ? <Component /> : null;
+
+const RESOURCE_REQUEST_CONCURRENCY = 4;
+
+const runWithConcurrency = async (items, limit, worker) => {
+    if (!Array.isArray(items) || items.length === 0) {
+        return;
+    }
+
+    let nextIndex = 0;
+    const workerCount = Math.min(limit, items.length);
+    const runners = Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+            const item = items[nextIndex];
+            nextIndex += 1;
+            await worker(item);
+        }
+    });
+    await Promise.all(runners);
+};
 
 // Main Application Component
 export default function JavPage() {
@@ -37,6 +76,7 @@ export default function JavPage() {
     const [filterForm] = Form.useForm();
     const [magnetSettingsForm] = Form.useForm();
     const magnetRequestVersionRef = React.useRef({});
+    const resourceLoadVersionRef = React.useRef(0);
 
     // Auth State
     const [isLoggedIn, setIsLoggedIn] = React.useState(false);
@@ -79,6 +119,15 @@ export default function JavPage() {
         ? versionInfo.version
         : `v${versionInfo.version}`;
 
+    const resultMovies = moviesData && Array.isArray(moviesData.movies) ? moviesData.movies : [];
+    const resultCount = resultMovies.length;
+    const magnetsLoadedCount = resultMovies.filter(movie => Array.isArray(magnetDataMap[movie.id])).length;
+    const magnetsReadyCount = resultMovies.filter(movie => {
+        const magnets = magnetDataMap[movie.id];
+        return Array.isArray(magnets) && magnets.length > 0;
+    }).length;
+    const currentMagnetSource = magnetSettingsForm.getFieldValue('magnetSource') || 'javbus';
+
     const loadClientSideConfig = async () => {
         try {
             const config = await fetchClientConfig();
@@ -104,10 +153,13 @@ export default function JavPage() {
     };
 
     // ---- API Calls ----
-    const fetchMovieDetail = async (id) => {
+    const fetchMovieDetail = async (id, resourceVersion = null) => {
         try {
             const detail = await fetchWithRetry(`/api/movies/${encodeURIComponent(id)}`);
             if (detail && detail.id) {
+                if (resourceVersion !== null && resourceLoadVersionRef.current !== resourceVersion) {
+                    return;
+                }
                 setMovieDetailMap(prev => ({ ...prev, [id]: detail }));
             }
         } catch (e) { /* silent */ }
@@ -130,14 +182,14 @@ export default function JavPage() {
     const buildMagnetDataMapFromResults = (magnetResults = []) => {
         const nextMap = {};
         magnetResults.forEach((result) => {
-            if (!result || !result.movie_id || !result.magnet_link) {
+            if (!result || !result.movie_id || !result.link) {
                 return;
             }
             nextMap[result.movie_id] = [{
-                link: result.magnet_link,
+                link: result.link,
                 title: result.title || `${result.movie_id} - 最佳资源`,
                 size: result.size || '未知',
-                date: result.date || '未知',
+                shareDate: result.shareDate || null,
                 hasSubtitle: !!result.hasSubtitle
             }];
         });
@@ -153,10 +205,9 @@ export default function JavPage() {
             const data = await fetchWithRetry(`/api/movies/${encodeURIComponent(values.keyword)}`);
             setMoviesData(data.movies ? data : { movies: [data] }); // Adapt payload
             if (data.movies) {
-                data.movies.forEach(m => { fetchBestMagnet(m.id, m.gid, m.uc); fetchMovieDetail(m.id); });
+                loadMovieResources(data.movies);
             } else if (data.id) {
-                fetchBestMagnet(data.id, data.gid, data.uc);
-                fetchMovieDetail(data.id);
+                loadMovieResources([data]);
             }
         } catch (error) {
             message.error('搜索失败，请稍后重试');
@@ -192,7 +243,7 @@ export default function JavPage() {
             setCurrentPage(page);
             setLastFilterValues(values);
             if (data.movies) {
-                data.movies.forEach(m => { fetchBestMagnet(m.id, m.gid, m.uc); fetchMovieDetail(m.id); });
+                loadMovieResources(data.movies);
             }
         } catch (error) {
             message.error('筛选失败，请稍后重试');
@@ -274,6 +325,17 @@ export default function JavPage() {
         }
     };
 
+    const loadMovieResources = (movies = []) => {
+        const resourceVersion = resourceLoadVersionRef.current + 1;
+        resourceLoadVersionRef.current = resourceVersion;
+        void runWithConcurrency(movies, RESOURCE_REQUEST_CONCURRENCY, async (movie) => {
+            await Promise.all([
+                fetchBestMagnet(movie.id, movie.gid, movie.uc),
+                fetchMovieDetail(movie.id, resourceVersion),
+            ]);
+        });
+    };
+
     const handleMagnetSettingsChange = () => {
         if (lastMagnetSearchValues && moviesData && moviesData.movies && moviesData.movies.length === 1 && moviesData.movies[0].id === lastMagnetSearchValues.movieId) {
             searchMagnet(lastMagnetSearchValues);
@@ -285,7 +347,7 @@ export default function JavPage() {
         }
 
         setMagnetDataMap({});
-        moviesData.movies.forEach(m => fetchBestMagnet(m.id, m.gid, m.uc));
+        void runWithConcurrency(moviesData.movies, RESOURCE_REQUEST_CONCURRENCY, (movie) => fetchBestMagnet(movie.id, movie.gid, movie.uc));
     };
 
     const handlePikPakLogin = async (values) => {
@@ -392,7 +454,7 @@ export default function JavPage() {
                 id: movie.id,
                 title: movie.title,
                 date: movie.date,
-                cover: movie.cover,
+                img: movie.img,
                 status: movie.status
             }));
             setMoviesData({ movies, magnet_results: data.magnet_results || [], download_result: data.download_result, not_found_codes: data.not_found_codes || [] });
@@ -447,10 +509,13 @@ export default function JavPage() {
         const magnetLinks = [];
         const movieIds = [];
         for (const movie of moviesData.movies) {
+            if (movie.status === 'local_exists' || movie.status === 'already_downloaded' || movie.is_downloaded || movie.in_local_library) {
+                continue;
+            }
             const magnets = magnetDataMap[movie.id];
             if (magnets && magnets.length > 0) {
                 const best = magnets[0];
-                const link = best.link || best.magnetLink || best.magnet_link;
+                const link = best.link;
                 if (link) {
                     magnetLinks.push(link);
                     movieIds.push(movie.id);
@@ -533,16 +598,16 @@ export default function JavPage() {
 
         if (loading) {
             return (
-                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <div className="jav-state-panel">
                     <Spin size="large" />
-                    <div style={{ marginTop: 16 }}>正在搜索...</div>
+                    <Text type="secondary">正在搜索...</Text>
                 </div>
             );
         }
 
         if (!moviesData) {
             return (
-                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <div className="jav-state-panel">
                     <Text type="secondary">没有任何结果，请在左侧选择查询功能开始搜索</Text>
                 </div>
             );
@@ -551,7 +616,7 @@ export default function JavPage() {
         // Handle error responses directly from backend
         if (moviesData.error) {
             return (
-                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <div className="jav-state-panel">
                     <Text type="danger">{moviesData.error}</Text>
                 </div>
             );
@@ -572,24 +637,24 @@ export default function JavPage() {
             const canGoPrev = lastFilterValues && currentPage > 1;
             const canGoNext = lastFilterValues && moviesData.movies.length >= 30;
             const paginationBar = lastFilterValues && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div className="jav-pagination-bar">
                     <Button
-                        icon={<span>←</span>}
+                        icon={<Icon as={ArrowLeftOutlined} />}
                         disabled={!canGoPrev || loading}
                         onClick={() => filterMovies(lastFilterValues, currentPage - 1)}
                     >上一页</Button>
                     <Text type="secondary">第 {currentPage} 页</Text>
                     <Button
-                        icon={<span>→</span>}
+                        icon={<Icon as={ArrowRightOutlined} />}
                         disabled={!canGoNext || loading}
                         onClick={() => filterMovies(lastFilterValues, currentPage + 1)}
                     >下一页</Button>
                 </div>
             );
             return (
-                <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>共 {moviesData.movies.length} 部</Text>
+                <div className="jav-results-list">
+                    <div className="jav-results-meta">
+                        <Text type="secondary">共 {moviesData.movies.length} 部</Text>
                     </div>
                     {paginationBar}
                     {moviesData.movies.map(movie => renderMovieCard(movie))}
@@ -599,7 +664,7 @@ export default function JavPage() {
         }
 
         return (
-            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div className="jav-state-panel">
                 <Text type="secondary">未找到相关数据</Text>
             </div>
         );
@@ -619,11 +684,11 @@ export default function JavPage() {
     const renderCategoryGroups = () => {
         return (
             <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div className="jav-section-header">
                     <Title level={4} style={{ margin: 0 }}>浏览类别</Title>
-                    <Button onClick={() => setViewMode('search')}>返回查询</Button>
+                    <Button icon={<Icon as={ArrowLeftOutlined} />} onClick={() => setViewMode('search')}>返回查询</Button>
                 </div>
-                <Divider />
+                <Divider className="jav-section-divider" />
                 {Object.keys(categories).map(group => (
                     <div key={group} style={{ marginBottom: 24 }}>
                         <Title level={5}>{group}</Title>
@@ -635,7 +700,7 @@ export default function JavPage() {
                                     <Card
                                         hoverable
                                         size="small"
-                                        style={{ textAlign: 'center', cursor: 'pointer' }}
+                                        className="jav-picker-card"
                                         onClick={() => handleCategorySelect(cat.code, cat.name)}
                                     >
                                         <Text strong style={{ fontSize: 16 }}>{cat.name}</Text>
@@ -652,8 +717,8 @@ export default function JavPage() {
     const renderHistory = () => {
         return (
             <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <Title level={4} style={{ margin: 0 }}>📂 历史下载记录</Title>
+                <div className="jav-section-header">
+                    <Title level={4} style={{ margin: 0 }}>历史下载记录</Title>
                     <Space>
                         <Popconfirm
                             title="确定要清空所有历史记录吗？"
@@ -661,12 +726,12 @@ export default function JavPage() {
                             okText="确定"
                             cancelText="取消"
                         >
-                            <Button danger disabled={!historyData || historyData.length === 0} loading={loading}>清空查阅记录</Button>
+                            <Button danger disabled={!historyData || historyData.length === 0} loading={loading}>清空历史记录</Button>
                         </Popconfirm>
-                        <Button onClick={() => setViewMode('search')}>返回查询</Button>
+                        <Button icon={<Icon as={ArrowLeftOutlined} />} onClick={() => setViewMode('search')}>返回查询</Button>
                     </Space>
                 </div>
-                <Divider />
+                <Divider className="jav-section-divider" />
                 <antd.Table
                     dataSource={historyData || []}
                     rowKey="movie_id"
@@ -749,24 +814,25 @@ export default function JavPage() {
     const renderActorsList = () => {
         return (
             <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div className="jav-section-header">
                     <Title level={4} style={{ margin: 0 }}>浏览演员</Title>
-                    <Button onClick={() => setViewMode('search')}>返回查询</Button>
+                    <Button icon={<Icon as={ArrowLeftOutlined} />} onClick={() => setViewMode('search')}>返回查询</Button>
                 </div>
-                <Divider />
+                <Divider className="jav-section-divider" />
                 <List
                     grid={{ gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 5, xxl: 5 }}
                     dataSource={Array.isArray(actors) ? actors : Object.values(actors).flat()}
                     renderItem={actor => {
                         const actorName = actor.name || actor;
                         const actorCode = actor.code || actor;
-                        const fallbackImage = <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--ant-color-bg-layout, #f5f5f5)' }}><Text type="secondary">无头像</Text></div>;
+                        const fallbackImage = <div className="jav-actor-fallback"><Text type="secondary">无头像</Text></div>;
 
                         return (
                             <List.Item>
                                 <Card
                                     hoverable
-                                    cover={actor.avatar ? <img alt={actorName} src={actor.avatar} style={{ height: 200, objectFit: 'cover' }} /> : fallbackImage}
+                                    className="jav-actor-card"
+                                    cover={actor.avatar ? <img alt={actorName} src={actor.avatar} className="jav-actor-cover" /> : fallbackImage}
                                     onClick={() => handleActorSelect(actorCode, actorName)}
                                     size="small"
                                 >
@@ -794,57 +860,59 @@ export default function JavPage() {
                 key={movie.id}
                 size="small"
                 hoverable
-                style={{ marginBottom: 8 }}
+                className="jav-movie-card"
                 styles={{ body: { padding: '10px 16px' } }}
             >
                 {/* Row 1: ID + date */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <div className="jav-movie-row jav-movie-meta-row">
                     <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>{movie.id}</Tag>
-                    {movie.date && <Text type="secondary" style={{ fontSize: 12 }}>📅 {movie.date}</Text>}
+                    {(movie.status === 'local_exists' || movie.in_local_library) && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>本地已有</Tag>}
+                    {(movie.status === 'already_downloaded' || movie.is_downloaded) && <Tag color="green" style={{ margin: 0, fontSize: 11 }}>已下载</Tag>}
+                    {movie.date && <Text type="secondary" style={{ fontSize: 12 }}>{movie.date}</Text>}
                 </div>
 
                 {/* Row 2: Title */}
-                <Text strong style={{ display: 'block', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}
+                <Text strong className="jav-movie-title"
                     title={movie.title || movie.full_title}>
                     {movie.title || movie.full_title}
                 </Text>
 
                 {/* Row 3: Stars */}
                 {stars.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>👤</Text>
+                    <div className="jav-movie-row">
+                        <Text type="secondary" style={{ fontSize: 11 }}>演员</Text>
                         {stars.map(s => <Tag key={s} color="magenta" style={{ margin: 0, fontSize: 11 }}>{s}</Tag>)}
                     </div>
                 )}
 
                 {/* Row 4: Genres */}
                 {genres.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginBottom: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 11 }}>🏷</Text>
+                    <div className="jav-movie-row">
+                        <Text type="secondary" style={{ fontSize: 11 }}>类型</Text>
                         {genres.slice(0, 8).map(g => <Tag key={g} color="cyan" style={{ margin: 0, fontSize: 11 }}>{g}</Tag>)}
                         {genres.length > 8 && <Text type="secondary" style={{ fontSize: 11 }}>+{genres.length - 8}</Text>}
                     </div>
                 )}
 
-                {/* Row 5: Magnet — compact inline */}
+                {/* Row 5: Magnet 鈥?compact inline */}
                 <Divider style={{ margin: '6px 0' }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <div className="jav-magnet-row">
                     {magnetLoading && <><Spin size="small" /><Text type="secondary" style={{ fontSize: 12 }}>搜索磁力链接...</Text></>}
-                    {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>⚠ 暂无可用资源</Text>}
+                    {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>暂无可用资源</Text>}
                     {hasMagnets && (
                         <>
                             <Tag color="gold" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>最佳</Tag>
                             {bestMagnet.hasSubtitle && <Tag color="green" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>字幕</Tag>}
                             <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.size}</Text>
-                            {bestMagnet.date && <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.date}</Text>}
+                            {bestMagnet.shareDate && <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.shareDate}</Text>}
                             <a
                                 href={bestMagnet.link}
                                 target="_blank"
                                 rel="noreferrer"
-                                style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}
+                                className="jav-magnet-link"
                                 title={bestMagnet.title}
                             >
-                                🧲 {bestMagnet.title}
+                                {bestMagnet.title}
                             </a>
                         </>
                     )}
@@ -862,46 +930,53 @@ export default function JavPage() {
             theme={{
                 token: {
                     colorPrimary: '#1677ff',
+                    colorInfo: '#1677ff',
+                    colorSuccess: '#52c41a',
+                    colorWarning: '#faad14',
+                    colorError: '#ff4d4f',
+                    colorBgLayout: '#f5f5f5',
+                    colorBorder: '#d9d9d9',
                     borderRadius: 6,
                     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
                 },
             }}
         >
-            <div>
-                <Layout style={{ minHeight: '100vh', maxWidth: 1600, margin: '0 auto' }}>
-                    <Header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: '72px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                <img src="/static/logo.jpg" alt="Logo" style={{ height: '52px', marginRight: '16px', borderRadius: '4px' }} />
-                                <Title level={3} style={{ margin: 0, fontWeight: 700, letterSpacing: '-0.5px', color: '#fff' }}>JavJaeger</Title>
-                                <Divider type="vertical" style={{ height: '28px', margin: '0 20px' }} />
-                                <Text style={{ fontSize: '14px', letterSpacing: '1px', fontWeight: 500, color: 'rgba(255,255,255,0.75)' }} className="subtitle-hidden-mobile">
-                                    人类的一切痛苦，都是因为性欲得不到满足。
-                                </Text>
+            <div className="jav-app">
+                <Layout className="jav-app-layout">
+                    <Header className="jav-header">
+                        <div className="jav-header-left">
+                            <div className="jav-brand">
+                                <img src="/static/logo.jpg" alt="JavJaeger" className="jav-brand-logo" />
+                                <Title level={3} className="jav-brand-title">JavJaeger</Title>
                             </div>
                             <Segmented
+                                className="jav-page-tabs"
                                 value={activePage}
                                 onChange={setActivePage}
                                 options={[
                                     { label: '影片检索', value: 'jav' },
+                                    { label: '刮削', value: 'localScrape' },
+                                    { label: '影视库', value: 'localLibrary' },
                                     { label: 'WebDAV下载', value: 'webdav' }
                                 ]}
                             />
                         </div>
-                        <Space size="large">
-                            <Text type="secondary" style={{ fontSize: '13px' }}>
+                        <Space size="middle" className="jav-header-actions">
+                            <Text type="secondary" className="jav-version">
                                 {displayVersion} ({versionInfo.build_date})
                             </Text>
-                            <a href="https://github.com/cnlutong/JavJaeger" target="_blank" rel="noreferrer">
+                            <a className="jav-github-link" href="https://github.com/cnlutong/JavJaeger" target="_blank" rel="noreferrer" aria-label="GitHub repository">
+                                {GithubOutlined ? <GithubOutlined /> : (
                                 <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
                                     <path d="M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" />
                                 </svg>
+                                )}
                             </a>
                         </Space>
                     </Header>
 
                     {activePage === 'jav' ? (
-                    <Layout>
+                    <Layout className="jav-workspace">
                         {/* Left Sidebar */}
                         <Sider
                             width={320}
@@ -909,13 +984,13 @@ export default function JavPage() {
                             collapsible
                             collapsed={collapsedLeft}
                             onCollapse={(value) => setCollapsedLeft(value)}
-                            style={{ overflow: 'auto', height: '100%' }}
+                            className="jav-sidebar jav-sidebar-left"
                         >
-                            <div style={{ padding: '16px' }}>
-                                <Title level={5}>🔍 查询功能</Title>
-                                <Divider style={{ margin: '12px 0' }} />
+                            <div className="jav-sidebar-content">
+                                <Title level={5} className="jav-sidebar-title">查询功能</Title>
+                                <Divider className="jav-sidebar-divider" />
 
-                                <Card title="📋 影片列表筛选" size="small" style={{ marginBottom: 16 }}>
+                                <Card title={<><Icon as={FilterOutlined} /> 影片列表筛选</>} size="small" className="jav-tool-card">
                                     <Form form={filterForm} onFinish={filterMovies} layout="vertical" initialValues={{ magnet: 'exist', type: 'normal', fetchMode: 'page' }}>
                                         <Form.Item name="filterType" style={{ marginBottom: 8 }}>
                                             <Select placeholder="选择筛选类型" allowClear optionLabelProp="label">
@@ -985,20 +1060,20 @@ export default function JavPage() {
                                                 <Option value="all">获取全部 (所有页)</Option>
                                             </Select>
                                         </Form.Item>
-                                        <Button type="primary" htmlType="submit" block loading={loading}>筛选</Button>
+                                        <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={FilterOutlined} />}>筛选</Button>
                                     </Form>
                                 </Card>
 
-                                <Card title="🎬 影片查询" size="small" style={{ marginBottom: 16 }}>
+                                <Card title={<><Icon as={SearchOutlined} /> 影片查询</>} size="small" className="jav-tool-card">
                                     <Form onFinish={searchMovie} layout="vertical">
                                         <Form.Item name="keyword" style={{ marginBottom: 8 }} rules={[{ required: true, message: '请输入番号' }]}>
                                             <Input placeholder="输入影片番号" />
                                         </Form.Item>
-                                        <Button type="primary" htmlType="submit" block loading={loading}>搜索</Button>
+                                        <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={SearchOutlined} />}>搜索</Button>
                                     </Form>
                                 </Card>
 
-                                <Card title="🧲 磁力链接查询" size="small" style={{ marginBottom: 16 }}>
+                                <Card title={<><Icon as={LinkOutlined} /> 磁力链接查询</>} size="small" className="jav-tool-card">
                                     <Form onFinish={searchMagnet} layout="vertical">
                                         <Form.Item name="movieId" style={{ marginBottom: 8 }} rules={[{ required: true, message: '请输入番号' }]}>
                                             <Input placeholder="输入影片番号" />
@@ -1021,11 +1096,11 @@ export default function JavPage() {
                                                 <Option value="false">无字幕</Option>
                                             </Select>
                                         </Form.Item>
-                                        <Button type="primary" htmlType="submit" block loading={loading}>查询磁力链接</Button>
+                                        <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={LinkOutlined} />}>查询磁力链接</Button>
                                     </Form>
                                 </Card>
 
-                                <Card title="🎯 影片识别" size="small" style={{ marginBottom: 16 }}>
+                                <Card title={<><Icon as={DatabaseOutlined} /> 影片识别</>} size="small" className="jav-tool-card">
                                     <Form onFinish={handleRecognizeMovie} layout="vertical" initialValues={{ autoDownload: true }}>
                                         <Form.Item name="htmlContent" rules={[{ required: true, message: '请粘贴HTML源代码' }]} style={{ marginBottom: 8 }}>
                                             <Input.TextArea placeholder="请粘贴JAVLibrary网页源代码..." rows={4} />
@@ -1054,11 +1129,11 @@ export default function JavPage() {
                                                 ]}
                                             />
                                         </Form.Item>
-                                        <Button type="primary" htmlType="submit" block loading={loading}>🔍 识别并下载</Button>
+                                        <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={SearchOutlined} />}>识别并下载</Button>
                                     </Form>
                                 </Card>
 
-                                <Card title="🎬 番号自动下载" size="small" style={{ marginBottom: 16 }}>
+                                <Card title={<><Icon as={DownloadOutlined} /> 番号自动下载</>} size="small" className="jav-tool-card">
                                     <Form onFinish={handleCodeDownload} layout="vertical" initialValues={{ autoDownload: true }}>
                                         <Form.Item name="movieCodes" rules={[{ required: true, message: '请输入番号' }]} style={{ marginBottom: 8 }}>
                                             <Input.TextArea placeholder="支持多行、空格分隔..." rows={4} />
@@ -1087,32 +1162,80 @@ export default function JavPage() {
                                                 ]}
                                             />
                                         </Form.Item>
-                                        <Button type="primary" htmlType="submit" block loading={loading}>🚀 搜索并下载</Button>
+                                        <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={DownloadOutlined} />}>搜索并下载</Button>
                                     </Form>
                                 </Card>
                             </div>
                         </Sider>
 
                         {/* Main Content */}
-                        <Content style={{ padding: '24px', margin: 0, minHeight: 280, overflow: 'auto' }}>
-                            <Card bordered={false} style={{ minHeight: '100%' }}>
+                        <Content className="jav-content">
+                            <section className="jav-results-panel">
                                 {viewMode === 'search' && (
                                     <>
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                                            <Title level={4} style={{ margin: 0 }}>📊 查询结果</Title>
+                                        <div className="jav-results-header">
+                                            <div>
+                                                <Title level={4} className="jav-results-title"><span className="jav-section-icon"><Icon as={ThunderboltOutlined} /></span>查询结果</Title>
+                                                <Text type="secondary" className="jav-results-subtitle">当前批次资源概览</Text>
+                                            </div>
                                             <Button
                                                 type="primary"
                                                 disabled={(!isLoggedIn && !clientConfig.pikpak.configured) || !moviesData || !moviesData.movies || moviesData.movies.length === 0}
                                                 loading={loading}
-                                                icon={<span role="img" aria-label="download">📥</span>}
+                                                icon={<Icon as={DownloadOutlined} />}
                                                 onClick={handleDownloadAllMovies}
                                             >下载本页全部影片</Button>
                                         </div>
-                                        <Divider style={{ margin: '0 0 16px 0' }} />
+                                        <div className="jav-kpi-grid">
+                                            <div className="jav-kpi-card">
+                                                <span className="jav-kpi-label">结果</span>
+                                                <strong>{resultCount}</strong>
+                                                <span className="jav-kpi-note">影片</span>
+                                            </div>
+                                            <div className="jav-kpi-card">
+                                                <span className="jav-kpi-label">磁力</span>
+                                                <strong>{magnetsReadyCount}</strong>
+                                                <span className="jav-kpi-note">{magnetsLoadedCount}/{resultCount || 0} 已检索</span>
+                                            </div>
+                                            <div className="jav-kpi-card">
+                                                <span className="jav-kpi-label">PikPak</span>
+                                                <strong>{isLoggedIn ? '在线' : clientConfig.pikpak.configured ? '可配置' : '离线'}</strong>
+                                                <span className="jav-kpi-note">{pikpakCredentials?.username || clientConfig.pikpak.username || '未登录'}</span>
+                                            </div>
+                                            <div className="jav-kpi-card">
+                                                <span className="jav-kpi-label">来源</span>
+                                                <strong>{currentMagnetSource === 'cilisousuo' ? 'Cilisousuo' : 'JavBus'}</strong>
+                                                <span className="jav-kpi-note">4K过滤：{magnetSettingsForm.getFieldValue('globalExclude4k') ? '开启' : '关闭'}</span>
+                                            </div>
+                                        </div>
+                                        <div className="jav-process-strip">
+                                            <div className={`jav-process-item ${resultCount > 0 ? 'is-active' : ''}`}>
+                                                <span className="jav-process-icon"><Icon as={SearchOutlined} /></span>
+                                                <span>
+                                                    <strong>检索</strong>
+                                                    <em>{loading ? '进行中' : resultCount > 0 ? '已完成' : '待开始'}</em>
+                                                </span>
+                                            </div>
+                                            <div className={`jav-process-item ${magnetsLoadedCount > 0 ? 'is-active' : ''}`}>
+                                                <span className="jav-process-icon"><Icon as={LinkOutlined} /></span>
+                                                <span>
+                                                    <strong>资源</strong>
+                                                    <em>{magnetsReadyCount > 0 ? `${magnetsReadyCount} 可用` : magnetsLoadedCount > 0 ? '无可用' : '待匹配'}</em>
+                                                </span>
+                                            </div>
+                                            <div className={`jav-process-item ${isLoggedIn ? 'is-active' : ''}`}>
+                                                <span className="jav-process-icon"><Icon as={SafetyCertificateOutlined} /></span>
+                                                <span>
+                                                    <strong>派发</strong>
+                                                    <em>{isLoggedIn ? '已就绪' : clientConfig.pikpak.configured ? '可配置' : '未登录'}</em>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <Divider className="jav-section-divider" />
                                     </>
                                 )}
                                 {renderContent()}
-                            </Card>
+                            </section>
                         </Content>
 
                         {/* Right Sidebar */}
@@ -1122,24 +1245,24 @@ export default function JavPage() {
                             collapsible
                             collapsed={collapsedRight}
                             onCollapse={(value) => setCollapsedRight(value)}
-                            style={{ overflow: 'auto', height: '100%' }}
+                            className="jav-sidebar jav-sidebar-right"
                             reverseArrow
                         >
-                            <div style={{ padding: '16px' }}>
-                                <Title level={5}>📥 下载管理</Title>
-                                <Divider style={{ margin: '12px 0' }} />
+                            <div className="jav-sidebar-content">
+                                <Title level={5} className="jav-sidebar-title">下载管理</Title>
+                                <Divider className="jav-sidebar-divider" />
 
                                 <Button
                                     type="default"
                                     block
-                                    icon={<span role="img" aria-label="history">📂</span>}
+                                    icon={<Icon as={HistoryOutlined} />}
                                     onClick={fetchHistory}
-                                    style={{ marginBottom: '16px' }}
+                                    className="jav-sidebar-action"
                                 >
                                     查看历史记录
                                 </Button>
 
-                                <Card title="🔐 PikPak 登录" size="small" style={{ marginBottom: '16px' }}>
+                                <Card title={<><Icon as={LoginOutlined} /> PikPak 登录</>} size="small" className="jav-tool-card">
                                     {!isLoggedIn ? (
                                         <Form layout="vertical" onFinish={handlePikPakLogin}>
                                             <Form.Item name="username" style={{ marginBottom: '12px' }} rules={[{ required: true, message: '请输入用户名' }]}>
@@ -1159,14 +1282,14 @@ export default function JavPage() {
                                         </Form>
                                     ) : (
                                         <div style={{ textAlign: 'center' }}>
-                                            <Text type="success" strong>✓ 已登录</Text>
+                                            <Text type="success" strong>已登录</Text>
                                             <div style={{ marginTop: 8 }}>{pikpakCredentials?.username}</div>
-                                            <Button danger style={{ marginTop: 12 }} block onClick={handleLogout}>退出登录</Button>
+                                            <Button danger style={{ marginTop: 12 }} block onClick={handleLogout} icon={<Icon as={LogoutOutlined} />}>退出登录</Button>
                                         </div>
                                     )}
                                 </Card>
 
-                                <Card title="🧲 磁力链接来源" size="small" style={{ marginBottom: '16px' }}>
+                                <Card title={<><Icon as={LinkOutlined} /> 磁力链接来源</>} size="small" className="jav-tool-card">
                                     <Form
                                         form={magnetSettingsForm}
                                         layout="vertical"
@@ -1193,8 +1316,16 @@ export default function JavPage() {
                             </div>
                         </Sider>
                     </Layout>
+                    ) : activePage === 'localScrape' ? (
+                    <div className="jav-webdav-shell">
+                        <LocalScrapePage />
+                    </div>
+                    ) : activePage === 'localLibrary' ? (
+                    <div className="jav-webdav-shell">
+                        <LocalLibraryPage />
+                    </div>
                     ) : (
-                    <div style={{ background: '#fff', minHeight: 'calc(100vh - 72px)' }}>
+                    <div className="jav-webdav-shell">
                         <WebDavPage />
                     </div>
                     )}

@@ -22,4 +22,4 @@ async def pikpak_download(request: DownloadRequest):
     try:
         return await download(request)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"下载失败: {exc}") from exc
+        raise HTTPException(status_code=400, detail="下载失败") from exc

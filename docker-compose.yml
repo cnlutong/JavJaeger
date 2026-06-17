@@ -11,8 +11,12 @@ services:
       # host:container (container port fixed at 5000)
       - "8000:5000"
     environment:
-      # JavBus API URL (change to your API address)
-      - JAVBUS_API_BASE_URL=http://10.0.0.20:3000
+      # Optional JavBus origin override. Defaults to https://www.javbus.com
+      # - JAVBUS_BASE_URL=https://www.javbus.com
+      # Optional proxy for accessing JavBus directly
+      # - JAVBUS_PROXY=http://127.0.0.1:7890
+      # Optional request interval in seconds. 0 disables throttling.
+      # - JAVBUS_REQUEST_INTERVAL_SECONDS=0.3
       # Strongly recommended in real deployments
       - APP_SESSION_SECRET=change-this-session-secret
     volumes:

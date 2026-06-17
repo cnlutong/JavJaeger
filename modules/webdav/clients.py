@@ -29,16 +29,20 @@ class WebDavFile:
 
 
 class WebDavClient:
-    def __init__(self, base_url: str, username: str = "", password: str = ""):
+    def __init__(self, base_url: str, username: str = "", password: str = "", timeout_seconds: float = 30.0):
         if requests is None:
             raise RuntimeError("未安装 requests，请先执行 pip install -r requirements.txt")
         self.base_url = base_url.rstrip("/")
         self.username = username
         self.password = password
+        self.timeout_seconds = timeout_seconds
         self.session = requests.Session()
 
         if username and password:
             self.session.auth = (username, password)
+
+    def close(self) -> None:
+        self.session.close()
 
     def _build_download_url(self, href: str) -> str:
         return urljoin(self.base_url, href)
@@ -59,6 +63,7 @@ class WebDavClient:
 
     def _make_request(self, method: str, path: str, **kwargs) -> requests.Response:
         url = urljoin(self.base_url, path.lstrip("/"))
+        kwargs.setdefault("timeout", self.timeout_seconds)
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
         return response

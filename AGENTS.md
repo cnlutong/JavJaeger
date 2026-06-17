@@ -12,6 +12,25 @@ Use it as:
 
 If code, docs, or instructions conflict with this file, stop and resolve the conflict before continuing.
 
+## Product Definition
+
+JavJaeger is a full-spectrum JAV automation tool for JAV enthusiasts, geeks, and programmers. It may automate discovery, metadata enrichment, magnet selection, cloud dispatch, WebDAV browsing, Aria2 handoff, and local library workflows, but product growth must not weaken the existing module boundaries or security model.
+
+## Engineering Mode
+
+This repository uses Harness Engineering and strict TDD.
+
+Harness Engineering means meaningful behavior is protected by executable tests, fixtures, fakes, or build checks before it is treated as done. Prefer small, focused tests over broad manual verification.
+
+Strict TDD means:
+
+- Red: write or update the smallest failing test first.
+- Green: change production code only enough to pass.
+- Refactor: clean up while keeping the harness green.
+- Guard: run the focused harness and then the project-level validation for the changed surface.
+
+Bug fixes require a regression test. New features require contract or workflow tests before implementation. Documentation-only and mechanical formatting changes do not need a failing test.
+
 ## Mandatory Read Order
 
 Read these before changing code:
@@ -46,14 +65,20 @@ Use this as the source-of-truth ownership map.
   - shared runtime utilities
   - config
   - version info
-  - shared HTTP client
-  - cache and throttling primitives
+- `modules/javbus_api/`
+  - in-process JavBus API-compatible provider
+  - JavBus HTTP client
+  - JavBus HTML parsing
+  - JavBus response schema aligned with `ovnrain/javbus-api`
+  - JavBus cache and request throttling
 - `modules/ui/`
   - HTML shell routes
 - `modules/system/`
   - diagnostics and system info APIs
 - `modules/history/`
   - download history persistence and APIs
+  - local movie library persistence used to avoid duplicate downloads
+  - scraped local movie metadata and full-text persistence
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
 - `modules/magnets/`
@@ -65,7 +90,8 @@ Use this as the source-of-truth ownership map.
   - Aria2 dispatch
   - session-scoped downloader state
 - `modules/proxy/`
-  - upstream passthrough proxy
+  - final catch-all API route
+  - explicit 404 for unknown API paths
 - `frontend/src/`
   - editable frontend source
 - `static/app.js`
@@ -75,6 +101,12 @@ Use this as the source-of-truth ownership map.
   - static assets and generated output
 - `templates/`
   - HTML shell only
+- `docs/`
+  - engineering process
+  - contributor-facing architecture notes
+- `tests/`
+  - executable harnesses
+  - contract, unit, and integration tests
 - `archive/`
   - historical reference only
   - not runtime code
@@ -243,12 +275,16 @@ Forbidden:
 - router -> unrelated feature router
 - frontend source -> `static/app.js`
 - active runtime code -> `archive/*`
+- tests -> `data/` runtime state
 
 Current approved backend cross-module dependencies:
 
 - `movies` -> `magnets`, `history`
+- `movies` -> `javbus_api`
+- `magnets` -> `javbus_api`, `movies`
+- `history` -> `javbus_api`
+- `system` -> `javbus_api`
 - `pikpak` -> `history`
-- `proxy` -> `modules/common/runtime.py`
 
 If a new module is needed, define its ownership and allowed imports before writing code.
 
@@ -339,6 +375,7 @@ Backend changes:
 - Python syntax check
 - `main.py` import/load check
 - route registration spot-check
+- relevant `python -m pytest` harness
 
 Frontend changes:
 

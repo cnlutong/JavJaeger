@@ -31,3 +31,42 @@ class BatchMoviesRequest(BaseModel):
     magnet_source: str = "javbus"
     exclude_4k: bool = False
     allow_chinese_subtitles: Optional[bool] = None
+
+
+class LocalScrapePreviewRequest(BaseModel):
+    directory: str
+    recursive: bool = True
+    max_depth: Optional[int] = None
+    scrape: bool = True
+    concurrent: int = 3
+    organize: bool = True
+    target_directory: Optional[str] = None
+    naming_template: str = "{code} {title}"
+    write_nfo: bool = True
+    download_images: bool = True
+    overwrite_existing: bool = False
+
+
+class LocalScrapeApplyItem(BaseModel):
+    source_path: str
+    code: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class LocalScrapeApplyRequest(BaseModel):
+    items: list[LocalScrapeApplyItem]
+    organize: bool = True
+    target_directory: Optional[str] = None
+    naming_template: str = "{code} {title}"
+    write_nfo: bool = True
+    download_images: bool = True
+    overwrite_existing: bool = False
+
+
+class LocalLibraryScanRequest(BaseModel):
+    directory: str
+    recursive: bool = True
+    max_depth: Optional[int] = None
+    remove_missing: bool = True
+    scrape: bool = True
+    concurrent: int = 3
