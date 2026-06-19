@@ -3,7 +3,7 @@
     "base_url": "https://www.javbus.com",
     "timeout_seconds": 8,
     "proxy": "",
-    "request_interval_seconds": 0.3,
+    "request_interval_seconds": 0.5,
     "cache_expire_seconds": 3600,
     "cache_max_size": 1000
   },

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 
 from modules.common.runtime import get_aria2_config, get_webdav_config
 from .clients import Aria2Client, WebDavClient, WebDavFile
-from .schemas import AddDownloadsRequest
+from .schemas import AddDownloadsRequest, MagnetDownloadRequest
 from .session_state import session_store
 
 
@@ -327,6 +327,55 @@ async def get_aria2_downloads(request: Request):
     except Exception as exc:
         logger.error("获取 Aria2 下载列表失败: %s", exc)
         return {"success": False, "error": "aria2_downloads_failed", "message": "获取下载列表失败"}
+
+
+@router.post("/api/aria2/download-magnets")
+async def add_aria2_magnets(request: Request, payload: MagnetDownloadRequest):
+    state = await session_store.get_state(request)
+    if not state.aria2_client:
+        raise HTTPException(status_code=400, detail="请先连接 Aria2")
+
+    results: list[dict[str, Any]] = []
+    for index, magnet_link in enumerate(payload.magnet_links):
+        movie_id = payload.movie_ids[index] if index < len(payload.movie_ids) else ""
+        if not magnet_link:
+            results.append(
+                {
+                    "movie_id": movie_id,
+                    "success": False,
+                    "message": "磁力链接为空",
+                }
+            )
+            continue
+
+        try:
+            gid = await asyncio.to_thread(state.aria2_client.add_download, magnet_link)
+            results.append(
+                {
+                    "movie_id": movie_id,
+                    "success": True,
+                    "gid": gid,
+                    "message": "已添加到 Aria2",
+                }
+            )
+        except Exception as exc:
+            logger.error("添加 Aria2 磁力链接失败: %s", exc)
+            results.append(
+                {
+                    "movie_id": movie_id,
+                    "success": False,
+                    "error": "aria2_add_failed",
+                    "message": "添加失败",
+                }
+            )
+
+    success_count = sum(1 for item in results if item["success"])
+    return {
+        "success": success_count > 0,
+        "success_count": success_count,
+        "message": f"添加磁力链接 {success_count}/{len(results)} 个到 Aria2",
+        "results": results,
+    }
 
 
 @router.post("/api/aria2/pause/{gid}")

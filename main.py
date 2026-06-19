@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from modules.common.runtime import SESSION_SECRET, VERSION_INFO
+from modules.common.runtime import SESSION_SECRET, VERSION_INFO, is_frontend_cache_disabled
 from modules.history.router import router as history_router
 from modules.history.service import download_history_service
 from modules.javbus_api import javbus_api_service
@@ -31,6 +31,17 @@ logger.info("应用版本信息: %s", VERSION_INFO)
 app = FastAPI(title="JavJaeger", description="基于JavBus的高效影片系统")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax", https_only=False)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.middleware("http")
+async def disable_frontend_cache_middleware(request, call_next):
+    response = await call_next(request)
+    request_path = request.url.path
+    if is_frontend_cache_disabled() and request_path in {"/", "/static/app.js"}:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 app.include_router(ui_router)
 app.include_router(system_router)

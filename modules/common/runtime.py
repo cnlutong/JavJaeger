@@ -17,7 +17,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "base_url": "https://www.javbus.com",
         "timeout_seconds": 8,
         "proxy": "",
-        "request_interval_seconds": 0.3,
+        "request_interval_seconds": 0.5,
         "cache_expire_seconds": 3600,
         "cache_max_size": 1000,
     },
@@ -97,6 +97,36 @@ def get_version_info() -> dict[str, str]:
         logger.warning("获取Git版本信息失败: %s", exc)
 
     return version_info
+
+
+def get_static_asset_version() -> str:
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    app_bundle_path = os.path.join(repo_root, "static", "app.js")
+    try:
+        return str(os.stat(app_bundle_path).st_mtime_ns)
+    except OSError:
+        return datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+
+def _parse_bool_env(value: str | None) -> bool:
+    return str(value).lower() in {"1", "true", "yes", "on", "y"}
+
+
+def is_frontend_cache_disabled() -> bool:
+    env_mode = os.getenv("APP_ENV", "").strip().lower()
+    explicit = os.getenv("JAVJAEGER_DISABLE_FRONTEND_CACHE")
+    if explicit is not None:
+        return _parse_bool_env(explicit)
+    if env_mode in {"development", "dev", "test", "testing"}:
+        return True
+    return bool(os.getenv("PYTEST_CURRENT_TEST"))
+
+
+def is_frontend_auto_reload_enabled() -> bool:
+    explicit = os.getenv("JAVJAEGER_ENABLE_FRONTEND_AUTO_RELOAD")
+    if explicit is not None:
+        return _parse_bool_env(explicit)
+    return is_frontend_cache_disabled()
 
 
 def merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -195,6 +225,7 @@ def build_system_config_summary() -> dict[str, Any]:
 
 
 VERSION_INFO = get_version_info()
+VERSION_INFO["asset_version"] = get_static_asset_version()
 config = load_config()
 SESSION_SECRET = os.getenv("APP_SESSION_SECRET", config.get("session_secret", "javjaeger-dev-session-secret"))
 if SESSION_SECRET == "javjaeger-dev-session-secret":

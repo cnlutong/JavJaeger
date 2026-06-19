@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 from typing import Any
@@ -10,6 +11,15 @@ from .schemas import BatchMoviesRequest
 
 
 logger = logging.getLogger(__name__)
+
+FILTER_DETAIL_FIELDS = {
+    "star": ("stars",),
+    "genre": ("genres",),
+    "director": ("director",),
+    "studio": ("producer", "studio"),
+    "label": ("publisher", "label"),
+    "series": ("series",),
+}
 
 
 async def get_movie_detail(movie_id: str) -> Any | None:
@@ -38,38 +48,148 @@ def _matches_actor_count_filter(actor_count: int, actor_count_filter: str) -> bo
     return True
 
 
+def _normalize_filter_value(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _iter_detail_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        values: list[str] = []
+        for item in value:
+            values.extend(_iter_detail_values(item))
+        return values
+    if isinstance(value, dict):
+        values = []
+        for key in ("id", "name"):
+            normalized = _normalize_filter_value(value.get(key))
+            if normalized:
+                values.append(normalized)
+                if "/" in normalized:
+                    values.append(normalized.rsplit("/", 1)[-1])
+        return values
+    normalized = _normalize_filter_value(value)
+    return [normalized] if normalized else []
+
+
+def _parse_filter_conditions(query_params: Any) -> list[dict[str, str]]:
+    conditions: list[dict[str, str]] = []
+    raw_filters = query_params.get("filters")
+    if raw_filters:
+        try:
+            decoded = json.loads(raw_filters)
+        except json.JSONDecodeError:
+            decoded = []
+        if isinstance(decoded, list):
+            for item in decoded:
+                if not isinstance(item, dict):
+                    continue
+                filter_type = str(item.get("type") or "").strip()
+                filter_value = str(item.get("value") or "").strip()
+                if filter_type in FILTER_DETAIL_FIELDS and filter_value:
+                    conditions.append(
+                        {
+                            "type": filter_type,
+                            "value": filter_value,
+                            "label": str(item.get("label") or "").strip(),
+                        }
+                    )
+
+    if not conditions:
+        filter_type = str(query_params.get("filterType") or "").strip()
+        filter_value = str(query_params.get("filterValue") or "").strip()
+        if filter_type in FILTER_DETAIL_FIELDS and filter_value:
+            conditions.append({"type": filter_type, "value": filter_value, "label": ""})
+
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for condition in conditions:
+        key = (condition["type"], condition["value"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(condition)
+    return deduped
+
+
+def _build_list_query_params(query_params: Any, filter_conditions: list[dict[str, str]]) -> dict[str, Any]:
+    list_query_params = dict(query_params)
+    list_query_params.pop("actorCountFilter", None)
+    list_query_params.pop("hasSubtitle", None)
+    list_query_params.pop("filters", None)
+
+    if filter_conditions:
+        seed_filter = filter_conditions[0]
+        list_query_params["filterType"] = seed_filter["type"]
+        list_query_params["filterValue"] = seed_filter["value"]
+
+    return list_query_params
+
+
+def _movie_detail_matches_filter(movie_detail: dict[str, Any], condition: dict[str, str]) -> bool:
+    expected_values = {
+        _normalize_filter_value(condition.get("value")),
+        _normalize_filter_value(condition.get("label")),
+    }
+    expected_values = {value for value in expected_values if value}
+    if not expected_values:
+        return True
+
+    detail_values: set[str] = set()
+    for field_name in FILTER_DETAIL_FIELDS[condition["type"]]:
+        detail_values.update(_iter_detail_values(movie_detail.get(field_name)))
+
+    return bool(detail_values.intersection(expected_values))
+
+
+async def _filter_movies_by_detail(
+    movies: list[dict[str, Any]],
+    filter_conditions: list[dict[str, str]],
+    actor_count_filter: str | None,
+    semaphore_size: int,
+) -> list[dict[str, Any]]:
+    if not movies or (len(filter_conditions) <= 1 and not actor_count_filter):
+        return movies
+
+    semaphore = asyncio.Semaphore(semaphore_size)
+
+    async def check_movie_filters(movie: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            movie_detail = await get_movie_detail(movie["id"])
+            if not movie_detail:
+                return None
+            if actor_count_filter and not _matches_actor_count_filter(len(movie_detail.get("stars") or []), actor_count_filter):
+                return None
+            if filter_conditions and not all(
+                _movie_detail_matches_filter(movie_detail, condition) for condition in filter_conditions
+            ):
+                return None
+            return movie
+        except Exception as exc:
+            logger.error("检查影片 %s 筛选条件失败: %s", movie.get("id"), exc)
+            return None
+
+    async def limited_check(movie: dict[str, Any]) -> dict[str, Any] | None:
+        async with semaphore:
+            return await check_movie_filters(movie)
+
+    results = await asyncio.gather(*[limited_check(movie) for movie in movies])
+    return [movie for movie in results if movie is not None]
+
+
 async def get_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
+    filter_conditions = _parse_filter_conditions(request.query_params)
 
-    query_params = dict(request.query_params)
-    query_params.pop("actorCountFilter", None)
-    query_params.pop("hasSubtitle", None)
+    query_params = _build_list_query_params(request.query_params, filter_conditions)
 
     data = await javbus_api_service.get_movies_by_page(query_params)
     if data is None:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
 
-    if actor_count_filter and data.get("movies"):
-        semaphore = asyncio.Semaphore(3)
-
-        async def check_movie_filters(movie: dict[str, Any]) -> dict[str, Any] | None:
-            try:
-                movie_detail = await get_movie_detail(movie["id"])
-                if not movie_detail or "stars" not in movie_detail:
-                    return None
-                if _matches_actor_count_filter(len(movie_detail["stars"]), actor_count_filter):
-                    return movie
-                return None
-            except Exception as exc:
-                logger.error("检查影片 %s 筛选条件失败: %s", movie["id"], exc)
-                return None
-
-        async def limited_check(movie: dict[str, Any]) -> dict[str, Any] | None:
-            async with semaphore:
-                return await check_movie_filters(movie)
-
-        results = await asyncio.gather(*[limited_check(movie) for movie in data["movies"]])
-        filtered_movies = [movie for movie in results if movie is not None]
+    if data.get("movies"):
+        filtered_movies = await _filter_movies_by_detail(data["movies"], filter_conditions, actor_count_filter, 3)
         data["movies"] = filtered_movies
         if "pagination" in data:
             data["pagination"]["total"] = len(filtered_movies)
@@ -79,9 +199,8 @@ async def get_movies_payload(request: Request) -> dict[str, Any]:
 
 async def get_all_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
-    query_params = dict(request.query_params)
-    query_params.pop("actorCountFilter", None)
-    query_params.pop("hasSubtitle", None)
+    filter_conditions = _parse_filter_conditions(request.query_params)
+    query_params = _build_list_query_params(request.query_params, filter_conditions)
     query_params.pop("page", None)
 
     all_movies: list[dict[str, Any]] = []
@@ -114,31 +233,13 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
             logger.warning("达到最大页数限制(100页)，停止获取")
             break
 
-    if actor_count_filter and all_movies:
+    if all_movies:
         filtered_movies: list[dict[str, Any]] = []
-        semaphore = asyncio.Semaphore(5)
-
-        async def check_movie_filters(movie: dict[str, Any]) -> dict[str, Any] | None:
-            try:
-                movie_detail = await get_movie_detail(movie["id"])
-                if not movie_detail or "stars" not in movie_detail:
-                    return None
-                if _matches_actor_count_filter(len(movie_detail["stars"]), actor_count_filter):
-                    return movie
-                return None
-            except Exception as exc:
-                logger.error("检查影片 %s 筛选条件失败: %s", movie["id"], exc)
-                return None
-
-        async def limited_check(movie: dict[str, Any]) -> dict[str, Any] | None:
-            async with semaphore:
-                return await check_movie_filters(movie)
 
         batch_size = 50
         for index in range(0, len(all_movies), batch_size):
             batch = all_movies[index : index + batch_size]
-            results = await asyncio.gather(*[limited_check(movie) for movie in batch])
-            filtered_movies.extend([movie for movie in results if movie is not None])
+            filtered_movies.extend(await _filter_movies_by_detail(batch, filter_conditions, actor_count_filter, 5))
 
         all_movies = filtered_movies
 

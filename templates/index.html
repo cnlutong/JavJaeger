@@ -4,6 +4,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% if version_info.disable_cache %}
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    {% endif %}
     <title>JavJaeger</title>
     <!-- Ant Design CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.23.0/dist/reset.css">
@@ -25,12 +30,14 @@
     <script>
         window.versionInfo = {
             version: "{{ version_info.version }}",
-            build_date: "{{ version_info.build_date }}"
+            build_date: "{{ version_info.build_date }}",
+            asset_version: "{{ version_info.asset_version | default(version_info.version) }}",
+            auto_reload_frontend: {{ "true" if version_info.auto_reload_frontend else "false" }},
         };
     </script>
 
     <!-- React Application -->
-    <script src="/static/app.js?v={{ version_info.version }}" defer></script>
+    <script src="/static/app.js?v={{ version_info.asset_version | default(version_info.version) }}" defer></script>
 </body>
 
 </html>

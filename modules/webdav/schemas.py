@@ -16,6 +16,11 @@ class AddDownloadsRequest(BaseModel):
     min_file_size_mb: int = 300
 
 
+class MagnetDownloadRequest(BaseModel):
+    magnet_links: list[str]
+    movie_ids: list[str] = Field(default_factory=list)
+
+
 class OperationResult(BaseModel):
     filename: str
     success: bool

@@ -2,13 +2,39 @@
 import LocalScrapePage from "./LocalScrapePage.jsx";
 import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
-import { clearPikPakSession, loadPikPakSession, persistPikPakSession } from "../utils/storage.js";
+import {
+    clearPikPakSession,
+    loadAria2Settings,
+    loadPikPakSession,
+    loadWebDavSettings,
+    persistPikPakSession,
+    saveAria2Settings,
+    saveWebDavSettings,
+} from "../utils/storage.js";
 
 const React = window.React;
 const antd = window.antd;
 const icons = window.icons || {};
 
-const { Layout, Button, Input, Form, Select, Card, Spin, message, Typography, Space, Divider, List, Tag, ConfigProvider, Segmented, Popconfirm } = antd;
+const {
+    Layout,
+    Button,
+    Drawer,
+    Input,
+    Form,
+    Select,
+    Card,
+    Spin,
+    message,
+    Typography,
+    Space,
+    Divider,
+    List,
+    Tag,
+    ConfigProvider,
+    Segmented,
+    Popconfirm,
+} = antd;
 const { Header, Content, Sider } = Layout;
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -25,12 +51,21 @@ const {
     LogoutOutlined,
     SafetyCertificateOutlined,
     SearchOutlined,
+    SettingOutlined,
     ThunderboltOutlined,
 } = icons;
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
 
 const RESOURCE_REQUEST_CONCURRENCY = 4;
+const FILTER_TYPE_LABELS = {
+    star: '演员',
+    genre: '类别',
+    director: '导演',
+    studio: '制作商',
+    label: '发行商',
+    series: '系列',
+};
 
 const runWithConcurrency = async (items, limit, worker) => {
     if (!Array.isArray(items) || items.length === 0) {
@@ -54,18 +89,36 @@ export default function JavPage() {
     // ---- State ----
     const [collapsedLeft, setCollapsedLeft] = React.useState(false);
     const [collapsedRight, setCollapsedRight] = React.useState(false);
-    const [versionInfo, setVersionInfo] = React.useState({ version: '1.0.0', build_date: 'Unknown' });
+    const [versionInfo, setVersionInfo] = React.useState({
+        version: "v1.0.0",
+        build_date: "Unknown",
+        asset_version: "",
+        auto_reload_frontend: false,
+    });
     const [activePage, setActivePage] = React.useState('jav');
 
     // UI State
     const [loading, setLoading] = React.useState(false);
+    const [downloadingMovieIds, setDownloadingMovieIds] = React.useState({});
     const [moviesData, setMoviesData] = React.useState(null);
     const [magnetDataMap, setMagnetDataMap] = React.useState({});
+    const [movieImageLoadErrorMap, setMovieImageLoadErrorMap] = React.useState({});
     const [movieDetailMap, setMovieDetailMap] = React.useState({});
+    const [webdavConnected, setWebdavConnected] = React.useState(false);
     const [historyData, setHistoryData] = React.useState(null);
     const [currentPage, setCurrentPage] = React.useState(1);
     const [lastFilterValues, setLastFilterValues] = React.useState(null);
     const [lastMagnetSearchValues, setLastMagnetSearchValues] = React.useState(null);
+    const [selectedFilters, setSelectedFilters] = React.useState([]);
+    const [downloadTool, setDownloadTool] = React.useState(() => {
+        try {
+            return window.localStorage.getItem("downloadTool") || "pikpak";
+        } catch (error) {
+            return "pikpak";
+        }
+    });
+    const [downloadToolConfigOpen, setDownloadToolConfigOpen] = React.useState(false);
+    const [aria2Connected, setAria2Connected] = React.useState(false);
 
     // Filter Data State
     const [categories, setCategories] = React.useState({});
@@ -75,12 +128,16 @@ export default function JavPage() {
     const [viewMode, setViewMode] = React.useState('search'); // 'search' | 'browseCategory' | 'browseActor'
     const [filterForm] = Form.useForm();
     const [magnetSettingsForm] = Form.useForm();
+    const [webdavForm] = Form.useForm();
+    const [aria2Form] = Form.useForm();
     const magnetRequestVersionRef = React.useRef({});
     const resourceLoadVersionRef = React.useRef(0);
 
     // Auth State
     const [isLoggedIn, setIsLoggedIn] = React.useState(false);
     const [pikpakCredentials, setPikpakCredentials] = React.useState(null);
+    const [aria2Loading, setAria2Loading] = React.useState(false);
+    const [webdavLoading, setWebdavLoading] = React.useState(false);
     const [clientConfig, setClientConfig] = React.useState({
         pikpak: { configured: false, enabled: false, username: "", auto_login: false }
     });
@@ -100,8 +157,44 @@ export default function JavPage() {
             setPikpakCredentials(savedSession.credentials);
             setIsLoggedIn(true);
         }
+        const savedWebDavSettings = loadWebDavSettings();
+        const savedAria2Settings = loadAria2Settings();
+        if (Object.keys(savedWebDavSettings || {}).length > 0) {
+            webdavForm.setFieldsValue(savedWebDavSettings);
+        }
+        if (Object.keys(savedAria2Settings || {}).length > 0) {
+            aria2Form.setFieldsValue(savedAria2Settings);
+        }
         loadClientSideConfig();
+        void loadDownloadToolStatus();
     }, []);
+
+    React.useEffect(() => {
+        if (!versionInfo.auto_reload_frontend || !versionInfo.asset_version) {
+            return;
+        }
+
+        const timer = window.setInterval(async () => {
+            try {
+                const response = await fetch('/api/system/info', { cache: 'no-store' });
+                if (!response.ok) {
+                    return;
+                }
+
+                const data = await response.json();
+                const latestAssetVersion = data?.version?.asset_version;
+                if (latestAssetVersion && latestAssetVersion !== versionInfo.asset_version) {
+                    window.location.reload();
+                }
+            } catch (error) {
+                // Ignore polling errors to avoid noisy fallback behavior.
+            }
+        }, 5000);
+
+        return () => {
+            window.clearInterval(timer);
+        };
+    }, [versionInfo.auto_reload_frontend, versionInfo.asset_version]);
 
     React.useEffect(() => {
         if (
@@ -115,6 +208,16 @@ export default function JavPage() {
         }
     }, [clientConfig.pikpak.auto_login, clientConfig.pikpak.configured, isLoggedIn]);
 
+    React.useEffect(() => {
+        if (downloadTool !== 'aria2') {
+            return undefined;
+        }
+        const timer = window.setInterval(() => {
+            void loadDownloadToolStatus();
+        }, 10000);
+        return () => window.clearInterval(timer);
+    }, [downloadTool]);
+
     const displayVersion = versionInfo.version && versionInfo.version.startsWith('v')
         ? versionInfo.version
         : `v${versionInfo.version}`;
@@ -127,13 +230,99 @@ export default function JavPage() {
         return Array.isArray(magnets) && magnets.length > 0;
     }).length;
     const currentMagnetSource = magnetSettingsForm.getFieldValue('magnetSource') || 'javbus';
+    const isCurrentDownloadToolReady = downloadTool === 'aria2'
+        ? aria2Connected
+        : isLoggedIn || clientConfig.pikpak.configured;
+
+    const buildFilterCondition = (type, value, label) => {
+        const normalizedType = String(type || '').trim();
+        const normalizedValue = String(value || '').trim();
+        if (!normalizedType || !normalizedValue) {
+            return null;
+        }
+        return {
+            type: normalizedType,
+            value: normalizedValue,
+            label: String(label || normalizedValue).trim(),
+        };
+    };
+
+    const addSelectedFilter = (type, value, label) => {
+        const nextFilter = buildFilterCondition(type, value, label);
+        if (!nextFilter) {
+            message.warning('请选择筛选类型并填写标签');
+            return;
+        }
+
+        setSelectedFilters(prev => {
+            const exists = prev.some(item => item.type === nextFilter.type && item.value === nextFilter.value);
+            return exists ? prev : [...prev, nextFilter];
+        });
+    };
+
+    const removeSelectedFilter = (type, value) => {
+        setSelectedFilters(prev => prev.filter(item => item.type !== type || item.value !== value));
+    };
+
+    const buildFilterConditionsForSubmit = (values) => {
+        if (selectedFilters.length > 0) {
+            return selectedFilters;
+        }
+        const manualValue = values.filterValue || values.filterValueName;
+        const manualLabel = values.filterValueName || values.filterValue;
+        const manualFilter = buildFilterCondition(values.filterType, manualValue, manualLabel);
+        return manualFilter ? [manualFilter] : [];
+    };
+
+    const buildNormalizedFilterValues = (values, page = 1) => {
+        const activeFilters = Array.isArray(values.filters) ? values.filters : buildFilterConditionsForSubmit(values);
+        const normalized = {
+            ...values,
+            filters: activeFilters,
+        };
+        if (page > 1) {
+            normalized.page = page;
+        } else {
+            delete normalized.page;
+        }
+        return normalized;
+    };
+
+    const handleAddCurrentFilter = () => {
+        const values = filterForm.getFieldsValue(['filterType', 'filterValue', 'filterValueName']);
+        addSelectedFilter(values.filterType, values.filterValue || values.filterValueName, values.filterValueName);
+    };
 
     const loadClientSideConfig = async () => {
         try {
             const config = await fetchClientConfig();
             setClientConfig(config);
+            if (config?.webdav?.configured) {
+                if (!webdavForm.getFieldValue("url") && config.webdav.url) {
+                    webdavForm.setFieldsValue({ url: config.webdav.url });
+                }
+                if (!webdavForm.getFieldValue("username") && config.webdav.username) {
+                    webdavForm.setFieldsValue({ username: config.webdav.username });
+                }
+            }
+            if (config?.aria2?.configured && config.aria2.url && !aria2Form.getFieldValue("url")) {
+                aria2Form.setFieldsValue({ url: config.aria2.url });
+            }
         } catch (error) {
             console.error("Load client config error:", error);
+        }
+    };
+
+    const loadDownloadToolStatus = async () => {
+        try {
+            const status = await fetchWithRetry('/api/webdav/status');
+            setAria2Connected(!!status.aria2_connected);
+            setWebdavConnected(!!status.webdav_connected);
+            return status.aria2_connected;
+        } catch (error) {
+            setAria2Connected(false);
+            setWebdavConnected(false);
+            return false;
         }
     };
 
@@ -150,6 +339,93 @@ export default function JavPage() {
             payload.password = pikpakCredentials.password;
         }
         return payload;
+    };
+
+    const getDownloadToolConfig = (tool = downloadTool) => {
+        const normalizedTool = tool === 'aria2' ? 'aria2' : 'pikpak';
+        return {
+            tool: normalizedTool,
+            label: normalizedTool === 'aria2' ? 'Aria2' : 'PikPak',
+            requiresLogin: normalizedTool === 'pikpak',
+            requiresConnection: normalizedTool === 'aria2',
+        };
+    };
+
+    const isDownloadToolReady = async (tool = downloadTool) => {
+        const config = getDownloadToolConfig(tool);
+        if (config.requiresLogin) {
+            if (!isLoggedIn && !clientConfig.pikpak.configured) {
+                message.warning('请先登录 PikPak 或在 config.json 中配置账号');
+                return false;
+            }
+            return true;
+        }
+        if (config.requiresConnection) {
+            const connected = await loadDownloadToolStatus();
+            if (!connected) {
+                message.warning('请先连接 Aria2 或检查配置');
+                return false;
+            }
+            return true;
+        }
+        return true;
+    };
+
+    const dispatchMagnetDownloads = async (payload, tool = downloadTool) => {
+        const magnetLinks = Array.isArray(payload) ? payload.map(item => item.link).filter(Boolean) : [];
+        const movieIds = Array.isArray(payload)
+            ? payload.map(item => item.movie_id).filter(Boolean)
+            : [];
+        if (magnetLinks.length === 0) {
+            message.warning('没有可用的磁力链接');
+            return { success: false, message: 'no_magnet' };
+        }
+
+        const config = getDownloadToolConfig(tool);
+        if (config.requiresLogin) {
+            if (!isLoggedIn && !clientConfig.pikpak.configured) {
+                message.warning('请先登录 PikPak 或在 config.json 中配置账号');
+                return { success: false };
+            }
+        } else if (!aria2Connected) {
+            const connected = await loadDownloadToolStatus();
+            if (!connected) {
+                message.warning('请先在 WebDAV 下载页面连接 Aria2');
+                return { success: false };
+            }
+        }
+
+        const response = await fetch(
+            config.tool === 'aria2' ? '/api/aria2/download-magnets' : '/api/pikpak/download',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    magnet_links: magnetLinks,
+                    movie_ids: movieIds,
+                    ...(config.tool === 'pikpak' ? buildPikPakAuthPayload() : {}),
+                }),
+            }
+        );
+        return await response.json();
+    };
+
+    const handleDownloadToolChange = (toolValue) => {
+        const nextTool = toolValue === 'aria2' ? 'aria2' : 'pikpak';
+        setDownloadTool(nextTool);
+        try {
+            window.localStorage.setItem("downloadTool", nextTool);
+        } catch (error) {
+            /* ignore */
+        }
+    };
+
+    const openDownloadToolConfig = () => {
+        setDownloadToolConfigOpen(true);
+    };
+
+    const closeDownloadToolConfig = () => {
+        setDownloadToolConfigOpen(false);
     };
 
     // ---- API Calls ----
@@ -217,6 +493,8 @@ export default function JavPage() {
     };
 
     const filterMovies = async (values, page = 1) => {
+        const normalizedValues = buildNormalizedFilterValues(values, page);
+        const activeFilters = normalizedValues.filters;
         setLoading(true);
         setLastMagnetSearchValues(null);
         if (page === 1) {
@@ -225,23 +503,26 @@ export default function JavPage() {
         }
         try {
             const queryParams = new URLSearchParams();
-            if (values.filterType) {
-                queryParams.append('filterType', values.filterType);
-                queryParams.append('filterValue', values.filterValue);
+            if (activeFilters.length > 0) {
+                queryParams.append('filters', JSON.stringify(activeFilters));
+            } else if (normalizedValues.filterType) {
+                queryParams.append('filterType', normalizedValues.filterType);
+                queryParams.append('filterValue', normalizedValues.filterValue);
             }
-            if (values.magnet) queryParams.append('magnet', values.magnet);
-            if (values.type) queryParams.append('type', values.type);
-            if (values.actorCountFilter) queryParams.append('actorCountFilter', values.actorCountFilter);
+            if (normalizedValues.magnet) queryParams.append('magnet', normalizedValues.magnet);
+            if (normalizedValues.type) queryParams.append('type', normalizedValues.type);
+            if (normalizedValues.actorCountFilter) queryParams.append('actorCountFilter', normalizedValues.actorCountFilter);
+            if (normalizedValues.hasSubtitle) queryParams.append('hasSubtitle', normalizedValues.hasSubtitle);
             if (page > 1) queryParams.append('page', page);
 
-            const apiUrl = values.fetchMode === 'all'
+            const apiUrl = normalizedValues.fetchMode === 'all'
                 ? `/api/movies/all?${queryParams.toString()}`
                 : `/api/movies?${queryParams.toString()}`;
 
             const data = await fetchWithRetry(apiUrl);
             setMoviesData(data);
             setCurrentPage(page);
-            setLastFilterValues(values);
+            setLastFilterValues(normalizedValues);
             if (data.movies) {
                 loadMovieResources(data.movies);
             }
@@ -250,6 +531,23 @@ export default function JavPage() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleFilterPageChange = (nextPage) => {
+        if (!lastFilterValues || loading) {
+            return;
+        }
+        if (nextPage < 1) {
+            return;
+        }
+
+        const formValues = filterForm.getFieldsValue(true);
+        const normalizedValues = {
+            ...lastFilterValues,
+            ...formValues,
+        };
+        const syncedValues = buildNormalizedFilterValues(normalizedValues, nextPage);
+        filterMovies(syncedValues, nextPage);
     };
 
     const searchMagnet = async (values) => {
@@ -387,14 +685,15 @@ export default function JavPage() {
         setMagnetDataMap({});
         try {
             const { magnetSource } = getMagnetSettings();
+            const shouldAutoDownload = values.autoDownload || false;
             const requestBody = {
                 html_content: values.htmlContent,
-                auto_download: values.autoDownload || false,
+                auto_download: shouldAutoDownload && downloadTool !== 'aria2',
                 magnet_source: magnetSource,
                 has_subtitle_filter: values.hasSubtitle || null,
                 exclude_4k: values.exclude4k || false
             };
-            if (values.autoDownload && isLoggedIn && pikpakCredentials) {
+            if (shouldAutoDownload && isLoggedIn && pikpakCredentials && downloadTool !== 'aria2') {
                 Object.assign(requestBody, buildPikPakAuthPayload());
             }
 
@@ -413,6 +712,14 @@ export default function JavPage() {
                     setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
                 }
                 message.success('识别完成');
+                if (shouldAutoDownload && downloadTool === 'aria2' && data.magnet_results?.length > 0) {
+                    const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
+                    if (dispatchResult && dispatchResult.success) {
+                        message.success(dispatchResult.message || '已提交 Aria2 下载任务');
+                    } else {
+                        message.error(`下载失败: ${dispatchResult?.message || '未知错误'}`);
+                    }
+                }
             }
         } catch (error) {
             message.error('影片识别失败');
@@ -427,14 +734,15 @@ export default function JavPage() {
         setMagnetDataMap({});
         try {
             const { magnetSource } = getMagnetSettings();
+            const shouldAutoDownload = values.autoDownload || false;
             const requestBody = {
                 movie_codes: values.movieCodes,
-                auto_download: values.autoDownload || false,
+                auto_download: shouldAutoDownload && downloadTool !== 'aria2',
                 magnet_source: magnetSource,
                 has_subtitle_filter: values.hasSubtitle || null,
                 exclude_4k: values.exclude4k || false
             };
-            if (values.autoDownload && isLoggedIn && pikpakCredentials) {
+            if (shouldAutoDownload && isLoggedIn && pikpakCredentials && downloadTool !== 'aria2') {
                 Object.assign(requestBody, buildPikPakAuthPayload());
             }
 
@@ -462,6 +770,14 @@ export default function JavPage() {
                 setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
             }
             message.success(data.message || '处理完成');
+            if (shouldAutoDownload && downloadTool === 'aria2' && data.magnet_results?.length > 0) {
+                const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
+                if (dispatchResult && dispatchResult.success) {
+                    message.success(dispatchResult.message || '已提交 Aria2 下载任务');
+                } else {
+                    message.error(`下载失败: ${dispatchResult?.message || '未知错误'}`);
+                }
+            }
         } catch (error) {
             message.error('番号处理失败');
         } finally {
@@ -497,8 +813,7 @@ export default function JavPage() {
     };
 
     const handleDownloadAllMovies = async () => {
-        if (!isLoggedIn && !clientConfig.pikpak.configured) {
-            message.warning('请先登录 PikPak 或在 config.json 中配置账号');
+        if (!await isDownloadToolReady()) {
             return;
         }
         if (!moviesData || !moviesData.movies || moviesData.movies.length === 0) {
@@ -528,18 +843,12 @@ export default function JavPage() {
             return;
         }
 
-        setLoading(true);
         try {
-            const response = await fetch('/api/pikpak/download', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    magnet_links: magnetLinks,
-                    movie_ids: movieIds,
-                    ...buildPikPakAuthPayload()
-                })
-            });
-            const result = await response.json();
+            setLoading(true);
+            const result = await dispatchMagnetDownloads(
+                magnetLinks.map((link, index) => ({ link, movie_id: movieIds[index] })),
+                downloadTool
+            );
             if (result.success) {
                 message.success(result.message || `已添加 ${magnetLinks.length} 个下载任务`);
             } else {
@@ -549,6 +858,160 @@ export default function JavPage() {
             message.error('下载请求失败');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleWebdavConnect = async (values) => {
+        setWebdavLoading(true);
+        const formData = new FormData();
+        formData.append("webdav_url", values.url || "");
+        formData.append("username", values.username || "");
+        formData.append("password", values.password || "");
+        try {
+            const response = await fetch("/api/webdav/connect", {
+                method: "POST",
+                body: formData,
+            });
+            const result = await response.json();
+            if (result.success) {
+                saveWebDavSettings(values);
+                setWebdavConnected(true);
+                loadDownloadToolStatus();
+                message.success("WebDAV连接成功");
+            } else {
+                setWebdavConnected(false);
+                message.error(result.message || "WebDAV连接失败");
+            }
+        } catch (error) {
+            setWebdavConnected(false);
+            message.error("WebDAV连接异常");
+        } finally {
+            setWebdavLoading(false);
+        }
+    };
+
+    const handleAria2Connect = async (values) => {
+        setAria2Loading(true);
+        const formData = new FormData();
+        formData.append("aria2_url", values.url || "");
+        formData.append("aria2_secret", values.secret || "");
+        try {
+            const response = await fetch("/api/aria2/connect", {
+                method: "POST",
+                body: formData,
+            });
+            const result = await response.json();
+            if (result.success) {
+                saveAria2Settings(values);
+                setAria2Connected(true);
+                loadDownloadToolStatus();
+                message.success("Aria2连接成功");
+            } else {
+                setAria2Connected(false);
+                message.error(result.message || "Aria2连接失败");
+            }
+        } catch (error) {
+            setAria2Connected(false);
+            message.error("Aria2连接异常");
+        } finally {
+            setAria2Loading(false);
+        }
+    };
+
+    const handleWebdavConnectFromConfig = async ({ silent = false } = {}) => {
+        setWebdavLoading(true);
+        try {
+            const response = await fetch("/api/webdav/connect-config", { method: "POST" });
+            const result = await response.json();
+            if (result.success) {
+                if (clientConfig.webdav?.url || clientConfig.webdav?.username) {
+                    webdavForm.setFieldsValue({
+                        url: clientConfig.webdav.url || "",
+                        username: clientConfig.webdav.username || "",
+                    });
+                }
+                setWebdavConnected(true);
+                loadDownloadToolStatus();
+                if (!silent) {
+                    message.success("已使用配置连接 WebDAV");
+                }
+            } else {
+                setWebdavConnected(false);
+                if (!silent) {
+                    message.error(result.message || "使用配置连接失败");
+                }
+            }
+        } catch (error) {
+            setWebdavConnected(false);
+            if (!silent) {
+                message.error("WebDAV 配置连接异常");
+            }
+        } finally {
+            setWebdavLoading(false);
+        }
+    };
+
+    const handleAria2ConnectFromConfig = async ({ silent = false } = {}) => {
+        setAria2Loading(true);
+        try {
+            const response = await fetch("/api/aria2/connect-config", { method: "POST" });
+            const result = await response.json();
+            if (result.success) {
+                if (clientConfig.aria2?.url) {
+                    aria2Form.setFieldsValue({ url: clientConfig.aria2.url });
+                }
+                setAria2Connected(true);
+                loadDownloadToolStatus();
+                if (!silent) {
+                    message.success("已使用配置连接 Aria2");
+                }
+            } else {
+                setAria2Connected(false);
+                if (!silent) {
+                    message.error(result.message || "使用配置连接失败");
+                }
+            }
+        } catch (error) {
+            setAria2Connected(false);
+            if (!silent) {
+                message.error("Aria2 配置连接异常");
+            }
+        } finally {
+            setAria2Loading(false);
+        }
+    };
+
+    const handleDownloadMovie = async (movie) => {
+        if (!await isDownloadToolReady()) {
+            return;
+        }
+        if (!movie || !movie.id) {
+            return;
+        }
+        const magnets = magnetDataMap[movie.id];
+        const bestMagnet = magnets && magnets.length > 0 ? magnets[0] : null;
+        if (!bestMagnet || !bestMagnet.link) {
+            message.warning('该影片暂无可用磁力链接');
+            return;
+        }
+
+        if (movie.status === 'local_exists' || movie.status === 'already_downloaded' || movie.is_downloaded || movie.in_local_library) {
+            message.info('该影片已下载或本地已存在');
+            return;
+        }
+
+        setDownloadingMovieIds(prev => ({ ...prev, [movie.id]: true }));
+        try {
+            const result = await dispatchMagnetDownloads([{ link: bestMagnet.link, movie_id: movie.id }], downloadTool);
+            if (result.success) {
+                message.success(result.message || `${movie.id} 已添加下载任务`);
+            } else {
+                message.error('下载失败: ' + (result.message || '未知错误'));
+            }
+        } catch (error) {
+            message.error('下载请求失败');
+        } finally {
+            setDownloadingMovieIds(prev => ({ ...prev, [movie.id]: false }));
         }
     };
 
@@ -634,20 +1097,21 @@ export default function JavPage() {
 
         // Handle Array of Movies
         if (moviesData.movies && moviesData.movies.length > 0) {
-            const canGoPrev = lastFilterValues && currentPage > 1;
-            const canGoNext = lastFilterValues && moviesData.movies.length >= 30;
-            const paginationBar = lastFilterValues && (
+            const isPageMode = lastFilterValues && lastFilterValues.fetchMode !== 'all';
+            const canGoPrev = isPageMode && lastFilterValues && currentPage > 1;
+            const canGoNext = isPageMode && lastFilterValues && moviesData.movies.length >= 30;
+            const paginationBar = isPageMode && lastFilterValues && (
                 <div className="jav-pagination-bar">
                     <Button
                         icon={<Icon as={ArrowLeftOutlined} />}
                         disabled={!canGoPrev || loading}
-                        onClick={() => filterMovies(lastFilterValues, currentPage - 1)}
+                        onClick={() => handleFilterPageChange(currentPage - 1)}
                     >上一页</Button>
                     <Text type="secondary">第 {currentPage} 页</Text>
                     <Button
                         icon={<Icon as={ArrowRightOutlined} />}
                         disabled={!canGoNext || loading}
-                        onClick={() => filterMovies(lastFilterValues, currentPage + 1)}
+                        onClick={() => handleFilterPageChange(currentPage + 1)}
                     >下一页</Button>
                 </div>
             );
@@ -673,11 +1137,13 @@ export default function JavPage() {
     // ---- Browse Handlers ----
     const handleCategorySelect = (code, name) => {
         filterForm.setFieldsValue({ filterType: 'genre', filterValue: code, filterValueName: name });
+        addSelectedFilter('genre', code, name);
         setViewMode('search');
     };
 
     const handleActorSelect = (code, name) => {
         filterForm.setFieldsValue({ filterType: 'star', filterValue: code, filterValueName: name });
+        addSelectedFilter('star', code, name);
         setViewMode('search');
     };
 
@@ -852,6 +1318,13 @@ export default function JavPage() {
         const bestMagnet = hasMagnets ? magnets[0] : null;
         const magnetLoading = !magnets;
         const detail = movieDetailMap[movie.id];
+        const isDownloadingMovie = !!downloadingMovieIds[movie.id];
+        const isMovieDownloaded = movie.status === 'local_exists' || movie.status === 'already_downloaded' || movie.is_downloaded || movie.in_local_library;
+        const rawMovieImage = (movie && movie.img) || (detail && detail.img) || '';
+        const movieImage = rawMovieImage && /^https?:/i.test(rawMovieImage)
+            ? `/api/image-proxy?url=${encodeURIComponent(rawMovieImage)}`
+            : rawMovieImage;
+        const showImage = movieImage && !movieImageLoadErrorMap[movie.id];
         const stars = detail && detail.stars ? detail.stars.map(s => s.name || s).filter(Boolean) : [];
         const genres = detail && detail.genres ? detail.genres.map(g => g.name || g).filter(Boolean) : [];
 
@@ -863,59 +1336,113 @@ export default function JavPage() {
                 className="jav-movie-card"
                 styles={{ body: { padding: '10px 16px' } }}
             >
-                {/* Row 1: ID + date */}
-                <div className="jav-movie-row jav-movie-meta-row">
-                    <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>{movie.id}</Tag>
-                    {(movie.status === 'local_exists' || movie.in_local_library) && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>本地已有</Tag>}
-                    {(movie.status === 'already_downloaded' || movie.is_downloaded) && <Tag color="green" style={{ margin: 0, fontSize: 11 }}>已下载</Tag>}
-                    {movie.date && <Text type="secondary" style={{ fontSize: 12 }}>{movie.date}</Text>}
-                </div>
-
-                {/* Row 2: Title */}
-                <Text strong className="jav-movie-title"
-                    title={movie.title || movie.full_title}>
-                    {movie.title || movie.full_title}
-                </Text>
-
-                {/* Row 3: Stars */}
-                {stars.length > 0 && (
-                    <div className="jav-movie-row">
-                        <Text type="secondary" style={{ fontSize: 11 }}>演员</Text>
-                        {stars.map(s => <Tag key={s} color="magenta" style={{ margin: 0, fontSize: 11 }}>{s}</Tag>)}
+                <div className="jav-movie-content-row" style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
+                    <div
+                        style={{
+                            flex: '0 0 126px',
+                            width: 126,
+                            aspectRatio: '2 / 3',
+                            borderRadius: 6,
+                            overflow: 'hidden',
+                            background: '#f5f5f5',
+                            border: '1px solid #e5e7eb'
+                        }}
+                    >
+                        {showImage ? (
+                            <img
+                                src={movieImage}
+                                alt={movie.title || movie.full_title || movie.id}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                onError={() => setMovieImageLoadErrorMap(prev => {
+                                    if (prev[movie.id]) {
+                                        return prev;
+                                    }
+                                    return { ...prev, [movie.id]: true };
+                                })}
+                                loading="lazy"
+                            />
+                        ) : (
+                            <div style={{
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#8c8c8c',
+                                fontSize: 12
+                            }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>暂无封面</Text>
+                            </div>
+                        )}
                     </div>
-                )}
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                        {/* Row 1: ID + date */}
+                        <div className="jav-movie-row jav-movie-meta-row">
+                            <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>{movie.id}</Tag>
+                            {(movie.status === 'local_exists' || movie.in_local_library) && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>本地已有</Tag>}
+                            {(movie.status === 'already_downloaded' || movie.is_downloaded) && <Tag color="green" style={{ margin: 0, fontSize: 11 }}>已下载</Tag>}
+                            {movie.date && <Text type="secondary" style={{ fontSize: 12 }}>{movie.date}</Text>}
+                        </div>
 
-                {/* Row 4: Genres */}
-                {genres.length > 0 && (
-                    <div className="jav-movie-row">
-                        <Text type="secondary" style={{ fontSize: 11 }}>类型</Text>
-                        {genres.slice(0, 8).map(g => <Tag key={g} color="cyan" style={{ margin: 0, fontSize: 11 }}>{g}</Tag>)}
-                        {genres.length > 8 && <Text type="secondary" style={{ fontSize: 11 }}>+{genres.length - 8}</Text>}
+                        {/* Row 2: Title */}
+                        <Text strong className="jav-movie-title"
+                            title={movie.title || movie.full_title}>
+                            {movie.title || movie.full_title}
+                        </Text>
+
+                        {/* Row 3: Stars */}
+                        {stars.length > 0 && (
+                            <div className="jav-movie-row">
+                                <Text type="secondary" style={{ fontSize: 11 }}>演员</Text>
+                                {stars.map(s => <Tag key={s} color="magenta" style={{ margin: 0, fontSize: 11 }}>{s}</Tag>)}
+                            </div>
+                        )}
+
+                        {/* Row 4: Genres */}
+                        {genres.length > 0 && (
+                            <div className="jav-movie-row">
+                                <Text type="secondary" style={{ fontSize: 11 }}>类型</Text>
+                                {genres.slice(0, 8).map(g => <Tag key={g} color="cyan" style={{ margin: 0, fontSize: 11 }}>{g}</Tag>)}
+                                {genres.length > 8 && <Text type="secondary" style={{ fontSize: 11 }}>+{genres.length - 8}</Text>}
+                            </div>
+                        )}
+
+                        {/* Row 5: Magnet 链接 */}
+                        <Divider style={{ margin: '6px 0' }} />
+                        <div className="jav-magnet-row">
+                            {magnetLoading && <><Spin size="small" /><Text type="secondary" style={{ fontSize: 12 }}>搜索磁力链接...</Text></>}
+                            {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>暂无可用资源</Text>}
+                            {hasMagnets && (
+                                <>
+                                    <Tag color="gold" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>最佳</Tag>
+                                    {bestMagnet.hasSubtitle && <Tag color="green" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>字幕</Tag>}
+                                    <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.size}</Text>
+                                    {bestMagnet.shareDate && <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.shareDate}</Text>}
+                                    <a
+                                        href={bestMagnet.link}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="jav-magnet-link"
+                                        title={bestMagnet.title}
+                                    >
+                                        {bestMagnet.title}
+                                    </a>
+                                </>
+                            )}
+                        </div>
+                            <div style={{ marginTop: 'auto', marginLeft: 'auto' }}>
+                                <Button
+                                    type="primary"
+                                    size="small"
+                                    icon={<Icon as={DownloadOutlined} />}
+                                    loading={isDownloadingMovie}
+                                    disabled={magnetLoading || !bestMagnet || isMovieDownloaded || (downloadTool === 'aria2' ? !aria2Connected : !isCurrentDownloadToolReady)}
+                                    onClick={() => handleDownloadMovie(movie)}
+                                >
+                                    立即下载
+                                </Button>
+                        </div>
                     </div>
-                )}
-
-                {/* Row 5: Magnet 鈥?compact inline */}
-                <Divider style={{ margin: '6px 0' }} />
-                <div className="jav-magnet-row">
-                    {magnetLoading && <><Spin size="small" /><Text type="secondary" style={{ fontSize: 12 }}>搜索磁力链接...</Text></>}
-                    {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>暂无可用资源</Text>}
-                    {hasMagnets && (
-                        <>
-                            <Tag color="gold" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>最佳</Tag>
-                            {bestMagnet.hasSubtitle && <Tag color="green" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>字幕</Tag>}
-                            <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.size}</Text>
-                            {bestMagnet.shareDate && <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.shareDate}</Text>}
-                            <a
-                                href={bestMagnet.link}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="jav-magnet-link"
-                                title={bestMagnet.title}
-                            >
-                                {bestMagnet.title}
-                            </a>
-                        </>
-                    )}
                 </div>
             </Card>
         );
@@ -1016,14 +1543,61 @@ export default function JavPage() {
                                             <Input />
                                         </Form.Item>
                                         <Form.Item style={{ marginBottom: 8 }}>
-                                            <Form.Item name="filterValueName" noStyle>
-                                                <Input
-                                                    placeholder="输入筛选代码或名称"
-                                                    onChange={(e) => filterForm.setFieldsValue({ filterValue: e.target.value })}
-                                                    allowClear
-                                                />
-                                            </Form.Item>
+                                            <div style={{ display: 'flex', width: '100%' }}>
+                                                <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                                                    <Form.Item name="filterValueName" noStyle>
+                                                        <Input
+                                                            placeholder="筛选代码或名称"
+                                                            onChange={(e) => filterForm.setFieldsValue({ filterValue: e.target.value })}
+                                                            allowClear
+                                                            style={{
+                                                                width: '100%',
+                                                                height: 46,
+                                                                minWidth: 0,
+                                                                borderTopRightRadius: 0,
+                                                                borderBottomRightRadius: 0,
+                                                            }}
+                                                        />
+                                                    </Form.Item>
+                                                </div>
+                                                <Button
+                                                    htmlType="button"
+                                                    onClick={handleAddCurrentFilter}
+                                                    autoInsertSpace={false}
+                                                    style={{
+                                                        flex: '0 0 62px',
+                                                        width: 62,
+                                                        marginLeft: -1,
+                                                        borderTopLeftRadius: 0,
+                                                        borderBottomLeftRadius: 0,
+                                                        height: 46,
+                                                        paddingInline: 0,
+                                                    }}
+                                                >
+                                                    <span>加入</span>
+                                                </Button>
+                                            </div>
                                         </Form.Item>
+                                        {selectedFilters.length > 0 && (
+                                            <Form.Item style={{ marginBottom: 8 }}>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                    {selectedFilters.map(filter => (
+                                                        <Tag
+                                                            key={`${filter.type}:${filter.value}`}
+                                                            closable
+                                                            color={filter.type === 'star' ? 'magenta' : 'cyan'}
+                                                            onClose={() => removeSelectedFilter(filter.type, filter.value)}
+                                                            style={{ margin: 0 }}
+                                                        >
+                                                            {FILTER_TYPE_LABELS[filter.type] || filter.type}: {filter.label || filter.value}
+                                                        </Tag>
+                                                    ))}
+                                                    <Button type="link" size="small" htmlType="button" onClick={() => setSelectedFilters([])}>
+                                                        清空
+                                                    </Button>
+                                                </div>
+                                            </Form.Item>
+                                        )}
                                         <Form.Item name="magnet" style={{ marginBottom: 8 }}>
                                             <Select placeholder="磁力链接状态">
                                                 <Option value="exist">有磁力链接</Option>
@@ -1178,13 +1752,13 @@ export default function JavPage() {
                                                 <Title level={4} className="jav-results-title"><span className="jav-section-icon"><Icon as={ThunderboltOutlined} /></span>查询结果</Title>
                                                 <Text type="secondary" className="jav-results-subtitle">当前批次资源概览</Text>
                                             </div>
-                                            <Button
-                                                type="primary"
-                                                disabled={(!isLoggedIn && !clientConfig.pikpak.configured) || !moviesData || !moviesData.movies || moviesData.movies.length === 0}
-                                                loading={loading}
-                                                icon={<Icon as={DownloadOutlined} />}
-                                                onClick={handleDownloadAllMovies}
-                                            >下载本页全部影片</Button>
+                                        <Button
+                                            type="primary"
+                                            disabled={!(downloadTool === 'aria2' ? aria2Connected : (isLoggedIn || clientConfig.pikpak.configured)) || !moviesData || !moviesData.movies || moviesData.movies.length === 0}
+                                            loading={loading}
+                                            icon={<Icon as={DownloadOutlined} />}
+                                            onClick={handleDownloadAllMovies}
+                                        >下载本页全部影片</Button>
                                         </div>
                                         <div className="jav-kpi-grid">
                                             <div className="jav-kpi-card">
@@ -1223,11 +1797,17 @@ export default function JavPage() {
                                                     <em>{magnetsReadyCount > 0 ? `${magnetsReadyCount} 可用` : magnetsLoadedCount > 0 ? '无可用' : '待匹配'}</em>
                                                 </span>
                                             </div>
-                                            <div className={`jav-process-item ${isLoggedIn ? 'is-active' : ''}`}>
+                                            <div className={`jav-process-item ${isCurrentDownloadToolReady ? 'is-active' : ''}`}>
                                                 <span className="jav-process-icon"><Icon as={SafetyCertificateOutlined} /></span>
                                                 <span>
                                                     <strong>派发</strong>
-                                                    <em>{isLoggedIn ? '已就绪' : clientConfig.pikpak.configured ? '可配置' : '未登录'}</em>
+                                                    <em>
+                                                        {isCurrentDownloadToolReady
+                                                            ? '已就绪'
+                                                            : downloadTool === 'aria2'
+                                                                ? '未连接Aria2'
+                                                                : clientConfig.pikpak.configured ? '可配置' : '未登录'}
+                                                    </em>
                                                 </span>
                                             </div>
                                         </div>
@@ -1251,6 +1831,110 @@ export default function JavPage() {
                             <div className="jav-sidebar-content">
                                 <Title level={5} className="jav-sidebar-title">下载管理</Title>
                                 <Divider className="jav-sidebar-divider" />
+
+                                <Card
+                                    title={<><Icon as={ThunderboltOutlined} /> 下载工具</>}
+                                    extra={
+                                        <Button
+                                            type="text"
+                                            size="small"
+                                            title="打开配置"
+                                            icon={<Icon as={SettingOutlined} />}
+                                            onClick={openDownloadToolConfig}
+                                        />
+                                    }
+                                    size="small"
+                                    className="jav-tool-card"
+                                >
+                                    <div style={{ marginBottom: 8 }}>
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                            当前选择：
+                                            <Text strong style={{ marginLeft: 6, color: '#262626' }}>
+                                                {downloadTool === 'aria2' ? '直接下载' : '网盘'}
+                                            </Text>
+                                        </Text>
+                                    </div>
+                                    <div style={{ marginBottom: 10 }}>
+                                        <Text type="secondary" style={{ fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" }}>
+                                            WebDAV（网盘）：{webdavConnected ? '已连接' : '未连接'}
+                                        </Text>
+                                        <br />
+                                        <Text type="secondary" style={{ fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" }}>
+                                            Aria2：{aria2Connected ? '已连接' : '未连接'}
+                                        </Text>
+                                    </div>
+                                    <Segmented
+                                        value={downloadTool}
+                                        block
+                                        onChange={handleDownloadToolChange}
+                                        options={[
+                                            { label: '网盘', value: 'pikpak' },
+                                            { label: '直接下载', value: 'aria2' },
+                                        ]}
+                                    />
+                                </Card>
+
+                                <Drawer
+                                    title={downloadTool === 'aria2' ? '配置 Aria2（直接下载）' : '配置 网盘（PikPak）'}
+                                    open={downloadToolConfigOpen}
+                                    onClose={closeDownloadToolConfig}
+                                    width={360}
+                                    placement="right"
+                                    destroyOnClose
+                                >
+                                    {downloadTool === 'aria2' ? (
+                                        <Card size="small" title={<><Icon as={ThunderboltOutlined} /> Aria2 配置</>} className="jav-tool-card">
+                                            <div style={{ marginBottom: 8 }}>
+                                                <Text type="secondary" style={{ fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" }}>
+                                                    {aria2Connected ? "Aria2 已连接" : "Aria2 未连接"}
+                                                </Text>
+                                            </div>
+                                            <Form form={aria2Form} layout="vertical" onFinish={handleAria2Connect}>
+                                                <Form.Item name="url" label="Aria2 RPC 地址" rules={[{ required: true, message: "请输入 Aria2 RPC 地址" }]}>
+                                                    <Input placeholder="http://127.0.0.1:6800/jsonrpc" />
+                                                </Form.Item>
+                                                <Form.Item name="secret" label="RPC Secret">
+                                                    <Input.Password placeholder="可选" />
+                                                </Form.Item>
+                                                <Space direction="vertical" style={{ width: '100%' }}>
+                                                    <Button type="primary" htmlType="submit" block loading={aria2Loading}>连接 Aria2</Button>
+                                                    {clientConfig.aria2?.configured && (
+                                                        <Button block onClick={() => handleAria2ConnectFromConfig()} loading={aria2Loading}>
+                                                            使用配置连接
+                                                        </Button>
+                                                    )}
+                                                </Space>
+                                            </Form>
+                                        </Card>
+                                    ) : (
+                                        <Card size="small" title={<><Icon as={ThunderboltOutlined} /> WebDAV 配置</>} className="jav-tool-card">
+                                            <div style={{ marginBottom: 8 }}>
+                                                <Text type="secondary" style={{ fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" }}>
+                                                    {webdavConnected ? "WebDAV 已连接" : "WebDAV 未连接"}
+                                                </Text>
+                                            </div>
+                                            <Form form={webdavForm} layout="vertical" onFinish={handleWebdavConnect}>
+                                                <Form.Item name="url" label="WebDAV 地址" rules={[{ required: true, message: "请输入 WebDAV 地址" }]}>
+                                                    <Input placeholder="https://dav.example.com/" />
+                                                </Form.Item>
+                                                <Form.Item name="username" label="用户名">
+                                                    <Input placeholder="可选" />
+                                                </Form.Item>
+                                                <Form.Item name="password" label="密码">
+                                                    <Input.Password placeholder="可选" />
+                                                </Form.Item>
+                                                <Space direction="vertical" style={{ width: '100%' }}>
+                                                    <Button type="primary" htmlType="submit" block loading={webdavLoading}>连接 WebDAV</Button>
+                                                    {clientConfig.webdav?.configured && (
+                                                        <Button block onClick={() => handleWebdavConnectFromConfig()} loading={webdavLoading}>
+                                                            使用配置连接
+                                                        </Button>
+                                                    )}
+                                                </Space>
+                                            </Form>
+                                        </Card>
+                                    )}
+                                </Drawer>
 
                                 <Button
                                     type="default"

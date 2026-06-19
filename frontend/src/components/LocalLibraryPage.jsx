@@ -1,3 +1,5 @@
+import DirectoryInput from "./DirectoryInput.jsx";
+
 const React = window.React;
 const antd = window.antd;
 const icons = window.icons || {};
@@ -440,7 +442,7 @@ export default function LocalLibraryPage() {
                             onFinish={handleScan}
                         >
                             <Form.Item name="directory" label="扫描目录" rules={[{ required: true, message: "请输入影视库目录" }]}>
-                                <Input placeholder="Windows: D:\\Media\\JAV  /  Linux: /media/JAV 或 ~/Videos/JAV" />
+                                <DirectoryInput placeholder="Windows: D:\\Media\\JAV  /  Linux: /media/JAV 或 ~/Videos/JAV" />
                             </Form.Item>
                             <div className="jav-library-scan-options">
                                 <Form.Item name="recursive" valuePropName="checked">

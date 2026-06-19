@@ -3,10 +3,11 @@
   "private": true,
   "scripts": {
     "build:frontend": "esbuild frontend/src/main.jsx --bundle --format=iife --outfile=static/app.js --loader:.js=jsx --loader:.jsx=jsx",
+    "test:frontend": "node --test tests/frontend/*.test.mjs",
     "test": "python -m pytest",
     "test:backend": "python -m pytest",
     "harness": "python -m pytest",
-    "check": "npm run build:frontend && python -m pytest"
+    "check": "npm run build:frontend && npm run test:frontend && python -m pytest"
   },
   "devDependencies": {
     "esbuild": "^0.25.3"

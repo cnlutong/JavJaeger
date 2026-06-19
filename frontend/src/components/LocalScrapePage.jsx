@@ -1,3 +1,10 @@
+import {
+    deleteLocalScrapeTaskTemplate,
+    loadLocalScrapeTaskTemplates,
+    saveLocalScrapeTaskTemplate,
+} from "../utils/localScrapeTemplates.mjs";
+import DirectoryInput from "./DirectoryInput.jsx";
+
 const React = window.React;
 const antd = window.antd;
 const icons = window.icons || {};
@@ -12,6 +19,7 @@ const {
     Input,
     InputNumber,
     Popconfirm,
+    Select,
     Space,
     Switch,
     Table,
@@ -22,9 +30,11 @@ const {
 const { Text, Title } = Typography;
 const {
     CheckCircleOutlined,
+    DeleteOutlined,
     FileSearchOutlined,
     FolderOpenOutlined,
     PlayCircleOutlined,
+    SaveOutlined,
     WarningOutlined,
 } = icons;
 
@@ -101,10 +111,30 @@ export default function LocalScrapePage() {
     const [loadingPreview, setLoadingPreview] = React.useState(false);
     const [loadingApply, setLoadingApply] = React.useState(false);
     const [applyResult, setApplyResult] = React.useState(null);
+    const [taskTemplates, setTaskTemplates] = React.useState(() => loadLocalScrapeTaskTemplates());
+    const [selectedTemplateId, setSelectedTemplateId] = React.useState("");
+    const [templateName, setTemplateName] = React.useState("");
     const overwriteExisting = Form.useWatch("overwriteExisting", form);
 
     const items = preview?.items || [];
     const selectedItems = items.filter((item) => selectedRowKeys.includes(item.source_path));
+    const selectedTemplate = taskTemplates.find((template) => template.id === selectedTemplateId) || null;
+    const taskTemplateOptions = taskTemplates.map((template) => ({
+        value: template.id,
+        label: template.name,
+    }));
+
+    React.useEffect(() => {
+        setTaskTemplates(loadLocalScrapeTaskTemplates());
+    }, []);
+
+    const buildDefaultTemplateName = (values) => {
+        const directoryName = String(values.directory || "")
+            .split(/[\\/]/)
+            .filter(Boolean)
+            .pop();
+        return directoryName ? `刮削：${directoryName}` : "本地刮削任务";
+    };
 
     const buildPayload = (values) => ({
         directory: values.directory,
@@ -114,11 +144,67 @@ export default function LocalScrapePage() {
         concurrent: values.concurrent || 3,
         organize: values.organize !== false,
         target_directory: values.targetDirectory || null,
+        folder_template: values.folderTemplate || values.namingTemplate || "{code} {title}",
         naming_template: values.namingTemplate || "{code} {title}",
         write_nfo: values.writeNfo !== false,
         download_images: values.downloadImages !== false,
         overwrite_existing: !!values.overwriteExisting,
     });
+
+    const applyTemplateToForm = (template) => {
+        if (!template) {
+            return;
+        }
+        form.setFieldsValue(template.values);
+        setSelectedTemplateId(template.id);
+        setTemplateName(template.name);
+    };
+
+    const handleTemplateSelect = (templateId) => {
+        const template = taskTemplates.find((item) => item.id === templateId);
+        applyTemplateToForm(template);
+    };
+
+    const handleSaveTemplate = async () => {
+        try {
+            const values = await form.validateFields();
+            const saved = saveLocalScrapeTaskTemplate(
+                window.localStorage,
+                templateName || buildDefaultTemplateName(values),
+                values,
+                { existingId: selectedTemplateId },
+            );
+            const templates = loadLocalScrapeTaskTemplates();
+            setTaskTemplates(templates);
+            setSelectedTemplateId(saved.id);
+            setTemplateName(saved.name);
+            message.success("刮削任务模板已保存");
+        } catch (error) {
+            if (!error?.errorFields) {
+                message.error(`保存模板失败：${error.message}`);
+            }
+        }
+    };
+
+    const handleRunTemplate = async () => {
+        if (!selectedTemplate) {
+            message.warning("请先选择一个刮削任务模板");
+            return;
+        }
+        applyTemplateToForm(selectedTemplate);
+        await handlePreview(selectedTemplate.values);
+    };
+
+    const handleDeleteTemplate = () => {
+        if (!selectedTemplateId) {
+            return;
+        }
+        const templates = deleteLocalScrapeTaskTemplate(window.localStorage, selectedTemplateId);
+        setTaskTemplates(templates);
+        setSelectedTemplateId("");
+        setTemplateName("");
+        message.success("刮削任务模板已删除");
+    };
 
     const handlePreview = async (values) => {
         setLoadingPreview(true);
@@ -238,6 +324,7 @@ export default function LocalScrapePage() {
                                 recursive: true,
                                 scrape: true,
                                 organize: true,
+                                folderTemplate: "{code} {title}",
                                 namingTemplate: "{code} {title}",
                                 concurrent: 3,
                                 writeNfo: true,
@@ -246,18 +333,70 @@ export default function LocalScrapePage() {
                             }}
                             onFinish={handlePreview}
                         >
+                            <div className="jav-local-template-panel">
+                                <Form.Item label="任务模板">
+                                    <Space.Compact block>
+                                        <Select
+                                            value={selectedTemplateId || undefined}
+                                            placeholder="选择已保存的刮削任务"
+                                            options={taskTemplateOptions}
+                                            onChange={handleTemplateSelect}
+                                            notFoundContent="暂无模板"
+                                        />
+                                        <Button
+                                            type="primary"
+                                            htmlType="button"
+                                            icon={<Icon as={PlayCircleOutlined} />}
+                                            disabled={!selectedTemplateId}
+                                            loading={loadingPreview}
+                                            onClick={handleRunTemplate}
+                                        >
+                                            运行
+                                        </Button>
+                                        <Popconfirm
+                                            title="删除这个刮削任务模板？"
+                                            okText="删除"
+                                            cancelText="取消"
+                                            disabled={!selectedTemplateId}
+                                            onConfirm={handleDeleteTemplate}
+                                        >
+                                            <Button
+                                                danger
+                                                htmlType="button"
+                                                icon={<Icon as={DeleteOutlined} />}
+                                                disabled={!selectedTemplateId}
+                                            />
+                                        </Popconfirm>
+                                    </Space.Compact>
+                                </Form.Item>
+                                <Form.Item label="模板名称">
+                                    <Space.Compact block>
+                                        <Input
+                                            value={templateName}
+                                            placeholder="例如：下载目录入库"
+                                            onChange={(event) => setTemplateName(event.target.value)}
+                                        />
+                                        <Button htmlType="button" icon={<Icon as={SaveOutlined} />} onClick={handleSaveTemplate}>
+                                            保存
+                                        </Button>
+                                    </Space.Compact>
+                                </Form.Item>
+                            </div>
                             <Form.Item
                                 name="directory"
                                 label="扫描目录"
                                 rules={[{ required: true, message: "请输入要扫描的目录路径" }]}
                             >
-                                <Input placeholder="Windows: D:\\Downloads\\JAV  /  Linux: /media/JAV 或 ~/Videos/JAV" />
+                                <DirectoryInput placeholder="Windows: D:\\Downloads\\JAV  /  Linux: /media/JAV 或 ~/Videos/JAV" />
                             </Form.Item>
                             <Form.Item name="targetDirectory" label="整理目标目录">
-                                <Input placeholder="留空则在原目录内整理；也可输入 /data/JAV 或 D:\\Media\\JAV" />
+                                <DirectoryInput placeholder="留空则在原目录内整理；也可输入 /data/JAV 或 D:\\Media\\JAV" />
                             </Form.Item>
-                            <Form.Item name="namingTemplate" label="命名模板">
-                                <Input />
+                            <Form.Item name="folderTemplate" label="文件夹模板">
+                                <Input placeholder="{code} {title} / {actor}/{year}/{title} / {studio}/{code} {title}" />
+                            </Form.Item>
+                            <Form.Item name="namingTemplate" label="文件命名模板">
+                                <Input placeholder="{code} {title}" />
                             </Form.Item>
                             <Space wrap>
                                 <Form.Item name="recursive" valuePropName="checked">

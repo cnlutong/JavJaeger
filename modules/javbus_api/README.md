@@ -22,6 +22,6 @@ Local differences:
 - Implemented in Python/FastAPI stack.
 - `imageSize` is currently returned as `None`; JavJaeger does not depend on it.
 - Caching and request throttling are implemented in `client.py`.
-- Default uncached request interval is `0.3` seconds. Override it with
+- Default uncached request interval is `0.5` seconds. Override it with
   `javbus.request_interval_seconds` in `config.json` or
   `JAVBUS_REQUEST_INTERVAL_SECONDS`; set it to `0` to disable throttling.

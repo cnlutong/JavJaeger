@@ -26,7 +26,7 @@ class JavBusApiService:
             base_url=cfg.get("base_url") or "https://www.javbus.com",
             timeout_seconds=_float_config(cfg, "timeout_seconds", 8),
             proxy=proxy,
-            request_interval=_float_config(cfg, "request_interval_seconds", 0.3),
+            request_interval=_float_config(cfg, "request_interval_seconds", 0.5),
             cache_expire_seconds=_int_config(cfg, "cache_expire_seconds", 3600),
             cache_max_size=_int_config(cfg, "cache_max_size", 1000),
         )

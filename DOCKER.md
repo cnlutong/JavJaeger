@@ -25,7 +25,7 @@ environment:
   - APP_SESSION_SECRET=change-this-session-secret
   # - JAVBUS_BASE_URL=https://www.javbus.com
   # - JAVBUS_PROXY=http://127.0.0.1:7890
-  # - JAVBUS_REQUEST_INTERVAL_SECONDS=0.3
+  # - JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
 ```
 
 说明：
@@ -55,7 +55,7 @@ volumes:
     "base_url": "https://www.javbus.com",
     "timeout_seconds": 8,
     "proxy": "",
-    "request_interval_seconds": 0.3
+    "request_interval_seconds": 0.5
   },
   "webdav": {
     "enabled": true,

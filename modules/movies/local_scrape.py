@@ -191,19 +191,53 @@ def _single_name(value: Any) -> str:
     return _name_from_link(value)
 
 
-def _render_template(template: str, code: str, title: str, source_stem: str) -> str:
-    if (template or "{code} {title}") == "{code} {title}" and code:
+def _template_context(metadata: dict[str, Any], source_stem: str) -> dict[str, str]:
+    code = str(metadata.get("id") or "").strip()
+    title = str(metadata.get("title") or "").strip()
+    stars = [str(star).strip() for star in metadata.get("stars") or [] if str(star).strip()]
+    date = str(metadata.get("date") or "").strip()
+    return {
+        "code": code or source_stem,
+        "title": title or source_stem,
+        "original": source_stem,
+        "actor": stars[0] if stars else "",
+        "actors": " ".join(stars),
+        "director": str(metadata.get("director") or "").strip(),
+        "studio": str(metadata.get("studio") or "").strip(),
+        "maker": str(metadata.get("studio") or "").strip(),
+        "publisher": str(metadata.get("publisher") or "").strip(),
+        "series": str(metadata.get("series") or "").strip(),
+        "date": date,
+        "year": date[:4] if date else "",
+    }
+
+
+def _render_template(template: str | None, metadata: dict[str, Any], source_stem: str) -> str:
+    context = _template_context(metadata, source_stem)
+    code = context["code"]
+    title = context["title"]
+    active_template = template or "{code} {title}"
+    if active_template == "{code} {title}" and code:
         if not title or title.upper() == code.upper():
             return _sanitize_path_segment(code, source_stem)
         if title.upper().startswith(code.upper()):
             remainder = title[len(code):]
             if not remainder or remainder[0].isspace() or remainder[0] in "-_":
                 return _sanitize_path_segment(title, code or source_stem)
-    rendered = template or "{code} {title}"
-    rendered = rendered.replace("{code}", code or source_stem)
-    rendered = rendered.replace("{title}", title or source_stem)
-    rendered = rendered.replace("{original}", source_stem)
+    rendered = active_template
+    for key, value in context.items():
+        rendered = rendered.replace(f"{{{key}}}", value)
     return _sanitize_path_segment(rendered, code or source_stem)
+
+
+def _render_folder_template(template: str | None, metadata: dict[str, Any], source_stem: str) -> Path:
+    active_template = template or "{code} {title}"
+    parts = [part for part in re.split(r"[\\/]+", active_template) if part.strip()]
+    rendered_parts = [_render_template(part, metadata, source_stem) for part in parts]
+    rendered_parts = [part for part in rendered_parts if part and part not in {".", ".."}]
+    if not rendered_parts:
+        rendered_parts = [_render_template("{code} {title}", metadata, source_stem)]
+    return Path(*rendered_parts)
 
 
 def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem: str) -> dict[str, Any]:
@@ -269,15 +303,14 @@ def _build_target_paths(
     organize: bool,
     target_directory: str | None,
     naming_template: str,
+    folder_template: str | None = None,
 ) -> tuple[Path, Path, str]:
-    code = str(metadata.get("id") or "").strip()
-    title = str(metadata.get("title") or "").strip()
-    directory_stem = _render_template(naming_template, code, title, source_path.stem)
-    target_stem = directory_stem
+    folder_path = _render_folder_template(folder_template or naming_template, metadata, source_path.stem)
+    target_stem = _render_template(naming_template, metadata, source_path.stem)
 
     if organize:
         root = resolve_user_path(target_directory) if target_directory else source_path.parent
-        target_dir = root / directory_stem
+        target_dir = root / folder_path
         part_marker = _source_part_marker(source_path.stem)
         if part_marker and part_marker.lower() not in target_stem.lower():
             target_stem = _sanitize_path_segment(f"{target_stem}-{part_marker}", source_path.stem)
@@ -432,6 +465,7 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
             request.organize,
             request.target_directory,
             request.naming_template,
+            request.folder_template,
         )
 
         current_nfo = candidate.path.with_suffix(".nfo")
@@ -627,6 +661,7 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
             request.organize,
             request.target_directory,
             request.naming_template,
+            request.folder_template,
         )
 
         try:

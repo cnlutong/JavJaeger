@@ -142,7 +142,7 @@ python main.py  # http://localhost:5000
     "base_url": "https://www.javbus.com",
     "timeout_seconds": 8,
     "proxy": "",
-    "request_interval_seconds": 0.3
+    "request_interval_seconds": 0.5
   },
   "webdav": {
     "enabled": true,
@@ -184,7 +184,7 @@ python main.py  # http://localhost:5000
     "base_url": "https://www.javbus.com",
     "timeout_seconds": 8,
     "proxy": "http://127.0.0.1:7890",
-    "request_interval_seconds": 0.3
+    "request_interval_seconds": 0.5
   }
 }
 ```
@@ -194,7 +194,7 @@ python main.py  # http://localhost:5000
 ```bash
 JAVBUS_BASE_URL=https://www.javbus.com
 JAVBUS_PROXY=http://127.0.0.1:7890
-JAVBUS_REQUEST_INTERVAL_SECONDS=0.3
+JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
 ```
 
 ### 🔐 环境变量
@@ -274,6 +274,7 @@ JAVBUS_REQUEST_INTERVAL_SECONDS=0.3
 ```text
 GET  /                      # 前端主页
 GET  /api/system/info       # 系统与版本信息
+GET  /api/system/directories    # 服务端本地目录浏览，用于路径选择
 GET  /api/movies            # 影片列表（分页），支持多条件筛选（支持 actorCountFilter）
 GET  /api/movies/all        # 聚合所有页结果（含限流与最大页数保护）
 GET  /api/movies/{id}       # 单片详情

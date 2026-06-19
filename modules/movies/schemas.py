@@ -41,6 +41,7 @@ class LocalScrapePreviewRequest(BaseModel):
     concurrent: int = 3
     organize: bool = True
     target_directory: Optional[str] = None
+    folder_template: Optional[str] = None
     naming_template: str = "{code} {title}"
     write_nfo: bool = True
     download_images: bool = True
@@ -57,6 +58,7 @@ class LocalScrapeApplyRequest(BaseModel):
     items: list[LocalScrapeApplyItem]
     organize: bool = True
     target_directory: Optional[str] = None
+    folder_template: Optional[str] = None
     naming_template: str = "{code} {title}"
     write_nfo: bool = True
     download_images: bool = True

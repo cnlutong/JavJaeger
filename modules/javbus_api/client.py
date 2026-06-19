@@ -22,7 +22,7 @@ class JavBusClient:
         base_url: str = "https://www.javbus.com",
         timeout_seconds: float = 8.0,
         proxy: str | None = None,
-        request_interval: float = 0.3,
+        request_interval: float = 0.5,
         cache_expire_seconds: int = 3600,
         cache_max_size: int = 1000,
     ) -> None:
