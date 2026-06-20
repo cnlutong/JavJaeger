@@ -10,13 +10,20 @@ const localLibraryPage = readFileSync(
 test("local library page exposes information check and scrape-aligned download actions", () => {
     assert.match(localLibraryPage, /\/api\/movies\/local-library\/information\/check/);
     assert.match(localLibraryPage, /\/api\/movies\/local-library\/information\/download/);
-    assert.match(localLibraryPage, /informationDownloadOpen/);
+    assert.match(localLibraryPage, /informationCheckOpen/);
+    assert.doesNotMatch(localLibraryPage, /informationDownloadOpen/);
+    assert.match(localLibraryPage, /INFORMATION_CHECK_FIELD_OPTIONS/);
+    assert.match(localLibraryPage, /保存标准/);
+    assert.match(localLibraryPage, /fields: informationCheckFields/);
+    assert.match(localLibraryPage, /queryParams\.set\("fields", selectedFields\.join\(","\)\)/);
     assert.match(localLibraryPage, /write_nfo: values\.writeNfo !== false/);
     assert.match(localLibraryPage, /download_images: values\.downloadImages !== false/);
     assert.match(localLibraryPage, /download_sample_images: !!values\.downloadSampleImages/);
     assert.match(localLibraryPage, /download_actor_images: !!values\.downloadActorImages/);
     assert.match(localLibraryPage, /download_list_thumbnail: !!values\.downloadListThumbnail/);
     assert.match(localLibraryPage, /overwrite_existing: !!values\.overwriteExisting/);
+    assert.match(localLibraryPage, /const failedCount = data\.failed_count \|\| 0/);
+    assert.match(localLibraryPage, /message\.warning\(`已更新 \$\{updatedCount\} 部，\$\{failedCount\} 部下载失败/);
 });
 
 test("local library page can remove individual movies without deleting files", () => {

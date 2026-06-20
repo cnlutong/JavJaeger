@@ -324,6 +324,48 @@ def test_local_scrape_image_download_uses_configured_retry_policy(tmp_path, monk
     assert target.read_bytes() == b"avatar"
 
 
+def test_local_scrape_image_download_uses_configured_javbus_referer(tmp_path, monkeypatch):
+    captured_headers = []
+
+    class FakeResponse:
+        content = b"cover"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            captured_headers.append(headers or {})
+            return FakeResponse()
+
+    monkeypatch.setattr(local_scrape.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(
+        local_scrape,
+        "get_javbus_config",
+        lambda: {
+            "base_url": "https://javbus.example.test/custom",
+            "image_retry_attempts": 1,
+            "image_retry_backoff_seconds": 0,
+        },
+    )
+
+    target = tmp_path / "ABP-123-poster.jpg"
+    name = asyncio.run(local_scrape._download_image("https://javbus.example.test/pics/cover.jpg", target, True))
+
+    assert name == "ABP-123-poster.jpg"
+    assert captured_headers[0]["Referer"] == "https://javbus.example.test/custom/"
+    assert target.read_bytes() == b"cover"
+
+
 def test_path_browser_lists_only_child_directories(tmp_path):
     (tmp_path / "Movies").mkdir()
     (tmp_path / "Downloads").mkdir()
@@ -1338,6 +1380,48 @@ def test_local_library_information_check_reports_missing_metadata(tmp_path):
     assert payload["incomplete_records"][0]["missing_fields"] == ["title", "date", "stars", "genres", "cover_url"]
 
 
+def test_local_library_information_check_respects_selected_fields(tmp_path):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Complete",
+                        "date": "2024-01-02",
+                        "stars": ["Actor One"],
+                        "genres": ["Genre A"],
+                        "cover_url": "https://www.javbus.com/pics/cover.jpg",
+                        "raw": {"id": "ABP-123"},
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Complete Actor One",
+                },
+            ],
+        )
+        default_check = await service.get_information_check()
+        metadata_only_check = await service.get_information_check(["title", "date", "stars", "genres", "cover_url"])
+        return default_check, metadata_only_check
+
+    default_check, metadata_only_check = asyncio.run(exercise())
+
+    assert default_check["fields"] == ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"]
+    assert default_check["incomplete_count"] == 1
+    assert default_check["incomplete_records"][0]["missing_fields"] == ["nfo", "poster_file"]
+    assert metadata_only_check["fields"] == ["title", "date", "stars", "genres", "cover_url"]
+    assert metadata_only_check["incomplete_count"] == 0
+
+
 def test_local_library_information_download_refreshes_only_missing_records(tmp_path, monkeypatch):
     first_video = tmp_path / "ABP-123.mp4"
     second_video = tmp_path / "ABP-124.mp4"
@@ -1577,6 +1661,69 @@ def test_local_library_information_download_uses_existing_metadata_for_asset_onl
     assert after["incomplete_count"] == 0
     assert summary["records"][0]["title"] == "ABP-125 Existing Title"
     assert [call[0] for call in asset_calls] == ["images", "nfo"]
+
+
+def test_local_library_information_download_reports_failed_poster_asset(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-126.mp4"
+    video.write_bytes(b"video")
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": f"{movie_id} Remote Title",
+            "date": "2024-03-04",
+            "img": "https://www.javbus.com/pics/blocked.jpg",
+            "stars": [{"name": "Actor One"}],
+            "genres": [{"name": "Genre A"}],
+        }
+
+    async def fake_write_images(video_path, metadata, overwrite, include_samples=False):
+        return None, []
+
+    def fake_write_nfo(video_path, metadata, poster_name, sample_names):
+        nfo = video_path.with_suffix(".nfo")
+        nfo.write_text("nfo", encoding="utf-8")
+        return nfo
+
+    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(movies_local_library, "_write_images", fake_write_images)
+    monkeypatch.setattr(movies_local_library, "_write_nfo", fake_write_nfo)
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-126",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 456,
+                    "metadata": {"id": "ABP-126", "title": "ABP-126", "raw": {}},
+                    "scrape_status": "skipped",
+                    "full_text": "ABP-126",
+                },
+            ],
+        )
+        return await movies_local_library.download_missing_local_library_information(
+            movies_local_library.LocalLibraryInformationDownloadRequest(
+                only_missing=True,
+                concurrent=1,
+                write_nfo=True,
+                download_images=True,
+            )
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result["updated_count"] == 0
+    assert result["failed_count"] == 1
+    assert result["results"][0]["success"] is False
+    assert result["results"][0]["image_error"] == "image_download_failed"
+    assert result["information_check"]["incomplete_count"] == 1
+    assert result["information_check"]["incomplete_records"][0]["missing_fields"] == ["poster_file"]
 
 
 def test_automation_task_crud_persists(tmp_path):

@@ -66,6 +66,14 @@ DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS = 3
 DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS = 0.25
 
 
+def _image_download_headers(javbus_config: dict[str, Any]) -> dict[str, str]:
+    headers = dict(IMAGE_DOWNLOAD_HEADERS)
+    base_url = str(javbus_config.get("base_url") or "").strip()
+    if base_url:
+        headers["Referer"] = f"{base_url.rstrip('/')}/"
+    return headers
+
+
 DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     (re.compile(r"(?i)(FC2)-?PPV-?(\d{6,8})"), 100),
     (re.compile(r"(?i)(\d{3}[A-Z]{2,6})-(\d{3,5})"), 95),
@@ -857,6 +865,7 @@ async def _download_image(url: str, target: Path, overwrite: bool) -> str | None
         target.write_bytes(base64.b64decode(payload))
         return target.name
     javbus_config = get_javbus_config()
+    headers = _image_download_headers(javbus_config)
     client_kwargs: dict[str, Any] = {"timeout": 20.0, "follow_redirects": True}
     proxy = javbus_config.get("proxy")
     if proxy:
@@ -881,7 +890,7 @@ async def _download_image(url: str, target: Path, overwrite: bool) -> str | None
     for attempt in range(1, retry_attempts + 1):
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
-                response = await client.get(url, headers=IMAGE_DOWNLOAD_HEADERS)
+                response = await client.get(url, headers=headers)
                 response.raise_for_status()
                 target.write_bytes(response.content)
             return target.name

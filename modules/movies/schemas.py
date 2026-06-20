@@ -88,6 +88,7 @@ class LocalLibraryScanRequest(BaseModel):
 
 class LocalLibraryInformationDownloadRequest(BaseModel):
     movie_ids: Optional[list[str]] = None
+    fields: Optional[list[str]] = None
     only_missing: bool = True
     concurrent: int = 3
     write_nfo: bool = True

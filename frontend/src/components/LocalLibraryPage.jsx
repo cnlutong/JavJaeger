@@ -39,6 +39,43 @@ const {
 } = icons;
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
+const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
+const INFORMATION_CHECK_FIELD_OPTIONS = [
+    { label: "标题", value: "title" },
+    { label: "发行日期", value: "date" },
+    { label: "演员", value: "stars" },
+    { label: "标签", value: "genres" },
+    { label: "远程封面", value: "cover_url" },
+    { label: "NFO 文件", value: "nfo" },
+    { label: "本地封面", value: "poster_file" },
+];
+const DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
+
+const normalizeInformationCheckFields = (fields, fallback = DEFAULT_INFORMATION_CHECK_FIELDS) => {
+    const allowed = new Set(DEFAULT_INFORMATION_CHECK_FIELDS);
+    const normalized = (Array.isArray(fields) ? fields : [])
+        .map((field) => String(field || "").trim())
+        .filter((field, index, source) => allowed.has(field) && source.indexOf(field) === index);
+    return normalized.length ? normalized : [...fallback];
+};
+
+const loadInformationCheckSettings = () => {
+    try {
+        return {
+            fields: normalizeInformationCheckFields(JSON.parse(window.localStorage.getItem(INFORMATION_CHECK_STORAGE_KEY) || "[]")),
+        };
+    } catch (error) {
+        return { fields: [...DEFAULT_INFORMATION_CHECK_FIELDS] };
+    }
+};
+
+const saveInformationCheckSettings = (fields) => {
+    try {
+        window.localStorage.setItem(INFORMATION_CHECK_STORAGE_KEY, JSON.stringify(normalizeInformationCheckFields(fields)));
+    } catch (error) {
+        /* ignore storage errors */
+    }
+};
 
 const postJson = async (url, body) => {
     const response = await fetch(url, {
@@ -225,7 +262,8 @@ export default function LocalLibraryPage() {
     const [deletingMovieId, setDeletingMovieId] = React.useState("");
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
-    const [informationDownloadOpen, setInformationDownloadOpen] = React.useState(false);
+    const [informationCheckOpen, setInformationCheckOpen] = React.useState(false);
+    const [informationCheckFields, setInformationCheckFields] = React.useState(() => loadInformationCheckSettings().fields);
     const [selectedRecord, setSelectedRecord] = React.useState(null);
     const [playingRecordKey, setPlayingRecordKey] = React.useState("");
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React.useState(0);
@@ -243,6 +281,7 @@ export default function LocalLibraryPage() {
         years: [],
         roots: [],
     });
+    const [informationCheckForm] = Form.useForm();
     const [informationDownloadForm] = Form.useForm();
 
     const records = library.records || [];
@@ -323,14 +362,41 @@ export default function LocalLibraryPage() {
         }
     };
 
-    const loadInformationCheck = async () => {
+    const openInformationCheck = () => {
+        const saved = loadInformationCheckSettings();
+        setInformationCheckFields(saved.fields);
+        informationCheckForm.setFieldsValue({ fields: saved.fields });
+        setInformationCheckOpen(true);
+    };
+
+    const handleSaveInformationCheckSettings = () => {
+        const fields = informationCheckForm.getFieldValue("fields") || [];
+        if (!fields.length) {
+            message.warning("请至少选择一个检查项");
+            return;
+        }
+        const normalizedFields = normalizeInformationCheckFields(fields, []);
+        saveInformationCheckSettings(normalizedFields);
+        setInformationCheckFields(normalizedFields);
+        message.success("检查标准已保存");
+    };
+
+    const loadInformationCheck = async (values = {}) => {
+        const selectedFields = normalizeInformationCheckFields(values.fields || informationCheckForm.getFieldValue("fields"), []);
+        if (!selectedFields.length) {
+            message.warning("请至少选择一个检查项");
+            return null;
+        }
         setCheckingInformation(true);
         try {
-            const response = await fetch("/api/movies/local-library/information/check");
+            const queryParams = new URLSearchParams();
+            queryParams.set("fields", selectedFields.join(","));
+            const response = await fetch(`/api/movies/local-library/information/check?${queryParams.toString()}`);
             const data = await response.json();
             if (!data.success) {
                 throw new Error(data.message || "检查失败");
             }
+            setInformationCheckFields(selectedFields);
             setInformationCheck(data);
             if (data.incomplete_count > 0) {
                 message.warning(`发现 ${data.incomplete_count} 部影片缺少信息`);
@@ -466,6 +532,7 @@ export default function LocalLibraryPage() {
         try {
             const data = await postJson("/api/movies/local-library/information/download", {
                 only_missing: true,
+                fields: informationCheckFields,
                 concurrent: values.concurrent || 3,
                 write_nfo: values.writeNfo !== false,
                 download_images: values.downloadImages !== false,
@@ -476,8 +543,14 @@ export default function LocalLibraryPage() {
             });
             setInformationCheck(data.information_check);
             await loadLibrary();
-            setInformationDownloadOpen(false);
-            message.success(`已更新 ${data.updated_count || 0} 部影片信息`);
+            const updatedCount = data.updated_count || 0;
+            const failedCount = data.failed_count || 0;
+            const remainingCount = data.information_check?.incomplete_count || 0;
+            if (failedCount > 0 || remainingCount > 0) {
+                message.warning(`已更新 ${updatedCount} 部，${failedCount} 部下载失败，仍有 ${remainingCount} 部缺失`);
+            } else {
+                message.success(`已更新 ${updatedCount} 部影片信息`);
+            }
         } catch (error) {
             message.error(`下载缺失信息失败：${error.message}`);
         } finally {
@@ -914,18 +987,8 @@ export default function LocalLibraryPage() {
                         <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
                             筛选{activeFilterCount ? ` (${activeFilterCount})` : ""}
                         </Button>
-                        <Button icon={<Icon as={SearchOutlined} />} onClick={loadInformationCheck} loading={checkingInformation}>
+                        <Button icon={<Icon as={SearchOutlined} />} onClick={openInformationCheck} loading={checkingInformation}>
                             检查信息
-                        </Button>
-                        <Button
-                            type="primary"
-                            ghost
-                            icon={<Icon as={DownloadOutlined} />}
-                            onClick={() => setInformationDownloadOpen(true)}
-                            loading={downloadingInformation}
-                            disabled={informationCheck && informationCheck.incomplete_count === 0}
-                        >
-                            下载缺失信息
                         </Button>
                         <Button icon={<Icon as={ReloadOutlined} />} onClick={loadLibrary} loading={loading}>
                             刷新
@@ -983,7 +1046,7 @@ export default function LocalLibraryPage() {
                             message={`信息检查：完整 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`}
                             description={
                                 informationCheck.incomplete_count > 0
-                                    ? `缺失 ${informationCheck.incomplete_count} 部，点击“下载缺失信息”会补全元数据和本地资料文件。`
+                                    ? `缺失 ${informationCheck.incomplete_count} 部，可在“检查信息”窗口中下载缺失信息。`
                                     : "当前已入库影片信息和本地资料完整。"
                             }
                         />
@@ -1115,15 +1178,89 @@ export default function LocalLibraryPage() {
                         </Form>
                     </Drawer>
                     <Drawer
-                        title="下载缺失信息"
+                        title="检查信息"
                         placement="right"
-                        width={420}
-                        open={informationDownloadOpen}
-                        onClose={() => setInformationDownloadOpen(false)}
+                        width={460}
+                        open={informationCheckOpen}
+                        onClose={() => setInformationCheckOpen(false)}
                     >
                         <div className="jav-library-filter-help">
-                            <Text type="secondary">按影视库信息检查结果补全缺失影片，并可写入与本地刮削相同类型的本地资料文件。</Text>
+                            <Text type="secondary">先设置本次检查标准，再开始检查。默认检查全部信息项，保存后下次会自动沿用。</Text>
                         </div>
+                        <Form
+                            form={informationCheckForm}
+                            layout="vertical"
+                            initialValues={{ fields: informationCheckFields }}
+                            onFinish={loadInformationCheck}
+                        >
+                            <Form.Item
+                                name="fields"
+                                label="检查标准"
+                                rules={[{ required: true, message: "请至少选择一个检查项" }]}
+                            >
+                                <Checkbox.Group options={INFORMATION_CHECK_FIELD_OPTIONS} />
+                            </Form.Item>
+                            <Space wrap>
+                                <Button type="primary" htmlType="submit" loading={checkingInformation} icon={<Icon as={SearchOutlined} />}>
+                                    开始检查
+                                </Button>
+                                <Button onClick={handleSaveInformationCheckSettings}>
+                                    保存标准
+                                </Button>
+                            </Space>
+                        </Form>
+
+                        {informationCheck && (
+                            <>
+                                <Divider />
+                                <Alert
+                                    type={informationCheck.incomplete_count > 0 ? "warning" : "success"}
+                                    showIcon
+                                    message={`检查结果：完整 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`}
+                                    description={
+                                        informationCheck.incomplete_count > 0
+                                            ? `按当前标准仍有 ${informationCheck.incomplete_count} 部缺失信息。`
+                                            : "当前标准下影视库信息完整。"
+                                    }
+                                />
+                                {informationCheck.incomplete_count > 0 && (
+                                    <>
+                                        <Table
+                                            size="small"
+                                            rowKey="movie_id"
+                                            style={{ marginTop: 12 }}
+                                            dataSource={informationCheck.incomplete_records || []}
+                                            pagination={{ pageSize: 5, size: "small" }}
+                                            columns={[
+                                                {
+                                                    title: "番号",
+                                                    dataIndex: "movie_id",
+                                                    key: "movie_id",
+                                                    width: 110,
+                                                },
+                                                {
+                                                    title: "缺失项",
+                                                    key: "missing_labels",
+                                                    render: (_, record) => (
+                                                        <Space size={[4, 4]} wrap>
+                                                            {(record.missing_labels || []).map((label) => (
+                                                                <Tag key={label} color="warning">{label}</Tag>
+                                                            ))}
+                                                        </Space>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                        <Divider />
+                                        <div className="jav-library-filter-help">
+                                            <Text type="secondary">按上面的检查结果补全缺失影片，并可写入与本地刮削相同类型的本地资料文件。</Text>
+                                        </div>
+                                    </>
+                                )}
+                            </>
+                        )}
+
+                        {informationCheck && informationCheck.incomplete_count > 0 && (
                         <Form
                             form={informationDownloadForm}
                             layout="vertical"
@@ -1167,6 +1304,7 @@ export default function LocalLibraryPage() {
                                 下载缺失信息
                             </Button>
                         </Form>
+                        )}
                     </Drawer>
                     <Drawer
                         title="筛选"

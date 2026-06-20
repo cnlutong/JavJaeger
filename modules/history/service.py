@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 LOCAL_LIBRARY_INFORMATION_FIELDS = ("title", "date", "stars", "genres", "cover_url")
 LOCAL_LIBRARY_INFORMATION_ASSET_FIELDS = ("nfo", "poster_file")
+LOCAL_LIBRARY_INFORMATION_CHECK_FIELDS = LOCAL_LIBRARY_INFORMATION_FIELDS + LOCAL_LIBRARY_INFORMATION_ASSET_FIELDS
 LOCAL_LIBRARY_INFORMATION_FIELD_LABELS = {
     "title": "标题",
     "date": "发行日期",
@@ -24,6 +25,18 @@ LOCAL_LIBRARY_INFORMATION_FIELD_LABELS = {
     "nfo": "NFO",
     "poster_file": "本地封面",
 }
+
+
+def normalize_local_library_information_fields(field_names: list[str] | tuple[str, ...] | None = None) -> tuple[str, ...]:
+    if not field_names:
+        return LOCAL_LIBRARY_INFORMATION_CHECK_FIELDS
+    allowed = set(LOCAL_LIBRARY_INFORMATION_CHECK_FIELDS)
+    normalized: list[str] = []
+    for field_name in field_names:
+        value = str(field_name or "").strip()
+        if value in allowed and value not in normalized:
+            normalized.append(value)
+    return tuple(normalized) if normalized else LOCAL_LIBRARY_INFORMATION_CHECK_FIELDS
 
 
 class DownloadHistoryService:
@@ -256,29 +269,32 @@ class LocalMovieLibraryService:
     def _missing_information_fields(
         self,
         record: dict[str, Any],
-        field_names: tuple[str, ...] = LOCAL_LIBRARY_INFORMATION_FIELDS,
+        field_names: tuple[str, ...] | None = None,
     ) -> list[str]:
+        selected_fields = normalize_local_library_information_fields(field_names)
+        metadata_fields = tuple(field_name for field_name in selected_fields if field_name in LOCAL_LIBRARY_INFORMATION_FIELDS)
         missing: list[str] = []
         movie_id = str(record.get("movie_id") or "").strip().upper()
         has_remote_metadata = self._has_remote_metadata(record)
-        for field_name in field_names:
+        for field_name in metadata_fields:
             value = self._information_value(record, field_name)
             is_missing = value in (None, "", [], {})
             if field_name == "title" and (is_missing or (str(value).strip().upper() == movie_id and not has_remote_metadata)):
                 is_missing = True
             if is_missing:
                 missing.append(field_name)
-        if has_remote_metadata and not self._has_nfo_file(record):
+        if "nfo" in selected_fields and has_remote_metadata and not self._has_nfo_file(record):
             missing.append("nfo")
-        if self._information_value(record, "cover_url") and not self._has_poster_file(record):
+        if "poster_file" in selected_fields and self._information_value(record, "cover_url") and not self._has_poster_file(record):
             missing.append("poster_file")
         return missing
 
-    async def get_information_check(self) -> dict[str, Any]:
+    async def get_information_check(self, field_names: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+        selected_fields = normalize_local_library_information_fields(field_names)
         records = await self.get_all()
         checked_records: list[dict[str, Any]] = []
         for record in records:
-            missing_fields = self._missing_information_fields(record)
+            missing_fields = self._missing_information_fields(record, selected_fields)
             checked_record = {
                 "movie_id": record.get("movie_id"),
                 "title": record.get("title") or record.get("movie_id"),
@@ -296,7 +312,8 @@ class LocalMovieLibraryService:
         incomplete_records = [record for record in checked_records if not record["info_complete"]]
         return {
             "success": True,
-            "fields": list(LOCAL_LIBRARY_INFORMATION_FIELDS),
+            "fields": list(selected_fields),
+            "available_fields": list(LOCAL_LIBRARY_INFORMATION_CHECK_FIELDS),
             "field_labels": LOCAL_LIBRARY_INFORMATION_FIELD_LABELS,
             "total_movies": len(checked_records),
             "complete_count": len(checked_records) - len(incomplete_records),

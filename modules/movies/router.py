@@ -88,9 +88,9 @@ async def clear_local_movie_library():
 
 
 @router.get("/api/movies/local-library/information/check")
-async def check_local_movie_library_information():
+async def check_local_movie_library_information(fields: str | None = None):
     try:
-        return await get_local_library_information_check()
+        return await get_local_library_information_check(fields)
     except Exception as exc:
         logger.error("Local library information check failed: %s", exc)
         return {"success": False, "error": "information_check_failed", "message": "检查影视库信息失败"}

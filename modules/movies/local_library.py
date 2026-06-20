@@ -5,7 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from modules.common.paths import UserPathError, resolve_existing_directory
-from modules.history.service import LOCAL_LIBRARY_INFORMATION_FIELDS, local_movie_library_service
+from modules.history.service import (
+    LOCAL_LIBRARY_INFORMATION_FIELDS,
+    local_movie_library_service,
+    normalize_local_library_information_fields,
+)
 from modules.javbus_api import javbus_api_service
 from .local_scrape import (
     _build_metadata,
@@ -117,12 +121,21 @@ async def get_local_library_payload() -> dict[str, Any]:
     return await local_movie_library_service.get_summary()
 
 
-async def get_local_library_information_check() -> dict[str, Any]:
-    return await local_movie_library_service.get_information_check()
+def parse_information_check_fields(fields: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
+    if isinstance(fields, str):
+        raw_fields = [field.strip() for field in fields.split(",")]
+    else:
+        raw_fields = list(fields or [])
+    return normalize_local_library_information_fields(raw_fields)
+
+
+async def get_local_library_information_check(fields: str | list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+    return await local_movie_library_service.get_information_check(parse_information_check_fields(fields))
 
 
 async def download_missing_local_library_information(request: LocalLibraryInformationDownloadRequest) -> dict[str, Any]:
-    check = await local_movie_library_service.get_information_check()
+    selected_fields = parse_information_check_fields(request.fields)
+    check = await local_movie_library_service.get_information_check(selected_fields)
     all_records = check.get("records", [])
     requested_ids = {
         str(movie_id or "").strip().upper()
@@ -202,19 +215,20 @@ async def download_missing_local_library_information(request: LocalLibraryInform
             saved = bool(record)
             scrape_status = record.get("scrape_status") if isinstance(record, dict) else ""
         asset_result = await _write_local_library_information_assets(movie_id, metadata, request) if saved else {}
-        if saved:
+        result_success = bool(saved and not asset_result.get("asset_error") and not asset_result.get("image_error"))
+        if result_success:
             updated_count += 1
         else:
             failed_count += 1
         results.append({
             "movie_id": movie_id,
-            "success": saved,
+            "success": result_success,
             "scrape_status": scrape_status,
             "error": asset_result.get("asset_error") if saved else "movie_not_in_local_library",
             **asset_result,
         })
 
-    next_check = await local_movie_library_service.get_information_check()
+    next_check = await local_movie_library_service.get_information_check(selected_fields)
     return {
         "success": True,
         "candidate_count": len(candidate_records),
@@ -272,6 +286,8 @@ async def _write_local_library_information_assets(
         except Exception as exc:
             asset_error = "image_download_failed"
             logger.warning("Local library image download failed for %s: %s", movie_id, exc)
+        if metadata.get("cover_url") and not poster_name:
+            asset_error = "image_download_failed"
 
     if request.download_actor_images:
         actor_image_names = await _write_actor_images(primary_video_path, metadata, request.overwrite_existing)
@@ -288,6 +304,7 @@ async def _write_local_library_information_assets(
         "samples": sample_names,
         "actor_images": actor_image_names,
         "list_thumbnail": list_thumbnail_name,
+        "image_error": "image_download_failed" if asset_error == "image_download_failed" else None,
         "asset_error": asset_error,
     }
 

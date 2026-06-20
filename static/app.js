@@ -2078,6 +2078,37 @@
     UnorderedListOutlined
   } = icons4;
   var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React4.createElement(Component, null) : null;
+  var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
+  var INFORMATION_CHECK_FIELD_OPTIONS = [
+    { label: "\u6807\u9898", value: "title" },
+    { label: "\u53D1\u884C\u65E5\u671F", value: "date" },
+    { label: "\u6F14\u5458", value: "stars" },
+    { label: "\u6807\u7B7E", value: "genres" },
+    { label: "\u8FDC\u7A0B\u5C01\u9762", value: "cover_url" },
+    { label: "NFO \u6587\u4EF6", value: "nfo" },
+    { label: "\u672C\u5730\u5C01\u9762", value: "poster_file" }
+  ];
+  var DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
+  var normalizeInformationCheckFields = (fields, fallback = DEFAULT_INFORMATION_CHECK_FIELDS) => {
+    const allowed = new Set(DEFAULT_INFORMATION_CHECK_FIELDS);
+    const normalized = (Array.isArray(fields) ? fields : []).map((field) => String(field || "").trim()).filter((field, index, source) => allowed.has(field) && source.indexOf(field) === index);
+    return normalized.length ? normalized : [...fallback];
+  };
+  var loadInformationCheckSettings = () => {
+    try {
+      return {
+        fields: normalizeInformationCheckFields(JSON.parse(window.localStorage.getItem(INFORMATION_CHECK_STORAGE_KEY) || "[]"))
+      };
+    } catch (error) {
+      return { fields: [...DEFAULT_INFORMATION_CHECK_FIELDS] };
+    }
+  };
+  var saveInformationCheckSettings = (fields) => {
+    try {
+      window.localStorage.setItem(INFORMATION_CHECK_STORAGE_KEY, JSON.stringify(normalizeInformationCheckFields(fields)));
+    } catch (error) {
+    }
+  };
   var postJson2 = async (url, body) => {
     const response = await fetch(url, {
       method: "POST",
@@ -2233,7 +2264,8 @@
     const [deletingMovieId, setDeletingMovieId] = React4.useState("");
     const [filterOpen, setFilterOpen] = React4.useState(false);
     const [scanOpen, setScanOpen] = React4.useState(false);
-    const [informationDownloadOpen, setInformationDownloadOpen] = React4.useState(false);
+    const [informationCheckOpen, setInformationCheckOpen] = React4.useState(false);
+    const [informationCheckFields, setInformationCheckFields] = React4.useState(() => loadInformationCheckSettings().fields);
     const [selectedRecord, setSelectedRecord] = React4.useState(null);
     const [playingRecordKey, setPlayingRecordKey] = React4.useState("");
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React4.useState(0);
@@ -2251,6 +2283,7 @@
       years: [],
       roots: []
     });
+    const [informationCheckForm] = Form3.useForm();
     const [informationDownloadForm] = Form3.useForm();
     const records = library.records || [];
     const missingInformationByMovieId = React4.useMemo(() => {
@@ -2316,14 +2349,39 @@ ${record.full_text || ""}`.toLowerCase();
         setLoading(false);
       }
     };
-    const loadInformationCheck = async () => {
+    const openInformationCheck = () => {
+      const saved = loadInformationCheckSettings();
+      setInformationCheckFields(saved.fields);
+      informationCheckForm.setFieldsValue({ fields: saved.fields });
+      setInformationCheckOpen(true);
+    };
+    const handleSaveInformationCheckSettings = () => {
+      const fields = informationCheckForm.getFieldValue("fields") || [];
+      if (!fields.length) {
+        message4.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879");
+        return;
+      }
+      const normalizedFields = normalizeInformationCheckFields(fields, []);
+      saveInformationCheckSettings(normalizedFields);
+      setInformationCheckFields(normalizedFields);
+      message4.success("\u68C0\u67E5\u6807\u51C6\u5DF2\u4FDD\u5B58");
+    };
+    const loadInformationCheck = async (values = {}) => {
+      const selectedFields = normalizeInformationCheckFields(values.fields || informationCheckForm.getFieldValue("fields"), []);
+      if (!selectedFields.length) {
+        message4.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879");
+        return null;
+      }
       setCheckingInformation(true);
       try {
-        const response = await fetch("/api/movies/local-library/information/check");
+        const queryParams = new URLSearchParams();
+        queryParams.set("fields", selectedFields.join(","));
+        const response = await fetch(`/api/movies/local-library/information/check?${queryParams.toString()}`);
         const data = await response.json();
         if (!data.success) {
           throw new Error(data.message || "\u68C0\u67E5\u5931\u8D25");
         }
+        setInformationCheckFields(selectedFields);
         setInformationCheck(data);
         if (data.incomplete_count > 0) {
           message4.warning(`\u53D1\u73B0 ${data.incomplete_count} \u90E8\u5F71\u7247\u7F3A\u5C11\u4FE1\u606F`);
@@ -2450,6 +2508,7 @@ ${record.full_text || ""}`.toLowerCase();
       try {
         const data = await postJson2("/api/movies/local-library/information/download", {
           only_missing: true,
+          fields: informationCheckFields,
           concurrent: values.concurrent || 3,
           write_nfo: values.writeNfo !== false,
           download_images: values.downloadImages !== false,
@@ -2460,8 +2519,14 @@ ${record.full_text || ""}`.toLowerCase();
         });
         setInformationCheck(data.information_check);
         await loadLibrary();
-        setInformationDownloadOpen(false);
-        message4.success(`\u5DF2\u66F4\u65B0 ${data.updated_count || 0} \u90E8\u5F71\u7247\u4FE1\u606F`);
+        const updatedCount = data.updated_count || 0;
+        const failedCount = data.failed_count || 0;
+        const remainingCount = data.information_check?.incomplete_count || 0;
+        if (failedCount > 0 || remainingCount > 0) {
+          message4.warning(`\u5DF2\u66F4\u65B0 ${updatedCount} \u90E8\uFF0C${failedCount} \u90E8\u4E0B\u8F7D\u5931\u8D25\uFF0C\u4ECD\u6709 ${remainingCount} \u90E8\u7F3A\u5931`);
+        } else {
+          message4.success(`\u5DF2\u66F4\u65B0 ${updatedCount} \u90E8\u5F71\u7247\u4FE1\u606F`);
+        }
       } catch (error) {
         message4.error(`\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u5931\u8D25\uFF1A${error.message}`);
       } finally {
@@ -2740,18 +2805,7 @@ ${record.full_text || ""}`.toLowerCase();
         onChange: viewMode === "grid" ? setGridPosterSize : setListPosterSize,
         tooltip: { formatter: (value) => `${value}px` }
       }
-    )), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FolderOpenOutlined3 }), onClick: () => setScanOpen(true) }, "\u626B\u63CF\u5165\u5E93"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: loadInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(
-      Button4,
-      {
-        type: "primary",
-        ghost: true,
-        icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DownloadOutlined2 }),
-        onClick: () => setInformationDownloadOpen(true),
-        loading: downloadingInformation,
-        disabled: informationCheck && informationCheck.incomplete_count === 0
-      },
-      "\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F"
-    ), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ReloadOutlined2 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React4.createElement(Popconfirm3, { title: "\u786E\u8BA4\u6E05\u7A7A\u5F71\u89C6\u5E93\u6570\u636E\u5E93\uFF1F", onConfirm: handleClear, okText: "\u6E05\u7A7A", cancelText: "\u53D6\u6D88" }, /* @__PURE__ */ React4.createElement(Button4, { danger: true, loading }, "\u6E05\u7A7A"))), activeFilterCount > 0 && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-active-filters" }, filters.keyword.trim() && /* @__PURE__ */ React4.createElement(
+    )), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FolderOpenOutlined3 }), onClick: () => setScanOpen(true) }, "\u626B\u63CF\u5165\u5E93"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ReloadOutlined2 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React4.createElement(Popconfirm3, { title: "\u786E\u8BA4\u6E05\u7A7A\u5F71\u89C6\u5E93\u6570\u636E\u5E93\uFF1F", onConfirm: handleClear, okText: "\u6E05\u7A7A", cancelText: "\u53D6\u6D88" }, /* @__PURE__ */ React4.createElement(Button4, { danger: true, loading }, "\u6E05\u7A7A"))), activeFilterCount > 0 && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-active-filters" }, filters.keyword.trim() && /* @__PURE__ */ React4.createElement(
       Tag3,
       {
         closable: true,
@@ -2766,7 +2820,7 @@ ${record.full_text || ""}`.toLowerCase();
         type: informationCheck.incomplete_count > 0 ? "warning" : "success",
         showIcon: true,
         message: `\u4FE1\u606F\u68C0\u67E5\uFF1A\u5B8C\u6574 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`,
-        description: informationCheck.incomplete_count > 0 ? `\u7F3A\u5931 ${informationCheck.incomplete_count} \u90E8\uFF0C\u70B9\u51FB\u201C\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u201D\u4F1A\u8865\u5168\u5143\u6570\u636E\u548C\u672C\u5730\u8D44\u6599\u6587\u4EF6\u3002` : "\u5F53\u524D\u5DF2\u5165\u5E93\u5F71\u7247\u4FE1\u606F\u548C\u672C\u5730\u8D44\u6599\u5B8C\u6574\u3002"
+        description: informationCheck.incomplete_count > 0 ? `\u7F3A\u5931 ${informationCheck.incomplete_count} \u90E8\uFF0C\u53EF\u5728\u201C\u68C0\u67E5\u4FE1\u606F\u201D\u7A97\u53E3\u4E2D\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u3002` : "\u5F53\u524D\u5DF2\u5165\u5E93\u5F71\u7247\u4FE1\u606F\u548C\u672C\u5730\u8D44\u6599\u5B8C\u6574\u3002"
       }
     ), scanResult && /* @__PURE__ */ React4.createElement(
       Alert2,
@@ -2866,14 +2920,64 @@ ${record.full_text || ""}`.toLowerCase();
     ), /* @__PURE__ */ React4.createElement(
       Drawer2,
       {
-        title: "\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F",
+        title: "\u68C0\u67E5\u4FE1\u606F",
         placement: "right",
-        width: 420,
-        open: informationDownloadOpen,
-        onClose: () => setInformationDownloadOpen(false)
+        width: 460,
+        open: informationCheckOpen,
+        onClose: () => setInformationCheckOpen(false)
       },
-      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6309\u5F71\u89C6\u5E93\u4FE1\u606F\u68C0\u67E5\u7ED3\u679C\u8865\u5168\u7F3A\u5931\u5F71\u7247\uFF0C\u5E76\u53EF\u5199\u5165\u4E0E\u672C\u5730\u522E\u524A\u76F8\u540C\u7C7B\u578B\u7684\u672C\u5730\u8D44\u6599\u6587\u4EF6\u3002")),
+      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u5148\u8BBE\u7F6E\u672C\u6B21\u68C0\u67E5\u6807\u51C6\uFF0C\u518D\u5F00\u59CB\u68C0\u67E5\u3002\u9ED8\u8BA4\u68C0\u67E5\u5168\u90E8\u4FE1\u606F\u9879\uFF0C\u4FDD\u5B58\u540E\u4E0B\u6B21\u4F1A\u81EA\u52A8\u6CBF\u7528\u3002")),
       /* @__PURE__ */ React4.createElement(
+        Form3,
+        {
+          form: informationCheckForm,
+          layout: "vertical",
+          initialValues: { fields: informationCheckFields },
+          onFinish: loadInformationCheck
+        },
+        /* @__PURE__ */ React4.createElement(
+          Form3.Item,
+          {
+            name: "fields",
+            label: "\u68C0\u67E5\u6807\u51C6",
+            rules: [{ required: true, message: "\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879" }]
+          },
+          /* @__PURE__ */ React4.createElement(Checkbox2.Group, { options: INFORMATION_CHECK_FIELD_OPTIONS })
+        ),
+        /* @__PURE__ */ React4.createElement(Space4, { wrap: true }, /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", loading: checkingInformation, icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }) }, "\u5F00\u59CB\u68C0\u67E5"), /* @__PURE__ */ React4.createElement(Button4, { onClick: handleSaveInformationCheckSettings }, "\u4FDD\u5B58\u6807\u51C6"))
+      ),
+      informationCheck && /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement(Divider2, null), /* @__PURE__ */ React4.createElement(
+        Alert2,
+        {
+          type: informationCheck.incomplete_count > 0 ? "warning" : "success",
+          showIcon: true,
+          message: `\u68C0\u67E5\u7ED3\u679C\uFF1A\u5B8C\u6574 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`,
+          description: informationCheck.incomplete_count > 0 ? `\u6309\u5F53\u524D\u6807\u51C6\u4ECD\u6709 ${informationCheck.incomplete_count} \u90E8\u7F3A\u5931\u4FE1\u606F\u3002` : "\u5F53\u524D\u6807\u51C6\u4E0B\u5F71\u89C6\u5E93\u4FE1\u606F\u5B8C\u6574\u3002"
+        }
+      ), informationCheck.incomplete_count > 0 && /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement(
+        Table3,
+        {
+          size: "small",
+          rowKey: "movie_id",
+          style: { marginTop: 12 },
+          dataSource: informationCheck.incomplete_records || [],
+          pagination: { pageSize: 5, size: "small" },
+          columns: [
+            {
+              title: "\u756A\u53F7",
+              dataIndex: "movie_id",
+              key: "movie_id",
+              width: 110
+            },
+            {
+              title: "\u7F3A\u5931\u9879",
+              key: "missing_labels",
+              render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { size: [4, 4], wrap: true }, (record.missing_labels || []).map((label) => /* @__PURE__ */ React4.createElement(Tag3, { key: label, color: "warning" }, label)))
+            }
+          ]
+        }
+      ), /* @__PURE__ */ React4.createElement(Divider2, null), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6309\u4E0A\u9762\u7684\u68C0\u67E5\u7ED3\u679C\u8865\u5168\u7F3A\u5931\u5F71\u7247\uFF0C\u5E76\u53EF\u5199\u5165\u4E0E\u672C\u5730\u522E\u524A\u76F8\u540C\u7C7B\u578B\u7684\u672C\u5730\u8D44\u6599\u6587\u4EF6\u3002")))),
+      informationCheck && informationCheck.incomplete_count > 0 && /* @__PURE__ */ React4.createElement(
         Form3,
         {
           form: informationDownloadForm,
