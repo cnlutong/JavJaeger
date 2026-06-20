@@ -15,3 +15,15 @@ export const fetchWithRetry = async (url, options = {}, retries = 3, delay = 100
 };
 
 export const fetchClientConfig = async () => fetchWithRetry("/api/client-config");
+
+export const fetchSystemSettings = async () => fetchWithRetry("/api/system/settings");
+
+export const updateJavBusSettings = async (javbus) => fetchWithRetry(
+    "/api/system/settings/javbus",
+    {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ javbus }),
+    },
+    0
+);

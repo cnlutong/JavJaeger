@@ -8,6 +8,7 @@ from modules.common import runtime
 from modules.movies import local_scrape
 from modules.movies import service as movies_service
 from modules.system import path_browser
+from modules.system import settings as system_settings
 from modules.ui import router as ui_router
 from modules.webdav.clients import WebDavClient
 from modules.webdav.session_state import WebDavSessionStore
@@ -65,6 +66,67 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
 
 def test_javbus_default_request_interval_is_conservative():
     assert runtime.DEFAULT_CONFIG["javbus"]["request_interval_seconds"] == 0.5
+
+
+def test_system_settings_update_persists_and_reconfigures_javbus(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "javbus": {
+                "base_url": "https://old.example.test",
+                "timeout_seconds": 8,
+                "proxy": "",
+                "request_interval_seconds": 0.5,
+            }
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+    monkeypatch.setattr(runtime, "CONFIG_PATH", str(config_path))
+
+    class FakeJavBusService:
+        def __init__(self):
+            self.configs = []
+
+        async def reconfigure(self, cfg):
+            self.configs.append(cfg)
+
+    fake_service = FakeJavBusService()
+    monkeypatch.setattr(system_settings, "javbus_api_service", fake_service)
+
+    client = TestClient(main.app)
+    response = client.put(
+        "/api/system/settings/javbus",
+        json={
+            "javbus": {
+                "base_url": "https://new.example.test/",
+                "timeout_seconds": 12,
+                "proxy": "http://127.0.0.1:7890",
+                "request_interval_seconds": 0.75,
+                "cache_expire_seconds": 7200,
+                "cache_max_size": 2000,
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["javbus"]["base_url"] == "https://new.example.test"
+    assert fake_service.configs[-1]["request_interval_seconds"] == 0.75
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["javbus"]["base_url"] == "https://new.example.test"
+    assert saved["javbus"]["cache_max_size"] == 2000
+
+
+def test_system_settings_rejects_invalid_javbus_values():
+    client = TestClient(main.app)
+
+    response = client.put(
+        "/api/system/settings/javbus",
+        json={"javbus": {"base_url": "ftp://example.test", "request_interval_seconds": -1}},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "base_url_must_be_http_url"
 
 
 def test_path_browser_lists_only_child_directories(tmp_path):
@@ -307,3 +369,28 @@ def test_local_scrape_target_paths_support_custom_folder_templates():
     assert target_dir == Path(r"D:\library") / "Actor One" / "2024" / "ABP-123 Sample_ Title"
     assert target_stem == "ABP-123"
     assert target_video == target_dir / "ABP-123.mp4"
+
+
+def test_local_scrape_empty_folder_template_uses_target_root():
+    source_path = Path(r"D:\incoming\ABP-123.mp4")
+    metadata = local_scrape._build_metadata(
+        {
+            "id": "ABP-123",
+            "title": "ABP-123 Sample Title",
+        },
+        "ABP-123",
+        source_path.stem,
+    )
+
+    target_dir, target_video, target_stem = local_scrape._build_target_paths(
+        source_path,
+        metadata,
+        True,
+        r"D:\library",
+        "{code} {title}",
+        "",
+    )
+
+    assert target_dir == Path(r"D:\library")
+    assert target_stem == "ABP-123 Sample Title"
+    assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"

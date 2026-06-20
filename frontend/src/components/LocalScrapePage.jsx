@@ -3,6 +3,15 @@ import {
     loadLocalScrapeTaskTemplates,
     saveLocalScrapeTaskTemplate,
 } from "../utils/localScrapeTemplates.mjs";
+import {
+    LOCAL_SCRAPE_NAMING_FIELDS,
+    LOCAL_SCRAPE_NAMING_SEPARATORS,
+    buildTemplateFromParts,
+    getNamingField,
+    getNamingSeparator,
+    moveTemplatePart,
+    parseTemplateToParts,
+} from "../utils/localScrapeNamingTemplates.mjs";
 import DirectoryInput from "./DirectoryInput.jsx";
 
 const React = window.React;
@@ -15,6 +24,7 @@ const {
     Card,
     Checkbox,
     Divider,
+    Drawer,
     Form,
     Input,
     InputNumber,
@@ -30,11 +40,14 @@ const {
 const { Text, Title } = Typography;
 const {
     CheckCircleOutlined,
+    CloseOutlined,
     DeleteOutlined,
+    DragOutlined,
     FileSearchOutlined,
     FolderOpenOutlined,
     PlayCircleOutlined,
     SaveOutlined,
+    SettingOutlined,
     WarningOutlined,
 } = icons;
 
@@ -114,6 +127,9 @@ export default function LocalScrapePage() {
     const [taskTemplates, setTaskTemplates] = React.useState(() => loadLocalScrapeTaskTemplates());
     const [selectedTemplateId, setSelectedTemplateId] = React.useState("");
     const [templateName, setTemplateName] = React.useState("");
+    const [templateDesignerOpen, setTemplateDesignerOpen] = React.useState(false);
+    const [templateDesignerTarget, setTemplateDesignerTarget] = React.useState("folderTemplate");
+    const [templateDesignerParts, setTemplateDesignerParts] = React.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form.useWatch("overwriteExisting", form);
 
     const items = preview?.items || [];
@@ -123,6 +139,8 @@ export default function LocalScrapePage() {
         value: template.id,
         label: template.name,
     }));
+    const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "文件夹模板" : "文件命名模板";
+    const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
 
     React.useEffect(() => {
         setTaskTemplates(loadLocalScrapeTaskTemplates());
@@ -144,8 +162,10 @@ export default function LocalScrapePage() {
         concurrent: values.concurrent || 3,
         organize: values.organize !== false,
         target_directory: values.targetDirectory || null,
-        folder_template: values.folderTemplate || values.namingTemplate || "{code} {title}",
-        naming_template: values.namingTemplate || "{code} {title}",
+        folder_template: values.folderTemplate === null || values.folderTemplate === undefined
+            ? null
+            : String(values.folderTemplate).trim(),
+        naming_template: String(values.namingTemplate || "").trim(),
         write_nfo: values.writeNfo !== false,
         download_images: values.downloadImages !== false,
         overwrite_existing: !!values.overwriteExisting,
@@ -206,6 +226,92 @@ export default function LocalScrapePage() {
         message.success("刮削任务模板已删除");
     };
 
+    const openTemplateDesigner = (fieldName) => {
+        const currentTemplate = form.getFieldValue(fieldName);
+        setTemplateDesignerTarget(fieldName);
+        setTemplateDesignerParts(parseTemplateToParts(currentTemplate, { allowEmpty: true }));
+        setTemplateDesignerOpen(true);
+    };
+
+    const closeTemplateDesigner = () => {
+        setTemplateDesignerOpen(false);
+    };
+
+    const addTemplatePart = (part) => {
+        setTemplateDesignerParts((currentParts) => [...currentParts, part]);
+    };
+
+    const removeTemplatePart = (index) => {
+        setTemplateDesignerParts((currentParts) => {
+            const nextParts = currentParts.slice();
+            nextParts.splice(index, 1);
+            return nextParts;
+        });
+    };
+
+    const resetTemplateDesigner = () => {
+        setTemplateDesignerParts(parseTemplateToParts("{code} {title}"));
+    };
+
+    const writeTemplateDesignerValue = () => {
+        if (templateDesignerTarget === "namingTemplate" && !templateDesignerPreview) {
+            message.warning("文件命名模板不能为空，请至少添加一个命名卡片");
+            return;
+        }
+        form.setFieldValue(templateDesignerTarget, templateDesignerPreview);
+        setTemplateDesignerOpen(false);
+    };
+
+    const startPaletteDrag = (event, part) => {
+        event.dataTransfer.setData("application/x-javjaeger-template-part", JSON.stringify({ source: "palette", part }));
+        event.dataTransfer.effectAllowed = "copy";
+    };
+
+    const startSelectedPartDrag = (event, index) => {
+        event.dataTransfer.setData("application/x-javjaeger-template-part", JSON.stringify({ source: "selected", index }));
+        event.dataTransfer.effectAllowed = "move";
+    };
+
+    const readDraggedTemplatePart = (event) => {
+        try {
+            return JSON.parse(event.dataTransfer.getData("application/x-javjaeger-template-part"));
+        } catch (error) {
+            return null;
+        }
+    };
+
+    const handleTemplateDrop = (event, targetIndex = null) => {
+        event.preventDefault();
+        const payload = readDraggedTemplatePart(event);
+        if (!payload) {
+            return;
+        }
+        if (payload.source === "palette" && payload.part) {
+            setTemplateDesignerParts((currentParts) => {
+                const nextParts = currentParts.slice();
+                const insertIndex = targetIndex === null ? nextParts.length : Math.max(0, Math.min(nextParts.length, targetIndex));
+                nextParts.splice(insertIndex, 0, payload.part);
+                return nextParts;
+            });
+            return;
+        }
+        if (payload.source === "selected") {
+            setTemplateDesignerParts((currentParts) => moveTemplatePart(currentParts, payload.index, targetIndex ?? currentParts.length - 1));
+        }
+    };
+
+    const renderTemplateDesignerPart = (part) => {
+        if (part.type === "field") {
+            const field = getNamingField(part.id);
+            return field ? field.label : part.id;
+        }
+        if (part.type === "separator") {
+            const separator = getNamingSeparator(part.id);
+            return separator ? separator.label : part.id;
+        }
+        return part.value;
+    };
+
     const handlePreview = async (values) => {
         setLoadingPreview(true);
         setApplyResult(null);
@@ -231,7 +337,13 @@ export default function LocalScrapePage() {
     };
 
     const handleApply = async () => {
-        const values = form.getFieldsValue();
+        let values;
+        try {
+            values = await form.validateFields();
+        } catch (error) {
+            message.warning("请先补全刮削设置");
+            return;
+        }
         const payload = {
             ...buildPayload(values),
             items: selectedItems.map((item) => ({
@@ -392,11 +504,46 @@ export default function LocalScrapePage() {
                             <Form.Item name="targetDirectory" label="整理目标目录">
                                 <DirectoryInput placeholder="留空则在原目录内整理；也可输入 /data/JAV 或 D:\\Media\\JAV" />
                             </Form.Item>
-                            <Form.Item name="folderTemplate" label="文件夹模板">
-                                <Input placeholder="{code} {title} / {actor}/{year}/{title} / {studio}/{code} {title}" />
+                            <Form.Item label="文件夹模板">
+                                <Space.Compact block>
+                                    <Form.Item name="folderTemplate" noStyle>
+                                        <Input placeholder="{code} {title} / {actor}/{year}/{title} / {studio}/{code} {title}" />
+                                    </Form.Item>
+                                    <Button
+                                        htmlType="button"
+                                        icon={<Icon as={SettingOutlined} />}
+                                        onClick={() => openTemplateDesigner("folderTemplate")}
+                                    >
+                                        设置
+                                    </Button>
+                                </Space.Compact>
                             </Form.Item>
-                            <Form.Item name="namingTemplate" label="文件命名模板">
-                                <Input placeholder="{code} {title}" />
+                            <Form.Item
+                                label="文件命名模板"
+                                required
+                            >
+                                <Space.Compact block>
+                                    <Form.Item
+                                        name="namingTemplate"
+                                        noStyle
+                                        rules={[
+                                            {
+                                                validator: (_, value) => String(value || "").trim()
+                                                    ? Promise.resolve()
+                                                    : Promise.reject(new Error("文件命名模板不能为空")),
+                                            },
+                                        ]}
+                                    >
+                                        <Input placeholder="{code} {title}" />
+                                    </Form.Item>
+                                    <Button
+                                        htmlType="button"
+                                        icon={<Icon as={SettingOutlined} />}
+                                        onClick={() => openTemplateDesigner("namingTemplate")}
+                                    >
+                                        设置
+                                    </Button>
+                                </Space.Compact>
                             </Form.Item>
                             <Space wrap>
                                 <Form.Item name="recursive" valuePropName="checked">
@@ -537,6 +684,93 @@ export default function LocalScrapePage() {
                     )}
                 </section>
             </div>
+            <Drawer
+                title={`${templateDesignerTitle}设置`}
+                open={templateDesignerOpen}
+                onClose={closeTemplateDesigner}
+                width={640}
+                placement="right"
+                className="jav-template-designer-drawer"
+                extra={
+                    <Space>
+                        <Button htmlType="button" onClick={resetTemplateDesigner}>重置</Button>
+                        <Button type="primary" htmlType="button" onClick={writeTemplateDesignerValue}>应用</Button>
+                    </Space>
+                }
+            >
+                <div className="jav-template-designer">
+                    <section>
+                        <Text strong>可用卡片</Text>
+                        <div className="jav-template-card-grid">
+                            {LOCAL_SCRAPE_NAMING_FIELDS.map((field) => (
+                                <button
+                                    type="button"
+                                    key={field.id}
+                                    className="jav-template-card"
+                                    draggable
+                                    onDragStart={(event) => startPaletteDrag(event, { type: "field", id: field.id })}
+                                    onClick={() => addTemplatePart({ type: "field", id: field.id })}
+                                >
+                                    <span>{field.label}</span>
+                                    <small>{field.sample}</small>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+                    <section>
+                        <Text strong>分隔符</Text>
+                        <div className="jav-template-separator-grid">
+                            {LOCAL_SCRAPE_NAMING_SEPARATORS.map((separator) => (
+                                <button
+                                    type="button"
+                                    key={separator.id}
+                                    className="jav-template-card jav-template-separator-card"
+                                    draggable
+                                    onDragStart={(event) => startPaletteDrag(event, { type: "separator", id: separator.id })}
+                                    onClick={() => addTemplatePart({ type: "separator", id: separator.id })}
+                                >
+                                    <span>{separator.label}</span>
+                                    <small>{separator.value === " " ? "空格" : separator.value}</small>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+                    <section>
+                        <Text strong>当前模板</Text>
+                        <div
+                            className="jav-template-drop-zone"
+                            onDragOver={(event) => event.preventDefault()}
+                            onDrop={(event) => handleTemplateDrop(event)}
+                        >
+                            {templateDesignerParts.map((part, index) => (
+                                <span
+                                    key={`${part.type}-${part.id || part.value}-${index}`}
+                                    className={`jav-template-selected-card ${part.type === "separator" ? "is-separator" : ""}`}
+                                    draggable
+                                    onDragStart={(event) => startSelectedPartDrag(event, index)}
+                                    onDragOver={(event) => event.preventDefault()}
+                                    onDrop={(event) => handleTemplateDrop(event, index)}
+                                >
+                                    <Icon as={DragOutlined} />
+                                    {renderTemplateDesignerPart(part)}
+                                    <button type="button" onClick={() => removeTemplatePart(index)} aria-label="移除卡片">
+                                        <Icon as={CloseOutlined} />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    </section>
+                    <section>
+                        <Text strong>生成结果</Text>
+                        <Input value={templateDesignerPreview} readOnly />
+                    </section>
+                    <Alert
+                        type="info"
+                        showIcon
+                        message="拖拽卡片或点击卡片即可加入模板；文件夹模板中使用“文件夹层级”卡片会生成多级目录。"
+                    />
+                </div>
+            </Drawer>
         </div>
     );
 }

@@ -275,6 +275,8 @@ JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
 GET  /                      # 前端主页
 GET  /api/system/info       # 系统与版本信息
 GET  /api/system/directories    # 服务端本地目录浏览，用于路径选择
+GET  /api/system/settings   # 系统设置读取（JavBus API 参数）
+PUT  /api/system/settings/javbus # 保存 JavBus API 参数并热更新客户端
 GET  /api/movies            # 影片列表（分页），支持多条件筛选（支持 actorCountFilter）
 GET  /api/movies/all        # 聚合所有页结果（含限流与最大页数保护）
 GET  /api/movies/{id}       # 单片详情

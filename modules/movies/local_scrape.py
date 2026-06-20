@@ -231,6 +231,8 @@ def _render_template(template: str | None, metadata: dict[str, Any], source_stem
 
 
 def _render_folder_template(template: str | None, metadata: dict[str, Any], source_stem: str) -> Path:
+    if template is not None and not str(template).strip():
+        return Path()
     active_template = template or "{code} {title}"
     parts = [part for part in re.split(r"[\\/]+", active_template) if part.strip()]
     rendered_parts = [_render_template(part, metadata, source_stem) for part in parts]
@@ -305,7 +307,7 @@ def _build_target_paths(
     naming_template: str,
     folder_template: str | None = None,
 ) -> tuple[Path, Path, str]:
-    folder_path = _render_folder_template(folder_template or naming_template, metadata, source_path.stem)
+    folder_path = _render_folder_template(folder_template if folder_template is not None else naming_template, metadata, source_path.stem)
     target_stem = _render_template(naming_template, metadata, source_path.stem)
 
     if organize:

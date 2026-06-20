@@ -105,3 +105,23 @@ test("local scrape template deletion removes only the selected id", () => {
 
     assert.deepEqual(templates.map((template) => template.id), ["b"]);
 });
+
+test("local scrape task templates preserve an intentionally empty folder template", () => {
+    const storage = new MemoryStorage();
+    const saved = saveLocalScrapeTaskTemplate(
+        storage,
+        "Root folder",
+        {
+            directory: "D:\\Downloads\\JAV",
+            folderTemplate: "",
+            namingTemplate: "{code}",
+        },
+        {
+            idFactory: () => "tpl-root",
+            now: () => "2026-06-20T12:00:00.000Z",
+        },
+    );
+
+    assert.equal(saved.values.folderTemplate, "");
+    assert.equal(saved.values.namingTemplate, "{code}");
+});

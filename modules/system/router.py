@@ -13,6 +13,7 @@ from modules.common.runtime import (
 from modules.history.service import download_history_service
 from modules.javbus_api import javbus_api_service
 from .path_browser import list_directory_payload
+from .settings import build_settings_payload, update_javbus_settings
 
 
 router = APIRouter(tags=["system"])
@@ -48,3 +49,13 @@ async def get_client_config():
 @router.get("/api/system/directories")
 async def list_system_directories(path: str | None = None):
     return list_directory_payload(path)
+
+
+@router.get("/api/system/settings")
+async def get_system_settings():
+    return build_settings_payload()
+
+
+@router.put("/api/system/settings/javbus")
+async def put_javbus_settings(payload: dict):
+    return await update_javbus_settings(payload)

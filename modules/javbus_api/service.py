@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 
 class JavBusApiService:
     def __init__(self) -> None:
-        cfg = get_javbus_config()
+        self.client = self._build_client(get_javbus_config())
+
+    def _build_client(self, cfg: dict[str, Any]) -> JavBusClient:
         proxy = cfg.get("proxy") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or None
-        self.client = JavBusClient(
+        return JavBusClient(
             base_url=cfg.get("base_url") or "https://www.javbus.com",
             timeout_seconds=_float_config(cfg, "timeout_seconds", 8),
             proxy=proxy,
@@ -44,6 +46,12 @@ class JavBusApiService:
 
     async def shutdown(self) -> None:
         await self.client.shutdown()
+
+    async def reconfigure(self, cfg: dict[str, Any]) -> None:
+        old_client = self.client
+        self.client = self._build_client(cfg)
+        await old_client.shutdown()
+        await self.client.startup()
 
     async def get_movies_by_page(self, query: dict[str, Any]) -> dict[str, Any]:
         page = str(query.get("page") or "1")

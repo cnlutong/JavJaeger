@@ -1,6 +1,7 @@
 ﻿import WebDavPage from "./WebDavPage.jsx";
 import LocalScrapePage from "./LocalScrapePage.jsx";
 import LocalLibraryPage from "./LocalLibraryPage.jsx";
+import SettingsPage from "./SettingsPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
 import {
     clearPikPakSession,
@@ -1484,7 +1485,8 @@ export default function JavPage() {
                                     { label: '影片检索', value: 'jav' },
                                     { label: '刮削', value: 'localScrape' },
                                     { label: '影视库', value: 'localLibrary' },
-                                    { label: 'WebDAV下载', value: 'webdav' }
+                                    { label: 'WebDAV下载', value: 'webdav' },
+                                    { label: '设置', value: 'settings' }
                                 ]}
                             />
                         </div>
@@ -2007,6 +2009,10 @@ export default function JavPage() {
                     ) : activePage === 'localLibrary' ? (
                     <div className="jav-webdav-shell">
                         <LocalLibraryPage />
+                    </div>
+                    ) : activePage === 'settings' ? (
+                    <div className="jav-webdav-shell">
+                        <SettingsPage />
                     </div>
                     ) : (
                     <div className="jav-webdav-shell">

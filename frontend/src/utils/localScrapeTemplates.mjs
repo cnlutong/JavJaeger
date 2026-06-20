@@ -49,7 +49,9 @@ export const normalizeLocalScrapeTaskValues = (values = {}) => ({
     concurrent: clampInteger(values.concurrent, 1, 5, 3),
     organize: values.organize !== false,
     targetDirectory: String(values.targetDirectory || "").trim(),
-    folderTemplate: String(values.folderTemplate || "{code} {title}").trim() || "{code} {title}",
+    folderTemplate: values.folderTemplate === null || values.folderTemplate === undefined
+        ? "{code} {title}"
+        : String(values.folderTemplate).trim(),
     namingTemplate: String(values.namingTemplate || "{code} {title}").trim() || "{code} {title}",
     writeNfo: values.writeNfo !== false,
     downloadImages: values.downloadImages !== false,

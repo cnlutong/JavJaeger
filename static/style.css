@@ -3892,6 +3892,132 @@ body:has(.jav-app),
     line-height: 18px;
 }
 
+.jav-template-designer {
+    display: grid;
+    gap: 18px;
+}
+
+.jav-template-designer section {
+    display: grid;
+    gap: 8px;
+}
+
+.jav-template-card-grid,
+.jav-template-separator-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+    gap: 8px;
+}
+
+.jav-template-card {
+    min-height: 64px;
+    padding: 9px 10px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #262626;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 3px;
+    text-align: left;
+    cursor: grab;
+}
+
+.jav-template-card:hover {
+    border-color: #91caff;
+    background: #e6f4ff;
+    color: #262626;
+    transform: none;
+    box-shadow: none;
+}
+
+.jav-template-card span {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.jav-template-card small {
+    max-width: 100%;
+    color: #595959;
+    font-size: 11px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jav-template-separator-grid {
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+.jav-template-separator-card {
+    min-height: 54px;
+}
+
+.jav-template-drop-zone {
+    min-height: 96px;
+    padding: 10px;
+    border: 1px dashed #91caff;
+    border-radius: 8px;
+    background: #f8fbff;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-content: flex-start;
+}
+
+.jav-template-selected-card {
+    min-height: 34px;
+    max-width: 100%;
+    padding: 6px 7px;
+    border: 1px solid #91caff;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #262626;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 650;
+    cursor: grab;
+}
+
+.jav-template-selected-card.is-separator {
+    border-color: #d9d9d9;
+    background: #fafafa;
+    color: #595959;
+}
+
+.jav-template-selected-card > button {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #8c8c8c;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: none;
+}
+
+.jav-template-selected-card > button:hover {
+    background: #fff1f0;
+    color: #cf1322;
+    transform: none;
+    box-shadow: none;
+}
+
+.jav-template-designer-drawer .ant-drawer-body {
+    background: #ffffff;
+}
+
 .jav-library-layout {
     display: block;
     max-width: 1840px;

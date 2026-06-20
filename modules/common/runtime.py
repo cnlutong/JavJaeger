@@ -42,6 +42,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
 }
 
+CONFIG_PATH = os.getenv("JAVJAEGER_CONFIG_PATH", "config.json")
+
 
 def get_version_info() -> dict[str, str]:
     version_info = {
@@ -141,12 +143,32 @@ def merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
 
 def load_config() -> dict[str, Any]:
     try:
-        with open("config.json", "r", encoding="utf-8-sig") as file:
+        with open(CONFIG_PATH, "r", encoding="utf-8-sig") as file:
             loaded = json.load(file)
             return merge_config(DEFAULT_CONFIG, loaded)
     except Exception as exc:
         logger.error("加载配置文件失败: %s", exc)
         return copy.deepcopy(DEFAULT_CONFIG)
+
+
+def save_config(next_config: dict[str, Any]) -> dict[str, Any]:
+    merged = merge_config(DEFAULT_CONFIG, next_config)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as file:
+        json.dump(merged, file, ensure_ascii=False, indent=2)
+        file.write("\n")
+    return merged
+
+
+def update_config_section(section: str, values: dict[str, Any]) -> dict[str, Any]:
+    global config
+    current_section = config.get(section, DEFAULT_CONFIG.get(section, {}))
+    next_config = copy.deepcopy(config)
+    if isinstance(current_section, dict):
+        next_config[section] = merge_config(current_section, values)
+    else:
+        next_config[section] = copy.deepcopy(values)
+    config = save_config(next_config)
+    return copy.deepcopy(config.get(section, {}))
 
 
 def get_webdav_config() -> dict[str, Any]:
