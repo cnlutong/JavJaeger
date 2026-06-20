@@ -28,9 +28,12 @@ test("local scrape results hide non-conforming rows by default", () => {
         getVisibleLocalScrapeItems(rows, false).map((item) => item.source_path),
         ["found.mp4"],
     );
+});
+
+test("local scrape results show only non-conforming rows when requested", () => {
     assert.deepEqual(
         getVisibleLocalScrapeItems(rows, true).map((item) => item.source_path),
-        ["found.mp4", "recognized.mp4", "not-found.mp4", "failed.mp4", ""],
+        ["recognized.mp4", "not-found.mp4", "failed.mp4", ""],
     );
 });
 
@@ -61,8 +64,22 @@ test("local scrape conflict compare sends per-item resolution", () => {
     assert.match(localScrapePage, /const \[conflictResolutions, setConflictResolutions\] = React\.useState\(\{\}\)/);
     assert.match(localScrapePage, /source_file/);
     assert.match(localScrapePage, /target_file/);
-    assert.match(localScrapePage, /updateConflictResolution\(conflictCompareItem, "keep_target"\)/);
-    assert.match(localScrapePage, /updateConflictResolution\(conflictCompareItem, "keep_source"\)/);
+    assert.match(localScrapePage, /value: "skip", label: "跳过"/);
+    assert.match(localScrapePage, /value: "keep_newer", label: "保留新的"/);
+    assert.match(localScrapePage, /value: "keep_older", label: "保留老的"/);
+    assert.match(localScrapePage, /value: "keep_larger", label: "保留文件体积大的"/);
+    assert.match(localScrapePage, /value: "keep_higher_resolution", label: "保留分辨率高的"/);
+    assert.match(localScrapePage, /value: "keep_higher_bitrate", label: "保留码率高的"/);
+    assert.match(localScrapePage, /updateConflictResolution\(conflictCompareItem, option\.value\)/);
     assert.match(localScrapePage, /conflict_resolution: getConflictResolution\(item\) \|\| null/);
     assert.match(localScrapePage, /isResolvableConflict\(item\)[\s\S]*&& !overwriteExisting[\s\S]*&& !getConflictResolution\(item\)/);
+    assert.match(localScrapePage, /分辨率：\{formatResolution\(file\)\}/);
+    assert.match(localScrapePage, /码率：\{formatBitrate\(file\?\.bitrate\)\}/);
+});
+
+test("local scrape page can delete all non-conforming rows without a manual selection step", () => {
+    assert.match(localScrapePage, /const deleteNonConformingByKeys = async \(sourcePaths\) =>/);
+    assert.match(localScrapePage, /const handleDeleteAllNonConforming = async \(\) =>/);
+    assert.match(localScrapePage, /handleDeleteAllNonConforming/);
+    assert.match(localScrapePage, /getDeletableNonConformingLocalScrapeKeys\(allItems\)/);
 });

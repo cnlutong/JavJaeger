@@ -6,7 +6,9 @@
     "proxy": "",
     "request_interval_seconds": 0.5,
     "cache_expire_seconds": 3600,
-    "cache_max_size": 1000
+    "cache_max_size": 1000,
+    "image_retry_attempts": 3,
+    "image_retry_backoff_seconds": 0.25
   },
   "webdav": {
     "enabled": false,

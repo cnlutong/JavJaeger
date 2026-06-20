@@ -182,6 +182,28 @@ export default function SettingsPage() {
                                         </Form.Item>
                                     </Col>
                                 </Row>
+
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["javbus", "image_retry_attempts"]}
+                                            label="图片下载重试次数"
+                                            rules={[{ required: true, message: "请输入图片下载重试次数" }]}
+                                        >
+                                            <InputNumber min={1} max={10} step={1} precision={0} style={{ width: "100%" }} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["javbus", "image_retry_backoff_seconds"]}
+                                            label="图片重试退避（秒）"
+                                            rules={[{ required: true, message: "请输入图片重试退避" }]}
+                                            extra="第 2 次起按该值递增等待；设为 0 表示不等待"
+                                        >
+                                            <InputNumber min={0} max={10} step={0.05} precision={2} style={{ width: "100%" }} />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
                             </Card>
                         </Col>
 
@@ -206,6 +228,15 @@ export default function SettingsPage() {
                                     <div>
                                         <Text type="secondary">当前 JavBus 缓存容量</Text>
                                         <div><Text strong>{settings?.javbus?.cache_max_size ?? "-"} 条</Text></div>
+                                    </div>
+                                    <div>
+                                        <Text type="secondary">当前图片下载重试</Text>
+                                        <div>
+                                            <Text strong>
+                                                {settings?.javbus?.image_retry_attempts ?? "-"} 次，
+                                                退避 {settings?.javbus?.image_retry_backoff_seconds ?? "-"} 秒
+                                            </Text>
+                                        </div>
                                     </div>
                                     <div>
                                         <Text type="secondary">环境变量覆盖</Text>

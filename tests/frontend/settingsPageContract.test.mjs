@@ -13,6 +13,13 @@ test("settings page exposes categorized user configuration sections", () => {
     assert.match(settingsPage, /session_secret/);
 });
 
+test("settings page exposes image retry controls for scrape asset downloads", () => {
+    assert.match(settingsPage, /image_retry_attempts/);
+    assert.match(settingsPage, /image_retry_backoff_seconds/);
+    assert.match(settingsPage, /图片下载重试次数/);
+    assert.match(settingsPage, /图片重试退避/);
+});
+
 test("settings page strips blank sensitive fields before saving", () => {
     assert.match(settingsPage, /buildSettingsPayload/);
     assert.match(settingsPage, /delete payload\.webdav\.password/);

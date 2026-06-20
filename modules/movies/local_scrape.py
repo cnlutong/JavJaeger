@@ -1,9 +1,11 @@
 import asyncio
 import base64
 import datetime
+import json
 import logging
 import re
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -60,7 +62,8 @@ IMAGE_DOWNLOAD_HEADERS = {
     "Referer": "https://www.javbus.com/",
     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
 }
-IMAGE_DOWNLOAD_ATTEMPTS = 3
+DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS = 3
+DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS = 0.25
 
 
 DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
@@ -216,11 +219,22 @@ def _actor_refs(values: Any) -> list[dict[str, str]]:
         if isinstance(value, dict):
             actor_id = str(value.get("id") or "").strip()
             name = str(value.get("name") or value.get("title") or actor_id).strip()
+            avatar = str(
+                value.get("avatar")
+                or value.get("img")
+                or value.get("image")
+                or value.get("thumbnail")
+                or ""
+            ).strip()
         else:
             actor_id = ""
             name = str(value or "").strip()
+            avatar = ""
         if actor_id or name:
-            refs.append({"id": actor_id, "name": name})
+            ref = {"id": actor_id, "name": name}
+            if avatar:
+                ref["avatar"] = avatar
+            refs.append(ref)
     return refs
 
 
@@ -299,7 +313,7 @@ def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem:
     title = str(movie.get("title") or local_id or source_stem).strip()
     genres = _list_names(movie.get("genres"))
     stars = _list_names(movie.get("stars"))
-    actor_refs = _actor_refs(movie.get("stars"))
+    actor_refs = _actor_refs(movie.get("actor_refs")) or _actor_refs(movie.get("stars"))
     samples = movie.get("samples") if isinstance(movie.get("samples"), list) else []
     cover_url = movie.get("img") or movie.get("cover_url") or ""
     return {
@@ -317,7 +331,7 @@ def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem:
         "cover_url": cover_url,
         "list_thumbnail_url": movie.get("list_thumbnail_url") or movie.get("thumbnail_url") or _derive_list_thumbnail_url(cover_url),
         "samples": samples,
-        "raw": movie,
+        "raw": movie.get("raw") if isinstance(movie.get("raw"), dict) else movie,
     }
 
 
@@ -426,6 +440,13 @@ def _file_size(path: Path) -> int:
         return 0
 
 
+def _file_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def _iso_mtime(path: Path) -> str:
     try:
         return datetime.datetime.fromtimestamp(path.stat().st_mtime).isoformat()
@@ -433,13 +454,68 @@ def _iso_mtime(path: Path) -> str:
         return ""
 
 
-def _file_detail(path: Path, exists: bool | None = None) -> dict[str, Any]:
+def _int_or_none(value: Any) -> int | None:
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _probe_video_metadata(path: Path) -> dict[str, int]:
+    try:
+        completed = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,bit_rate:format=bit_rate",
+                "-of",
+                "json",
+                str(path),
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return {}
+    if completed.returncode != 0 or not completed.stdout:
+        return {}
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {}
+
+    streams = payload.get("streams") if isinstance(payload, dict) else None
+    stream = streams[0] if isinstance(streams, list) and streams and isinstance(streams[0], dict) else {}
+    file_format = payload.get("format") if isinstance(payload.get("format"), dict) else {}
+    width = _int_or_none(stream.get("width"))
+    height = _int_or_none(stream.get("height"))
+    bitrate = _int_or_none(stream.get("bit_rate")) or _int_or_none(file_format.get("bit_rate"))
+    metadata: dict[str, int] = {}
+    if width:
+        metadata["width"] = width
+    if height:
+        metadata["height"] = height
+    if width and height:
+        metadata["resolution_pixels"] = width * height
+    if bitrate:
+        metadata["bitrate"] = bitrate
+    return metadata
+
+
+def _file_detail(path: Path, exists: bool | None = None, include_media: bool = False) -> dict[str, Any]:
     try:
         resolved = path.resolve()
     except OSError:
         resolved = path
     actual_exists = resolved.exists() if exists is None else exists
-    return {
+    detail = {
         "path": str(resolved),
         "file_name": resolved.name,
         "exists": actual_exists,
@@ -447,6 +523,61 @@ def _file_detail(path: Path, exists: bool | None = None) -> dict[str, Any]:
         "modified_at": _iso_mtime(resolved) if actual_exists else "",
         "extension": resolved.suffix.lower(),
     }
+    if actual_exists and include_media:
+        detail.update(_probe_video_metadata(resolved))
+    return detail
+
+
+def _conflict_skip_result(
+    item: Any,
+    metadata: dict[str, Any],
+    target_video: Path,
+    target_dir: Path,
+    message: str,
+    kept: str | None,
+) -> dict[str, Any]:
+    return {
+        "source_path": item.source_path,
+        "success": True,
+        "code": metadata.get("id"),
+        "target_video_path": str(target_video),
+        "target_dir": str(target_dir),
+        "skipped": True,
+        "kept": kept,
+        "message": message,
+        "library_recorded": False,
+    }
+
+
+def _choose_conflict_keep_side(source_path: Path, target_path: Path, resolution: str) -> str | None:
+    if resolution in {"keep_source"}:
+        return "source"
+    if resolution in {"skip", "keep_target"}:
+        return "target"
+    if resolution == "keep_newer":
+        source_value = _file_mtime(source_path)
+        target_value = _file_mtime(target_path)
+    elif resolution == "keep_older":
+        source_value = _file_mtime(source_path)
+        target_value = _file_mtime(target_path)
+        if source_value <= 0 or target_value <= 0 or source_value == target_value:
+            return None
+        return "source" if source_value < target_value else "target"
+    elif resolution == "keep_larger":
+        source_value = _file_size(source_path)
+        target_value = _file_size(target_path)
+    elif resolution == "keep_higher_resolution":
+        source_value = _probe_video_metadata(source_path).get("resolution_pixels") or 0
+        target_value = _probe_video_metadata(target_path).get("resolution_pixels") or 0
+    elif resolution == "keep_higher_bitrate":
+        source_value = _probe_video_metadata(source_path).get("bitrate") or 0
+        target_value = _probe_video_metadata(target_path).get("bitrate") or 0
+    else:
+        return None
+
+    if source_value <= 0 or target_value <= 0 or source_value == target_value:
+        return None
+    return "source" if source_value > target_value else "target"
 
 
 def _safe_relative_path(path: Path, root: Path) -> str:
@@ -584,8 +715,8 @@ async def preview_local_scrape(
             "relative_path": str(candidate.path.relative_to(directory.resolve())),
             "file_name": candidate.path.name,
             "file_size": _file_size(candidate.path),
-            "source_file": _file_detail(candidate.path, True),
-            "target_file": _file_detail(target_video, target_video.exists()) if conflict else None,
+            "source_file": _file_detail(candidate.path, True, include_media=conflict),
+            "target_file": _file_detail(target_video, target_video.exists(), include_media=True) if conflict else None,
             "code": candidate.code,
             "recognition_method": candidate.recognition_method if candidate.code else "failed",
             "recognition_message": candidate.recognition_message,
@@ -725,12 +856,29 @@ async def _download_image(url: str, target: Path, overwrite: bool) -> str | None
         _, _, payload = url.partition(",")
         target.write_bytes(base64.b64decode(payload))
         return target.name
+    javbus_config = get_javbus_config()
     client_kwargs: dict[str, Any] = {"timeout": 20.0, "follow_redirects": True}
-    proxy = get_javbus_config().get("proxy")
+    proxy = javbus_config.get("proxy")
     if proxy:
         client_kwargs["proxy"] = proxy
+    retry_attempts_value = javbus_config.get("image_retry_attempts")
+    try:
+        retry_attempts = int(
+            DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS if retry_attempts_value in (None, "") else retry_attempts_value
+        )
+    except (TypeError, ValueError):
+        retry_attempts = DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS
+    retry_attempts = max(1, min(retry_attempts, 10))
+    retry_backoff_value = javbus_config.get("image_retry_backoff_seconds")
+    try:
+        retry_backoff = float(
+            DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS if retry_backoff_value in (None, "") else retry_backoff_value
+        )
+    except (TypeError, ValueError):
+        retry_backoff = DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS
+    retry_backoff = max(0.0, min(retry_backoff, 10.0))
     last_exc: Exception | None = None
-    for attempt in range(1, IMAGE_DOWNLOAD_ATTEMPTS + 1):
+    for attempt in range(1, retry_attempts + 1):
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(url, headers=IMAGE_DOWNLOAD_HEADERS)
@@ -739,8 +887,8 @@ async def _download_image(url: str, target: Path, overwrite: bool) -> str | None
             return target.name
         except Exception as exc:
             last_exc = exc
-            if attempt < IMAGE_DOWNLOAD_ATTEMPTS:
-                await asyncio.sleep(0.25 * attempt)
+            if attempt < retry_attempts and retry_backoff > 0:
+                await asyncio.sleep(retry_backoff * attempt)
     if last_exc:
         raise last_exc
     return target.name
@@ -789,17 +937,26 @@ async def _write_actor_images(video_path: Path, metadata: dict[str, Any], overwr
     actor_dir = video_path.parent / "actors"
     used_names: set[str] = set()
     for index, actor in enumerate(metadata.get("actor_refs") or [], start=1):
-        if not isinstance(actor, dict) or not actor.get("id"):
+        if not isinstance(actor, dict):
             continue
-        try:
-            star_info = await javbus_api_service.get_star_info(str(actor["id"]))
-        except Exception as exc:
-            logger.warning("Local scrape actor info fetch failed for %s: %r", actor.get("id"), exc)
-            continue
-        avatar_url = star_info.get("avatar") if isinstance(star_info, dict) else ""
+        actor_id = str(actor.get("id") or "").strip()
+        avatar_url = str(
+            actor.get("avatar")
+            or actor.get("img")
+            or actor.get("image")
+            or actor.get("thumbnail")
+            or ""
+        ).strip()
+        if not avatar_url and actor_id:
+            try:
+                star_info = await javbus_api_service.get_star_info(actor_id)
+            except Exception as exc:
+                logger.warning("Local scrape actor info fetch failed for %s: %r", actor_id, exc)
+                continue
+            avatar_url = str(star_info.get("avatar") or "").strip() if isinstance(star_info, dict) else ""
         if not avatar_url:
             continue
-        file_stem = _sanitize_path_segment(str(actor.get("name") or actor.get("id") or f"actor{index}"), f"actor{index}")
+        file_stem = _sanitize_path_segment(str(actor.get("name") or actor_id or f"actor{index}"), f"actor{index}")
         if file_stem.lower() in used_names:
             file_stem = _sanitize_path_segment(f"{file_stem}-{index}", f"actor{index}")
         used_names.add(file_stem.lower())
@@ -903,27 +1060,64 @@ async def apply_local_scrape(
             subtitles = _related_subtitles(source_path)
             conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
             conflict_resolution = str(item.conflict_resolution or "").strip()
-            overwrite_target = request.overwrite_existing or conflict_resolution == "keep_source"
-            if conflict and conflict_resolution == "keep_target" and not request.overwrite_existing:
-                success_count += 1
+            keep_side = _choose_conflict_keep_side(source_path, target_video, conflict_resolution) if conflict else None
+            if conflict and not request.overwrite_existing and not conflict_resolution:
                 results.append(
                     {
                         "source_path": item.source_path,
-                        "success": True,
-                        "code": metadata.get("id"),
+                        "success": False,
+                        "error": "conflict_resolution_required",
                         "target_video_path": str(target_video),
                         "target_dir": str(target_dir),
-                        "skipped": True,
-                        "kept": "target",
-                        "message": "kept_existing_target",
-                        "library_recorded": False,
                     }
                 )
                 _emit_progress(
                     progress_callback,
                     {
                         "phase": "apply",
-                        "message": f"保留目标 {index}/{total_items}：{target_video.name}",
+                        "message": f"冲突未选择策略 {index}/{total_items}：{target_video.name}",
+                        "completed": index,
+                        "total": total_items,
+                        "current": str(target_video),
+                    },
+                )
+                continue
+            if conflict and not request.overwrite_existing and keep_side is None:
+                results.append(
+                    {
+                        "source_path": item.source_path,
+                        "success": False,
+                        "error": "conflict_resolution_unresolved",
+                        "target_video_path": str(target_video),
+                        "target_dir": str(target_dir),
+                    }
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "apply",
+                        "message": f"冲突策略无法判断 {index}/{total_items}：{target_video.name}",
+                        "completed": index,
+                        "total": total_items,
+                        "current": str(target_video),
+                    },
+                )
+                continue
+            overwrite_target = request.overwrite_existing or keep_side == "source"
+            if conflict and not request.overwrite_existing and keep_side != "source":
+                success_count += 1
+                message = "skipped_conflict" if conflict_resolution == "skip" else "kept_existing_target"
+                kept = "target" if keep_side == "target" else None
+                results.append(
+                    _conflict_skip_result(item, metadata, target_video, target_dir, message, kept)
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "apply",
+                        "message": f"跳过冲突 {index}/{total_items}：{target_video.name}"
+                        if conflict_resolution == "skip"
+                        else f"保留目标 {index}/{total_items}：{target_video.name}",
                         "completed": index,
                         "total": total_items,
                         "current": str(target_video),
@@ -984,7 +1178,7 @@ async def apply_local_scrape(
                     "code": metadata.get("id"),
                     "target_video_path": str(current_video),
                     "target_dir": str(target_dir),
-                    "kept": "source" if conflict and overwrite_target else None,
+                    "kept": "source" if conflict and keep_side == "source" else None,
                     "nfo_path": str(nfo_path) if nfo_path else None,
                     "poster": poster_name,
                     "samples": sample_names,

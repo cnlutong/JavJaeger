@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -156,16 +157,22 @@ def test_system_settings_update_persists_and_reconfigures_javbus(tmp_path, monke
                 "request_interval_seconds": 0.75,
                 "cache_expire_seconds": 7200,
                 "cache_max_size": 2000,
+                "image_retry_attempts": 5,
+                "image_retry_backoff_seconds": 0.4,
             }
         },
     )
 
     assert response.status_code == 200
     assert response.json()["javbus"]["base_url"] == "https://new.example.test"
+    assert response.json()["javbus"]["image_retry_attempts"] == 5
+    assert response.json()["javbus"]["image_retry_backoff_seconds"] == 0.4
     assert fake_service.configs[-1]["request_interval_seconds"] == 0.75
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["javbus"]["base_url"] == "https://new.example.test"
     assert saved["javbus"]["cache_max_size"] == 2000
+    assert saved["javbus"]["image_retry_attempts"] == 5
+    assert saved["javbus"]["image_retry_backoff_seconds"] == 0.4
 
 
 def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypatch):
@@ -265,6 +272,56 @@ def test_system_settings_rejects_invalid_javbus_values():
 
     assert response.status_code == 400
     assert response.json()["detail"] == "base_url_must_be_http_url"
+
+
+def test_local_scrape_image_download_uses_configured_retry_policy(tmp_path, monkeypatch):
+    attempts = []
+    sleeps = []
+
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+            self.content = b"avatar"
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise local_scrape.httpx.HTTPStatusError("failed", request=None, response=self)
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            attempts.append(url)
+            return FakeResponse(503 if len(attempts) < 4 else 200)
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(local_scrape.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(local_scrape.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(
+        local_scrape,
+        "get_javbus_config",
+        lambda: {
+            "image_retry_attempts": 4,
+            "image_retry_backoff_seconds": 0.1,
+        },
+    )
+
+    target = tmp_path / "actors" / "Actor One.jpg"
+    name = asyncio.run(local_scrape._download_image("https://www.javbus.com/pics/actress/a.jpg", target, True))
+
+    assert name == "Actor One.jpg"
+    assert len(attempts) == 4
+    assert sleeps == [0.1, 0.2, 0.30000000000000004]
+    assert target.read_bytes() == b"avatar"
 
 
 def test_path_browser_lists_only_child_directories(tmp_path):
@@ -552,7 +609,23 @@ def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatc
             "date": "2024-01-02",
         }
 
+    def fake_probe_video_metadata(path):
+        if path.resolve() == source_video.resolve():
+            return {
+                "width": 1920,
+                "height": 1080,
+                "resolution_pixels": 1920 * 1080,
+                "bitrate": 2_000_000,
+            }
+        return {
+            "width": 1280,
+            "height": 720,
+            "resolution_pixels": 1280 * 720,
+            "bitrate": 4_000_000,
+        }
+
     monkeypatch.setattr(local_scrape.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", fake_probe_video_metadata)
 
     payload = asyncio.run(
         local_scrape.preview_local_scrape(
@@ -568,8 +641,24 @@ def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatc
     assert item["target_exists"] is True
     assert item["source_file"]["path"] == str(source_video.resolve())
     assert item["source_file"]["size"] == len(b"source-video")
+    assert item["source_file"]["width"] == 1920
+    assert item["source_file"]["height"] == 1080
+    assert item["source_file"]["resolution_pixels"] == 1920 * 1080
+    assert item["source_file"]["bitrate"] == 2_000_000
     assert item["target_file"]["path"] == str(target_video.resolve())
     assert item["target_file"]["size"] == len(b"target-video-longer")
+    assert item["target_file"]["width"] == 1280
+    assert item["target_file"]["height"] == 720
+    assert item["target_file"]["resolution_pixels"] == 1280 * 720
+    assert item["target_file"]["bitrate"] == 4_000_000
+
+
+def test_docker_image_installs_ffmpeg_for_local_scrape_media_comparison():
+    dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
+    dockerfile_text = dockerfile.read_text(encoding="utf-8")
+
+    assert "apt-get install" in dockerfile_text
+    assert "ffmpeg" in dockerfile_text
 
 
 def test_local_scrape_apply_respects_per_item_conflict_resolution(tmp_path):
@@ -635,6 +724,140 @@ def test_local_scrape_apply_respects_per_item_conflict_resolution(tmp_path):
     assert keep_source["results"][0]["kept"] == "source"
     assert not source_video.exists()
     assert target_video.read_bytes() == b"source-video"
+
+
+def test_local_scrape_apply_supports_conflict_keep_skip_newer_older_and_larger(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    metadata = {
+        "id": "ABP-123",
+        "title": "ABP-123 Remote Title",
+        "raw": {"id": "ABP-123"},
+    }
+
+    async def run_strategy(name, source_bytes, target_bytes, source_mtime, target_mtime):
+        source_video = source_dir / "ABP-123.mp4"
+        target_video = target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4"
+        target_video.parent.mkdir(parents=True, exist_ok=True)
+        source_video.write_bytes(source_bytes)
+        target_video.write_bytes(target_bytes)
+        os.utime(source_video, (source_mtime, source_mtime))
+        os.utime(target_video, (target_mtime, target_mtime))
+        result = await local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(source_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": name,
+                    }
+                ],
+                target_directory=str(target_dir),
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+        return result, source_video, target_video
+
+    skip, source_video, target_video = asyncio.run(run_strategy("skip", b"source", b"target", 100, 200))
+    assert skip["success"] is True
+    assert skip["results"][0]["skipped"] is True
+    assert skip["results"][0]["message"] == "skipped_conflict"
+    assert source_video.exists()
+    assert target_video.read_bytes() == b"target"
+
+    newer_source, source_video, target_video = asyncio.run(
+        run_strategy("keep_newer", b"new-source", b"old-target", 300, 200)
+    )
+    assert newer_source["results"][0]["kept"] == "source"
+    assert not source_video.exists()
+    assert target_video.read_bytes() == b"new-source"
+
+    older_target, source_video, target_video = asyncio.run(
+        run_strategy("keep_older", b"new-source", b"old-target", 300, 200)
+    )
+    assert older_target["results"][0]["skipped"] is True
+    assert older_target["results"][0]["kept"] == "target"
+    assert source_video.exists()
+    assert target_video.read_bytes() == b"old-target"
+
+    larger_source, source_video, target_video = asyncio.run(
+        run_strategy("keep_larger", b"source-is-larger", b"target", 100, 200)
+    )
+    assert larger_source["results"][0]["kept"] == "source"
+    assert not source_video.exists()
+    assert target_video.read_bytes() == b"source-is-larger"
+
+
+def test_local_scrape_apply_supports_conflict_resolution_and_bitrate_strategies(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    metadata = {
+        "id": "ABP-123",
+        "title": "ABP-123 Remote Title",
+        "raw": {"id": "ABP-123"},
+    }
+
+    def fake_probe(path):
+        path_text = str(path)
+        if "source" in path_text:
+            return {
+                "width": 1920,
+                "height": 1080,
+                "resolution_pixels": 1920 * 1080,
+                "bitrate": 1_500_000,
+            }
+        return {
+            "width": 1280,
+            "height": 720,
+            "resolution_pixels": 1280 * 720,
+            "bitrate": 3_000_000,
+        }
+
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", fake_probe)
+
+    async def run_strategy(name, source_bytes, target_bytes):
+        source_video = source_dir / "ABP-123.mp4"
+        target_video = target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4"
+        target_video.parent.mkdir(parents=True, exist_ok=True)
+        source_video.write_bytes(source_bytes)
+        target_video.write_bytes(target_bytes)
+        result = await local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(source_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": name,
+                    }
+                ],
+                target_directory=str(target_dir),
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+        return result, source_video, target_video
+
+    higher_resolution, source_video, target_video = asyncio.run(
+        run_strategy("keep_higher_resolution", b"source-resolution", b"target-resolution")
+    )
+    assert higher_resolution["results"][0]["kept"] == "source"
+    assert not source_video.exists()
+    assert target_video.read_bytes() == b"source-resolution"
+
+    higher_bitrate, source_video, target_video = asyncio.run(
+        run_strategy("keep_higher_bitrate", b"source-bitrate", b"target-bitrate")
+    )
+    assert higher_bitrate["results"][0]["skipped"] is True
+    assert higher_bitrate["results"][0]["kept"] == "target"
+    assert source_video.exists()
+    assert target_video.read_bytes() == b"target-bitrate"
 
 
 def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_path, monkeypatch):
@@ -760,6 +983,50 @@ def test_local_scrape_downloads_actor_avatars_and_list_thumbnail_options(tmp_pat
     assert (
         "https://www.javbus.com/pics/thumb/abp.jpg",
         Path("ABP-123 Sample-thumb.jpg"),
+        True,
+    ) in downloaded
+
+
+def test_local_scrape_rebuilt_preview_metadata_keeps_actor_refs_for_avatar_download(tmp_path, monkeypatch):
+    downloaded = []
+    fetched_star_ids = []
+
+    async def fake_download(url, target, overwrite):
+        downloaded.append((url, target.relative_to(tmp_path), overwrite))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(f"image:{url}".encode("utf-8"))
+        return target.name
+
+    async def fake_star_info(star_id):
+        fetched_star_ids.append(star_id)
+        return {
+            "id": star_id,
+            "avatar": f"https://www.javbus.com/pics/actress/{star_id}.jpg",
+        }
+
+    monkeypatch.setattr(local_scrape, "_download_image", fake_download)
+    monkeypatch.setattr(local_scrape.javbus_api_service, "get_star_info", fake_star_info)
+
+    video = tmp_path / "ABP-123 Sample.mp4"
+    preview_metadata = local_scrape._build_metadata(
+        {
+            "id": "ABP-123",
+            "title": "ABP-123 Sample",
+            "stars": [{"id": "star-a", "name": "Actor One"}],
+        },
+        "ABP-123",
+        video.stem,
+    )
+
+    apply_metadata = local_scrape._build_metadata(preview_metadata, "ABP-123", video.stem)
+    actor_names = asyncio.run(local_scrape._write_actor_images(video, apply_metadata, overwrite=True))
+
+    assert apply_metadata["actor_refs"] == [{"id": "star-a", "name": "Actor One"}]
+    assert fetched_star_ids == ["star-a"]
+    assert actor_names == [str(Path("actors") / "Actor One.jpg")]
+    assert (
+        "https://www.javbus.com/pics/actress/star-a.jpg",
+        Path("actors") / "Actor One.jpg",
         True,
     ) in downloaded
 

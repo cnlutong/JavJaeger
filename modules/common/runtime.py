@@ -20,6 +20,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "request_interval_seconds": 0.5,
         "cache_expire_seconds": 3600,
         "cache_max_size": 1000,
+        "image_retry_attempts": 3,
+        "image_retry_backoff_seconds": 0.25,
     },
     "webdav": {
         "enabled": False,
@@ -237,6 +239,8 @@ def build_system_config_summary() -> dict[str, Any]:
             "proxy_configured": bool(javbus_config.get("proxy")),
             "timeout_seconds": javbus_config["timeout_seconds"],
             "request_interval_seconds": javbus_config["request_interval_seconds"],
+            "image_retry_attempts": javbus_config["image_retry_attempts"],
+            "image_retry_backoff_seconds": javbus_config["image_retry_backoff_seconds"],
         },
         "features": {
             "webdav_configured": client_config["webdav"]["configured"],

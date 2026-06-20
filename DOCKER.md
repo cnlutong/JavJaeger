@@ -55,7 +55,9 @@ volumes:
     "base_url": "https://www.javbus.com",
     "timeout_seconds": 8,
     "proxy": "",
-    "request_interval_seconds": 0.5
+    "request_interval_seconds": 0.5,
+    "image_retry_attempts": 3,
+    "image_retry_backoff_seconds": 0.25
   },
   "webdav": {
     "enabled": true,
@@ -158,11 +160,12 @@ volumes:
 当前 Dockerfile 已升级为多阶段构建：
 
 - 第一阶段使用 Node 执行 `npm ci` 和 `npm run build:frontend`
-- 第二阶段使用 Python 运行 FastAPI 应用
+- 第二阶段安装 `ffmpeg` 并使用 Python 运行 FastAPI 应用
 
 这意味着：
 
 - 构建镜像时会自动生成 `static/app.js`
+- 容器内自带 `ffprobe`，本地刮削可以比较冲突视频的分辨率和码率
 - 即使宿主机没有提前执行 `npm run build:frontend`，容器镜像也能完成前端打包
 - 如果你修改了 `frontend/src/`，重新执行 `docker-compose up -d --build` 即可
 

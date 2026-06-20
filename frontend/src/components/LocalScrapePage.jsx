@@ -14,6 +14,7 @@ import {
 } from "../utils/localScrapeNamingTemplates.mjs";
 import {
     getDeletableNonConformingLocalScrapeKeys,
+    getNonConformingLocalScrapeItems,
     getVisibleLocalScrapeItems,
     isConformingLocalScrapeItem,
 } from "../utils/localScrapeResults.mjs";
@@ -85,6 +86,24 @@ const formatBytes = (bytes) => {
     return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 };
 
+const formatBitrate = (bitrate) => {
+    if (!bitrate) return "-";
+    if (bitrate >= 1000 * 1000) {
+        return `${(bitrate / 1000 / 1000).toFixed(2)} Mbps`;
+    }
+    if (bitrate >= 1000) {
+        return `${(bitrate / 1000).toFixed(0)} Kbps`;
+    }
+    return `${bitrate} bps`;
+};
+
+const formatResolution = (file) => {
+    if (!file?.width || !file?.height) {
+        return "-";
+    }
+    return `${file.width}x${file.height}`;
+};
+
 const statusTag = (item) => {
     if (item.target_exists) {
         return <Tag color="red" icon={<Icon as={WarningOutlined} />}>冲突</Tag>;
@@ -147,18 +166,35 @@ export default function LocalScrapePage() {
 
     const allItems = preview?.items || [];
     const items = getVisibleLocalScrapeItems(allItems, showNonConforming);
-    const selectedItems = allItems.filter((item) => selectedRowKeys.includes(item.source_path) && isConformingLocalScrapeItem(item));
-    const selectedDeleteItems = allItems.filter((item) => selectedRowKeys.includes(item.source_path) && !isConformingLocalScrapeItem(item));
-    const nonConformingCount = allItems.length - allItems.filter(isConformingLocalScrapeItem).length;
+    const selectedVisibleItems = items.filter((item) => selectedRowKeys.includes(item.source_path));
+    const selectedItems = selectedVisibleItems.filter(isConformingLocalScrapeItem);
+    const selectedDeleteItems = selectedVisibleItems.filter((item) => !isConformingLocalScrapeItem(item));
+    const nonConformingItems = getNonConformingLocalScrapeItems(allItems);
+    const nonConformingCount = nonConformingItems.length;
+    const deletableNonConformingCount = getDeletableNonConformingLocalScrapeKeys(allItems).length;
     const selectedTemplate = taskTemplates.find((template) => template.id === selectedTemplateId) || null;
     const taskTemplateOptions = taskTemplates.map((template) => ({
         value: template.id,
         label: template.name,
     }));
     const conflictResolutionLabels = {
+        skip: "跳过",
+        keep_newer: "保留新的",
+        keep_older: "保留老的",
+        keep_larger: "保留文件体积大的",
+        keep_higher_resolution: "保留分辨率高的",
+        keep_higher_bitrate: "保留码率高的",
         keep_source: "保留源文件并覆盖目标",
         keep_target: "保留目标文件",
     };
+    const conflictResolutionOptions = [
+        { value: "skip", label: "跳过" },
+        { value: "keep_newer", label: "保留新的" },
+        { value: "keep_older", label: "保留老的" },
+        { value: "keep_larger", label: "保留文件体积大的" },
+        { value: "keep_higher_resolution", label: "保留分辨率高的" },
+        { value: "keep_higher_bitrate", label: "保留码率高的" },
+    ];
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "文件夹模板" : "文件命名模板";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
 
@@ -501,6 +537,8 @@ export default function LocalScrapePage() {
                 </Text>
                 <Text type="secondary">大小：{formatBytes(file?.size)}</Text>
                 <Text type="secondary">修改时间：{file?.modified_at || "-"}</Text>
+                <Text type="secondary">分辨率：{formatResolution(file)}</Text>
+                <Text type="secondary">码率：{formatBitrate(file?.bitrate)}</Text>
                 <Text type="secondary">扩展名：{file?.extension || "-"}</Text>
             </Space>
         </Card>
@@ -533,7 +571,7 @@ export default function LocalScrapePage() {
             && !getConflictResolution(item)
         ));
         if (unresolvedConflicts.length > 0) {
-            message.warning("请先比较冲突文件，并选择保留源文件或目标文件");
+            message.warning("请先比较冲突文件，并选择跳过、新旧、体积、分辨率或码率策略");
             setConflictCompareItem(unresolvedConflicts[0]);
             return;
         }
@@ -565,8 +603,7 @@ export default function LocalScrapePage() {
         }
     };
 
-    const handleDeleteNonConforming = async () => {
-        const sourcePaths = selectedDeleteItems.map((item) => item.source_path);
+    const deleteNonConformingByKeys = async (sourcePaths) => {
         if (!preview?.directory || sourcePaths.length === 0) {
             message.warning("请先选择不符合要求的文件");
             return;
@@ -606,6 +643,16 @@ export default function LocalScrapePage() {
         } finally {
             setLoadingDelete(false);
         }
+    };
+
+    const handleDeleteNonConforming = async () => {
+        await deleteNonConformingByKeys(selectedDeleteItems.map((item) => item.source_path));
+    };
+
+    const handleDeleteAllNonConforming = async () => {
+        const keys = getDeletableNonConformingLocalScrapeKeys(allItems);
+        setShowNonConforming(true);
+        await deleteNonConformingByKeys(keys);
     };
 
     const renderActiveTaskPanel = () => {
@@ -919,11 +966,28 @@ export default function LocalScrapePage() {
                                 {preview && <Tag>{nonConformingCount}</Tag>}
                             </Space>
                             <Button
-                                disabled={!preview || nonConformingCount === 0}
+                                disabled={!preview || deletableNonConformingCount === 0}
                                 onClick={handleSelectNonConforming}
                             >
                                 全选不符合要求
                             </Button>
+                            <Popconfirm
+                                title={`确认删除 ${deletableNonConformingCount} 个不符合要求的文件？`}
+                                description="此操作会从本地文件系统删除全部不符合要求的源文件。"
+                                okText="删除"
+                                cancelText="取消"
+                                disabled={deletableNonConformingCount === 0 || loadingDelete}
+                                onConfirm={handleDeleteAllNonConforming}
+                            >
+                                <Button
+                                    danger
+                                    disabled={!preview || deletableNonConformingCount === 0}
+                                    loading={loadingDelete}
+                                    icon={<Icon as={DeleteOutlined} />}
+                                >
+                                    删除全部不符合
+                                </Button>
+                            </Popconfirm>
                             <Popconfirm
                                 title={`确认删除 ${selectedDeleteItems.length} 个不符合要求的文件？`}
                                 description="此操作会从本地文件系统删除选中的源文件。"
@@ -1029,7 +1093,9 @@ export default function LocalScrapePage() {
                                         <Text key={result.source_path} type={result.success ? "secondary" : "danger"}>
                                             {result.success
                                                 ? result.skipped
-                                                    ? `已保留目标文件：${result.target_video_path}`
+                                                    ? result.message === "skipped_conflict"
+                                                        ? `已跳过冲突：${result.target_video_path}`
+                                                        : `已保留目标文件：${result.target_video_path}`
                                                     : result.target_video_path
                                                 : `${result.source_path}: ${result.error}`}
                                         </Text>
@@ -1047,17 +1113,16 @@ export default function LocalScrapePage() {
                 width={760}
                 placement="right"
                 extra={conflictCompareItem && (
-                    <Space>
-                        <Button onClick={() => updateConflictResolution(conflictCompareItem, "keep_target")}>
-                            保留目标文件
-                        </Button>
-                        <Button
-                            type="primary"
-                            danger
-                            onClick={() => updateConflictResolution(conflictCompareItem, "keep_source")}
-                        >
-                            保留源文件并覆盖
-                        </Button>
+                    <Space wrap>
+                        {conflictResolutionOptions.map((option) => (
+                            <Button
+                                key={option.value}
+                                type={option.value === "skip" ? "default" : "primary"}
+                                onClick={() => updateConflictResolution(conflictCompareItem, option.value)}
+                            >
+                                {option.label}
+                            </Button>
+                        ))}
                     </Space>
                 )}
             >
@@ -1067,7 +1132,7 @@ export default function LocalScrapePage() {
                             type="warning"
                             showIcon
                             message="目标文件已存在"
-                            description="比较源文件和目标文件的路径、大小和修改时间后，选择本次刮削要保留哪个文件。"
+                            description="比较源文件和目标文件的路径、大小、修改时间、分辨率和码率后，选择本次刮削的冲突处理策略。"
                         />
                         <Space direction="vertical" size={4} style={{ width: "100%" }}>
                             <Text type="secondary">番号</Text>

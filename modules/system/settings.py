@@ -12,6 +12,8 @@ JAVBUS_SETTING_LIMITS = {
     "request_interval_seconds": (0.0, 10.0),
     "cache_expire_seconds": (0, 86400),
     "cache_max_size": (1, 100000),
+    "image_retry_attempts": (1, 10),
+    "image_retry_backoff_seconds": (0.0, 10.0),
 }
 
 
@@ -28,6 +30,8 @@ def build_settings_payload() -> dict[str, Any]:
             "request_interval_seconds": javbus_config.get("request_interval_seconds"),
             "cache_expire_seconds": javbus_config.get("cache_expire_seconds"),
             "cache_max_size": javbus_config.get("cache_max_size"),
+            "image_retry_attempts": javbus_config.get("image_retry_attempts"),
+            "image_retry_backoff_seconds": javbus_config.get("image_retry_backoff_seconds"),
         },
         "webdav": {
             "enabled": bool(webdav_config.get("enabled")),
@@ -92,7 +96,7 @@ def validate_javbus_settings(payload: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=f"{key}_must_be_number")
         if number < minimum or number > maximum:
             raise HTTPException(status_code=400, detail=f"{key}_out_of_range")
-        if key in {"cache_expire_seconds", "cache_max_size"}:
+        if key in {"cache_expire_seconds", "cache_max_size", "image_retry_attempts"}:
             normalized[key] = int(number)
         else:
             normalized[key] = number
