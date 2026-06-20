@@ -6,6 +6,9 @@ import {
     getVisibleLocalScrapeItems,
     isConformingLocalScrapeItem,
 } from "../../frontend/src/utils/localScrapeResults.mjs";
+import { readFileSync } from "node:fs";
+
+const localScrapePage = readFileSync(new URL("../../frontend/src/components/LocalScrapePage.jsx", import.meta.url), "utf8");
 
 const rows = [
     { source_path: "found.mp4", scrape_status: "found" },
@@ -37,4 +40,10 @@ test("local scrape delete selection includes only non-conforming rows with sourc
         "not-found.mp4",
         "failed.mp4",
     ]);
+});
+
+test("local scrape table page size selection is controlled by component state", () => {
+    assert.match(localScrapePage, /const \[tablePageSize, setTablePageSize\] = React\.useState\(12\)/);
+    assert.match(localScrapePage, /pagination=\{\{[\s\S]*pageSize: tablePageSize[\s\S]*showSizeChanger: true[\s\S]*onShowSizeChange: \(_, size\) => setTablePageSize\(size\)[\s\S]*onChange: \(_, size\) => setTablePageSize\(size\)/);
+    assert.doesNotMatch(localScrapePage, /pagination=\{\{ pageSize: 12, showSizeChanger: true \}\}/);
 });

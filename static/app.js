@@ -749,6 +749,8 @@
     namingTemplate: String(values.namingTemplate || "{code} {title}").trim() || "{code} {title}",
     writeNfo: values.writeNfo !== false,
     downloadImages: values.downloadImages !== false,
+    downloadActorImages: !!values.downloadActorImages,
+    downloadListThumbnail: !!values.downloadListThumbnail,
     overwriteExisting: !!values.overwriteExisting
   });
   var normalizeLocalScrapeTaskTemplateName = (name) => {
@@ -1178,6 +1180,7 @@
     const [loadingApply, setLoadingApply] = React3.useState(false);
     const [loadingDelete, setLoadingDelete] = React3.useState(false);
     const [showNonConforming, setShowNonConforming] = React3.useState(false);
+    const [tablePageSize, setTablePageSize] = React3.useState(12);
     const [applyResult, setApplyResult] = React3.useState(null);
     const [taskTemplates, setTaskTemplates] = React3.useState(() => loadLocalScrapeTaskTemplates());
     const [selectedTemplateId, setSelectedTemplateId] = React3.useState("");
@@ -1217,6 +1220,8 @@
       naming_template: String(values.namingTemplate || "").trim(),
       write_nfo: values.writeNfo !== false,
       download_images: values.downloadImages !== false,
+      download_actor_images: !!values.downloadActorImages,
+      download_list_thumbnail: !!values.downloadListThumbnail,
       overwrite_existing: !!values.overwriteExisting
     });
     const applyTemplateToForm = (template) => {
@@ -1497,6 +1502,8 @@
             concurrent: 3,
             writeNfo: true,
             downloadImages: true,
+            downloadActorImages: false,
+            downloadListThumbnail: false,
             overwriteExisting: false
           },
           onFinish: handlePreview
@@ -1594,7 +1601,7 @@
             "\u8BBE\u7F6E"
           ))
         ),
-        /* @__PURE__ */ React3.createElement(Space3, { wrap: true }, /* @__PURE__ */ React3.createElement(Form2.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "scrape", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u8054\u7F51\u522E\u524A")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "organize", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u6574\u7406\u5230\u72EC\u7ACB\u76EE\u5F55")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "writeNfo", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u5199\u5165 NFO")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "downloadImages", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u4E0B\u8F7D\u5C01\u9762"))),
+        /* @__PURE__ */ React3.createElement(Space3, { wrap: true }, /* @__PURE__ */ React3.createElement(Form2.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "scrape", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u8054\u7F51\u522E\u524A")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "organize", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u6574\u7406\u5230\u72EC\u7ACB\u76EE\u5F55")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "writeNfo", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u5199\u5165 NFO")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "downloadImages", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u4E0B\u8F7D\u5C01\u9762")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "downloadActorImages", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u4E0B\u8F7D\u6F14\u5458\u5934\u50CF")), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "downloadListThumbnail", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Checkbox, null, "\u4E0B\u8F7D\u5217\u8868\u7F29\u7565\u56FE"))),
         /* @__PURE__ */ React3.createElement(Space3, { align: "center", wrap: true }, /* @__PURE__ */ React3.createElement(Form2.Item, { name: "maxDepth", label: "\u6700\u5927\u6DF1\u5EA6" }, /* @__PURE__ */ React3.createElement(InputNumber2, { min: 0, placeholder: "\u4E0D\u9650" })), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "concurrent", label: "\u522E\u524A\u5E76\u53D1" }, /* @__PURE__ */ React3.createElement(InputNumber2, { min: 1, max: 5 })), /* @__PURE__ */ React3.createElement(Form2.Item, { name: "overwriteExisting", label: "\u8986\u76D6\u51B2\u7A81", valuePropName: "checked" }, /* @__PURE__ */ React3.createElement(Switch2, null))),
         /* @__PURE__ */ React3.createElement(
           Button3,
@@ -1679,7 +1686,12 @@
         dataSource: items,
         columns,
         loading: loadingPreview,
-        pagination: { pageSize: 12, showSizeChanger: true },
+        pagination: {
+          pageSize: tablePageSize,
+          showSizeChanger: true,
+          onShowSizeChange: (_, size) => setTablePageSize(size),
+          onChange: (_, size) => setTablePageSize(size)
+        },
         rowSelection: {
           selectedRowKeys,
           onChange: setSelectedRowKeys,
@@ -1855,9 +1867,16 @@
     const coverUrl = record?.cover_url || record?.metadata?.cover_url || record?.img || "";
     return coverUrl ? `/api/image-proxy?url=${encodeURIComponent(coverUrl)}` : "";
   };
-  var MoviePoster = ({ record, compact = false, width = null }) => {
+  var thumbnailSource = (record) => {
+    const thumbnailUrl = record?.thumbnail_url || record?.metadata?.list_thumbnail_url || "";
+    if (!thumbnailUrl) {
+      return "";
+    }
+    return thumbnailUrl.startsWith("/api/") ? thumbnailUrl : `/api/image-proxy?url=${encodeURIComponent(thumbnailUrl)}`;
+  };
+  var MoviePoster = ({ record, compact = false, width = null, variant = "poster" }) => {
     const [failed, setFailed] = React4.useState(false);
-    const src = posterSource(record);
+    const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
     const style = width ? { width, height: compact ? Math.round(width * 1.5) : void 0 } : void 0;
     if (src && !failed) {
       return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React4.createElement("img", { src, alt: record.title || record.movie_id, onError: () => setFailed(true) }));
@@ -2106,7 +2125,7 @@ ${record.full_text || ""}`.toLowerCase();
         title: "\u5C01\u9762",
         key: "poster",
         width: listPosterSize + 30,
-        render: (_, record) => /* @__PURE__ */ React4.createElement(MoviePoster, { record, compact: true, width: listPosterSize })
+        render: (_, record) => /* @__PURE__ */ React4.createElement(MoviePoster, { record, compact: true, width: listPosterSize, variant: "thumbnail" })
       },
       {
         title: "\u756A\u53F7",
@@ -2188,7 +2207,7 @@ ${record.full_text || ""}`.toLowerCase();
           key: record.movie_id,
           hoverable: true,
           className: "jav-library-poster-card",
-          cover: /* @__PURE__ */ React4.createElement(MoviePoster, { record }),
+          cover: /* @__PURE__ */ React4.createElement(MoviePoster, { record, variant: "thumbnail" }),
           onClick: () => openRecordPreview(record)
         },
         /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),

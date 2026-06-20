@@ -100,9 +100,19 @@ const posterSource = (record) => {
     return coverUrl ? `/api/image-proxy?url=${encodeURIComponent(coverUrl)}` : "";
 };
 
-const MoviePoster = ({ record, compact = false, width = null }) => {
+const thumbnailSource = (record) => {
+    const thumbnailUrl = record?.thumbnail_url || record?.metadata?.list_thumbnail_url || "";
+    if (!thumbnailUrl) {
+        return "";
+    }
+    return thumbnailUrl.startsWith("/api/")
+        ? thumbnailUrl
+        : `/api/image-proxy?url=${encodeURIComponent(thumbnailUrl)}`;
+};
+
+const MoviePoster = ({ record, compact = false, width = null, variant = "poster" }) => {
     const [failed, setFailed] = React.useState(false);
-    const src = posterSource(record);
+    const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
     const style = width ? { width, height: compact ? Math.round(width * 1.5) : undefined } : undefined;
     if (src && !failed) {
         return (
@@ -465,7 +475,7 @@ export default function LocalLibraryPage() {
             title: "封面",
             key: "poster",
             width: listPosterSize + 30,
-            render: (_, record) => <MoviePoster record={record} compact width={listPosterSize} />,
+            render: (_, record) => <MoviePoster record={record} compact width={listPosterSize} variant="thumbnail" />,
         },
         {
             title: "番号",
@@ -645,7 +655,7 @@ export default function LocalLibraryPage() {
                                         key={record.movie_id}
                                         hoverable
                                         className="jav-library-poster-card"
-                                        cover={<MoviePoster record={record} />}
+                                        cover={<MoviePoster record={record} variant="thumbnail" />}
                                         onClick={() => openRecordPreview(record)}
                                     >
                                         <Text strong ellipsis={{ tooltip: record.title }} className="jav-library-poster-title">

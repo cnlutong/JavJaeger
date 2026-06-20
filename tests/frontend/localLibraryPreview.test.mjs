@@ -23,6 +23,14 @@ test("local library preview uses enlarged poster and right-side details", () => 
     assert.match(css, /\.jav-library-preview-details\s*\{[\s\S]*display:\s*grid;/);
 });
 
+test("local library list and card posters prefer search thumbnails before preview", () => {
+    assert.match(localLibraryPage, /const thumbnailSource = \(record\) =>/);
+    assert.match(localLibraryPage, /variant === "thumbnail"\s*\?\s*thumbnailSource\(record\)/);
+    assert.match(localLibraryPage, /<MoviePoster record=\{record\} compact width=\{listPosterSize\} variant="thumbnail" \/>/);
+    assert.match(localLibraryPage, /cover=\{<MoviePoster record=\{record\} variant="thumbnail" \/>\}/);
+    assert.match(localLibraryPage, /<MoviePoster record=\{selectedRecord\} \/>/);
+});
+
 test("local library preview exposes a click-to-play video player", () => {
     assert.match(localLibraryPage, /PlayCircleOutlined/);
     assert.match(localLibraryPage, /playingRecordKey/);

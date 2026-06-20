@@ -85,6 +85,14 @@ async def get_local_movie_library_poster(movie_id: str):
     return FileResponse(poster_path)
 
 
+@router.get("/api/movies/local-library/thumbnail/{movie_id}")
+async def get_local_movie_library_thumbnail(movie_id: str):
+    thumbnail_path = await local_movie_library_service.get_thumbnail_path(movie_id)
+    if thumbnail_path is None:
+        raise HTTPException(status_code=404, detail="thumbnail_not_found")
+    return FileResponse(thumbnail_path)
+
+
 @router.get("/api/movies/local-library/{movie_id}/play")
 async def play_local_movie_library_file(movie_id: str, file_index: int = 0):
     video_path = await local_movie_library_service.get_video_file_path(movie_id, file_index)

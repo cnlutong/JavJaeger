@@ -171,6 +171,11 @@ class LocalMovieLibraryService:
             record["cover_url"] = metadata.get("cover_url") or record.get("img") or ""
             if await self.get_poster_path(str(record.get("movie_id") or "")):
                 record["poster_url"] = f"/api/movies/local-library/poster/{record.get('movie_id')}"
+            thumbnail_path = await self.get_thumbnail_path(str(record.get("movie_id") or ""))
+            if thumbnail_path:
+                record["thumbnail_url"] = f"/api/movies/local-library/thumbnail/{record.get('movie_id')}"
+            elif metadata.get("list_thumbnail_url"):
+                record["thumbnail_url"] = metadata.get("list_thumbnail_url")
         total_files = sum(int(record.get("file_count") or 0) for record in records)
         total_size = sum(int(record.get("total_size") or 0) for record in records)
         return {
@@ -221,6 +226,30 @@ class LocalMovieLibraryService:
                 video_path.with_name("poster.jpg"),
                 video_path.with_name("folder.jpg"),
                 video_path.with_name("cover.jpg"),
+            ]
+            for candidate in candidates:
+                try:
+                    if candidate.exists() and candidate.is_file():
+                        return candidate.resolve()
+                except OSError:
+                    continue
+        return None
+
+    async def get_thumbnail_path(self, movie_id: str) -> Path | None:
+        records = await self.load_records()
+        record = records.get((movie_id or "").upper())
+        if not record:
+            return None
+
+        for file_record in record.get("files", []):
+            video_path = Path(str(file_record.get("path") or ""))
+            if not video_path.name:
+                continue
+            candidates = [
+                video_path.with_name(f"{video_path.stem}-thumb.jpg"),
+                video_path.with_name(f"{video_path.stem}-thumb.png"),
+                video_path.with_name("thumb.jpg"),
+                video_path.with_name("thumbnail.jpg"),
             ]
             for candidate in candidates:
                 try:

@@ -42,6 +42,8 @@ test("local scrape templates persist only normalized task fields", () => {
             namingTemplate: "",
             writeNfo: false,
             downloadImages: true,
+            downloadActorImages: true,
+            downloadListThumbnail: true,
             overwriteExisting: true,
             ignoredSecret: "should-not-persist",
         },
@@ -64,6 +66,8 @@ test("local scrape templates persist only normalized task fields", () => {
         namingTemplate: "{code} {title}",
         writeNfo: false,
         downloadImages: true,
+        downloadActorImages: true,
+        downloadListThumbnail: true,
         overwriteExisting: true,
     });
     assert.equal(loadLocalScrapeTaskTemplates(storage).length, 1);

@@ -38,6 +38,9 @@ def test_local_library_poster_route_is_before_status_route():
     assert api_paths.index("/api/movies/local-library/poster/{movie_id}") < api_paths.index(
         "/api/movies/local-library/{movie_id}"
     )
+    assert api_paths.index("/api/movies/local-library/thumbnail/{movie_id}") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
 
 
 def test_local_library_play_route_is_before_status_route():
@@ -418,6 +421,124 @@ def test_local_scrape_empty_folder_template_uses_target_root():
     assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"
 
 
+def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_path, monkeypatch):
+    requests = []
+    attempts = {}
+
+    class FakeResponse:
+        def __init__(self, url: str, status_code: int, content: bytes) -> None:
+            self.url = url
+            self.status_code = status_code
+            self.content = content
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise local_scrape.httpx.HTTPStatusError("failed", request=None, response=self)
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, headers=None):
+            requests.append((url, headers or {}))
+            attempts[url] = attempts.get(url, 0) + 1
+            if "retry" in url and attempts[url] == 1:
+                return FakeResponse(url, 503, b"retry later")
+            if "broken" in url:
+                return FakeResponse(url, 403, b"forbidden")
+            return FakeResponse(url, 200, f"image:{url}".encode("utf-8"))
+
+    monkeypatch.setattr(local_scrape.httpx, "AsyncClient", FakeAsyncClient)
+
+    video = tmp_path / "ABP-123 Sample.mp4"
+    metadata = {
+        "cover_url": "https://www.javbus.com/pics/cover/abp_b.jpg",
+        "samples": [
+            {"src": "https://image.mgstage.com/sample/full1.jpg"},
+            {"src": "https://image.mgstage.com/sample/broken.jpg"},
+            {"thumbnail": "https://image.mgstage.com/sample/thumb3.jpg"},
+            {"src": "https://image.mgstage.com/sample/retry.jpg"},
+        ],
+    }
+
+    poster_name, sample_names = asyncio.run(local_scrape._write_images(video, metadata, overwrite=True))
+
+    assert poster_name == "ABP-123 Sample-poster.jpg"
+    assert sample_names == [
+        str(Path("extrafanart") / "fanart1.jpg"),
+        str(Path("extrafanart") / "fanart3.jpg"),
+        str(Path("extrafanart") / "fanart4.jpg"),
+    ]
+    assert (tmp_path / "ABP-123 Sample-poster.jpg").read_bytes().startswith(b"image:")
+    assert (tmp_path / "extrafanart" / "fanart1.jpg").exists()
+    assert not (tmp_path / "extrafanart" / "fanart2.jpg").exists()
+    assert (tmp_path / "extrafanart" / "fanart3.jpg").exists()
+    assert (tmp_path / "extrafanart" / "fanart4.jpg").exists()
+    assert attempts["https://image.mgstage.com/sample/retry.jpg"] == 2
+    assert requests
+    for _, headers in requests:
+        assert "Mozilla/5.0" in headers.get("User-Agent", "")
+        assert headers.get("Referer") == "https://www.javbus.com/"
+        assert "image/" in headers.get("Accept", "")
+
+
+def test_local_scrape_downloads_actor_avatars_and_list_thumbnail_options(tmp_path, monkeypatch):
+    downloaded = []
+
+    async def fake_download(url, target, overwrite):
+        downloaded.append((url, target.relative_to(tmp_path), overwrite))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(f"image:{url}".encode("utf-8"))
+        return target.name
+
+    async def fake_star_info(star_id):
+        return {
+            "id": star_id,
+            "avatar": f"https://www.javbus.com/pics/actress/{star_id}.jpg",
+        }
+
+    monkeypatch.setattr(local_scrape, "_download_image", fake_download)
+    monkeypatch.setattr(local_scrape.javbus_api_service, "get_star_info", fake_star_info)
+
+    video = tmp_path / "ABP-123 Sample.mp4"
+    metadata = local_scrape._build_metadata(
+        {
+            "id": "ABP-123",
+            "title": "ABP-123 Sample",
+            "img": "https://www.javbus.com/pics/cover/abp_b.jpg",
+            "stars": [
+                {"id": "star-a", "name": "Actor One"},
+                {"id": "star-b", "name": "Actor/Two"},
+            ],
+        },
+        "ABP-123",
+        video.stem,
+    )
+
+    actor_names = asyncio.run(local_scrape._write_actor_images(video, metadata, overwrite=True))
+    thumbnail_name = asyncio.run(local_scrape._write_list_thumbnail(video, metadata, overwrite=True))
+
+    assert actor_names == [
+        str(Path("actors") / "Actor One.jpg"),
+        str(Path("actors") / "Actor_Two.jpg"),
+    ]
+    assert thumbnail_name == "ABP-123 Sample-thumb.jpg"
+    assert (tmp_path / "actors" / "Actor One.jpg").exists()
+    assert (tmp_path / "actors" / "Actor_Two.jpg").exists()
+    assert (tmp_path / "ABP-123 Sample-thumb.jpg").exists()
+    assert (
+        "https://www.javbus.com/pics/thumb/abp.jpg",
+        Path("ABP-123 Sample-thumb.jpg"),
+        True,
+    ) in downloaded
+
+
 def test_local_scrape_delete_removes_only_video_files_inside_preview_directory(tmp_path):
     keep_dir = tmp_path / "outside"
     scan_dir = tmp_path / "scan"
@@ -456,8 +577,10 @@ def test_local_scrape_delete_removes_only_video_files_inside_preview_directory(t
 def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
     video = tmp_path / "ABP-123.mp4"
     poster = tmp_path / "ABP-123-poster.jpg"
+    thumbnail = tmp_path / "ABP-123-thumb.jpg"
     video.write_text("video", encoding="utf-8")
     poster.write_bytes(b"poster")
+    thumbnail.write_bytes(b"thumb")
 
     async def exercise():
         service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
@@ -474,6 +597,7 @@ def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
                         "id": "ABP-123",
                         "title": "ABP-123 Sample",
                         "cover_url": "https://www.javbus.com/pics/cover.jpg",
+                        "list_thumbnail_url": "https://www.javbus.com/pics/thumb.jpg",
                     },
                     "scrape_status": "found",
                     "full_text": "ABP-123 Sample",
@@ -487,6 +611,7 @@ def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
     record = summary["records"][0]
     assert record["cover_url"] == "https://www.javbus.com/pics/cover.jpg"
     assert record["poster_url"] == "/api/movies/local-library/poster/ABP-123"
+    assert record["thumbnail_url"] == "/api/movies/local-library/thumbnail/ABP-123"
     assert poster_path == poster.resolve()
 
 

@@ -130,6 +130,7 @@ export default function LocalScrapePage() {
     const [loadingApply, setLoadingApply] = React.useState(false);
     const [loadingDelete, setLoadingDelete] = React.useState(false);
     const [showNonConforming, setShowNonConforming] = React.useState(false);
+    const [tablePageSize, setTablePageSize] = React.useState(12);
     const [applyResult, setApplyResult] = React.useState(null);
     const [taskTemplates, setTaskTemplates] = React.useState(() => loadLocalScrapeTaskTemplates());
     const [selectedTemplateId, setSelectedTemplateId] = React.useState("");
@@ -178,6 +179,8 @@ export default function LocalScrapePage() {
         naming_template: String(values.namingTemplate || "").trim(),
         write_nfo: values.writeNfo !== false,
         download_images: values.downloadImages !== false,
+        download_actor_images: !!values.downloadActorImages,
+        download_list_thumbnail: !!values.downloadListThumbnail,
         overwrite_existing: !!values.overwriteExisting,
     });
 
@@ -503,6 +506,8 @@ export default function LocalScrapePage() {
                                 concurrent: 3,
                                 writeNfo: true,
                                 downloadImages: true,
+                                downloadActorImages: false,
+                                downloadListThumbnail: false,
                                 overwriteExisting: false,
                             }}
                             onFinish={handlePreview}
@@ -622,6 +627,12 @@ export default function LocalScrapePage() {
                                 </Form.Item>
                                 <Form.Item name="downloadImages" valuePropName="checked">
                                     <Checkbox>下载封面</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadActorImages" valuePropName="checked">
+                                    <Checkbox>下载演员头像</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadListThumbnail" valuePropName="checked">
+                                    <Checkbox>下载列表缩略图</Checkbox>
                                 </Form.Item>
                             </Space>
                             <Space align="center" wrap>
@@ -751,7 +762,12 @@ export default function LocalScrapePage() {
                         dataSource={items}
                         columns={columns}
                         loading={loadingPreview}
-                        pagination={{ pageSize: 12, showSizeChanger: true }}
+                        pagination={{
+                            pageSize: tablePageSize,
+                            showSizeChanger: true,
+                            onShowSizeChange: (_, size) => setTablePageSize(size),
+                            onChange: (_, size) => setTablePageSize(size),
+                        }}
                         rowSelection={{
                             selectedRowKeys,
                             onChange: setSelectedRowKeys,

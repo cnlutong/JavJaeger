@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from modules.common.runtime import get_javbus_config
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
@@ -49,6 +50,16 @@ SKIPPED_DIRECTORY_NAMES = {"behind the scenes", "backdrops"}
 TS_MIN_VIDEO_SIZE = 10 * 1024 * 1024
 MPEG_TS_PACKET_SIZE = 188
 MPEG_TS_SYNC_BYTE = 0x47
+IMAGE_DOWNLOAD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.javbus.com/",
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+}
+IMAGE_DOWNLOAD_ATTEMPTS = 3
 
 
 DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
@@ -187,8 +198,38 @@ def _list_names(values: Any) -> list[str]:
     return [name for name in names if name]
 
 
+def _actor_refs(values: Any) -> list[dict[str, str]]:
+    if not isinstance(values, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for value in values:
+        if isinstance(value, dict):
+            actor_id = str(value.get("id") or "").strip()
+            name = str(value.get("name") or value.get("title") or actor_id).strip()
+        else:
+            actor_id = ""
+            name = str(value or "").strip()
+        if actor_id or name:
+            refs.append({"id": actor_id, "name": name})
+    return refs
+
+
 def _single_name(value: Any) -> str:
     return _name_from_link(value)
+
+
+def _derive_list_thumbnail_url(image_url: Any) -> str:
+    value = str(image_url or "").strip()
+    if not value:
+        return ""
+    if "/pics/thumb/" in value:
+        return value
+    if "/pics/cover/" not in value:
+        return ""
+    prefix, filename = value.rsplit("/", 1)
+    match = re.match(r"^(.+)_b(\.[a-z0-9]+)$", filename, re.IGNORECASE)
+    thumb_filename = f"{match.group(1)}{match.group(2)}" if match else filename
+    return f"{prefix.replace('/pics/cover', '/pics/thumb')}/{thumb_filename}"
 
 
 def _template_context(metadata: dict[str, Any], source_stem: str) -> dict[str, str]:
@@ -248,7 +289,9 @@ def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem:
     title = str(movie.get("title") or local_id or source_stem).strip()
     genres = _list_names(movie.get("genres"))
     stars = _list_names(movie.get("stars"))
+    actor_refs = _actor_refs(movie.get("stars"))
     samples = movie.get("samples") if isinstance(movie.get("samples"), list) else []
+    cover_url = movie.get("img") or movie.get("cover_url") or ""
     return {
         "id": local_id,
         "title": title,
@@ -260,7 +303,9 @@ def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem:
         "series": _single_name(movie.get("series")),
         "genres": genres,
         "stars": stars,
-        "cover_url": movie.get("img") or movie.get("cover_url") or "",
+        "actor_refs": actor_refs,
+        "cover_url": cover_url,
+        "list_thumbnail_url": movie.get("list_thumbnail_url") or movie.get("thumbnail_url") or _derive_list_thumbnail_url(cover_url),
         "samples": samples,
         "raw": movie,
     }
@@ -493,6 +538,8 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
             "target_exists": conflict,
             "will_write_nfo": bool(request.write_nfo and metadata.get("id")),
             "will_download_images": bool(request.download_images and candidate.code and movie_detail),
+            "will_download_actor_images": bool(request.download_actor_images and metadata.get("actor_refs")),
+            "will_download_list_thumbnail": bool(request.download_list_thumbnail and metadata.get("list_thumbnail_url")),
             "will_move": str(target_video.resolve()) != str(candidate.path.resolve()),
         }
 
@@ -594,11 +641,33 @@ async def _download_image(url: str, target: Path, overwrite: bool) -> str | None
         _, _, payload = url.partition(",")
         target.write_bytes(base64.b64decode(payload))
         return target.name
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-        response = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        response.raise_for_status()
-        target.write_bytes(response.content)
+    client_kwargs: dict[str, Any] = {"timeout": 20.0, "follow_redirects": True}
+    proxy = get_javbus_config().get("proxy")
+    if proxy:
+        client_kwargs["proxy"] = proxy
+    last_exc: Exception | None = None
+    for attempt in range(1, IMAGE_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                response = await client.get(url, headers=IMAGE_DOWNLOAD_HEADERS)
+                response.raise_for_status()
+                target.write_bytes(response.content)
+            return target.name
+        except Exception as exc:
+            last_exc = exc
+            if attempt < IMAGE_DOWNLOAD_ATTEMPTS:
+                await asyncio.sleep(0.25 * attempt)
+    if last_exc:
+        raise last_exc
     return target.name
+
+
+async def _download_image_or_warn(url: str, target: Path, overwrite: bool) -> str | None:
+    try:
+        return await _download_image(url, target, overwrite)
+    except Exception as exc:
+        logger.warning("Local scrape image download failed for %s: %r", url, exc)
+        return None
 
 
 async def _write_images(video_path: Path, metadata: dict[str, Any], overwrite: bool) -> tuple[str | None, list[str]]:
@@ -606,7 +675,7 @@ async def _write_images(video_path: Path, metadata: dict[str, Any], overwrite: b
     poster_name = None
     sample_names: list[str] = []
     if metadata.get("cover_url"):
-        poster_name = await _download_image(
+        poster_name = await _download_image_or_warn(
             str(metadata.get("cover_url")),
             video_path.with_name(f"{stem}-poster.jpg"),
             overwrite,
@@ -619,10 +688,46 @@ async def _write_images(video_path: Path, metadata: dict[str, Any], overwrite: b
             url = sample.get("src") or sample.get("thumbnail") if isinstance(sample, dict) else None
             if not url:
                 continue
-            name = await _download_image(str(url), fanart_dir / f"fanart{index}.jpg", overwrite)
+            name = await _download_image_or_warn(str(url), fanart_dir / f"fanart{index}.jpg", overwrite)
             if name:
                 sample_names.append(str(Path("extrafanart") / name))
     return poster_name, sample_names
+
+
+async def _write_actor_images(video_path: Path, metadata: dict[str, Any], overwrite: bool) -> list[str]:
+    actor_names: list[str] = []
+    actor_dir = video_path.parent / "actors"
+    used_names: set[str] = set()
+    for index, actor in enumerate(metadata.get("actor_refs") or [], start=1):
+        if not isinstance(actor, dict) or not actor.get("id"):
+            continue
+        try:
+            star_info = await javbus_api_service.get_star_info(str(actor["id"]))
+        except Exception as exc:
+            logger.warning("Local scrape actor info fetch failed for %s: %r", actor.get("id"), exc)
+            continue
+        avatar_url = star_info.get("avatar") if isinstance(star_info, dict) else ""
+        if not avatar_url:
+            continue
+        file_stem = _sanitize_path_segment(str(actor.get("name") or actor.get("id") or f"actor{index}"), f"actor{index}")
+        if file_stem.lower() in used_names:
+            file_stem = _sanitize_path_segment(f"{file_stem}-{index}", f"actor{index}")
+        used_names.add(file_stem.lower())
+        name = await _download_image_or_warn(str(avatar_url), actor_dir / f"{file_stem}.jpg", overwrite)
+        if name:
+            actor_names.append(str(Path("actors") / name))
+    return actor_names
+
+
+async def _write_list_thumbnail(video_path: Path, metadata: dict[str, Any], overwrite: bool) -> str | None:
+    thumbnail_url = metadata.get("list_thumbnail_url") or _derive_list_thumbnail_url(metadata.get("cover_url"))
+    if not thumbnail_url:
+        return None
+    return await _download_image_or_warn(
+        str(thumbnail_url),
+        video_path.with_name(f"{video_path.stem}-thumb.jpg"),
+        overwrite,
+    )
 
 
 async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]:
@@ -682,6 +787,8 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
 
             poster_name = None
             sample_names: list[str] = []
+            actor_image_names: list[str] = []
+            list_thumbnail_name = None
             image_error = None
             if request.download_images and metadata.get("id"):
                 try:
@@ -689,6 +796,10 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
                 except Exception as exc:
                     image_error = "image_download_failed"
                     logger.warning("Local scrape image download failed for %s: %s", metadata.get("id"), exc)
+            if request.download_actor_images and metadata.get("id"):
+                actor_image_names = await _write_actor_images(current_video, metadata, request.overwrite_existing)
+            if request.download_list_thumbnail and metadata.get("id"):
+                list_thumbnail_name = await _write_list_thumbnail(current_video, metadata, request.overwrite_existing)
 
             nfo_path = None
             if request.write_nfo and metadata.get("id"):
@@ -717,6 +828,8 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
                     "nfo_path": str(nfo_path) if nfo_path else None,
                     "poster": poster_name,
                     "samples": sample_names,
+                    "actor_images": actor_image_names,
+                    "list_thumbnail": list_thumbnail_name,
                     "image_error": image_error,
                     "moved_assets": moved_assets,
                     "library_recorded": library_recorded,

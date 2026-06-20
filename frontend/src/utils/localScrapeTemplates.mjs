@@ -55,6 +55,8 @@ export const normalizeLocalScrapeTaskValues = (values = {}) => ({
     namingTemplate: String(values.namingTemplate || "{code} {title}").trim() || "{code} {title}",
     writeNfo: values.writeNfo !== false,
     downloadImages: values.downloadImages !== false,
+    downloadActorImages: !!values.downloadActorImages,
+    downloadListThumbnail: !!values.downloadListThumbnail,
     overwriteExisting: !!values.overwriteExisting,
 });
 

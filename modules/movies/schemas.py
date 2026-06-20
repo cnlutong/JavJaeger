@@ -45,6 +45,8 @@ class LocalScrapePreviewRequest(BaseModel):
     naming_template: str = "{code} {title}"
     write_nfo: bool = True
     download_images: bool = True
+    download_actor_images: bool = False
+    download_list_thumbnail: bool = False
     overwrite_existing: bool = False
 
 
@@ -62,6 +64,8 @@ class LocalScrapeApplyRequest(BaseModel):
     naming_template: str = "{code} {title}"
     write_nfo: bool = True
     download_images: bool = True
+    download_actor_images: bool = False
+    download_list_thumbnail: bool = False
     overwrite_existing: bool = False
 
 
