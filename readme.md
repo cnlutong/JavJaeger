@@ -248,6 +248,8 @@ POST   /api/movies/download-by-codes
 GET    /api/movies/local-library
 POST   /api/movies/local-library/scan
 DELETE /api/movies/local-library
+GET    /api/movies/local-library/information/check
+POST   /api/movies/local-library/information/download
 GET    /api/movies/local-library/poster/{movie_id}
 GET    /api/movies/local-library/{movie_id}
 POST   /api/movies/local-scrape/preview

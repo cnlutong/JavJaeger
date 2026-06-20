@@ -13,6 +13,16 @@ from modules.javbus_api import javbus_api_service
 logger = logging.getLogger(__name__)
 
 
+LOCAL_LIBRARY_INFORMATION_FIELDS = ("title", "date", "stars", "genres", "cover_url")
+LOCAL_LIBRARY_INFORMATION_FIELD_LABELS = {
+    "title": "标题",
+    "date": "发行日期",
+    "stars": "演员",
+    "genres": "标签",
+    "cover_url": "封面",
+}
+
+
 class DownloadHistoryService:
     def __init__(self, file_path: str = "data/downloaded_movies.json") -> None:
         self.file_path = file_path
@@ -186,6 +196,101 @@ class LocalMovieLibraryService:
             "total_size": total_size,
             "records": records,
         }
+
+    def _has_remote_metadata(self, record: dict[str, Any]) -> bool:
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        raw = metadata.get("raw")
+        return bool(record.get("scrape_status") == "found" or (isinstance(raw, dict) and raw.get("id")))
+
+    def _information_value(self, record: dict[str, Any], field_name: str) -> Any:
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        if field_name == "cover_url":
+            return metadata.get("cover_url") or record.get("cover_url") or record.get("img")
+        return metadata.get(field_name) if field_name in metadata else record.get(field_name)
+
+    def _missing_information_fields(
+        self,
+        record: dict[str, Any],
+        field_names: tuple[str, ...] = LOCAL_LIBRARY_INFORMATION_FIELDS,
+    ) -> list[str]:
+        missing: list[str] = []
+        movie_id = str(record.get("movie_id") or "").strip().upper()
+        has_remote_metadata = self._has_remote_metadata(record)
+        for field_name in field_names:
+            value = self._information_value(record, field_name)
+            is_missing = value in (None, "", [], {})
+            if field_name == "title" and (is_missing or (str(value).strip().upper() == movie_id and not has_remote_metadata)):
+                is_missing = True
+            if is_missing:
+                missing.append(field_name)
+        return missing
+
+    async def get_information_check(self) -> dict[str, Any]:
+        records = await self.get_all()
+        checked_records: list[dict[str, Any]] = []
+        for record in records:
+            missing_fields = self._missing_information_fields(record)
+            checked_record = {
+                "movie_id": record.get("movie_id"),
+                "title": record.get("title") or record.get("movie_id"),
+                "scrape_status": record.get("scrape_status") or "",
+                "has_metadata": self._has_remote_metadata(record),
+                "info_complete": not missing_fields,
+                "missing_fields": missing_fields,
+                "missing_labels": [
+                    LOCAL_LIBRARY_INFORMATION_FIELD_LABELS.get(field_name, field_name)
+                    for field_name in missing_fields
+                ],
+            }
+            checked_records.append(checked_record)
+
+        incomplete_records = [record for record in checked_records if not record["info_complete"]]
+        return {
+            "success": True,
+            "fields": list(LOCAL_LIBRARY_INFORMATION_FIELDS),
+            "field_labels": LOCAL_LIBRARY_INFORMATION_FIELD_LABELS,
+            "total_movies": len(checked_records),
+            "complete_count": len(checked_records) - len(incomplete_records),
+            "incomplete_count": len(incomplete_records),
+            "records": checked_records,
+            "incomplete_records": incomplete_records,
+        }
+
+    async def update_information(
+        self,
+        movie_id: str,
+        metadata: dict[str, Any],
+        scrape_status: str,
+        scrape_error: str | None,
+        full_text: str,
+        scraped_at: str,
+    ) -> bool:
+        await self.load_records()
+        normalized = str(movie_id or "").strip().upper()
+        if not normalized:
+            return False
+
+        async with self._lock:
+            record = self._cache.get(normalized)
+            if not record:
+                return False
+
+            record["metadata"] = metadata
+            record["title"] = metadata.get("title") or normalized
+            record["date"] = metadata.get("date") or ""
+            record["stars"] = metadata.get("stars") or []
+            record["genres"] = metadata.get("genres") or []
+            record["studio"] = metadata.get("studio") or ""
+            record["publisher"] = metadata.get("publisher") or ""
+            record["director"] = metadata.get("director") or ""
+            record["series"] = metadata.get("series") or ""
+            record["full_text"] = full_text
+            record["scrape_status"] = scrape_status
+            record["scrape_error"] = scrape_error
+            record["scraped_at"] = scraped_at
+            self._refresh_record_totals(record, scraped_at)
+            await self._save_locked()
+            return True
 
     async def clear(self) -> dict[str, Any]:
         await self.load_records()

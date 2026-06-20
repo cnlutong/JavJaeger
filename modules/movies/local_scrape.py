@@ -581,6 +581,7 @@ async def preview_local_scrape(
             "target_exists": conflict,
             "will_write_nfo": bool(request.write_nfo and metadata.get("id")),
             "will_download_images": bool(request.download_images and candidate.code and movie_detail),
+            "will_download_sample_images": bool(request.download_sample_images and metadata.get("samples")),
             "will_download_actor_images": bool(request.download_actor_images and metadata.get("actor_refs")),
             "will_download_list_thumbnail": bool(request.download_list_thumbnail and metadata.get("list_thumbnail_url")),
             "will_move": str(target_video.resolve()) != str(candidate.path.resolve()),
@@ -735,7 +736,12 @@ async def _download_image_or_warn(url: str, target: Path, overwrite: bool) -> st
         return None
 
 
-async def _write_images(video_path: Path, metadata: dict[str, Any], overwrite: bool) -> tuple[str | None, list[str]]:
+async def _write_images(
+    video_path: Path,
+    metadata: dict[str, Any],
+    overwrite: bool,
+    include_samples: bool = False,
+) -> tuple[str | None, list[str]]:
     stem = video_path.stem
     poster_name = None
     sample_names: list[str] = []
@@ -749,13 +755,14 @@ async def _write_images(video_path: Path, metadata: dict[str, Any], overwrite: b
     samples = metadata.get("samples") or []
     if samples:
         fanart_dir = video_path.parent / "extrafanart"
-        for index, sample in enumerate(samples, start=1):
-            url = sample.get("src") or sample.get("thumbnail") if isinstance(sample, dict) else None
-            if not url:
-                continue
-            name = await _download_image_or_warn(str(url), fanart_dir / f"fanart{index}.jpg", overwrite)
-            if name:
-                sample_names.append(str(Path("extrafanart") / name))
+        if include_samples:
+            for index, sample in enumerate(samples, start=1):
+                url = sample.get("src") or sample.get("thumbnail") if isinstance(sample, dict) else None
+                if not url:
+                    continue
+                name = await _download_image_or_warn(str(url), fanart_dir / f"fanart{index}.jpg", overwrite)
+                if name:
+                    sample_names.append(str(Path("extrafanart") / name))
     return poster_name, sample_names
 
 
@@ -891,7 +898,12 @@ async def apply_local_scrape(
             image_error = None
             if request.download_images and metadata.get("id"):
                 try:
-                    poster_name, sample_names = await _write_images(current_video, metadata, request.overwrite_existing)
+                    poster_name, sample_names = await _write_images(
+                        current_video,
+                        metadata,
+                        request.overwrite_existing,
+                        include_samples=request.download_sample_images,
+                    )
                 except Exception as exc:
                     image_error = "image_download_failed"
                     logger.warning("Local scrape image download failed for %s: %s", metadata.get("id"), exc)

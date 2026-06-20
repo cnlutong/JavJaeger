@@ -10,6 +10,7 @@ from modules.automation import service as automation_service_module
 from modules.history.service import local_movie_library_service
 from modules.common import runtime
 from modules.movies import local_scrape
+from modules.movies import local_library as movies_local_library
 from modules.movies.local_scrape_tasks import LocalScrapeTaskManager
 from modules.movies import service as movies_service
 from modules.system import path_browser
@@ -51,6 +52,17 @@ def test_local_library_play_route_is_before_status_route():
     api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
 
     assert api_paths.index("/api/movies/local-library/{movie_id}/play") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+
+
+def test_local_library_information_routes_are_before_status_route():
+    api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
+
+    assert api_paths.index("/api/movies/local-library/information/check") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+    assert api_paths.index("/api/movies/local-library/information/download") < api_paths.index(
         "/api/movies/local-library/{movie_id}"
     )
 
@@ -474,6 +486,15 @@ def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_
     poster_name, sample_names = asyncio.run(local_scrape._write_images(video, metadata, overwrite=True))
 
     assert poster_name == "ABP-123 Sample-poster.jpg"
+    assert sample_names == []
+    assert (tmp_path / "ABP-123 Sample-poster.jpg").read_bytes().startswith(b"image:")
+    assert not (tmp_path / "extrafanart").exists()
+
+    poster_name, sample_names = asyncio.run(
+        local_scrape._write_images(video, metadata, overwrite=True, include_samples=True)
+    )
+
+    assert poster_name == "ABP-123 Sample-poster.jpg"
     assert sample_names == [
         str(Path("extrafanart") / "fanart1.jpg"),
         str(Path("extrafanart") / "fanart3.jpg"),
@@ -739,6 +760,130 @@ def test_local_library_actor_avatar_path_comes_from_movie_actor_directory(tmp_pa
         return await service.get_actor_avatar_path("ABP-123", "Actor/Two")
 
     assert asyncio.run(exercise()) == actor_avatar.resolve()
+
+
+def test_local_library_information_check_reports_missing_metadata(tmp_path):
+    first_video = tmp_path / "ABP-123.mp4"
+    second_video = tmp_path / "ABP-124.mp4"
+    first_video.write_bytes(b"video-a")
+    second_video.write_bytes(b"video-b")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(first_video),
+                    "relative_path": first_video.name,
+                    "file_name": first_video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Complete",
+                        "date": "2024-01-02",
+                        "stars": ["Actor One"],
+                        "genres": ["Genre A"],
+                        "cover_url": "https://www.javbus.com/pics/cover.jpg",
+                        "raw": {"id": "ABP-123"},
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Complete Actor One",
+                },
+                {
+                    "movie_id": "ABP-124",
+                    "path": str(second_video),
+                    "relative_path": second_video.name,
+                    "file_name": second_video.name,
+                    "size": 456,
+                    "metadata": {"id": "ABP-124", "title": "ABP-124", "raw": {}},
+                    "scrape_status": "skipped",
+                    "full_text": "ABP-124",
+                },
+            ],
+        )
+        return await service.get_information_check()
+
+    payload = asyncio.run(exercise())
+
+    assert payload["total_movies"] == 2
+    assert payload["complete_count"] == 1
+    assert payload["incomplete_count"] == 1
+    assert payload["incomplete_records"][0]["movie_id"] == "ABP-124"
+    assert payload["incomplete_records"][0]["missing_fields"] == ["title", "date", "stars", "genres", "cover_url"]
+
+
+def test_local_library_information_download_refreshes_only_missing_records(tmp_path, monkeypatch):
+    first_video = tmp_path / "ABP-123.mp4"
+    second_video = tmp_path / "ABP-124.mp4"
+    first_video.write_bytes(b"video-a")
+    second_video.write_bytes(b"video-b")
+    fetched_ids = []
+
+    async def fake_get_movie_detail(movie_id):
+        fetched_ids.append(movie_id)
+        return {
+            "id": movie_id,
+            "title": f"{movie_id} Remote Title",
+            "date": "2024-03-04",
+            "img": "https://www.javbus.com/pics/remote.jpg",
+            "stars": [{"name": "Actor One"}],
+            "genres": [{"name": "Genre A"}],
+        }
+
+    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(first_video),
+                    "relative_path": first_video.name,
+                    "file_name": first_video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Complete",
+                        "date": "2024-01-02",
+                        "stars": ["Actor One"],
+                        "genres": ["Genre A"],
+                        "cover_url": "https://www.javbus.com/pics/cover.jpg",
+                        "raw": {"id": "ABP-123"},
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Complete Actor One",
+                },
+                {
+                    "movie_id": "ABP-124",
+                    "path": str(second_video),
+                    "relative_path": second_video.name,
+                    "file_name": second_video.name,
+                    "size": 456,
+                    "metadata": {"id": "ABP-124", "title": "ABP-124", "raw": {}},
+                    "scrape_status": "skipped",
+                    "full_text": "ABP-124",
+                },
+            ],
+        )
+        result = await movies_local_library.download_missing_local_library_information(
+            movies_local_library.LocalLibraryInformationDownloadRequest(only_missing=True, concurrent=1)
+        )
+        summary = await service.get_summary()
+        return result, summary
+
+    result, summary = asyncio.run(exercise())
+
+    assert fetched_ids == ["ABP-124"]
+    assert result["updated_count"] == 1
+    assert result["information_check"]["incomplete_count"] == 0
+    refreshed = {record["movie_id"]: record for record in summary["records"]}["ABP-124"]
+    assert refreshed["title"] == "ABP-124 Remote Title"
+    assert refreshed["cover_url"] == "https://www.javbus.com/pics/remote.jpg"
 
 
 def test_automation_task_crud_persists(tmp_path):

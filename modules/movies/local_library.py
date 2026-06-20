@@ -8,7 +8,7 @@ from modules.common.paths import UserPathError, resolve_existing_directory
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from .local_scrape import _build_metadata, _file_size, _metadata_full_text, _source_part_marker, _walk_video_files, recognize_designation
-from .schemas import LocalLibraryScanRequest
+from .schemas import LocalLibraryInformationDownloadRequest, LocalLibraryScanRequest
 
 
 logger = logging.getLogger(__name__)
@@ -104,6 +104,82 @@ async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]
 
 async def get_local_library_payload() -> dict[str, Any]:
     return await local_movie_library_service.get_summary()
+
+
+async def get_local_library_information_check() -> dict[str, Any]:
+    return await local_movie_library_service.get_information_check()
+
+
+async def download_missing_local_library_information(request: LocalLibraryInformationDownloadRequest) -> dict[str, Any]:
+    check = await local_movie_library_service.get_information_check()
+    all_records = check.get("records", [])
+    requested_ids = {
+        str(movie_id or "").strip().upper()
+        for movie_id in (request.movie_ids or [])
+        if str(movie_id or "").strip()
+    }
+
+    candidates = []
+    for record in all_records:
+        movie_id = str(record.get("movie_id") or "").strip().upper()
+        if not movie_id:
+            continue
+        if requested_ids and movie_id not in requested_ids:
+            continue
+        if request.only_missing and record.get("info_complete"):
+            continue
+        candidates.append(movie_id)
+
+    metadata_map = await _scrape_metadata(candidates, request.concurrent) if candidates else {}
+    scraped_at = datetime.datetime.now().isoformat()
+    results: list[dict[str, Any]] = []
+    updated_count = 0
+    failed_count = 0
+
+    for movie_id in candidates:
+        scraped = metadata_map.get(movie_id)
+        if not scraped:
+            failed_count += 1
+            results.append(
+                {
+                    "movie_id": movie_id,
+                    "success": False,
+                    "scrape_status": "failed",
+                    "error": "metadata_fetch_missing",
+                }
+            )
+            continue
+
+        saved = await local_movie_library_service.update_information(
+            movie_id,
+            scraped["metadata"],
+            scraped["scrape_status"],
+            scraped["scrape_error"],
+            scraped["full_text"],
+            scraped_at,
+        )
+        if saved:
+            updated_count += 1
+        else:
+            failed_count += 1
+        results.append(
+            {
+                "movie_id": movie_id,
+                "success": saved,
+                "scrape_status": scraped["scrape_status"],
+                "error": None if saved else "movie_not_in_local_library",
+            }
+        )
+
+    next_check = await local_movie_library_service.get_information_check()
+    return {
+        "success": True,
+        "candidate_count": len(candidates),
+        "updated_count": updated_count,
+        "failed_count": failed_count,
+        "results": results,
+        "information_check": next_check,
+    }
 
 
 async def get_local_library_status(movie_id: str) -> dict[str, Any]:

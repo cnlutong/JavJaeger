@@ -267,6 +267,7 @@ export default function LocalScrapePage() {
         naming_template: String(values.namingTemplate || "").trim(),
         write_nfo: values.writeNfo !== false,
         download_images: values.downloadImages !== false,
+        download_sample_images: !!values.downloadSampleImages,
         download_actor_images: !!values.downloadActorImages,
         download_list_thumbnail: !!values.downloadListThumbnail,
         overwrite_existing: !!values.overwriteExisting,
@@ -662,6 +663,7 @@ export default function LocalScrapePage() {
                                 concurrent: 3,
                                 writeNfo: true,
                                 downloadImages: true,
+                                downloadSampleImages: false,
                                 downloadActorImages: false,
                                 downloadListThumbnail: false,
                                 overwriteExisting: false,
@@ -783,6 +785,9 @@ export default function LocalScrapePage() {
                                 </Form.Item>
                                 <Form.Item name="downloadImages" valuePropName="checked">
                                     <Checkbox>下载封面</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadSampleImages" valuePropName="checked">
+                                    <Checkbox>下载样品图</Checkbox>
                                 </Form.Item>
                                 <Form.Item name="downloadActorImages" valuePropName="checked">
                                     <Checkbox>下载演员头像</Checkbox>

@@ -5,10 +5,18 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from modules.history.service import local_movie_library_service
-from .local_library import clear_local_library, get_local_library_payload, get_local_library_status, scan_local_library
+from .local_library import (
+    clear_local_library,
+    download_missing_local_library_information,
+    get_local_library_information_check,
+    get_local_library_payload,
+    get_local_library_status,
+    scan_local_library,
+)
 from .local_scrape import apply_local_scrape, delete_local_scrape_files, preview_local_scrape
 from .local_scrape_tasks import local_scrape_task_manager
 from .schemas import (
+    LocalLibraryInformationDownloadRequest,
     LocalLibraryScanRequest,
     LocalScrapeApplyRequest,
     LocalScrapeDeleteRequest,
@@ -76,6 +84,24 @@ async def clear_local_movie_library():
     except Exception as exc:
         logger.error("Local library clear failed: %s", exc)
         return {"success": False, "error": "library_clear_failed", "message": "清空本地影片库失败"}
+
+
+@router.get("/api/movies/local-library/information/check")
+async def check_local_movie_library_information():
+    try:
+        return await get_local_library_information_check()
+    except Exception as exc:
+        logger.error("Local library information check failed: %s", exc)
+        return {"success": False, "error": "information_check_failed", "message": "检查影视库信息失败"}
+
+
+@router.post("/api/movies/local-library/information/download")
+async def download_local_movie_library_information(request: LocalLibraryInformationDownloadRequest):
+    try:
+        return await download_missing_local_library_information(request)
+    except Exception as exc:
+        logger.error("Local library information download failed: %s", exc)
+        return {"success": False, "error": "information_download_failed", "message": "下载影视库缺失信息失败"}
 
 
 @router.get("/api/movies/local-library/poster/{movie_id}")

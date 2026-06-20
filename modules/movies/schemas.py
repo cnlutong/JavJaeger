@@ -45,6 +45,7 @@ class LocalScrapePreviewRequest(BaseModel):
     naming_template: str = "{code} {title}"
     write_nfo: bool = True
     download_images: bool = True
+    download_sample_images: bool = False
     download_actor_images: bool = False
     download_list_thumbnail: bool = False
     overwrite_existing: bool = False
@@ -64,6 +65,7 @@ class LocalScrapeApplyRequest(BaseModel):
     naming_template: str = "{code} {title}"
     write_nfo: bool = True
     download_images: bool = True
+    download_sample_images: bool = False
     download_actor_images: bool = False
     download_list_thumbnail: bool = False
     overwrite_existing: bool = False
@@ -80,4 +82,10 @@ class LocalLibraryScanRequest(BaseModel):
     max_depth: Optional[int] = None
     remove_missing: bool = True
     scrape: bool = True
+    concurrent: int = 3
+
+
+class LocalLibraryInformationDownloadRequest(BaseModel):
+    movie_ids: Optional[list[str]] = None
+    only_missing: bool = True
     concurrent: int = 3

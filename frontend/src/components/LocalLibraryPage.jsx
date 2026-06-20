@@ -28,6 +28,7 @@ const {
     ArrowLeftOutlined,
     AppstoreOutlined,
     DatabaseOutlined,
+    DownloadOutlined,
     FilterOutlined,
     FolderOpenOutlined,
     PlayCircleOutlined,
@@ -200,8 +201,11 @@ export default function LocalLibraryPage() {
     const [form] = Form.useForm();
     const [library, setLibrary] = React.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
     const [scanResult, setScanResult] = React.useState(null);
+    const [informationCheck, setInformationCheck] = React.useState(null);
     const [loading, setLoading] = React.useState(false);
     const [scanning, setScanning] = React.useState(false);
+    const [checkingInformation, setCheckingInformation] = React.useState(false);
+    const [downloadingInformation, setDownloadingInformation] = React.useState(false);
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
     const [selectedRecord, setSelectedRecord] = React.useState(null);
@@ -223,6 +227,15 @@ export default function LocalLibraryPage() {
     });
 
     const records = library.records || [];
+    const missingInformationByMovieId = React.useMemo(() => {
+        const entries = informationCheck?.records || [];
+        return entries.reduce((map, record) => {
+            if (record?.movie_id && !record.info_complete) {
+                map[String(record.movie_id).toUpperCase()] = record;
+            }
+            return map;
+        }, {});
+    }, [informationCheck]);
 
     const filterOptions = React.useMemo(() => ({
         genres: countedOptions(records, (record) => record.genres),
@@ -288,6 +301,29 @@ export default function LocalLibraryPage() {
             message.error(`影视库加载失败：${error.message}`);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadInformationCheck = async () => {
+        setCheckingInformation(true);
+        try {
+            const response = await fetch("/api/movies/local-library/information/check");
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "检查失败");
+            }
+            setInformationCheck(data);
+            if (data.incomplete_count > 0) {
+                message.warning(`发现 ${data.incomplete_count} 部影片缺少信息`);
+            } else {
+                message.success("影视库信息完整");
+            }
+            return data;
+        } catch (error) {
+            message.error(`信息检查失败：${error.message}`);
+            return null;
+        } finally {
+            setCheckingInformation(false);
         }
     };
 
@@ -363,6 +399,23 @@ export default function LocalLibraryPage() {
             message.error(`清空失败：${error.message}`);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDownloadMissingInformation = async () => {
+        setDownloadingInformation(true);
+        try {
+            const data = await postJson("/api/movies/local-library/information/download", {
+                only_missing: true,
+                concurrent: 3,
+            });
+            setInformationCheck(data.information_check);
+            await loadLibrary();
+            message.success(`已更新 ${data.updated_count || 0} 部影片信息`);
+        } catch (error) {
+            message.error(`下载缺失信息失败：${error.message}`);
+        } finally {
+            setDownloadingInformation(false);
         }
     };
 
@@ -634,6 +687,7 @@ export default function LocalLibraryPage() {
                     <Tag color="blue">{value}</Tag>
                     {record.scrape_status === "found" && <Tag color="green">已刮削</Tag>}
                     {record.scrape_status === "failed" && <Tag color="red">刮削失败</Tag>}
+                    {missingInformationByMovieId[String(value || "").toUpperCase()] && <Tag color="orange">缺信息</Tag>}
                 </Space>
             ),
         },
@@ -752,6 +806,19 @@ export default function LocalLibraryPage() {
                         <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
                             筛选{activeFilterCount ? ` (${activeFilterCount})` : ""}
                         </Button>
+                        <Button icon={<Icon as={SearchOutlined} />} onClick={loadInformationCheck} loading={checkingInformation}>
+                            检查信息
+                        </Button>
+                        <Button
+                            type="primary"
+                            ghost
+                            icon={<Icon as={DownloadOutlined} />}
+                            onClick={handleDownloadMissingInformation}
+                            loading={downloadingInformation}
+                            disabled={informationCheck && informationCheck.incomplete_count === 0}
+                        >
+                            下载缺失信息
+                        </Button>
                         <Button icon={<Icon as={ReloadOutlined} />} onClick={loadLibrary} loading={loading}>
                             刷新
                         </Button>
@@ -794,7 +861,25 @@ export default function LocalLibraryPage() {
                             <strong>{filteredRecords.length}</strong>
                             <span className="jav-kpi-note">当前结果</span>
                         </div>
+                        <div className="jav-kpi-card">
+                            <span className="jav-kpi-label">信息</span>
+                            <strong>{informationCheck ? informationCheck.incomplete_count : "-"}</strong>
+                            <span className="jav-kpi-note">缺失影片</span>
+                        </div>
                     </div>
+                    {informationCheck && (
+                        <Alert
+                            style={{ marginTop: 14 }}
+                            type={informationCheck.incomplete_count > 0 ? "warning" : "success"}
+                            showIcon
+                            message={`信息检查：完整 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`}
+                            description={
+                                informationCheck.incomplete_count > 0
+                                    ? `缺失 ${informationCheck.incomplete_count} 部，点击“下载缺失信息”会只补全这些影片。`
+                                    : "当前已入库影片信息完整。"
+                            }
+                        />
+                    )}
                     {scanResult && (
                         <Alert
                             style={{ marginTop: 14 }}
