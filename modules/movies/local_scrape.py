@@ -15,7 +15,7 @@ import httpx
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
-from .schemas import LocalScrapeApplyRequest, LocalScrapePreviewRequest
+from .schemas import LocalScrapeApplyRequest, LocalScrapeDeleteRequest, LocalScrapePreviewRequest
 
 
 logger = logging.getLogger(__name__)
@@ -749,5 +749,56 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
         "library_recorded_count": library_recorded_count,
         "library_failed_count": library_failed_count,
         "library_updates": library_updates,
+        "results": results,
+    }
+
+
+async def delete_local_scrape_files(request: LocalScrapeDeleteRequest) -> dict[str, Any]:
+    try:
+        directory = resolve_existing_directory(request.directory)
+    except UserPathError as exc:
+        return {
+            "success": False,
+            "error": exc.code,
+            "message": exc.message,
+            "deleted_count": 0,
+            "failed_count": len(request.source_paths),
+            "results": [],
+        }
+
+    root = directory.resolve()
+    results: list[dict[str, Any]] = []
+    deleted_count = 0
+
+    for source_path in request.source_paths:
+        try:
+            path = resolve_existing_file(source_path)
+        except UserPathError as exc:
+            results.append({"source_path": source_path, "success": False, "error": exc.code, "message": exc.message})
+            continue
+
+        try:
+            path.relative_to(root)
+        except ValueError:
+            results.append({"source_path": source_path, "success": False, "error": "path_outside_directory"})
+            continue
+
+        if not _should_scan_as_video(path):
+            results.append({"source_path": source_path, "success": False, "error": "not_video_file"})
+            continue
+
+        try:
+            path.unlink()
+            deleted_count += 1
+            results.append({"source_path": source_path, "success": True})
+        except OSError as exc:
+            logger.error("Local scrape delete failed for %s: %s", path, exc)
+            results.append({"source_path": source_path, "success": False, "error": "delete_failed"})
+
+    failed_count = len(results) - deleted_count
+    return {
+        "success": failed_count == 0,
+        "deleted_count": deleted_count,
+        "failed_count": failed_count,
         "results": results,
     }

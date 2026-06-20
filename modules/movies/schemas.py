@@ -65,6 +65,11 @@ class LocalScrapeApplyRequest(BaseModel):
     overwrite_existing: bool = False
 
 
+class LocalScrapeDeleteRequest(BaseModel):
+    directory: str
+    source_paths: list[str]
+
+
 class LocalLibraryScanRequest(BaseModel):
     directory: str
     recursive: bool = True

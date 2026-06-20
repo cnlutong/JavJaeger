@@ -40,6 +40,14 @@ def test_local_library_poster_route_is_before_status_route():
     )
 
 
+def test_local_library_play_route_is_before_status_route():
+    api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
+
+    assert api_paths.index("/api/movies/local-library/{movie_id}/play") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+
+
 def test_client_config_redacts_sensitive_values(monkeypatch):
     test_config = runtime.merge_config(
         runtime.DEFAULT_CONFIG,
@@ -410,6 +418,41 @@ def test_local_scrape_empty_folder_template_uses_target_root():
     assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"
 
 
+def test_local_scrape_delete_removes_only_video_files_inside_preview_directory(tmp_path):
+    keep_dir = tmp_path / "outside"
+    scan_dir = tmp_path / "scan"
+    keep_dir.mkdir()
+    scan_dir.mkdir()
+    deletable = scan_dir / "BAD-001.mp4"
+    nested = scan_dir / "nested"
+    nested.mkdir()
+    nested_deletable = nested / "BAD-002.mkv"
+    text_file = scan_dir / "notes.txt"
+    outside = keep_dir / "OUT-001.mp4"
+    for path in (deletable, nested_deletable, text_file, outside):
+        path.write_text("content", encoding="utf-8")
+
+    payload = asyncio.run(
+        local_scrape.delete_local_scrape_files(
+            local_scrape.LocalScrapeDeleteRequest(
+                directory=str(scan_dir),
+                source_paths=[str(deletable), str(nested_deletable), str(text_file), str(outside)],
+            )
+        )
+    )
+
+    assert payload["deleted_count"] == 2
+    assert payload["failed_count"] == 2
+    assert not deletable.exists()
+    assert not nested_deletable.exists()
+    assert text_file.exists()
+    assert outside.exists()
+    assert [result["error"] for result in payload["results"] if not result["success"]] == [
+        "not_video_file",
+        "path_outside_directory",
+    ]
+
+
 def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
     video = tmp_path / "ABP-123.mp4"
     poster = tmp_path / "ABP-123-poster.jpg"
@@ -445,6 +488,48 @@ def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
     assert record["cover_url"] == "https://www.javbus.com/pics/cover.jpg"
     assert record["poster_url"] == "/api/movies/local-library/poster/ABP-123"
     assert poster_path == poster.resolve()
+
+
+def test_local_library_play_file_path_comes_from_indexed_record(tmp_path):
+    first_video = tmp_path / "ABP-123.mp4"
+    second_video = tmp_path / "ABP-123-cd2.mkv"
+    first_video.write_bytes(b"video-a")
+    second_video.write_bytes(b"video-b")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(first_video),
+                    "relative_path": first_video.name,
+                    "file_name": first_video.name,
+                    "size": first_video.stat().st_size,
+                },
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(second_video),
+                    "relative_path": second_video.name,
+                    "file_name": second_video.name,
+                    "size": second_video.stat().st_size,
+                },
+            ],
+        )
+        return (
+            await service.get_video_file_path("abp-123"),
+            await service.get_video_file_path("ABP-123", 1),
+            await service.get_video_file_path("ABP-123", 2),
+            await service.get_video_file_path("../ABP-123", 0),
+        )
+
+    first_path, second_path, missing_index_path, invalid_id_path = asyncio.run(exercise())
+
+    assert first_path == first_video.resolve()
+    assert second_path == second_video.resolve()
+    assert missing_index_path is None
+    assert invalid_id_path is None
 
 
 def test_automation_task_crud_persists(tmp_path):

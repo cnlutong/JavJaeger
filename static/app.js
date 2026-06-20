@@ -939,6 +939,20 @@
     return nextParts;
   };
 
+  // frontend/src/utils/localScrapeResults.mjs
+  var isConformingLocalScrapeItem = (item) => item?.scrape_status === "found";
+  var getVisibleLocalScrapeItems = (items = [], showNonConforming = false) => {
+    const source = Array.isArray(items) ? items : [];
+    if (showNonConforming) {
+      return source;
+    }
+    return source.filter(isConformingLocalScrapeItem);
+  };
+  var getDeletableNonConformingLocalScrapeKeys = (items = []) => {
+    const source = Array.isArray(items) ? items : [];
+    return source.filter((item) => !isConformingLocalScrapeItem(item) && item?.source_path).map((item) => item.source_path);
+  };
+
   // frontend/src/components/DirectoryInput.jsx
   var React2 = window.React;
   var antd2 = window.antd;
@@ -1162,6 +1176,8 @@
     const [selectedRowKeys, setSelectedRowKeys] = React3.useState([]);
     const [loadingPreview, setLoadingPreview] = React3.useState(false);
     const [loadingApply, setLoadingApply] = React3.useState(false);
+    const [loadingDelete, setLoadingDelete] = React3.useState(false);
+    const [showNonConforming, setShowNonConforming] = React3.useState(false);
     const [applyResult, setApplyResult] = React3.useState(null);
     const [taskTemplates, setTaskTemplates] = React3.useState(() => loadLocalScrapeTaskTemplates());
     const [selectedTemplateId, setSelectedTemplateId] = React3.useState("");
@@ -1170,8 +1186,11 @@
     const [templateDesignerTarget, setTemplateDesignerTarget] = React3.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React3.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form2.useWatch("overwriteExisting", form);
-    const items = preview?.items || [];
-    const selectedItems = items.filter((item) => selectedRowKeys.includes(item.source_path));
+    const allItems = preview?.items || [];
+    const items = getVisibleLocalScrapeItems(allItems, showNonConforming);
+    const selectedItems = allItems.filter((item) => selectedRowKeys.includes(item.source_path) && isConformingLocalScrapeItem(item));
+    const selectedDeleteItems = allItems.filter((item) => selectedRowKeys.includes(item.source_path) && !isConformingLocalScrapeItem(item));
+    const nonConformingCount = allItems.length - allItems.filter(isConformingLocalScrapeItem).length;
     const selectedTemplate = taskTemplates.find((template) => template.id === selectedTemplateId) || null;
     const taskTemplateOptions = taskTemplates.map((template) => ({
       value: template.id,
@@ -1337,7 +1356,7 @@
           return;
         }
         setPreview(data);
-        const selectable = (data.items || []).filter((item) => ["found", "recognized"].includes(item.scrape_status) && !item.target_exists && !item.target_duplicate).map((item) => item.source_path);
+        const selectable = (data.items || []).filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate).map((item) => item.source_path);
         setSelectedRowKeys(selectable);
         message3.success(`\u626B\u63CF\u5B8C\u6210\uFF1A${data.total_files} \u4E2A\u89C6\u9891\uFF0C${data.found_count} \u4E2A\u5339\u914D\u6210\u529F`);
       } catch (error) {
@@ -1375,6 +1394,54 @@
         message3.error(`\u6267\u884C\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setLoadingApply(false);
+      }
+    };
+    const handleSelectNonConforming = () => {
+      const keys = getDeletableNonConformingLocalScrapeKeys(allItems);
+      setShowNonConforming(true);
+      setSelectedRowKeys(keys);
+      if (keys.length === 0) {
+        message3.info("\u6CA1\u6709\u53EF\u5220\u9664\u7684\u4E0D\u7B26\u5408\u8981\u6C42\u6587\u4EF6");
+      }
+    };
+    const handleDeleteNonConforming = async () => {
+      const sourcePaths = selectedDeleteItems.map((item) => item.source_path);
+      if (!preview?.directory || sourcePaths.length === 0) {
+        message3.warning("\u8BF7\u5148\u9009\u62E9\u4E0D\u7B26\u5408\u8981\u6C42\u7684\u6587\u4EF6");
+        return;
+      }
+      setLoadingDelete(true);
+      try {
+        const data = await postJson("/api/movies/local-scrape/delete", {
+          directory: preview.directory,
+          source_paths: sourcePaths
+        });
+        const deletedPaths = new Set((data.results || []).filter((result) => result.success).map((result) => result.source_path));
+        setPreview((current) => {
+          if (!current) {
+            return current;
+          }
+          const remainingItems = (current.items || []).filter((item) => !deletedPaths.has(item.source_path));
+          return {
+            ...current,
+            total_files: remainingItems.length,
+            recognized_count: remainingItems.filter((item) => item.code).length,
+            found_count: remainingItems.filter(isConformingLocalScrapeItem).length,
+            already_scraped_count: remainingItems.filter((item) => item.already_scraped).length,
+            conflict_count: remainingItems.filter((item) => item.target_exists).length,
+            items: remainingItems
+          };
+        });
+        setSelectedRowKeys((currentKeys) => currentKeys.filter((key) => !deletedPaths.has(key)));
+        if (data.failed_count) {
+          message3.warning(`\u5DF2\u5220\u9664 ${data.deleted_count} \u4E2A\u6587\u4EF6\uFF0C${data.failed_count} \u4E2A\u5931\u8D25`);
+        } else {
+          message3.success(`\u5DF2\u5220\u9664 ${data.deleted_count} \u4E2A\u4E0D\u7B26\u5408\u8981\u6C42\u6587\u4EF6`);
+        }
+      } catch (error) {
+        message3.error(`\u5220\u9664\u5931\u8D25\uFF1A${error.message}`);
+      } finally {
+        setLoadingDelete(false);
       }
     };
     const columns = [
@@ -1549,7 +1616,42 @@
         message: "\u6267\u884C\u524D\u4F1A\u5148\u751F\u6210\u9884\u89C8",
         description: "\u53EA\u6709\u70B9\u51FB\u786E\u8BA4\u6267\u884C\u540E\u624D\u4F1A\u79FB\u52A8\u6587\u4EF6\u3001\u5199\u5165 NFO \u6216\u4E0B\u8F7D\u56FE\u7247\u3002\u5EFA\u8BAE\u5148\u68C0\u67E5\u51B2\u7A81\u548C\u76EE\u6807\u8DEF\u5F84\u3002"
       }
-    )), /* @__PURE__ */ React3.createElement("section", { className: "jav-local-results" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React3.createElement("div", null, /* @__PURE__ */ React3.createElement(Title2, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React3.createElement(Icon2, { as: FileSearchOutlined })), "\u522E\u524A\u4EFB\u52A1"), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", className: "jav-results-subtitle" }, "\u626B\u63CF\u672C\u5730\u76EE\u5F55\uFF0C\u6309\u756A\u53F7\u522E\u524A\u5E76\u6574\u7406\u4E3A\u5A92\u4F53\u5E93\u7ED3\u6784\uFF0C\u5B8C\u6210\u540E\u81EA\u52A8\u5165\u5E93")), /* @__PURE__ */ React3.createElement(
+    )), /* @__PURE__ */ React3.createElement("section", { className: "jav-local-results" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React3.createElement("div", null, /* @__PURE__ */ React3.createElement(Title2, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React3.createElement(Icon2, { as: FileSearchOutlined })), "\u522E\u524A\u4EFB\u52A1"), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", className: "jav-results-subtitle" }, "\u626B\u63CF\u672C\u5730\u76EE\u5F55\uFF0C\u6309\u756A\u53F7\u522E\u524A\u5E76\u6574\u7406\u4E3A\u5A92\u4F53\u5E93\u7ED3\u6784\uFF0C\u5B8C\u6210\u540E\u81EA\u52A8\u5165\u5E93")), /* @__PURE__ */ React3.createElement(Space3, { wrap: true, align: "center" }, /* @__PURE__ */ React3.createElement(Space3, { size: 6 }, /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "\u663E\u793A\u4E0D\u7B26\u5408\u8981\u6C42"), /* @__PURE__ */ React3.createElement(
+      Switch2,
+      {
+        size: "small",
+        checked: showNonConforming,
+        onChange: setShowNonConforming,
+        disabled: !preview
+      }
+    ), preview && /* @__PURE__ */ React3.createElement(Tag2, null, nonConformingCount)), /* @__PURE__ */ React3.createElement(
+      Button3,
+      {
+        disabled: !preview || nonConformingCount === 0,
+        onClick: handleSelectNonConforming
+      },
+      "\u5168\u9009\u4E0D\u7B26\u5408\u8981\u6C42"
+    ), /* @__PURE__ */ React3.createElement(
+      Popconfirm2,
+      {
+        title: `\u786E\u8BA4\u5220\u9664 ${selectedDeleteItems.length} \u4E2A\u4E0D\u7B26\u5408\u8981\u6C42\u7684\u6587\u4EF6\uFF1F`,
+        description: "\u6B64\u64CD\u4F5C\u4F1A\u4ECE\u672C\u5730\u6587\u4EF6\u7CFB\u7EDF\u5220\u9664\u9009\u4E2D\u7684\u6E90\u6587\u4EF6\u3002",
+        okText: "\u5220\u9664",
+        cancelText: "\u53D6\u6D88",
+        disabled: selectedDeleteItems.length === 0 || loadingDelete,
+        onConfirm: handleDeleteNonConforming
+      },
+      /* @__PURE__ */ React3.createElement(
+        Button3,
+        {
+          danger: true,
+          disabled: selectedDeleteItems.length === 0,
+          loading: loadingDelete,
+          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: DeleteOutlined2 })
+        },
+        "\u5220\u9664\u9009\u4E2D"
+      )
+    ), /* @__PURE__ */ React3.createElement(
       Popconfirm2,
       {
         title: `\u786E\u8BA4\u6267\u884C ${selectedItems.length} \u4E2A\u6761\u76EE\u7684\u522E\u524A\u64CD\u4F5C\uFF1F`,
@@ -1569,7 +1671,7 @@
         },
         "\u6267\u884C\u9009\u4E2D\u9879"
       )
-    )), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
+    ))), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
       Table2,
       {
         rowKey: "source_path",
@@ -1582,7 +1684,7 @@
           selectedRowKeys,
           onChange: setSelectedRowKeys,
           getCheckboxProps: (item) => ({
-            disabled: item.target_duplicate || !["found", "recognized"].includes(item.scrape_status) || item.target_exists && !overwriteExisting
+            disabled: isConformingLocalScrapeItem(item) ? item.target_duplicate || item.target_exists && !overwriteExisting : false
           })
         },
         locale: { emptyText: "\u8BF7\u8F93\u5165\u76EE\u5F55\u5E76\u751F\u6210\u9884\u89C8" }
@@ -1688,10 +1790,12 @@
   } = antd4;
   var { Text: Text4, Title: Title3 } = Typography4;
   var {
+    ArrowLeftOutlined,
     AppstoreOutlined,
     DatabaseOutlined,
     FilterOutlined,
     FolderOpenOutlined: FolderOpenOutlined3,
+    PlayCircleOutlined: PlayCircleOutlined3,
     ReloadOutlined: ReloadOutlined2,
     SearchOutlined,
     UnorderedListOutlined
@@ -1768,6 +1872,9 @@
     const [scanning, setScanning] = React4.useState(false);
     const [filterOpen, setFilterOpen] = React4.useState(false);
     const [scanOpen, setScanOpen] = React4.useState(false);
+    const [selectedRecord, setSelectedRecord] = React4.useState(null);
+    const [playingRecordKey, setPlayingRecordKey] = React4.useState("");
+    const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React4.useState(0);
     const [viewMode, setViewMode] = React4.useState("list");
     const [listPosterSize, setListPosterSize] = React4.useState(56);
     const [gridPosterSize, setGridPosterSize] = React4.useState(156);
@@ -1839,6 +1946,23 @@ ${record.full_text || ""}`.toLowerCase();
     React4.useEffect(() => {
       loadLibrary();
     }, []);
+    const openRecordPreview = (record) => {
+      setSelectedRecord(record);
+      setPlayingRecordKey("");
+      setSelectedPlayFileIndex(0);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const closeRecordPreview = () => {
+      setSelectedRecord(null);
+      setPlayingRecordKey("");
+    };
+    const handlePlaySelectedRecord = (fileIndex = 0) => {
+      if (!selectedRecord?.movie_id) {
+        return;
+      }
+      setSelectedPlayFileIndex(fileIndex);
+      setPlayingRecordKey(`${selectedRecord.movie_id}:${fileIndex}`);
+    };
     const handleScan = async (values) => {
       setScanning(true);
       setScanResult(null);
@@ -1923,6 +2047,60 @@ ${record.full_text || ""}`.toLowerCase();
         value
       )));
     };
+    const renderTagList = (items, color) => {
+      const values = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
+      if (!values.length) {
+        return /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "-");
+      }
+      return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, values.map((value) => /* @__PURE__ */ React4.createElement(Tag3, { color, key: value }, value)));
+    };
+    const renderRecordPreview = () => {
+      if (!selectedRecord) {
+        return null;
+      }
+      const detailRows = [
+        ["\u756A\u53F7", selectedRecord.movie_id],
+        ["\u53D1\u5E03\u65E5\u671F", selectedRecord.date],
+        ["\u5236\u4F5C\u5546", selectedRecord.studio],
+        ["\u53D1\u884C\u5546", selectedRecord.publisher],
+        ["\u5BFC\u6F14", selectedRecord.director],
+        ["\u7CFB\u5217", selectedRecord.series],
+        ["\u522E\u524A\u72B6\u6001", selectedRecord.scrape_status],
+        ["\u9996\u6B21\u5165\u5E93", selectedRecord.first_seen_at],
+        ["\u6700\u8FD1\u66F4\u65B0", selectedRecord.updated_at],
+        ["\u6587\u4EF6\u6570\u91CF", `${selectedRecord.file_count || 0} \u4E2A\u6587\u4EF6`],
+        ["\u603B\u5BB9\u91CF", formatBytes2(selectedRecord.total_size)]
+      ].filter(([, value]) => value);
+      const hasPlayableFile = (selectedRecord.files || []).length > 0;
+      const videoSrc = `/api/movies/local-library/${encodeURIComponent(selectedRecord.movie_id)}/play?file_index=${selectedPlayFileIndex}`;
+      const isPlayingSelectedRecord = playingRecordKey === `${selectedRecord.movie_id}:${selectedPlayFileIndex}`;
+      return /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview" }, /* @__PURE__ */ React4.createElement("aside", { className: "jav-library-preview-poster" }, /* @__PURE__ */ React4.createElement(MoviePoster, { record: selectedRecord })), /* @__PURE__ */ React4.createElement("section", { className: "jav-library-preview-details" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-header" }, /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ArrowLeftOutlined }), onClick: closeRecordPreview }, "\u8FD4\u56DE\u5F71\u7247\u5E93"), /* @__PURE__ */ React4.createElement(Space4, null, /* @__PURE__ */ React4.createElement(
+        Button4,
+        {
+          type: "primary",
+          icon: /* @__PURE__ */ React4.createElement(Icon3, { as: PlayCircleOutlined3 }),
+          disabled: !hasPlayableFile,
+          onClick: () => handlePlaySelectedRecord(0)
+        },
+        "\u64AD\u653E\u5F71\u7247"
+      ), /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, selectedRecord.movie_id))), /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 3, className: "jav-library-preview-title" }, selectedRecord.title || selectedRecord.movie_id), selectedRecord.scrape_error && /* @__PURE__ */ React4.createElement(
+        Alert2,
+        {
+          type: "warning",
+          showIcon: true,
+          message: "\u522E\u524A\u5F02\u5E38",
+          description: selectedRecord.scrape_error
+        }
+      )), isPlayingSelectedRecord && /* @__PURE__ */ React4.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React4.createElement("span", null, label), /* @__PURE__ */ React4.createElement("strong", null, value)))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458"), renderTagList(selectedRecord.stars, "magenta")), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6807\u7B7E"), renderTagList(selectedRecord.genres, "cyan")), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Text4, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React4.createElement(
+        Button4,
+        {
+          size: "small",
+          icon: /* @__PURE__ */ React4.createElement(Icon3, { as: PlayCircleOutlined3 }),
+          onClick: () => handlePlaySelectedRecord(fileIndex)
+        },
+        "\u64AD\u653E"
+      )), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", ellipsis: { tooltip: file.path } }, formatBytes2(file.size), " \xB7 ", file.path)))))));
+    };
     const columns = [
       {
         title: "\u5C01\u9762",
@@ -1949,6 +2127,9 @@ ${record.full_text || ""}`.toLowerCase();
         render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 2 }, /* @__PURE__ */ React4.createElement(Text4, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React4.createElement(Text4, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name)), (record.files || []).length > 3 && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
       }
     ];
+    if (selectedRecord) {
+      return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, renderRecordPreview())));
+    }
     return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React4.createElement(Icon3, { as: DatabaseOutlined })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React4.createElement(
       Input4,
       {
@@ -2007,7 +2188,8 @@ ${record.full_text || ""}`.toLowerCase();
           key: record.movie_id,
           hoverable: true,
           className: "jav-library-poster-card",
-          cover: /* @__PURE__ */ React4.createElement(MoviePoster, { record })
+          cover: /* @__PURE__ */ React4.createElement(MoviePoster, { record }),
+          onClick: () => openRecordPreview(record)
         },
         /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
         /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, String(record.date).slice(0, 4))),
@@ -2022,6 +2204,9 @@ ${record.full_text || ""}`.toLowerCase();
         columns,
         loading,
         pagination: { pageSize: 12, showSizeChanger: true },
+        onRow: (record) => ({
+          onClick: () => openRecordPreview(record)
+        }),
         locale: { emptyText: "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55" }
       }
     ), /* @__PURE__ */ React4.createElement(
@@ -2190,7 +2375,7 @@ ${record.full_text || ""}`.toLowerCase();
     DownloadOutlined: DownloadOutlined2,
     LinkOutlined,
     PlusOutlined,
-    PlayCircleOutlined: PlayCircleOutlined3,
+    PlayCircleOutlined: PlayCircleOutlined4,
     SaveOutlined: SaveOutlined3,
     SearchOutlined: SearchOutlined2,
     ThunderboltOutlined
@@ -2645,7 +2830,7 @@ ${record.full_text || ""}`.toLowerCase();
         unCheckedChildren: "\u505C\u7528",
         onChange: (checked) => updateTaskField("enabled", checked)
       }
-    ), /* @__PURE__ */ React6.createElement(Tag5, { icon: /* @__PURE__ */ React6.createElement(Icon5, { as: ClockCircleOutlined }), color: "blue" }, triggerLabel(currentTask.trigger))), /* @__PURE__ */ React6.createElement(Space6, null, /* @__PURE__ */ React6.createElement(Button6, { className: "automation-layout-button", onClick: handleAutoLayout }, "\u81EA\u52A8\u6392\u7248"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon5, { as: PlayCircleOutlined3 }), onClick: handleRun, loading: running }, "\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Button6, { type: "primary", icon: /* @__PURE__ */ React6.createElement(Icon5, { as: SaveOutlined3 }), onClick: handleSave, loading: saving }, "\u4FDD\u5B58"), /* @__PURE__ */ React6.createElement(Popconfirm4, { title: "\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u4EFB\u52A1\uFF1F", okText: "\u5220\u9664", cancelText: "\u53D6\u6D88", onConfirm: handleDelete }, /* @__PURE__ */ React6.createElement(Button6, { danger: true, icon: /* @__PURE__ */ React6.createElement(Icon5, { as: DeleteOutlined3 }) }, "\u5220\u9664")))), /* @__PURE__ */ React6.createElement("section", { className: "automation-workbench" }, /* @__PURE__ */ React6.createElement("div", { className: "automation-canvas", ref: canvasRef }, renderEdges(), (currentTask.nodes || []).map((node) => {
+    ), /* @__PURE__ */ React6.createElement(Tag5, { icon: /* @__PURE__ */ React6.createElement(Icon5, { as: ClockCircleOutlined }), color: "blue" }, triggerLabel(currentTask.trigger))), /* @__PURE__ */ React6.createElement(Space6, null, /* @__PURE__ */ React6.createElement(Button6, { className: "automation-layout-button", onClick: handleAutoLayout }, "\u81EA\u52A8\u6392\u7248"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon5, { as: PlayCircleOutlined4 }), onClick: handleRun, loading: running }, "\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Button6, { type: "primary", icon: /* @__PURE__ */ React6.createElement(Icon5, { as: SaveOutlined3 }), onClick: handleSave, loading: saving }, "\u4FDD\u5B58"), /* @__PURE__ */ React6.createElement(Popconfirm4, { title: "\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u4EFB\u52A1\uFF1F", okText: "\u5220\u9664", cancelText: "\u53D6\u6D88", onConfirm: handleDelete }, /* @__PURE__ */ React6.createElement(Button6, { danger: true, icon: /* @__PURE__ */ React6.createElement(Icon5, { as: DeleteOutlined3 }) }, "\u5220\u9664")))), /* @__PURE__ */ React6.createElement("section", { className: "automation-workbench" }, /* @__PURE__ */ React6.createElement("div", { className: "automation-canvas", ref: canvasRef }, renderEdges(), (currentTask.nodes || []).map((node) => {
       const meta = NODE_META[node.type] || NODE_META.search;
       return /* @__PURE__ */ React6.createElement(
         "button",
@@ -2708,7 +2893,7 @@ ${record.full_text || ""}`.toLowerCase();
   var { Title: Title6, Text: Text7 } = Typography7;
   var { Option } = Select3;
   var {
-    ArrowLeftOutlined,
+    ArrowLeftOutlined: ArrowLeftOutlined2,
     ArrowRightOutlined,
     DatabaseOutlined: DatabaseOutlined2,
     DownloadOutlined: DownloadOutlined3,
@@ -3658,7 +3843,7 @@ ${record.full_text || ""}`.toLowerCase();
         const paginationBar = isPageMode && lastFilterValues && /* @__PURE__ */ React7.createElement("div", { className: "jav-pagination-bar" }, /* @__PURE__ */ React7.createElement(
           Button7,
           {
-            icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined }),
+            icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }),
             disabled: !canGoPrev || loading,
             onClick: () => handleFilterPageChange(currentPage - 1)
           },
@@ -3687,7 +3872,7 @@ ${record.full_text || ""}`.toLowerCase();
       setViewMode("search");
     };
     const renderCategoryGroups = () => {
-      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u7C7B\u522B"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), Object.keys(categories).map((group) => /* @__PURE__ */ React7.createElement("div", { key: group, style: { marginBottom: 24 } }, /* @__PURE__ */ React7.createElement(Title6, { level: 5 }, group), /* @__PURE__ */ React7.createElement(
+      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u7C7B\u522B"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), Object.keys(categories).map((group) => /* @__PURE__ */ React7.createElement("div", { key: group, style: { marginBottom: 24 } }, /* @__PURE__ */ React7.createElement(Title6, { level: 5 }, group), /* @__PURE__ */ React7.createElement(
         List3,
         {
           grid: { gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 6 },
@@ -3715,7 +3900,7 @@ ${record.full_text || ""}`.toLowerCase();
           cancelText: "\u53D6\u6D88"
         },
         /* @__PURE__ */ React7.createElement(Button7, { danger: true, disabled: !historyData || historyData.length === 0, loading }, "\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55")
-      ), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2"))), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React7.createElement(
+      ), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2"))), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React7.createElement(
         antd7.Table,
         {
           dataSource: historyData || [],
@@ -3775,7 +3960,7 @@ ${record.full_text || ""}`.toLowerCase();
       ));
     };
     const renderActorsList = () => {
-      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u6F14\u5458"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React7.createElement(
+      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u6F14\u5458"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React7.createElement(
         List3,
         {
           grid: { gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 5, xxl: 5 },

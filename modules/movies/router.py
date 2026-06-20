@@ -1,12 +1,20 @@
 import logging
+import mimetypes
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from modules.history.service import local_movie_library_service
 from .local_library import clear_local_library, get_local_library_payload, get_local_library_status, scan_local_library
-from .local_scrape import apply_local_scrape, preview_local_scrape
-from .schemas import LocalLibraryScanRequest, LocalScrapeApplyRequest, LocalScrapePreviewRequest, MovieCodeDownloadRequest, MovieRecognitionRequest
+from .local_scrape import apply_local_scrape, delete_local_scrape_files, preview_local_scrape
+from .schemas import (
+    LocalLibraryScanRequest,
+    LocalScrapeApplyRequest,
+    LocalScrapeDeleteRequest,
+    LocalScrapePreviewRequest,
+    MovieCodeDownloadRequest,
+    MovieRecognitionRequest,
+)
 from .service import (
     get_all_movies_payload,
     get_movie_detail,
@@ -77,6 +85,15 @@ async def get_local_movie_library_poster(movie_id: str):
     return FileResponse(poster_path)
 
 
+@router.get("/api/movies/local-library/{movie_id}/play")
+async def play_local_movie_library_file(movie_id: str, file_index: int = 0):
+    video_path = await local_movie_library_service.get_video_file_path(movie_id, file_index)
+    if video_path is None:
+        raise HTTPException(status_code=404, detail="video_not_found")
+    media_type = mimetypes.guess_type(str(video_path))[0] or "application/octet-stream"
+    return FileResponse(video_path, media_type=media_type, filename=video_path.name)
+
+
 @router.get("/api/movies/local-library/{movie_id}")
 async def get_local_movie_library_status(movie_id: str):
     try:
@@ -143,6 +160,15 @@ async def preview_local_movie_scrape(request: LocalScrapePreviewRequest):
     except Exception as exc:
         logger.error("Local scrape preview failed: %s", exc)
         return {"success": False, "error": "preview_failed", "message": "预览本地整理失败"}
+
+
+@router.post("/api/movies/local-scrape/delete")
+async def delete_local_movie_scrape_files(request: LocalScrapeDeleteRequest):
+    try:
+        return await delete_local_scrape_files(request)
+    except Exception as exc:
+        logger.error("Local scrape delete failed: %s", exc)
+        return {"success": False, "error": "delete_failed", "message": "鍒犻櫎鏈湴鏂囦欢澶辫触"}
 
 
 @router.post("/api/movies/local-scrape/apply")

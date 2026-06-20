@@ -230,6 +230,24 @@ class LocalMovieLibraryService:
                     continue
         return None
 
+    async def get_video_file_path(self, movie_id: str, file_index: int = 0) -> Path | None:
+        records = await self.load_records()
+        record = records.get((movie_id or "").upper())
+        if not record:
+            return None
+
+        files = record.get("files", [])
+        if file_index < 0 or file_index >= len(files):
+            return None
+
+        file_record = files[file_index]
+        video_path = Path(str(file_record.get("path") or ""))
+        try:
+            resolved = video_path.resolve()
+        except OSError:
+            return None
+        return resolved if resolved.exists() and resolved.is_file() else None
+
     async def update_from_scan(
         self,
         scan_root: str,

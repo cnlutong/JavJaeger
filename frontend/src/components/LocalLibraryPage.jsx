@@ -25,10 +25,12 @@ const {
 } = antd;
 const { Text, Title } = Typography;
 const {
+    ArrowLeftOutlined,
     AppstoreOutlined,
     DatabaseOutlined,
     FilterOutlined,
     FolderOpenOutlined,
+    PlayCircleOutlined,
     ReloadOutlined,
     SearchOutlined,
     UnorderedListOutlined,
@@ -124,6 +126,9 @@ export default function LocalLibraryPage() {
     const [scanning, setScanning] = React.useState(false);
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
+    const [selectedRecord, setSelectedRecord] = React.useState(null);
+    const [playingRecordKey, setPlayingRecordKey] = React.useState("");
+    const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React.useState(0);
     const [viewMode, setViewMode] = React.useState("list");
     const [listPosterSize, setListPosterSize] = React.useState(56);
     const [gridPosterSize, setGridPosterSize] = React.useState(156);
@@ -210,6 +215,26 @@ export default function LocalLibraryPage() {
     React.useEffect(() => {
         loadLibrary();
     }, []);
+
+    const openRecordPreview = (record) => {
+        setSelectedRecord(record);
+        setPlayingRecordKey("");
+        setSelectedPlayFileIndex(0);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const closeRecordPreview = () => {
+        setSelectedRecord(null);
+        setPlayingRecordKey("");
+    };
+
+    const handlePlaySelectedRecord = (fileIndex = 0) => {
+        if (!selectedRecord?.movie_id) {
+            return;
+        }
+        setSelectedPlayFileIndex(fileIndex);
+        setPlayingRecordKey(`${selectedRecord.movie_id}:${fileIndex}`);
+    };
 
     const handleScan = async (values) => {
         setScanning(true);
@@ -308,6 +333,133 @@ export default function LocalLibraryPage() {
         ));
     };
 
+    const renderTagList = (items, color) => {
+        const values = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
+        if (!values.length) {
+            return <Text type="secondary">-</Text>;
+        }
+        return (
+            <Space size={4} wrap>
+                {values.map((value) => <Tag color={color} key={value}>{value}</Tag>)}
+            </Space>
+        );
+    };
+
+    const renderRecordPreview = () => {
+        if (!selectedRecord) {
+            return null;
+        }
+
+        const detailRows = [
+            ["番号", selectedRecord.movie_id],
+            ["发布日期", selectedRecord.date],
+            ["制作商", selectedRecord.studio],
+            ["发行商", selectedRecord.publisher],
+            ["导演", selectedRecord.director],
+            ["系列", selectedRecord.series],
+            ["刮削状态", selectedRecord.scrape_status],
+            ["首次入库", selectedRecord.first_seen_at],
+            ["最近更新", selectedRecord.updated_at],
+            ["文件数量", `${selectedRecord.file_count || 0} 个文件`],
+            ["总容量", formatBytes(selectedRecord.total_size)],
+        ].filter(([, value]) => value);
+        const hasPlayableFile = (selectedRecord.files || []).length > 0;
+        const videoSrc = `/api/movies/local-library/${encodeURIComponent(selectedRecord.movie_id)}/play?file_index=${selectedPlayFileIndex}`;
+        const isPlayingSelectedRecord = playingRecordKey === `${selectedRecord.movie_id}:${selectedPlayFileIndex}`;
+
+        return (
+            <div className="jav-library-preview">
+                <aside className="jav-library-preview-poster">
+                    <MoviePoster record={selectedRecord} />
+                </aside>
+                <section className="jav-library-preview-details">
+                    <div className="jav-library-preview-header">
+                        <Button icon={<Icon as={ArrowLeftOutlined} />} onClick={closeRecordPreview}>
+                            返回影片库
+                        </Button>
+                        <Space>
+                            <Button
+                                type="primary"
+                                icon={<Icon as={PlayCircleOutlined} />}
+                                disabled={!hasPlayableFile}
+                                onClick={() => handlePlaySelectedRecord(0)}
+                            >
+                                播放影片
+                            </Button>
+                            <Tag color="blue">{selectedRecord.movie_id}</Tag>
+                        </Space>
+                    </div>
+                    <div>
+                        <Title level={3} className="jav-library-preview-title">
+                            {selectedRecord.title || selectedRecord.movie_id}
+                        </Title>
+                        {selectedRecord.scrape_error && (
+                            <Alert
+                                type="warning"
+                                showIcon
+                                message="刮削异常"
+                                description={selectedRecord.scrape_error}
+                            />
+                        )}
+                    </div>
+                    {isPlayingSelectedRecord && (
+                        <video controls className="jav-library-preview-player" src={videoSrc}>
+                            您的浏览器不支持视频播放。
+                        </video>
+                    )}
+                    <div className="jav-library-preview-meta">
+                        {detailRows.map(([label, value]) => (
+                            <div className="jav-library-preview-meta-row" key={label}>
+                                <span>{label}</span>
+                                <strong>{value}</strong>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="jav-library-preview-section">
+                        <Text strong>演员</Text>
+                        {renderTagList(selectedRecord.stars, "magenta")}
+                    </div>
+                    <div className="jav-library-preview-section">
+                        <Text strong>标签</Text>
+                        {renderTagList(selectedRecord.genres, "cyan")}
+                    </div>
+                    <div className="jav-library-preview-section">
+                        <Text strong>扫描目录</Text>
+                        {renderTagList(selectedRecord.scan_roots, "geekblue")}
+                    </div>
+                    {selectedRecord.full_text && (
+                        <div className="jav-library-preview-section">
+                            <Text strong>全文信息</Text>
+                            <Text className="jav-library-preview-full-text">{selectedRecord.full_text}</Text>
+                        </div>
+                    )}
+                    <div className="jav-library-preview-section">
+                        <Text strong>本地文件</Text>
+                        <div className="jav-library-preview-files">
+                            {(selectedRecord.files || []).map((file, fileIndex) => (
+                                <div className="jav-library-preview-file" key={file.path}>
+                                    <div className="jav-library-preview-file-title">
+                                        <Text strong ellipsis={{ tooltip: file.path }}>{file.file_name || file.path}</Text>
+                                        <Button
+                                            size="small"
+                                            icon={<Icon as={PlayCircleOutlined} />}
+                                            onClick={() => handlePlaySelectedRecord(fileIndex)}
+                                        >
+                                            播放
+                                        </Button>
+                                    </div>
+                                    <Text type="secondary" ellipsis={{ tooltip: file.path }}>
+                                        {formatBytes(file.size)} · {file.path}
+                                    </Text>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            </div>
+        );
+    };
+
     const columns = [
         {
             title: "封面",
@@ -368,6 +520,18 @@ export default function LocalLibraryPage() {
             ),
         },
     ];
+
+    if (selectedRecord) {
+        return (
+            <div className="jav-local-scrape jav-library-page">
+                <div className="jav-library-layout">
+                    <section className="jav-local-results jav-library-results">
+                        {renderRecordPreview()}
+                    </section>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="jav-local-scrape jav-library-page">
@@ -482,6 +646,7 @@ export default function LocalLibraryPage() {
                                         hoverable
                                         className="jav-library-poster-card"
                                         cover={<MoviePoster record={record} />}
+                                        onClick={() => openRecordPreview(record)}
                                     >
                                         <Text strong ellipsis={{ tooltip: record.title }} className="jav-library-poster-title">
                                             {record.title || record.movie_id}
@@ -510,6 +675,9 @@ export default function LocalLibraryPage() {
                             columns={columns}
                             loading={loading}
                             pagination={{ pageSize: 12, showSizeChanger: true }}
+                            onRow={(record) => ({
+                                onClick: () => openRecordPreview(record),
+                            })}
                             locale={{ emptyText: "暂无影视库记录，请先扫描目录" }}
                         />
                     )}

@@ -12,6 +12,11 @@ import {
     moveTemplatePart,
     parseTemplateToParts,
 } from "../utils/localScrapeNamingTemplates.mjs";
+import {
+    getDeletableNonConformingLocalScrapeKeys,
+    getVisibleLocalScrapeItems,
+    isConformingLocalScrapeItem,
+} from "../utils/localScrapeResults.mjs";
 import DirectoryInput from "./DirectoryInput.jsx";
 
 const React = window.React;
@@ -123,6 +128,8 @@ export default function LocalScrapePage() {
     const [selectedRowKeys, setSelectedRowKeys] = React.useState([]);
     const [loadingPreview, setLoadingPreview] = React.useState(false);
     const [loadingApply, setLoadingApply] = React.useState(false);
+    const [loadingDelete, setLoadingDelete] = React.useState(false);
+    const [showNonConforming, setShowNonConforming] = React.useState(false);
     const [applyResult, setApplyResult] = React.useState(null);
     const [taskTemplates, setTaskTemplates] = React.useState(() => loadLocalScrapeTaskTemplates());
     const [selectedTemplateId, setSelectedTemplateId] = React.useState("");
@@ -132,8 +139,11 @@ export default function LocalScrapePage() {
     const [templateDesignerParts, setTemplateDesignerParts] = React.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form.useWatch("overwriteExisting", form);
 
-    const items = preview?.items || [];
-    const selectedItems = items.filter((item) => selectedRowKeys.includes(item.source_path));
+    const allItems = preview?.items || [];
+    const items = getVisibleLocalScrapeItems(allItems, showNonConforming);
+    const selectedItems = allItems.filter((item) => selectedRowKeys.includes(item.source_path) && isConformingLocalScrapeItem(item));
+    const selectedDeleteItems = allItems.filter((item) => selectedRowKeys.includes(item.source_path) && !isConformingLocalScrapeItem(item));
+    const nonConformingCount = allItems.length - allItems.filter(isConformingLocalScrapeItem).length;
     const selectedTemplate = taskTemplates.find((template) => template.id === selectedTemplateId) || null;
     const taskTemplateOptions = taskTemplates.map((template) => ({
         value: template.id,
@@ -325,7 +335,7 @@ export default function LocalScrapePage() {
             }
             setPreview(data);
             const selectable = (data.items || [])
-                .filter((item) => ["found", "recognized"].includes(item.scrape_status) && !item.target_exists && !item.target_duplicate)
+                .filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate)
                 .map((item) => item.source_path);
             setSelectedRowKeys(selectable);
             message.success(`扫描完成：${data.total_files} 个视频，${data.found_count} 个匹配成功`);
@@ -365,6 +375,58 @@ export default function LocalScrapePage() {
             message.error(`执行失败：${error.message}`);
         } finally {
             setLoadingApply(false);
+        }
+    };
+
+    const handleSelectNonConforming = () => {
+        const keys = getDeletableNonConformingLocalScrapeKeys(allItems);
+        setShowNonConforming(true);
+        setSelectedRowKeys(keys);
+        if (keys.length === 0) {
+            message.info("没有可删除的不符合要求文件");
+        }
+    };
+
+    const handleDeleteNonConforming = async () => {
+        const sourcePaths = selectedDeleteItems.map((item) => item.source_path);
+        if (!preview?.directory || sourcePaths.length === 0) {
+            message.warning("请先选择不符合要求的文件");
+            return;
+        }
+        setLoadingDelete(true);
+        try {
+            const data = await postJson("/api/movies/local-scrape/delete", {
+                directory: preview.directory,
+                source_paths: sourcePaths,
+            });
+            const deletedPaths = new Set((data.results || [])
+                .filter((result) => result.success)
+                .map((result) => result.source_path));
+            setPreview((current) => {
+                if (!current) {
+                    return current;
+                }
+                const remainingItems = (current.items || []).filter((item) => !deletedPaths.has(item.source_path));
+                return {
+                    ...current,
+                    total_files: remainingItems.length,
+                    recognized_count: remainingItems.filter((item) => item.code).length,
+                    found_count: remainingItems.filter(isConformingLocalScrapeItem).length,
+                    already_scraped_count: remainingItems.filter((item) => item.already_scraped).length,
+                    conflict_count: remainingItems.filter((item) => item.target_exists).length,
+                    items: remainingItems,
+                };
+            });
+            setSelectedRowKeys((currentKeys) => currentKeys.filter((key) => !deletedPaths.has(key)));
+            if (data.failed_count) {
+                message.warning(`已删除 ${data.deleted_count} 个文件，${data.failed_count} 个失败`);
+            } else {
+                message.success(`已删除 ${data.deleted_count} 个不符合要求文件`);
+            }
+        } catch (error) {
+            message.error(`删除失败：${error.message}`);
+        } finally {
+            setLoadingDelete(false);
         }
     };
 
@@ -603,23 +665,58 @@ export default function LocalScrapePage() {
                                 扫描本地目录，按番号刮削并整理为媒体库结构，完成后自动入库
                             </Text>
                         </div>
-                        <Popconfirm
+                        <Space wrap align="center">
+                            <Space size={6}>
+                                <Text type="secondary">显示不符合要求</Text>
+                                <Switch
+                                    size="small"
+                                    checked={showNonConforming}
+                                    onChange={setShowNonConforming}
+                                    disabled={!preview}
+                                />
+                                {preview && <Tag>{nonConformingCount}</Tag>}
+                            </Space>
+                            <Button
+                                disabled={!preview || nonConformingCount === 0}
+                                onClick={handleSelectNonConforming}
+                            >
+                                全选不符合要求
+                            </Button>
+                            <Popconfirm
+                                title={`确认删除 ${selectedDeleteItems.length} 个不符合要求的文件？`}
+                                description="此操作会从本地文件系统删除选中的源文件。"
+                                okText="删除"
+                                cancelText="取消"
+                                disabled={selectedDeleteItems.length === 0 || loadingDelete}
+                                onConfirm={handleDeleteNonConforming}
+                            >
+                                <Button
+                                    danger
+                                    disabled={selectedDeleteItems.length === 0}
+                                    loading={loadingDelete}
+                                    icon={<Icon as={DeleteOutlined} />}
+                                >
+                                    删除选中
+                                </Button>
+                            </Popconfirm>
+                            <Popconfirm
                             title={`确认执行 ${selectedItems.length} 个条目的刮削操作？`}
                             description="此操作会修改本地文件系统。"
                             okText="确认执行"
                             cancelText="取消"
                             disabled={selectedItems.length === 0 || loadingApply}
                             onConfirm={handleApply}
-                        >
-                            <Button
-                                type="primary"
-                                disabled={selectedItems.length === 0}
-                                loading={loadingApply}
-                                icon={<Icon as={PlayCircleOutlined} />}
                             >
-                                执行选中项
-                            </Button>
-                        </Popconfirm>
+                                <Button
+                                    type="primary"
+                                    disabled={selectedItems.length === 0}
+                                    loading={loadingApply}
+                                    icon={<Icon as={PlayCircleOutlined} />}
+                                >
+                                    执行选中项
+                                </Button>
+                            </Popconfirm>
+                        </Space>
                     </div>
 
                     {preview && (
@@ -659,7 +756,9 @@ export default function LocalScrapePage() {
                             selectedRowKeys,
                             onChange: setSelectedRowKeys,
                             getCheckboxProps: (item) => ({
-                                disabled: item.target_duplicate || !["found", "recognized"].includes(item.scrape_status) || (item.target_exists && !overwriteExisting),
+                                disabled: isConformingLocalScrapeItem(item)
+                                    ? item.target_duplicate || (item.target_exists && !overwriteExisting)
+                                    : false,
                             }),
                         }}
                         locale={{ emptyText: "请输入目录并生成预览" }}
