@@ -1190,6 +1190,8 @@
     const [selectedTemplateId, setSelectedTemplateId] = React3.useState("");
     const [templateName, setTemplateName] = React3.useState("");
     const [templateDesignerOpen, setTemplateDesignerOpen] = React3.useState(false);
+    const [conflictCompareItem, setConflictCompareItem] = React3.useState(null);
+    const [conflictResolutions, setConflictResolutions] = React3.useState({});
     const [templateDesignerTarget, setTemplateDesignerTarget] = React3.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React3.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form2.useWatch("overwriteExisting", form);
@@ -1203,6 +1205,10 @@
       value: template.id,
       label: template.name
     }));
+    const conflictResolutionLabels = {
+      keep_source: "\u4FDD\u7559\u6E90\u6587\u4EF6\u5E76\u8986\u76D6\u76EE\u6807",
+      keep_target: "\u4FDD\u7559\u76EE\u6807\u6587\u4EF6"
+    };
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "\u6587\u4EF6\u5939\u6A21\u677F" : "\u6587\u4EF6\u547D\u540D\u6A21\u677F";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
     React3.useEffect(() => {
@@ -1346,6 +1352,8 @@
         return;
       }
       setPreview(data);
+      setConflictCompareItem(null);
+      setConflictResolutions({});
       const selectable = (data.items || []).filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate).map((item) => item.source_path);
       setSelectedRowKeys(selectable);
       message3.success(`\u626B\u63CF\u5B8C\u6210\uFF1A${data.total_files} \u4E2A\u89C6\u9891\uFF0C${data.found_count} \u4E2A\u5339\u914D\u6210\u529F`);
@@ -1471,6 +1479,24 @@
       }
       return part.value;
     };
+    const isResolvableConflict = (item) => Boolean(
+      item?.target_exists && !item?.target_duplicate && item?.source_file && item?.target_file
+    );
+    const getConflictResolution = (item) => conflictResolutions[item?.source_path] || "";
+    const updateConflictResolution = (item, resolution) => {
+      if (!item?.source_path) {
+        return;
+      }
+      setConflictResolutions((current) => ({
+        ...current,
+        [item.source_path]: resolution
+      }));
+      if (isConformingLocalScrapeItem(item)) {
+        setSelectedRowKeys((currentKeys) => currentKeys.includes(item.source_path) ? currentKeys : [...currentKeys, item.source_path]);
+      }
+      setConflictCompareItem(null);
+    };
+    const renderConflictFileDetail = (title, file) => /* @__PURE__ */ React3.createElement(Card2, { size: "small", title }, /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4, style: { width: "100%" } }, /* @__PURE__ */ React3.createElement(Text3, { strong: true, ellipsis: { tooltip: file?.file_name || "-" } }, file?.file_name || "-"), /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: file?.path || "-" }, style: { maxWidth: "100%" } }, file?.path || "-"), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "\u5927\u5C0F\uFF1A", formatBytes(file?.size)), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "\u4FEE\u6539\u65F6\u95F4\uFF1A", file?.modified_at || "-"), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "\u6269\u5C55\u540D\uFF1A", file?.extension || "-")));
     const handlePreview = async (values) => {
       setLoadingPreview(true);
       setApplyResult(null);
@@ -1491,12 +1517,19 @@
         message3.warning("\u8BF7\u5148\u8865\u5168\u522E\u524A\u8BBE\u7F6E");
         return;
       }
+      const unresolvedConflicts = selectedItems.filter((item) => isResolvableConflict(item) && !overwriteExisting && !getConflictResolution(item));
+      if (unresolvedConflicts.length > 0) {
+        message3.warning("\u8BF7\u5148\u6BD4\u8F83\u51B2\u7A81\u6587\u4EF6\uFF0C\u5E76\u9009\u62E9\u4FDD\u7559\u6E90\u6587\u4EF6\u6216\u76EE\u6807\u6587\u4EF6");
+        setConflictCompareItem(unresolvedConflicts[0]);
+        return;
+      }
       const payload = {
         ...buildPayload(values),
         items: selectedItems.map((item) => ({
           source_path: item.source_path,
           code: item.code,
-          metadata: item.metadata
+          metadata: item.metadata,
+          conflict_resolution: getConflictResolution(item) || null
         }))
       };
       setLoadingApply(true);
@@ -1599,7 +1632,7 @@
         title: "\u76EE\u6807\u8DEF\u5F84",
         dataIndex: "target_video_path",
         key: "target_video_path",
-        render: (path, item) => /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 0 }, /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: path }, style: { maxWidth: 520 } }, path), item.already_scraped && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u5DF2\u6709 NFO \u548C\u5C01\u9762"), item.target_exists && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728"))
+        render: (path, item) => /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 0 }, /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: path }, style: { maxWidth: 520 } }, path), item.already_scraped && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u5DF2\u6709 NFO \u548C\u5C01\u9762"), item.target_exists && /* @__PURE__ */ React3.createElement(Space3, { size: 6, wrap: true }, /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728"), isResolvableConflict(item) && /* @__PURE__ */ React3.createElement(Button3, { size: "small", onClick: () => setConflictCompareItem(item) }, "\u6BD4\u8F83\u6587\u4EF6"), getConflictResolution(item) && /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[getConflictResolution(item)])))
       }
     ];
     return /* @__PURE__ */ React3.createElement("div", { className: "jav-local-scrape" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-local-layout" }, /* @__PURE__ */ React3.createElement("section", { className: "jav-local-settings" }, /* @__PURE__ */ React3.createElement(
@@ -1818,7 +1851,7 @@
           selectedRowKeys,
           onChange: setSelectedRowKeys,
           getCheckboxProps: (item) => ({
-            disabled: isConformingLocalScrapeItem(item) ? item.target_duplicate || item.target_exists && !overwriteExisting : false
+            disabled: isConformingLocalScrapeItem(item) ? item.target_duplicate || isResolvableConflict(item) && !overwriteExisting && !getConflictResolution(item) : false
           })
         },
         locale: { emptyText: "\u8BF7\u8F93\u5165\u76EE\u5F55\u5E76\u751F\u6210\u9884\u89C8" }
@@ -1830,9 +1863,54 @@
         type: applyResult.success ? "success" : "warning",
         showIcon: true,
         message: `\u6267\u884C\u7ED3\u679C\uFF1A\u6210\u529F ${applyResult.success_count}\uFF0C\u5931\u8D25 ${applyResult.failed_count}\uFF0C\u81EA\u52A8\u5165\u5E93 ${applyResult.library_recorded_count || 0}`,
-        description: /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 2 }, (applyResult.results || []).slice(0, 5).map((result) => /* @__PURE__ */ React3.createElement(Text3, { key: result.source_path, type: result.success ? "secondary" : "danger" }, result.success ? result.target_video_path : `${result.source_path}: ${result.error}`)))
+        description: /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 2 }, (applyResult.results || []).slice(0, 5).map((result) => /* @__PURE__ */ React3.createElement(Text3, { key: result.source_path, type: result.success ? "secondary" : "danger" }, result.success ? result.skipped ? `\u5DF2\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\uFF1A${result.target_video_path}` : result.target_video_path : `${result.source_path}: ${result.error}`)))
       }
     ))), /* @__PURE__ */ React3.createElement(
+      Drawer,
+      {
+        title: "\u51B2\u7A81\u6587\u4EF6\u6BD4\u8F83",
+        open: Boolean(conflictCompareItem),
+        onClose: () => setConflictCompareItem(null),
+        width: 760,
+        placement: "right",
+        extra: conflictCompareItem && /* @__PURE__ */ React3.createElement(Space3, null, /* @__PURE__ */ React3.createElement(Button3, { onClick: () => updateConflictResolution(conflictCompareItem, "keep_target") }, "\u4FDD\u7559\u76EE\u6807\u6587\u4EF6"), /* @__PURE__ */ React3.createElement(
+          Button3,
+          {
+            type: "primary",
+            danger: true,
+            onClick: () => updateConflictResolution(conflictCompareItem, "keep_source")
+          },
+          "\u4FDD\u7559\u6E90\u6587\u4EF6\u5E76\u8986\u76D6"
+        ))
+      },
+      conflictCompareItem && /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 14, style: { width: "100%" } }, /* @__PURE__ */ React3.createElement(
+        Alert,
+        {
+          type: "warning",
+          showIcon: true,
+          message: "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728",
+          description: "\u6BD4\u8F83\u6E90\u6587\u4EF6\u548C\u76EE\u6807\u6587\u4EF6\u7684\u8DEF\u5F84\u3001\u5927\u5C0F\u548C\u4FEE\u6539\u65F6\u95F4\u540E\uFF0C\u9009\u62E9\u672C\u6B21\u522E\u524A\u8981\u4FDD\u7559\u54EA\u4E2A\u6587\u4EF6\u3002"
+        }
+      ), /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4, style: { width: "100%" } }, /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "\u756A\u53F7"), /* @__PURE__ */ React3.createElement(Tag2, { color: "blue" }, conflictCompareItem.code || "-"), /* @__PURE__ */ React3.createElement(Text3, { strong: true }, conflictCompareItem.metadata?.title || conflictCompareItem.file_name)), /* @__PURE__ */ React3.createElement(
+        "div",
+        {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: 12
+          }
+        },
+        renderConflictFileDetail("\u6E90\u6587\u4EF6", conflictCompareItem.source_file),
+        renderConflictFileDetail("\u76EE\u6807\u6587\u4EF6", conflictCompareItem.target_file)
+      ), getConflictResolution(conflictCompareItem) && /* @__PURE__ */ React3.createElement(
+        Alert,
+        {
+          type: "info",
+          showIcon: true,
+          message: `\u5F53\u524D\u9009\u62E9\uFF1A${conflictResolutionLabels[getConflictResolution(conflictCompareItem)]}`
+        }
+      ))
+    ), /* @__PURE__ */ React3.createElement(
       Drawer,
       {
         title: `${templateDesignerTitle}\u8BBE\u7F6E`,
@@ -2071,6 +2149,7 @@
     const [downloadingInformation, setDownloadingInformation] = React4.useState(false);
     const [filterOpen, setFilterOpen] = React4.useState(false);
     const [scanOpen, setScanOpen] = React4.useState(false);
+    const [informationDownloadOpen, setInformationDownloadOpen] = React4.useState(false);
     const [selectedRecord, setSelectedRecord] = React4.useState(null);
     const [playingRecordKey, setPlayingRecordKey] = React4.useState("");
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React4.useState(0);
@@ -2088,6 +2167,7 @@
       years: [],
       roots: []
     });
+    const [informationDownloadForm] = Form3.useForm();
     const records = library.records || [];
     const missingInformationByMovieId = React4.useMemo(() => {
       const entries = informationCheck?.records || [];
@@ -2242,15 +2322,22 @@ ${record.full_text || ""}`.toLowerCase();
         setLoading(false);
       }
     };
-    const handleDownloadMissingInformation = async () => {
+    const handleDownloadMissingInformation = async (values = {}) => {
       setDownloadingInformation(true);
       try {
         const data = await postJson2("/api/movies/local-library/information/download", {
           only_missing: true,
-          concurrent: 3
+          concurrent: values.concurrent || 3,
+          write_nfo: values.writeNfo !== false,
+          download_images: values.downloadImages !== false,
+          download_sample_images: !!values.downloadSampleImages,
+          download_actor_images: !!values.downloadActorImages,
+          download_list_thumbnail: !!values.downloadListThumbnail,
+          overwrite_existing: !!values.overwriteExisting
         });
         setInformationCheck(data.information_check);
         await loadLibrary();
+        setInformationDownloadOpen(false);
         message4.success(`\u5DF2\u66F4\u65B0 ${data.updated_count || 0} \u90E8\u5F71\u7247\u4FE1\u606F`);
       } catch (error) {
         message4.error(`\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u5931\u8D25\uFF1A${error.message}`);
@@ -2489,7 +2576,7 @@ ${record.full_text || ""}`.toLowerCase();
         type: "primary",
         ghost: true,
         icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DownloadOutlined2 }),
-        onClick: handleDownloadMissingInformation,
+        onClick: () => setInformationDownloadOpen(true),
         loading: downloadingInformation,
         disabled: informationCheck && informationCheck.incomplete_count === 0
       },
@@ -2580,6 +2667,36 @@ ${record.full_text || ""}`.toLowerCase();
         /* @__PURE__ */ React4.createElement("div", { className: "jav-library-scan-options" }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "removeMissing", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u540C\u6B65\u79FB\u9664\u5931\u6548\u6587\u4EF6")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "scrape", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u8054\u7F51\u522E\u524A"))),
         /* @__PURE__ */ React4.createElement(Space4, { align: "center", wrap: true }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "maxDepth", label: "\u6700\u5927\u6DF1\u5EA6" }, /* @__PURE__ */ React4.createElement(InputNumber3, { min: 0, placeholder: "\u4E0D\u9650" })), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "concurrent", label: "\u522E\u524A\u5E76\u53D1" }, /* @__PURE__ */ React4.createElement(InputNumber3, { min: 1, max: 5 }))),
         /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", block: true, loading: scanning, icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FolderOpenOutlined3 }) }, "\u626B\u63CF\u5E76\u5347\u7EA7\u6570\u636E\u5E93")
+      )
+    ), /* @__PURE__ */ React4.createElement(
+      Drawer2,
+      {
+        title: "\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F",
+        placement: "right",
+        width: 420,
+        open: informationDownloadOpen,
+        onClose: () => setInformationDownloadOpen(false)
+      },
+      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6309\u5F71\u89C6\u5E93\u4FE1\u606F\u68C0\u67E5\u7ED3\u679C\u8865\u5168\u7F3A\u5931\u5F71\u7247\uFF0C\u5E76\u53EF\u5199\u5165\u4E0E\u672C\u5730\u522E\u524A\u76F8\u540C\u7C7B\u578B\u7684\u672C\u5730\u8D44\u6599\u6587\u4EF6\u3002")),
+      /* @__PURE__ */ React4.createElement(
+        Form3,
+        {
+          form: informationDownloadForm,
+          layout: "vertical",
+          initialValues: {
+            writeNfo: true,
+            downloadImages: true,
+            downloadSampleImages: false,
+            downloadActorImages: false,
+            downloadListThumbnail: false,
+            overwriteExisting: false,
+            concurrent: 3
+          },
+          onFinish: handleDownloadMissingInformation
+        },
+        /* @__PURE__ */ React4.createElement(Space4, { wrap: true }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "writeNfo", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u5199\u5165 NFO")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadImages", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u5C01\u9762")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadSampleImages", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u6837\u54C1\u56FE")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadActorImages", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u6F14\u5458\u5934\u50CF")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadListThumbnail", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u5217\u8868\u7F29\u7565\u56FE"))),
+        /* @__PURE__ */ React4.createElement(Space4, { align: "center", wrap: true }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "concurrent", label: "\u522E\u524A\u5E76\u53D1" }, /* @__PURE__ */ React4.createElement(InputNumber3, { min: 1, max: 5 })), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "overwriteExisting", label: "\u8986\u76D6\u5DF2\u6709\u6587\u4EF6", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null))),
+        /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", block: true, loading: downloadingInformation, icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DownloadOutlined2 }) }, "\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F")
       )
     ), /* @__PURE__ */ React4.createElement(
       Drawer2,

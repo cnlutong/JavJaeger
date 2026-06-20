@@ -7,10 +7,14 @@ const localLibraryPage = readFileSync(
     "utf8",
 );
 
-test("local library page exposes information check and missing-info download actions", () => {
+test("local library page exposes information check and scrape-aligned download actions", () => {
     assert.match(localLibraryPage, /\/api\/movies\/local-library\/information\/check/);
     assert.match(localLibraryPage, /\/api\/movies\/local-library\/information\/download/);
-    assert.match(localLibraryPage, /检查信息/);
-    assert.match(localLibraryPage, /下载缺失信息/);
-    assert.match(localLibraryPage, /缺信息/);
+    assert.match(localLibraryPage, /informationDownloadOpen/);
+    assert.match(localLibraryPage, /write_nfo: values\.writeNfo !== false/);
+    assert.match(localLibraryPage, /download_images: values\.downloadImages !== false/);
+    assert.match(localLibraryPage, /download_sample_images: !!values\.downloadSampleImages/);
+    assert.match(localLibraryPage, /download_actor_images: !!values\.downloadActorImages/);
+    assert.match(localLibraryPage, /download_list_thumbnail: !!values\.downloadListThumbnail/);
+    assert.match(localLibraryPage, /overwrite_existing: !!values\.overwriteExisting/);
 });

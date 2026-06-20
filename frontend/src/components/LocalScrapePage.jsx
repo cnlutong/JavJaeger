@@ -139,6 +139,8 @@ export default function LocalScrapePage() {
     const [selectedTemplateId, setSelectedTemplateId] = React.useState("");
     const [templateName, setTemplateName] = React.useState("");
     const [templateDesignerOpen, setTemplateDesignerOpen] = React.useState(false);
+    const [conflictCompareItem, setConflictCompareItem] = React.useState(null);
+    const [conflictResolutions, setConflictResolutions] = React.useState({});
     const [templateDesignerTarget, setTemplateDesignerTarget] = React.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form.useWatch("overwriteExisting", form);
@@ -153,6 +155,10 @@ export default function LocalScrapePage() {
         value: template.id,
         label: template.name,
     }));
+    const conflictResolutionLabels = {
+        keep_source: "保留源文件并覆盖目标",
+        keep_target: "保留目标文件",
+    };
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "文件夹模板" : "文件命名模板";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
 
@@ -316,6 +322,8 @@ export default function LocalScrapePage() {
             return;
         }
         setPreview(data);
+        setConflictCompareItem(null);
+        setConflictResolutions({});
         const selectable = (data.items || [])
             .filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate)
             .map((item) => item.source_path);
@@ -459,6 +467,45 @@ export default function LocalScrapePage() {
         return part.value;
     };
 
+    const isResolvableConflict = (item) => Boolean(
+        item?.target_exists
+        && !item?.target_duplicate
+        && item?.source_file
+        && item?.target_file,
+    );
+
+    const getConflictResolution = (item) => conflictResolutions[item?.source_path] || "";
+
+    const updateConflictResolution = (item, resolution) => {
+        if (!item?.source_path) {
+            return;
+        }
+        setConflictResolutions((current) => ({
+            ...current,
+            [item.source_path]: resolution,
+        }));
+        if (isConformingLocalScrapeItem(item)) {
+            setSelectedRowKeys((currentKeys) => currentKeys.includes(item.source_path)
+                ? currentKeys
+                : [...currentKeys, item.source_path]);
+        }
+        setConflictCompareItem(null);
+    };
+
+    const renderConflictFileDetail = (title, file) => (
+        <Card size="small" title={title}>
+            <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                <Text strong ellipsis={{ tooltip: file?.file_name || "-" }}>{file?.file_name || "-"}</Text>
+                <Text copyable ellipsis={{ tooltip: file?.path || "-" }} style={{ maxWidth: "100%" }}>
+                    {file?.path || "-"}
+                </Text>
+                <Text type="secondary">大小：{formatBytes(file?.size)}</Text>
+                <Text type="secondary">修改时间：{file?.modified_at || "-"}</Text>
+                <Text type="secondary">扩展名：{file?.extension || "-"}</Text>
+            </Space>
+        </Card>
+    );
+
     const handlePreview = async (values) => {
         setLoadingPreview(true);
         setApplyResult(null);
@@ -480,12 +527,23 @@ export default function LocalScrapePage() {
             message.warning("请先补全刮削设置");
             return;
         }
+        const unresolvedConflicts = selectedItems.filter((item) => (
+            isResolvableConflict(item)
+            && !overwriteExisting
+            && !getConflictResolution(item)
+        ));
+        if (unresolvedConflicts.length > 0) {
+            message.warning("请先比较冲突文件，并选择保留源文件或目标文件");
+            setConflictCompareItem(unresolvedConflicts[0]);
+            return;
+        }
         const payload = {
             ...buildPayload(values),
             items: selectedItems.map((item) => ({
                 source_path: item.source_path,
                 code: item.code,
                 metadata: item.metadata,
+                conflict_resolution: getConflictResolution(item) || null,
             })),
         };
         setLoadingApply(true);
@@ -636,7 +694,19 @@ export default function LocalScrapePage() {
                 <Space direction="vertical" size={0}>
                     <Text copyable ellipsis={{ tooltip: path }} style={{ maxWidth: 520 }}>{path}</Text>
                     {item.already_scraped && <Text type="secondary" style={{ fontSize: 12 }}>已有 NFO 和封面</Text>}
-                    {item.target_exists && <Text type="danger" style={{ fontSize: 12 }}>目标文件已存在</Text>}
+                    {item.target_exists && (
+                        <Space size={6} wrap>
+                            <Text type="danger" style={{ fontSize: 12 }}>目标文件已存在</Text>
+                            {isResolvableConflict(item) && (
+                                <Button size="small" onClick={() => setConflictCompareItem(item)}>
+                                    比较文件
+                                </Button>
+                            )}
+                            {getConflictResolution(item) && (
+                                <Tag color="gold">{conflictResolutionLabels[getConflictResolution(item)]}</Tag>
+                            )}
+                        </Space>
+                    )}
                 </Space>
             ),
         },
@@ -936,7 +1006,11 @@ export default function LocalScrapePage() {
                             onChange: setSelectedRowKeys,
                             getCheckboxProps: (item) => ({
                                 disabled: isConformingLocalScrapeItem(item)
-                                    ? item.target_duplicate || (item.target_exists && !overwriteExisting)
+                                    ? item.target_duplicate || (
+                                        isResolvableConflict(item)
+                                        && !overwriteExisting
+                                        && !getConflictResolution(item)
+                                    )
                                     : false,
                             }),
                         }}
@@ -953,7 +1027,11 @@ export default function LocalScrapePage() {
                                 <Space direction="vertical" size={2}>
                                     {(applyResult.results || []).slice(0, 5).map((result) => (
                                         <Text key={result.source_path} type={result.success ? "secondary" : "danger"}>
-                                            {result.success ? result.target_video_path : `${result.source_path}: ${result.error}`}
+                                            {result.success
+                                                ? result.skipped
+                                                    ? `已保留目标文件：${result.target_video_path}`
+                                                    : result.target_video_path
+                                                : `${result.source_path}: ${result.error}`}
                                         </Text>
                                     ))}
                                 </Space>
@@ -962,6 +1040,60 @@ export default function LocalScrapePage() {
                     )}
                 </section>
             </div>
+            <Drawer
+                title="冲突文件比较"
+                open={Boolean(conflictCompareItem)}
+                onClose={() => setConflictCompareItem(null)}
+                width={760}
+                placement="right"
+                extra={conflictCompareItem && (
+                    <Space>
+                        <Button onClick={() => updateConflictResolution(conflictCompareItem, "keep_target")}>
+                            保留目标文件
+                        </Button>
+                        <Button
+                            type="primary"
+                            danger
+                            onClick={() => updateConflictResolution(conflictCompareItem, "keep_source")}
+                        >
+                            保留源文件并覆盖
+                        </Button>
+                    </Space>
+                )}
+            >
+                {conflictCompareItem && (
+                    <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                        <Alert
+                            type="warning"
+                            showIcon
+                            message="目标文件已存在"
+                            description="比较源文件和目标文件的路径、大小和修改时间后，选择本次刮削要保留哪个文件。"
+                        />
+                        <Space direction="vertical" size={4} style={{ width: "100%" }}>
+                            <Text type="secondary">番号</Text>
+                            <Tag color="blue">{conflictCompareItem.code || "-"}</Tag>
+                            <Text strong>{conflictCompareItem.metadata?.title || conflictCompareItem.file_name}</Text>
+                        </Space>
+                        <div
+                            style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                                gap: 12,
+                            }}
+                        >
+                            {renderConflictFileDetail("源文件", conflictCompareItem.source_file)}
+                            {renderConflictFileDetail("目标文件", conflictCompareItem.target_file)}
+                        </div>
+                        {getConflictResolution(conflictCompareItem) && (
+                            <Alert
+                                type="info"
+                                showIcon
+                                message={`当前选择：${conflictResolutionLabels[getConflictResolution(conflictCompareItem)]}`}
+                            />
+                        )}
+                    </Space>
+                )}
+            </Drawer>
             <Drawer
                 title={`${templateDesignerTitle}设置`}
                 open={templateDesignerOpen}

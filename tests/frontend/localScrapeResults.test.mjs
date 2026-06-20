@@ -55,3 +55,14 @@ test("local scrape page starts scrape work as background jobs and polls progress
     assert.match(localScrapePage, /<Progress[\s\S]*percent=\{activeTask\.percent/);
     assert.match(localScrapePage, /sessionStorage\.setItem\(LOCAL_SCRAPE_ACTIVE_TASK_KEY/);
 });
+
+test("local scrape conflict compare sends per-item resolution", () => {
+    assert.match(localScrapePage, /const \[conflictCompareItem, setConflictCompareItem\] = React\.useState\(null\)/);
+    assert.match(localScrapePage, /const \[conflictResolutions, setConflictResolutions\] = React\.useState\(\{\}\)/);
+    assert.match(localScrapePage, /source_file/);
+    assert.match(localScrapePage, /target_file/);
+    assert.match(localScrapePage, /updateConflictResolution\(conflictCompareItem, "keep_target"\)/);
+    assert.match(localScrapePage, /updateConflictResolution\(conflictCompareItem, "keep_source"\)/);
+    assert.match(localScrapePage, /conflict_resolution: getConflictResolution\(item\) \|\| null/);
+    assert.match(localScrapePage, /isResolvableConflict\(item\)[\s\S]*&& !overwriteExisting[\s\S]*&& !getConflictResolution\(item\)/);
+});

@@ -437,6 +437,109 @@ def test_local_scrape_empty_folder_template_uses_target_root():
     assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"
 
 
+def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    source_video = source_dir / "ABP-123.mp4"
+    source_video.write_bytes(b"source-video")
+    target_video = target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4"
+    target_video.parent.mkdir()
+    target_video.write_bytes(b"target-video-longer")
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": "ABP-123 Remote Title",
+            "date": "2024-01-02",
+        }
+
+    monkeypatch.setattr(local_scrape.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+
+    payload = asyncio.run(
+        local_scrape.preview_local_scrape(
+            local_scrape.LocalScrapePreviewRequest(
+                directory=str(source_dir),
+                target_directory=str(target_dir),
+                scrape=True,
+            )
+        )
+    )
+
+    item = payload["items"][0]
+    assert item["target_exists"] is True
+    assert item["source_file"]["path"] == str(source_video.resolve())
+    assert item["source_file"]["size"] == len(b"source-video")
+    assert item["target_file"]["path"] == str(target_video.resolve())
+    assert item["target_file"]["size"] == len(b"target-video-longer")
+
+
+def test_local_scrape_apply_respects_per_item_conflict_resolution(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    source_video = source_dir / "ABP-123.mp4"
+    source_video.write_bytes(b"source-video")
+    target_video = target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4"
+    target_video.parent.mkdir()
+    target_video.write_bytes(b"target-video")
+    metadata = {
+        "id": "ABP-123",
+        "title": "ABP-123 Remote Title",
+        "raw": {"id": "ABP-123"},
+    }
+
+    keep_target = asyncio.run(
+        local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(source_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": "keep_target",
+                    }
+                ],
+                target_directory=str(target_dir),
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+    )
+
+    assert keep_target["success"] is True
+    assert keep_target["success_count"] == 1
+    assert keep_target["results"][0]["skipped"] is True
+    assert keep_target["results"][0]["kept"] == "target"
+    assert source_video.exists()
+    assert target_video.read_bytes() == b"target-video"
+
+    keep_source = asyncio.run(
+        local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(source_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": "keep_source",
+                    }
+                ],
+                target_directory=str(target_dir),
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+    )
+
+    assert keep_source["success"] is True
+    assert keep_source["results"][0]["kept"] == "source"
+    assert not source_video.exists()
+    assert target_video.read_bytes() == b"source-video"
+
+
 def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_path, monkeypatch):
     requests = []
     attempts = {}
@@ -871,7 +974,12 @@ def test_local_library_information_download_refreshes_only_missing_records(tmp_p
             ],
         )
         result = await movies_local_library.download_missing_local_library_information(
-            movies_local_library.LocalLibraryInformationDownloadRequest(only_missing=True, concurrent=1)
+            movies_local_library.LocalLibraryInformationDownloadRequest(
+                only_missing=True,
+                concurrent=1,
+                write_nfo=False,
+                download_images=False,
+            )
         )
         summary = await service.get_summary()
         return result, summary
@@ -884,6 +992,89 @@ def test_local_library_information_download_refreshes_only_missing_records(tmp_p
     refreshed = {record["movie_id"]: record for record in summary["records"]}["ABP-124"]
     assert refreshed["title"] == "ABP-124 Remote Title"
     assert refreshed["cover_url"] == "https://www.javbus.com/pics/remote.jpg"
+
+
+def test_local_library_information_download_supports_scrape_asset_options(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-124.mp4"
+    video.write_bytes(b"video")
+    asset_calls = []
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": f"{movie_id} Remote Title",
+            "date": "2024-03-04",
+            "img": "https://www.javbus.com/pics/remote.jpg",
+            "stars": [{"id": "actor-a", "name": "Actor One"}],
+            "genres": [{"name": "Genre A"}],
+            "samples": [{"src": "https://www.javbus.com/sample.jpg"}],
+        }
+
+    async def fake_write_images(video_path, metadata, overwrite, include_samples=False):
+        asset_calls.append(("images", video_path, overwrite, include_samples))
+        return "ABP-124-poster.jpg", ["extrafanart/fanart1.jpg"] if include_samples else []
+
+    async def fake_write_actor_images(video_path, metadata, overwrite):
+        asset_calls.append(("actors", video_path, overwrite, None))
+        return ["actors/Actor One.jpg"]
+
+    async def fake_write_list_thumbnail(video_path, metadata, overwrite):
+        asset_calls.append(("thumbnail", video_path, overwrite, None))
+        return "ABP-124-thumb.jpg"
+
+    def fake_write_nfo(video_path, metadata, poster_name, sample_names):
+        asset_calls.append(("nfo", video_path, poster_name, tuple(sample_names)))
+        nfo = video_path.with_suffix(".nfo")
+        nfo.write_text("nfo", encoding="utf-8")
+        return nfo
+
+    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(movies_local_library, "_write_images", fake_write_images)
+    monkeypatch.setattr(movies_local_library, "_write_actor_images", fake_write_actor_images)
+    monkeypatch.setattr(movies_local_library, "_write_list_thumbnail", fake_write_list_thumbnail)
+    monkeypatch.setattr(movies_local_library, "_write_nfo", fake_write_nfo)
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-124",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 456,
+                    "metadata": {"id": "ABP-124", "title": "ABP-124", "raw": {}},
+                    "scrape_status": "skipped",
+                    "full_text": "ABP-124",
+                },
+            ],
+        )
+        return await movies_local_library.download_missing_local_library_information(
+            movies_local_library.LocalLibraryInformationDownloadRequest(
+                only_missing=True,
+                concurrent=1,
+                write_nfo=True,
+                download_images=True,
+                download_sample_images=True,
+                download_actor_images=True,
+                download_list_thumbnail=True,
+                overwrite_existing=True,
+            )
+        )
+
+    result = asyncio.run(exercise())
+
+    assert result["updated_count"] == 1
+    assert result["results"][0]["poster"] == "ABP-124-poster.jpg"
+    assert result["results"][0]["samples"] == ["extrafanart/fanart1.jpg"]
+    assert result["results"][0]["actor_images"] == ["actors/Actor One.jpg"]
+    assert result["results"][0]["list_thumbnail"] == "ABP-124-thumb.jpg"
+    assert result["results"][0]["nfo_path"] == str(video.with_suffix(".nfo"))
+    assert [call[0] for call in asset_calls] == ["images", "actors", "thumbnail", "nfo"]
+    assert asset_calls[0][2:] == (True, True)
 
 
 def test_automation_task_crud_persists(tmp_path):

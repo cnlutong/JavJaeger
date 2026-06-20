@@ -433,6 +433,22 @@ def _iso_mtime(path: Path) -> str:
         return ""
 
 
+def _file_detail(path: Path, exists: bool | None = None) -> dict[str, Any]:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    actual_exists = resolved.exists() if exists is None else exists
+    return {
+        "path": str(resolved),
+        "file_name": resolved.name,
+        "exists": actual_exists,
+        "size": _file_size(resolved) if actual_exists else 0,
+        "modified_at": _iso_mtime(resolved) if actual_exists else "",
+        "extension": resolved.suffix.lower(),
+    }
+
+
 def _safe_relative_path(path: Path, root: Path) -> str:
     try:
         return str(path.relative_to(root))
@@ -568,6 +584,8 @@ async def preview_local_scrape(
             "relative_path": str(candidate.path.relative_to(directory.resolve())),
             "file_name": candidate.path.name,
             "file_size": _file_size(candidate.path),
+            "source_file": _file_detail(candidate.path, True),
+            "target_file": _file_detail(target_video, target_video.exists()) if conflict else None,
             "code": candidate.code,
             "recognition_method": candidate.recognition_method if candidate.code else "failed",
             "recognition_message": candidate.recognition_message,
@@ -883,12 +901,42 @@ async def apply_local_scrape(
             moved_assets: list[str] = []
 
             subtitles = _related_subtitles(source_path)
-            _move_file(source_path, target_video, request.overwrite_existing)
+            conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
+            conflict_resolution = str(item.conflict_resolution or "").strip()
+            overwrite_target = request.overwrite_existing or conflict_resolution == "keep_source"
+            if conflict and conflict_resolution == "keep_target" and not request.overwrite_existing:
+                success_count += 1
+                results.append(
+                    {
+                        "source_path": item.source_path,
+                        "success": True,
+                        "code": metadata.get("id"),
+                        "target_video_path": str(target_video),
+                        "target_dir": str(target_dir),
+                        "skipped": True,
+                        "kept": "target",
+                        "message": "kept_existing_target",
+                        "library_recorded": False,
+                    }
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "apply",
+                        "message": f"保留目标 {index}/{total_items}：{target_video.name}",
+                        "completed": index,
+                        "total": total_items,
+                        "current": str(target_video),
+                    },
+                )
+                continue
+
+            _move_file(source_path, target_video, overwrite_target)
             current_video = target_video
 
             for subtitle in subtitles:
                 subtitle_target = _subtitle_target_path(subtitle, source_path, target_dir, target_stem)
-                _move_file(subtitle, subtitle_target, request.overwrite_existing)
+                _move_file(subtitle, subtitle_target, overwrite_target)
                 moved_assets.append(str(subtitle_target))
 
             poster_name = None
@@ -936,6 +984,7 @@ async def apply_local_scrape(
                     "code": metadata.get("id"),
                     "target_video_path": str(current_video),
                     "target_dir": str(target_dir),
+                    "kept": "source" if conflict and overwrite_target else None,
                     "nfo_path": str(nfo_path) if nfo_path else None,
                     "poster": poster_name,
                     "samples": sample_names,

@@ -294,6 +294,10 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/{path:path}` 是最后注册的代理 catch-all。新增具体 API 时必须放在代理路由之前。
 
+`/api/movies/local-library/information/download` 支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
+
+`/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `keep_source` 或 `keep_target`。
+
 ## 开发约定
 
 ### 目录结构

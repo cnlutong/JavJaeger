@@ -55,6 +55,7 @@ class LocalScrapeApplyItem(BaseModel):
     source_path: str
     code: Optional[str] = None
     metadata: Optional[dict] = None
+    conflict_resolution: Optional[str] = None
 
 
 class LocalScrapeApplyRequest(BaseModel):
@@ -89,3 +90,9 @@ class LocalLibraryInformationDownloadRequest(BaseModel):
     movie_ids: Optional[list[str]] = None
     only_missing: bool = True
     concurrent: int = 3
+    write_nfo: bool = True
+    download_images: bool = True
+    download_sample_images: bool = False
+    download_actor_images: bool = False
+    download_list_thumbnail: bool = False
+    overwrite_existing: bool = False

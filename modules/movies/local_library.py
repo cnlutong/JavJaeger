@@ -7,7 +7,18 @@ from typing import Any
 from modules.common.paths import UserPathError, resolve_existing_directory
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
-from .local_scrape import _build_metadata, _file_size, _metadata_full_text, _source_part_marker, _walk_video_files, recognize_designation
+from .local_scrape import (
+    _build_metadata,
+    _file_size,
+    _metadata_full_text,
+    _source_part_marker,
+    _walk_video_files,
+    _write_actor_images,
+    _write_images,
+    _write_list_thumbnail,
+    _write_nfo,
+    recognize_designation,
+)
 from .schemas import LocalLibraryInformationDownloadRequest, LocalLibraryScanRequest
 
 
@@ -150,26 +161,27 @@ async def download_missing_local_library_information(request: LocalLibraryInform
             )
             continue
 
+        metadata = scraped["metadata"]
         saved = await local_movie_library_service.update_information(
             movie_id,
-            scraped["metadata"],
+            metadata,
             scraped["scrape_status"],
             scraped["scrape_error"],
             scraped["full_text"],
             scraped_at,
         )
+        asset_result = await _write_local_library_information_assets(movie_id, metadata, request) if saved else {}
         if saved:
             updated_count += 1
         else:
             failed_count += 1
-        results.append(
-            {
-                "movie_id": movie_id,
-                "success": saved,
-                "scrape_status": scraped["scrape_status"],
-                "error": None if saved else "movie_not_in_local_library",
-            }
-        )
+        results.append({
+            "movie_id": movie_id,
+            "success": saved,
+            "scrape_status": scraped["scrape_status"],
+            "error": asset_result.get("asset_error") if saved else "movie_not_in_local_library",
+            **asset_result,
+        })
 
     next_check = await local_movie_library_service.get_information_check()
     return {
@@ -179,6 +191,73 @@ async def download_missing_local_library_information(request: LocalLibraryInform
         "failed_count": failed_count,
         "results": results,
         "information_check": next_check,
+    }
+
+
+async def _write_local_library_information_assets(
+    movie_id: str,
+    metadata: dict[str, Any],
+    request: LocalLibraryInformationDownloadRequest,
+) -> dict[str, Any]:
+    status = await local_movie_library_service.get_status(movie_id)
+    record = status.get("record") if isinstance(status, dict) else None
+    files = record.get("files", []) if isinstance(record, dict) else []
+    video_paths: list[Path] = []
+    for file_record in files:
+        video_path = Path(str(file_record.get("path") or ""))
+        try:
+            resolved = video_path.resolve()
+        except OSError:
+            continue
+        if resolved.exists() and resolved.is_file():
+            video_paths.append(resolved)
+
+    if not video_paths or not metadata.get("id"):
+        return {
+            "nfo_path": None,
+            "poster": None,
+            "samples": [],
+            "actor_images": [],
+            "list_thumbnail": None,
+            "asset_error": None,
+        }
+
+    primary_video_path = video_paths[0]
+    poster_name = None
+    sample_names: list[str] = []
+    actor_image_names: list[str] = []
+    list_thumbnail_name = None
+    nfo_path = None
+    asset_error = None
+
+    if request.download_images:
+        try:
+            poster_name, sample_names = await _write_images(
+                primary_video_path,
+                metadata,
+                request.overwrite_existing,
+                include_samples=request.download_sample_images,
+            )
+        except Exception as exc:
+            asset_error = "image_download_failed"
+            logger.warning("Local library image download failed for %s: %s", movie_id, exc)
+
+    if request.download_actor_images:
+        actor_image_names = await _write_actor_images(primary_video_path, metadata, request.overwrite_existing)
+
+    if request.download_list_thumbnail:
+        list_thumbnail_name = await _write_list_thumbnail(primary_video_path, metadata, request.overwrite_existing)
+
+    if request.write_nfo:
+        nfo_path = _write_nfo(primary_video_path, metadata, poster_name, sample_names)
+
+    return {
+        "nfo_path": str(nfo_path) if nfo_path else None,
+        "poster": poster_name,
+        "samples": sample_names,
+        "actor_images": actor_image_names,
+        "list_thumbnail": list_thumbnail_name,
+        "asset_error": asset_error,
     }
 
 

@@ -208,6 +208,7 @@ export default function LocalLibraryPage() {
     const [downloadingInformation, setDownloadingInformation] = React.useState(false);
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
+    const [informationDownloadOpen, setInformationDownloadOpen] = React.useState(false);
     const [selectedRecord, setSelectedRecord] = React.useState(null);
     const [playingRecordKey, setPlayingRecordKey] = React.useState("");
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React.useState(0);
@@ -225,6 +226,7 @@ export default function LocalLibraryPage() {
         years: [],
         roots: [],
     });
+    const [informationDownloadForm] = Form.useForm();
 
     const records = library.records || [];
     const missingInformationByMovieId = React.useMemo(() => {
@@ -402,15 +404,22 @@ export default function LocalLibraryPage() {
         }
     };
 
-    const handleDownloadMissingInformation = async () => {
+    const handleDownloadMissingInformation = async (values = {}) => {
         setDownloadingInformation(true);
         try {
             const data = await postJson("/api/movies/local-library/information/download", {
                 only_missing: true,
-                concurrent: 3,
+                concurrent: values.concurrent || 3,
+                write_nfo: values.writeNfo !== false,
+                download_images: values.downloadImages !== false,
+                download_sample_images: !!values.downloadSampleImages,
+                download_actor_images: !!values.downloadActorImages,
+                download_list_thumbnail: !!values.downloadListThumbnail,
+                overwrite_existing: !!values.overwriteExisting,
             });
             setInformationCheck(data.information_check);
             await loadLibrary();
+            setInformationDownloadOpen(false);
             message.success(`已更新 ${data.updated_count || 0} 部影片信息`);
         } catch (error) {
             message.error(`下载缺失信息失败：${error.message}`);
@@ -813,7 +822,7 @@ export default function LocalLibraryPage() {
                             type="primary"
                             ghost
                             icon={<Icon as={DownloadOutlined} />}
-                            onClick={handleDownloadMissingInformation}
+                            onClick={() => setInformationDownloadOpen(true)}
                             loading={downloadingInformation}
                             disabled={informationCheck && informationCheck.incomplete_count === 0}
                         >
@@ -982,6 +991,60 @@ export default function LocalLibraryPage() {
                             </Space>
                             <Button type="primary" htmlType="submit" block loading={scanning} icon={<Icon as={FolderOpenOutlined} />}>
                                 扫描并升级数据库
+                            </Button>
+                        </Form>
+                    </Drawer>
+                    <Drawer
+                        title="下载缺失信息"
+                        placement="right"
+                        width={420}
+                        open={informationDownloadOpen}
+                        onClose={() => setInformationDownloadOpen(false)}
+                    >
+                        <div className="jav-library-filter-help">
+                            <Text type="secondary">按影视库信息检查结果补全缺失影片，并可写入与本地刮削相同类型的本地资料文件。</Text>
+                        </div>
+                        <Form
+                            form={informationDownloadForm}
+                            layout="vertical"
+                            initialValues={{
+                                writeNfo: true,
+                                downloadImages: true,
+                                downloadSampleImages: false,
+                                downloadActorImages: false,
+                                downloadListThumbnail: false,
+                                overwriteExisting: false,
+                                concurrent: 3,
+                            }}
+                            onFinish={handleDownloadMissingInformation}
+                        >
+                            <Space wrap>
+                                <Form.Item name="writeNfo" valuePropName="checked">
+                                    <Checkbox>写入 NFO</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadImages" valuePropName="checked">
+                                    <Checkbox>下载封面</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadSampleImages" valuePropName="checked">
+                                    <Checkbox>下载样品图</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadActorImages" valuePropName="checked">
+                                    <Checkbox>下载演员头像</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadListThumbnail" valuePropName="checked">
+                                    <Checkbox>下载列表缩略图</Checkbox>
+                                </Form.Item>
+                            </Space>
+                            <Space align="center" wrap>
+                                <Form.Item name="concurrent" label="刮削并发">
+                                    <InputNumber min={1} max={5} />
+                                </Form.Item>
+                                <Form.Item name="overwriteExisting" label="覆盖已有文件" valuePropName="checked">
+                                    <Checkbox />
+                                </Form.Item>
+                            </Space>
+                            <Button type="primary" htmlType="submit" block loading={downloadingInformation} icon={<Icon as={DownloadOutlined} />}>
+                                下载缺失信息
                             </Button>
                         </Form>
                     </Drawer>
