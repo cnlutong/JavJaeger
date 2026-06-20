@@ -1993,14 +1993,68 @@
     }
     return thumbnailUrl.startsWith("/api/") ? thumbnailUrl : `/api/image-proxy?url=${encodeURIComponent(thumbnailUrl)}`;
   };
-  var MoviePoster = ({ record, compact = false, width = null, variant = "poster" }) => {
+  var actorName = (actor) => {
+    if (actor && typeof actor === "object") {
+      return String(actor.name || actor.title || actor.id || "").trim();
+    }
+    return String(actor || "").trim();
+  };
+  var normalizeActors = (record) => {
+    const actorValues = [
+      ...Array.isArray(record?.metadata?.raw?.stars) ? record.metadata.raw.stars : [],
+      ...Array.isArray(record?.metadata?.actor_refs) ? record.metadata.actor_refs : [],
+      ...Array.isArray(record?.stars) ? record.stars : []
+    ];
+    const actorsByName = /* @__PURE__ */ new Map();
+    actorValues.forEach((actor) => {
+      const name = actorName(actor);
+      if (!name) {
+        return;
+      }
+      const existing = actorsByName.get(name) || { name, avatar: "" };
+      if (actor && typeof actor === "object" && !existing.avatar) {
+        existing.avatar = actor.avatar || actor.img || actor.image || actor.thumbnail || "";
+      }
+      actorsByName.set(name, existing);
+    });
+    return Array.from(actorsByName.values());
+  };
+  var actorAvatarSource = (record, actor) => {
+    if (actor?.avatar) {
+      return actor.avatar.startsWith("/api/") ? actor.avatar : `/api/image-proxy?url=${encodeURIComponent(actor.avatar)}`;
+    }
+    if (!record?.movie_id || !actor?.name) {
+      return "";
+    }
+    return `/api/movies/local-library/actor-avatar/${encodeURIComponent(record.movie_id)}/${encodeURIComponent(actor.name)}`;
+  };
+  var MoviePoster = ({ record, compact = false, width = null, variant = "poster", onRatio = null }) => {
     const [failed, setFailed] = React4.useState(false);
     const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
     const style = width ? { width, height: compact ? Math.round(width * 1.5) : void 0 } : void 0;
     if (src && !failed) {
-      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React4.createElement("img", { src, alt: record.title || record.movie_id, onError: () => setFailed(true) }));
+      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React4.createElement(
+        "img",
+        {
+          src,
+          alt: record.title || record.movie_id,
+          onError: () => setFailed(true),
+          onLoad: (event) => {
+            const { naturalWidth, naturalHeight } = event.currentTarget;
+            if (onRatio && naturalWidth > 0 && naturalHeight > 0) {
+              onRatio(naturalWidth / naturalHeight);
+            }
+          }
+        }
+      ));
     }
     return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster is-placeholder ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React4.createElement("span", null, record.movie_id || "N/A"));
+  };
+  var ActorPill = ({ record, actor, onClick }) => {
+    const [failed, setFailed] = React4.useState(false);
+    const src = actorAvatarSource(record, actor);
+    const initial = (actor.name || "?").slice(0, 1).toUpperCase();
+    return /* @__PURE__ */ React4.createElement("button", { className: "jav-library-actor-pill", type: "button", onClick }, /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-avatar" }, src && !failed ? /* @__PURE__ */ React4.createElement("img", { src, alt: actor.name, onError: () => setFailed(true) }) : /* @__PURE__ */ React4.createElement("span", null, initial)), /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-name" }, actor.name));
   };
   function LocalLibraryPage() {
     const [form] = Form3.useForm();
@@ -2013,6 +2067,7 @@
     const [selectedRecord, setSelectedRecord] = React4.useState(null);
     const [playingRecordKey, setPlayingRecordKey] = React4.useState("");
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React4.useState(0);
+    const [posterAspectRatioMap, setPosterAspectRatioMap] = React4.useState({});
     const [viewMode, setViewMode] = React4.useState("list");
     const [listPosterSize, setListPosterSize] = React4.useState(56);
     const [gridPosterSize, setGridPosterSize] = React4.useState(156);
@@ -2101,6 +2156,15 @@ ${record.full_text || ""}`.toLowerCase();
       setSelectedPlayFileIndex(fileIndex);
       setPlayingRecordKey(`${selectedRecord.movie_id}:${fileIndex}`);
     };
+    const handlePosterAspectRatio = (ratio) => {
+      if (!selectedRecord?.movie_id || !Number.isFinite(ratio) || ratio <= 0) {
+        return;
+      }
+      setPosterAspectRatioMap((current) => ({
+        ...current,
+        [selectedRecord.movie_id]: ratio
+      }));
+    };
     const handleScan = async (values) => {
       setScanning(true);
       setScanResult(null);
@@ -2185,12 +2249,56 @@ ${record.full_text || ""}`.toLowerCase();
         value
       )));
     };
-    const renderTagList = (items, color) => {
+    const handleFilterTagClick = (filterKey, value, event) => {
+      event?.stopPropagation?.();
+      if (!filterKey || !value) {
+        return;
+      }
+      setFilters({
+        keyword: "",
+        genres: filterKey === "genres" ? [value] : [],
+        stars: filterKey === "stars" ? [value] : [],
+        studios: [],
+        publishers: [],
+        series: [],
+        years: [],
+        roots: []
+      });
+      setSelectedRecord(null);
+      setPlayingRecordKey("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const renderFilterTag = (filterKey, value, color) => /* @__PURE__ */ React4.createElement(
+      Tag3,
+      {
+        color,
+        key: value,
+        className: "jav-library-filter-tag",
+        onClick: (event) => handleFilterTagClick(filterKey, value, event)
+      },
+      value
+    );
+    const renderTagList = (items, color, filterKey = null) => {
       const values = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
       if (!values.length) {
         return /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "-");
       }
-      return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, values.map((value) => /* @__PURE__ */ React4.createElement(Tag3, { color, key: value }, value)));
+      return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, values.map((value) => filterKey ? renderFilterTag(filterKey, value, color) : /* @__PURE__ */ React4.createElement(Tag3, { color, key: value }, value)));
+    };
+    const renderActorList = (record) => {
+      const actors = normalizeActors(record);
+      if (!actors.length) {
+        return /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "-");
+      }
+      return /* @__PURE__ */ React4.createElement("div", { className: "jav-library-actor-list" }, actors.map((actor) => /* @__PURE__ */ React4.createElement(
+        ActorPill,
+        {
+          key: actor.name,
+          record,
+          actor,
+          onClick: (event) => handleFilterTagClick("stars", actor.name, event)
+        }
+      )));
     };
     const renderRecordPreview = () => {
       if (!selectedRecord) {
@@ -2212,7 +2320,10 @@ ${record.full_text || ""}`.toLowerCase();
       const hasPlayableFile = (selectedRecord.files || []).length > 0;
       const videoSrc = `/api/movies/local-library/${encodeURIComponent(selectedRecord.movie_id)}/play?file_index=${selectedPlayFileIndex}`;
       const isPlayingSelectedRecord = playingRecordKey === `${selectedRecord.movie_id}:${selectedPlayFileIndex}`;
-      return /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview" }, /* @__PURE__ */ React4.createElement("aside", { className: "jav-library-preview-poster" }, /* @__PURE__ */ React4.createElement(MoviePoster, { record: selectedRecord })), /* @__PURE__ */ React4.createElement("section", { className: "jav-library-preview-details" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-header" }, /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ArrowLeftOutlined }), onClick: closeRecordPreview }, "\u8FD4\u56DE\u5F71\u7247\u5E93"), /* @__PURE__ */ React4.createElement(Space4, null, /* @__PURE__ */ React4.createElement(
+      const posterAspectRatio = posterAspectRatioMap[selectedRecord.movie_id] || null;
+      const previewRatioClass = posterAspectRatio > 1.08 ? "is-landscape" : posterAspectRatio && posterAspectRatio < 0.82 ? "is-portrait" : "is-balanced";
+      const previewStyle = posterAspectRatio ? { "--jav-library-preview-poster-ratio": posterAspectRatio } : void 0;
+      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-preview ${previewRatioClass}`, style: previewStyle }, /* @__PURE__ */ React4.createElement("aside", { className: "jav-library-preview-poster" }, /* @__PURE__ */ React4.createElement(MoviePoster, { record: selectedRecord, onRatio: handlePosterAspectRatio }), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-poster-extras" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458"), renderActorList(selectedRecord)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6807\u7B7E"), renderTagList(selectedRecord.genres, "cyan", "genres")))), /* @__PURE__ */ React4.createElement("section", { className: "jav-library-preview-details" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-header" }, /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ArrowLeftOutlined }), onClick: closeRecordPreview }, "\u8FD4\u56DE\u5F71\u7247\u5E93"), /* @__PURE__ */ React4.createElement(Space4, null, /* @__PURE__ */ React4.createElement(
         Button4,
         {
           type: "primary",
@@ -2229,7 +2340,7 @@ ${record.full_text || ""}`.toLowerCase();
           message: "\u522E\u524A\u5F02\u5E38",
           description: selectedRecord.scrape_error
         }
-      )), isPlayingSelectedRecord && /* @__PURE__ */ React4.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React4.createElement("span", null, label), /* @__PURE__ */ React4.createElement("strong", null, value)))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458"), renderTagList(selectedRecord.stars, "magenta")), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6807\u7B7E"), renderTagList(selectedRecord.genres, "cyan")), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Text4, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React4.createElement(
+      )), isPlayingSelectedRecord && /* @__PURE__ */ React4.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React4.createElement("span", null, label), /* @__PURE__ */ React4.createElement("strong", null, value)))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Text4, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React4.createElement(
         Button4,
         {
           size: "small",
@@ -2256,7 +2367,7 @@ ${record.full_text || ""}`.toLowerCase();
       {
         title: "\u5F71\u7247\u4FE1\u606F",
         key: "info",
-        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 4 }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, style: { maxWidth: 620 } }, record.title || record.movie_id), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, record.date), record.studio && /* @__PURE__ */ React4.createElement(Tag3, null, record.studio), record.publisher && /* @__PURE__ */ React4.createElement(Tag3, null, record.publisher), record.series && /* @__PURE__ */ React4.createElement(Tag3, { color: "purple" }, record.series)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.genres || []).slice(0, 8).map((genre) => /* @__PURE__ */ React4.createElement(Tag3, { color: "cyan", key: genre }, genre)), (record.genres || []).length > 8 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.genres.length - 8)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.stars || []).slice(0, 6).map((star) => /* @__PURE__ */ React4.createElement(Tag3, { color: "magenta", key: star }, star)), (record.stars || []).length > 6 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.stars.length - 6)))
+        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 4 }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, style: { maxWidth: 620 } }, record.title || record.movie_id), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, record.date), record.studio && /* @__PURE__ */ React4.createElement(Tag3, null, record.studio), record.publisher && /* @__PURE__ */ React4.createElement(Tag3, null, record.publisher), record.series && /* @__PURE__ */ React4.createElement(Tag3, { color: "purple" }, record.series)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.genres || []).slice(0, 8).map((genre) => renderFilterTag("genres", genre, "cyan")), (record.genres || []).length > 8 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.genres.length - 8)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta")), (record.stars || []).length > 6 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.stars.length - 6)))
       },
       {
         title: "\u6587\u4EF6",
@@ -2266,7 +2377,27 @@ ${record.full_text || ""}`.toLowerCase();
       }
     ];
     if (selectedRecord) {
-      return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, renderRecordPreview())));
+      const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
+      const previewBackdropStyle = previewBackdropSource ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` } : void 0;
+      return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page is-previewing" }, /* @__PURE__ */ React4.createElement(
+        "div",
+        {
+          className: "jav-library-preview-backdrop",
+          style: previewBackdropStyle,
+          onClick: closeRecordPreview
+        },
+        /* @__PURE__ */ React4.createElement(
+          "section",
+          {
+            className: "jav-local-results jav-library-results jav-library-preview-surface",
+            role: "dialog",
+            "aria-modal": "true",
+            "aria-label": "\u5F71\u7247\u6C89\u6D78\u5F0F\u9884\u89C8",
+            onClick: (event) => event.stopPropagation()
+          },
+          renderRecordPreview()
+        )
+      ));
     }
     return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React4.createElement(Icon3, { as: DatabaseOutlined })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React4.createElement(
       Input4,
@@ -2331,7 +2462,7 @@ ${record.full_text || ""}`.toLowerCase();
         },
         /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
         /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, String(record.date).slice(0, 4))),
-        /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-tags" }, (record.stars || []).slice(0, 2).map((star) => /* @__PURE__ */ React4.createElement(Tag3, { color: "magenta", key: star }, star)), (record.genres || []).slice(0, 2).map((genre) => /* @__PURE__ */ React4.createElement(Tag3, { color: "cyan", key: genre }, genre)))
+        /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-tags" }, (record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta")), (record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan")))
       ))
     ) : /* @__PURE__ */ React4.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React4.createElement(
       Table3,
@@ -4104,7 +4235,7 @@ ${record.full_text || ""}`.toLowerCase();
           grid: { gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 5, xxl: 5 },
           dataSource: Array.isArray(actors) ? actors : Object.values(actors).flat(),
           renderItem: (actor) => {
-            const actorName = actor.name || actor;
+            const actorName2 = actor.name || actor;
             const actorCode = actor.code || actor;
             const fallbackImage = /* @__PURE__ */ React7.createElement("div", { className: "jav-actor-fallback" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u65E0\u5934\u50CF"));
             return /* @__PURE__ */ React7.createElement(List3.Item, null, /* @__PURE__ */ React7.createElement(
@@ -4112,11 +4243,11 @@ ${record.full_text || ""}`.toLowerCase();
               {
                 hoverable: true,
                 className: "jav-actor-card",
-                cover: actor.avatar ? /* @__PURE__ */ React7.createElement("img", { alt: actorName, src: actor.avatar, className: "jav-actor-cover" }) : fallbackImage,
-                onClick: () => handleActorSelect(actorCode, actorName),
+                cover: actor.avatar ? /* @__PURE__ */ React7.createElement("img", { alt: actorName2, src: actor.avatar, className: "jav-actor-cover" }) : fallbackImage,
+                onClick: () => handleActorSelect(actorCode, actorName2),
                 size: "small"
               },
-              /* @__PURE__ */ React7.createElement(Card6.Meta, { title: actorName, style: { textAlign: "center" } })
+              /* @__PURE__ */ React7.createElement(Card6.Meta, { title: actorName2, style: { textAlign: "center" } })
             ));
           }
         }

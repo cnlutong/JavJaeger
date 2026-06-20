@@ -94,6 +94,14 @@ async def get_local_movie_library_thumbnail(movie_id: str):
     return FileResponse(thumbnail_path)
 
 
+@router.get("/api/movies/local-library/actor-avatar/{movie_id}/{actor_name}")
+async def get_local_movie_library_actor_avatar(movie_id: str, actor_name: str):
+    avatar_path = await local_movie_library_service.get_actor_avatar_path(movie_id, actor_name)
+    if avatar_path is None:
+        raise HTTPException(status_code=404, detail="actor_avatar_not_found")
+    return FileResponse(avatar_path)
+
+
 @router.get("/api/movies/local-library/{movie_id}/play")
 async def play_local_movie_library_file(movie_id: str, file_index: int = 0):
     video_path = await local_movie_library_service.get_video_file_path(movie_id, file_index)

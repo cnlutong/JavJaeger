@@ -42,6 +42,9 @@ def test_local_library_poster_route_is_before_status_route():
     assert api_paths.index("/api/movies/local-library/thumbnail/{movie_id}") < api_paths.index(
         "/api/movies/local-library/{movie_id}"
     )
+    assert api_paths.index("/api/movies/local-library/actor-avatar/{movie_id}/{actor_name}") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
 
 
 def test_local_library_play_route_is_before_status_route():
@@ -702,6 +705,40 @@ def test_local_library_play_file_path_comes_from_indexed_record(tmp_path):
     assert second_path == second_video.resolve()
     assert missing_index_path is None
     assert invalid_id_path is None
+
+
+def test_local_library_actor_avatar_path_comes_from_movie_actor_directory(tmp_path):
+    video = tmp_path / "ABP-123 Sample.mp4"
+    actor_dir = tmp_path / "actors"
+    actor_avatar = actor_dir / "Actor_Two.jpg"
+    video.write_bytes(b"video")
+    actor_dir.mkdir()
+    actor_avatar.write_bytes(b"avatar")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Sample",
+                        "stars": ["Actor/Two"],
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Actor/Two",
+                }
+            ],
+        )
+        return await service.get_actor_avatar_path("ABP-123", "Actor/Two")
+
+    assert asyncio.run(exercise()) == actor_avatar.resolve()
 
 
 def test_automation_task_crud_persists(tmp_path):

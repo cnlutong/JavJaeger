@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -252,6 +253,38 @@ class LocalMovieLibraryService:
                 video_path.with_name("thumbnail.jpg"),
             ]
             for candidate in candidates:
+                try:
+                    if candidate.exists() and candidate.is_file():
+                        return candidate.resolve()
+                except OSError:
+                    continue
+        return None
+
+    def _actor_avatar_candidates(self, video_path: Path, actor_name: str) -> list[Path]:
+        raw_name = str(actor_name or "").strip()
+        if not raw_name:
+            return []
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", raw_name).strip().strip(". ")
+        sanitized = re.sub(r"\s+", " ", sanitized) or raw_name
+        stems = []
+        for stem in (raw_name, sanitized):
+            if stem and stem not in stems:
+                stems.append(stem)
+        actor_dir = video_path.parent / "actors"
+        extensions = [".jpg", ".jpeg", ".png", ".webp"]
+        return [actor_dir / f"{stem}{extension}" for stem in stems for extension in extensions]
+
+    async def get_actor_avatar_path(self, movie_id: str, actor_name: str) -> Path | None:
+        records = await self.load_records()
+        record = records.get((movie_id or "").upper())
+        if not record:
+            return None
+
+        for file_record in record.get("files", []):
+            video_path = Path(str(file_record.get("path") or ""))
+            if not video_path.name:
+                continue
+            for candidate in self._actor_avatar_candidates(video_path, actor_name):
                 try:
                     if candidate.exists() and candidate.is_file():
                         return candidate.resolve()

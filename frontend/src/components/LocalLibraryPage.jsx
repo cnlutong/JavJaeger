@@ -110,14 +110,64 @@ const thumbnailSource = (record) => {
         : `/api/image-proxy?url=${encodeURIComponent(thumbnailUrl)}`;
 };
 
-const MoviePoster = ({ record, compact = false, width = null, variant = "poster" }) => {
+const actorName = (actor) => {
+    if (actor && typeof actor === "object") {
+        return String(actor.name || actor.title || actor.id || "").trim();
+    }
+    return String(actor || "").trim();
+};
+
+const normalizeActors = (record) => {
+    const actorValues = [
+        ...(Array.isArray(record?.metadata?.raw?.stars) ? record.metadata.raw.stars : []),
+        ...(Array.isArray(record?.metadata?.actor_refs) ? record.metadata.actor_refs : []),
+        ...(Array.isArray(record?.stars) ? record.stars : []),
+    ];
+    const actorsByName = new Map();
+    actorValues.forEach((actor) => {
+        const name = actorName(actor);
+        if (!name) {
+            return;
+        }
+        const existing = actorsByName.get(name) || { name, avatar: "" };
+        if (actor && typeof actor === "object" && !existing.avatar) {
+            existing.avatar = actor.avatar || actor.img || actor.image || actor.thumbnail || "";
+        }
+        actorsByName.set(name, existing);
+    });
+    return Array.from(actorsByName.values());
+};
+
+const actorAvatarSource = (record, actor) => {
+    if (actor?.avatar) {
+        return actor.avatar.startsWith("/api/")
+            ? actor.avatar
+            : `/api/image-proxy?url=${encodeURIComponent(actor.avatar)}`;
+    }
+    if (!record?.movie_id || !actor?.name) {
+        return "";
+    }
+    return `/api/movies/local-library/actor-avatar/${encodeURIComponent(record.movie_id)}/${encodeURIComponent(actor.name)}`;
+};
+
+const MoviePoster = ({ record, compact = false, width = null, variant = "poster", onRatio = null }) => {
     const [failed, setFailed] = React.useState(false);
     const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
     const style = width ? { width, height: compact ? Math.round(width * 1.5) : undefined } : undefined;
     if (src && !failed) {
         return (
             <div className={`jav-library-poster ${compact ? "is-compact" : ""}`} style={style}>
-                <img src={src} alt={record.title || record.movie_id} onError={() => setFailed(true)} />
+                <img
+                    src={src}
+                    alt={record.title || record.movie_id}
+                    onError={() => setFailed(true)}
+                    onLoad={(event) => {
+                        const { naturalWidth, naturalHeight } = event.currentTarget;
+                        if (onRatio && naturalWidth > 0 && naturalHeight > 0) {
+                            onRatio(naturalWidth / naturalHeight);
+                        }
+                    }}
+                />
             </div>
         );
     }
@@ -125,6 +175,24 @@ const MoviePoster = ({ record, compact = false, width = null, variant = "poster"
         <div className={`jav-library-poster is-placeholder ${compact ? "is-compact" : ""}`} style={style}>
             <span>{record.movie_id || "N/A"}</span>
         </div>
+    );
+};
+
+const ActorPill = ({ record, actor, onClick }) => {
+    const [failed, setFailed] = React.useState(false);
+    const src = actorAvatarSource(record, actor);
+    const initial = (actor.name || "?").slice(0, 1).toUpperCase();
+    return (
+        <button className="jav-library-actor-pill" type="button" onClick={onClick}>
+            <span className="jav-library-actor-avatar">
+                {src && !failed ? (
+                    <img src={src} alt={actor.name} onError={() => setFailed(true)} />
+                ) : (
+                    <span>{initial}</span>
+                )}
+            </span>
+            <span className="jav-library-actor-name">{actor.name}</span>
+        </button>
     );
 };
 
@@ -139,6 +207,7 @@ export default function LocalLibraryPage() {
     const [selectedRecord, setSelectedRecord] = React.useState(null);
     const [playingRecordKey, setPlayingRecordKey] = React.useState("");
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React.useState(0);
+    const [posterAspectRatioMap, setPosterAspectRatioMap] = React.useState({});
     const [viewMode, setViewMode] = React.useState("list");
     const [listPosterSize, setListPosterSize] = React.useState(56);
     const [gridPosterSize, setGridPosterSize] = React.useState(156);
@@ -246,6 +315,16 @@ export default function LocalLibraryPage() {
         setPlayingRecordKey(`${selectedRecord.movie_id}:${fileIndex}`);
     };
 
+    const handlePosterAspectRatio = (ratio) => {
+        if (!selectedRecord?.movie_id || !Number.isFinite(ratio) || ratio <= 0) {
+            return;
+        }
+        setPosterAspectRatioMap((current) => ({
+            ...current,
+            [selectedRecord.movie_id]: ratio,
+        }));
+    };
+
     const handleScan = async (values) => {
         setScanning(true);
         setScanResult(null);
@@ -343,15 +422,67 @@ export default function LocalLibraryPage() {
         ));
     };
 
-    const renderTagList = (items, color) => {
+    const handleFilterTagClick = (filterKey, value, event) => {
+        event?.stopPropagation?.();
+        if (!filterKey || !value) {
+            return;
+        }
+        setFilters({
+            keyword: "",
+            genres: filterKey === "genres" ? [value] : [],
+            stars: filterKey === "stars" ? [value] : [],
+            studios: [],
+            publishers: [],
+            series: [],
+            years: [],
+            roots: [],
+        });
+        setSelectedRecord(null);
+        setPlayingRecordKey("");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const renderFilterTag = (filterKey, value, color) => (
+        <Tag
+            color={color}
+            key={value}
+            className="jav-library-filter-tag"
+            onClick={(event) => handleFilterTagClick(filterKey, value, event)}
+        >
+            {value}
+        </Tag>
+    );
+
+    const renderTagList = (items, color, filterKey = null) => {
         const values = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
         if (!values.length) {
             return <Text type="secondary">-</Text>;
         }
         return (
             <Space size={4} wrap>
-                {values.map((value) => <Tag color={color} key={value}>{value}</Tag>)}
+                {values.map((value) => (
+                    filterKey ? renderFilterTag(filterKey, value, color) : <Tag color={color} key={value}>{value}</Tag>
+                ))}
             </Space>
+        );
+    };
+
+    const renderActorList = (record) => {
+        const actors = normalizeActors(record);
+        if (!actors.length) {
+            return <Text type="secondary">-</Text>;
+        }
+        return (
+            <div className="jav-library-actor-list">
+                {actors.map((actor) => (
+                    <ActorPill
+                        key={actor.name}
+                        record={record}
+                        actor={actor}
+                        onClick={(event) => handleFilterTagClick("stars", actor.name, event)}
+                    />
+                ))}
+            </div>
         );
     };
 
@@ -376,11 +507,30 @@ export default function LocalLibraryPage() {
         const hasPlayableFile = (selectedRecord.files || []).length > 0;
         const videoSrc = `/api/movies/local-library/${encodeURIComponent(selectedRecord.movie_id)}/play?file_index=${selectedPlayFileIndex}`;
         const isPlayingSelectedRecord = playingRecordKey === `${selectedRecord.movie_id}:${selectedPlayFileIndex}`;
+        const posterAspectRatio = posterAspectRatioMap[selectedRecord.movie_id] || null;
+        const previewRatioClass = posterAspectRatio > 1.08
+            ? "is-landscape"
+            : posterAspectRatio && posterAspectRatio < 0.82
+                ? "is-portrait"
+                : "is-balanced";
+        const previewStyle = posterAspectRatio
+            ? { "--jav-library-preview-poster-ratio": posterAspectRatio }
+            : undefined;
 
         return (
-            <div className="jav-library-preview">
+            <div className={`jav-library-preview ${previewRatioClass}`} style={previewStyle}>
                 <aside className="jav-library-preview-poster">
-                    <MoviePoster record={selectedRecord} />
+                    <MoviePoster record={selectedRecord} onRatio={handlePosterAspectRatio} />
+                    <div className="jav-library-preview-poster-extras">
+                        <div className="jav-library-preview-section">
+                            <Text strong>演员</Text>
+                            {renderActorList(selectedRecord)}
+                        </div>
+                        <div className="jav-library-preview-section">
+                            <Text strong>标签</Text>
+                            {renderTagList(selectedRecord.genres, "cyan", "genres")}
+                        </div>
+                    </div>
                 </aside>
                 <section className="jav-library-preview-details">
                     <div className="jav-library-preview-header">
@@ -424,14 +574,6 @@ export default function LocalLibraryPage() {
                                 <strong>{value}</strong>
                             </div>
                         ))}
-                    </div>
-                    <div className="jav-library-preview-section">
-                        <Text strong>演员</Text>
-                        {renderTagList(selectedRecord.stars, "magenta")}
-                    </div>
-                    <div className="jav-library-preview-section">
-                        <Text strong>标签</Text>
-                        {renderTagList(selectedRecord.genres, "cyan")}
                     </div>
                     <div className="jav-library-preview-section">
                         <Text strong>扫描目录</Text>
@@ -503,11 +645,11 @@ export default function LocalLibraryPage() {
                         {record.series && <Tag color="purple">{record.series}</Tag>}
                     </Space>
                     <Space size={4} wrap>
-                        {(record.genres || []).slice(0, 8).map((genre) => <Tag color="cyan" key={genre}>{genre}</Tag>)}
+                        {(record.genres || []).slice(0, 8).map((genre) => renderFilterTag("genres", genre, "cyan"))}
                         {(record.genres || []).length > 8 && <Tag>+{record.genres.length - 8}</Tag>}
                     </Space>
                     <Space size={4} wrap>
-                        {(record.stars || []).slice(0, 6).map((star) => <Tag color="magenta" key={star}>{star}</Tag>)}
+                        {(record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta"))}
                         {(record.stars || []).length > 6 && <Tag>+{record.stars.length - 6}</Tag>}
                     </Space>
                 </Space>
@@ -532,10 +674,24 @@ export default function LocalLibraryPage() {
     ];
 
     if (selectedRecord) {
+        const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
+        const previewBackdropStyle = previewBackdropSource
+            ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` }
+            : undefined;
         return (
-            <div className="jav-local-scrape jav-library-page">
-                <div className="jav-library-layout">
-                    <section className="jav-local-results jav-library-results">
+            <div className="jav-local-scrape jav-library-page is-previewing">
+                <div
+                    className="jav-library-preview-backdrop"
+                    style={previewBackdropStyle}
+                    onClick={closeRecordPreview}
+                >
+                    <section
+                        className="jav-local-results jav-library-results jav-library-preview-surface"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="影片沉浸式预览"
+                        onClick={(event) => event.stopPropagation()}
+                    >
                         {renderRecordPreview()}
                     </section>
                 </div>
@@ -666,8 +822,8 @@ export default function LocalLibraryPage() {
                                             {record.date && <Text type="secondary">{String(record.date).slice(0, 4)}</Text>}
                                         </div>
                                         <div className="jav-library-poster-tags">
-                                            {(record.stars || []).slice(0, 2).map((star) => <Tag color="magenta" key={star}>{star}</Tag>)}
-                                            {(record.genres || []).slice(0, 2).map((genre) => <Tag color="cyan" key={genre}>{genre}</Tag>)}
+                                            {(record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta"))}
+                                            {(record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan"))}
                                         </div>
                                     </Card>
                                 ))}
