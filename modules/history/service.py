@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from modules.javbus_api import javbus_api_service
@@ -165,6 +166,11 @@ class LocalMovieLibraryService:
 
     async def get_summary(self) -> dict[str, Any]:
         records = await self.get_all()
+        for record in records:
+            metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+            record["cover_url"] = metadata.get("cover_url") or record.get("img") or ""
+            if await self.get_poster_path(str(record.get("movie_id") or "")):
+                record["poster_url"] = f"/api/movies/local-library/poster/{record.get('movie_id')}"
         total_files = sum(int(record.get("file_count") or 0) for record in records)
         total_size = sum(int(record.get("total_size") or 0) for record in records)
         return {
@@ -198,6 +204,31 @@ class LocalMovieLibraryService:
             "in_local_library": bool(record),
             "record": record,
         }
+
+    async def get_poster_path(self, movie_id: str) -> Path | None:
+        records = await self.load_records()
+        record = records.get((movie_id or "").upper())
+        if not record:
+            return None
+
+        for file_record in record.get("files", []):
+            video_path = Path(str(file_record.get("path") or ""))
+            if not video_path.name:
+                continue
+            candidates = [
+                video_path.with_name(f"{video_path.stem}-poster.jpg"),
+                video_path.with_name(f"{video_path.stem}-poster.png"),
+                video_path.with_name("poster.jpg"),
+                video_path.with_name("folder.jpg"),
+                video_path.with_name("cover.jpg"),
+            ]
+            for candidate in candidates:
+                try:
+                    if candidate.exists() and candidate.is_file():
+                        return candidate.resolve()
+                except OSError:
+                    continue
+        return None
 
     async def update_from_scan(
         self,

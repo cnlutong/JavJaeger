@@ -524,3 +524,12 @@
         padding: 14px !important;
     }
 }
+
+.jav-page-panel > .webdav-page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+    padding: 0 !important;
+    background: transparent !important;
+    scrollbar-gutter: auto;
+}

@@ -178,6 +178,15 @@ async def _filter_movies_by_detail(
     return [movie for movie in results if movie is not None]
 
 
+async def filter_movies_by_detail_conditions(
+    movies: list[dict[str, Any]],
+    filter_conditions: list[dict[str, str]],
+    actor_count_filter: str | None = None,
+    semaphore_size: int = 3,
+) -> list[dict[str, Any]]:
+    return await _filter_movies_by_detail(movies, filter_conditions, actor_count_filter, semaphore_size)
+
+
 async def get_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
     filter_conditions = _parse_filter_conditions(request.query_params)

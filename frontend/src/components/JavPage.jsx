@@ -2,6 +2,7 @@
 import LocalScrapePage from "./LocalScrapePage.jsx";
 import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
+import AutomationPage from "./AutomationPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
 import {
     clearPikPakSession,
@@ -58,6 +59,10 @@ const {
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
 
+const HEADER_BRAND_NAME = 'JavJaeger';
+const HEADER_SLOGAN = '"人类的一切痛苦，都是因为性欲得不到满足" --弗洛伊德 峰';
+const HEADER_SLOGAN_QUOTE = '"人类的一切痛苦，都是因为性欲得不到满足"';
+const HEADER_SLOGAN_AUTHOR = ' --弗洛伊德 峰';
 const RESOURCE_REQUEST_CONCURRENCY = 4;
 const FILTER_TYPE_LABELS = {
     star: '演员',
@@ -97,6 +102,7 @@ export default function JavPage() {
         auto_reload_frontend: false,
     });
     const [activePage, setActivePage] = React.useState('jav');
+    const [logoPreviewOpen, setLogoPreviewOpen] = React.useState(false);
 
     // UI State
     const [loading, setLoading] = React.useState(false);
@@ -219,6 +225,21 @@ export default function JavPage() {
         return () => window.clearInterval(timer);
     }, [downloadTool]);
 
+    React.useEffect(() => {
+        if (!logoPreviewOpen) {
+            return undefined;
+        }
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                handleLogoPreviewClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [logoPreviewOpen]);
+
     const displayVersion = versionInfo.version && versionInfo.version.startsWith('v')
         ? versionInfo.version
         : `v${versionInfo.version}`;
@@ -234,6 +255,14 @@ export default function JavPage() {
     const isCurrentDownloadToolReady = downloadTool === 'aria2'
         ? aria2Connected
         : isLoggedIn || clientConfig.pikpak.configured;
+
+    const handleLogoPreviewOpen = () => {
+        setLogoPreviewOpen(true);
+    };
+
+    const handleLogoPreviewClose = () => {
+        setLogoPreviewOpen(false);
+    };
 
     const buildFilterCondition = (type, value, label) => {
         const normalizedType = String(type || '').trim();
@@ -1380,8 +1409,8 @@ export default function JavPage() {
                         {/* Row 1: ID + date */}
                         <div className="jav-movie-row jav-movie-meta-row">
                             <Tag color="blue" style={{ fontWeight: 700, fontSize: 13, margin: 0 }}>{movie.id}</Tag>
-                            {(movie.status === 'local_exists' || movie.in_local_library) && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>本地已有</Tag>}
-                            {(movie.status === 'already_downloaded' || movie.is_downloaded) && <Tag color="green" style={{ margin: 0, fontSize: 11 }}>已下载</Tag>}
+                            {(movie.status === 'local_exists' || movie.in_local_library) && <Tag color="purple" style={{ margin: 0, fontSize: 12 }}>本地已有</Tag>}
+                            {(movie.status === 'already_downloaded' || movie.is_downloaded) && <Tag color="green" style={{ margin: 0, fontSize: 12 }}>已下载</Tag>}
                             {movie.date && <Text type="secondary" style={{ fontSize: 12 }}>{movie.date}</Text>}
                         </div>
 
@@ -1394,17 +1423,17 @@ export default function JavPage() {
                         {/* Row 3: Stars */}
                         {stars.length > 0 && (
                             <div className="jav-movie-row">
-                                <Text type="secondary" style={{ fontSize: 11 }}>演员</Text>
-                                {stars.map(s => <Tag key={s} color="magenta" style={{ margin: 0, fontSize: 11 }}>{s}</Tag>)}
+                                <Text type="secondary" style={{ fontSize: 12 }}>演员</Text>
+                                {stars.map(s => <Tag key={s} color="magenta" style={{ margin: 0, fontSize: 12 }}>{s}</Tag>)}
                             </div>
                         )}
 
                         {/* Row 4: Genres */}
                         {genres.length > 0 && (
                             <div className="jav-movie-row">
-                                <Text type="secondary" style={{ fontSize: 11 }}>类型</Text>
-                                {genres.slice(0, 8).map(g => <Tag key={g} color="cyan" style={{ margin: 0, fontSize: 11 }}>{g}</Tag>)}
-                                {genres.length > 8 && <Text type="secondary" style={{ fontSize: 11 }}>+{genres.length - 8}</Text>}
+                                <Text type="secondary" style={{ fontSize: 12 }}>类型</Text>
+                                {genres.slice(0, 8).map(g => <Tag key={g} color="cyan" style={{ margin: 0, fontSize: 12 }}>{g}</Tag>)}
+                                {genres.length > 8 && <Text type="secondary" style={{ fontSize: 12 }}>+{genres.length - 8}</Text>}
                             </div>
                         )}
 
@@ -1415,8 +1444,8 @@ export default function JavPage() {
                             {magnets && magnets.length === 0 && <Text type="danger" style={{ fontSize: 12 }}>暂无可用资源</Text>}
                             {hasMagnets && (
                                 <>
-                                    <Tag color="gold" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>最佳</Tag>
-                                    {bestMagnet.hasSubtitle && <Tag color="green" style={{ margin: 0, fontSize: 11, flexShrink: 0 }}>字幕</Tag>}
+                                    <Tag color="gold" style={{ margin: 0, fontSize: 12, flexShrink: 0 }}>最佳</Tag>
+                                    {bestMagnet.hasSubtitle && <Tag color="green" style={{ margin: 0, fontSize: 12, flexShrink: 0 }}>字幕</Tag>}
                                     <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.size}</Text>
                                     {bestMagnet.shareDate && <Text type="secondary" style={{ fontSize: 12, flexShrink: 0 }}>{bestMagnet.shareDate}</Text>}
                                     <a
@@ -1449,7 +1478,25 @@ export default function JavPage() {
         );
     };
 
+    const renderStandalonePage = (page) => {
+        const pageContent = {
+            localScrape: <LocalScrapePage />,
+            localLibrary: <LocalLibraryPage />,
+            automation: <AutomationPage />,
+            settings: <SettingsPage />,
+            webdav: <WebDavPage />,
+        }[page] || <WebDavPage />;
 
+        return (
+            <Layout className="jav-workspace jav-page-workspace">
+                <Content className="jav-content jav-page-content">
+                    <section className="jav-results-panel jav-page-panel">
+                        {pageContent}
+                    </section>
+                </Content>
+            </Layout>
+        );
+    };
 
 
     // ---- Render ---
@@ -1474,9 +1521,24 @@ export default function JavPage() {
                     <Header className="jav-header">
                         <div className="jav-header-left">
                             <div className="jav-brand">
-                                <img src="/static/logo.jpg" alt="JavJaeger" className="jav-brand-logo" />
-                                <Title level={3} className="jav-brand-title">JavJaeger</Title>
+                                <button
+                                    type="button"
+                                    className="jav-brand-logo-button"
+                                    aria-label="查看 JavJaeger logo 大图"
+                                    onClick={handleLogoPreviewOpen}
+                                >
+                                    <img src="/static/logo.jpg" alt="JavJaeger" className="jav-brand-logo" />
+                                </button>
+                                <span className="jav-brand-copy">
+                                    <Text className="jav-brand-name">{HEADER_BRAND_NAME}</Text>
+                                    <Text className="jav-brand-slogan">
+                                        <span>{HEADER_SLOGAN_QUOTE}</span>
+                                        <span>{HEADER_SLOGAN_AUTHOR}</span>
+                                    </Text>
+                                </span>
                             </div>
+                        </div>
+                        <div className="jav-header-nav">
                             <Segmented
                                 className="jav-page-tabs"
                                 value={activePage}
@@ -1485,6 +1547,7 @@ export default function JavPage() {
                                     { label: '影片检索', value: 'jav' },
                                     { label: '刮削', value: 'localScrape' },
                                     { label: '影视库', value: 'localLibrary' },
+                                    { label: '自动模式', value: 'automation' },
                                     { label: 'WebDAV下载', value: 'webdav' },
                                     { label: '设置', value: 'settings' }
                                 ]}
@@ -1503,6 +1566,28 @@ export default function JavPage() {
                             </a>
                         </Space>
                     </Header>
+
+                    {logoPreviewOpen && (
+                        <div
+                            className="jav-logo-preview-overlay"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label="JavJaeger logo 大图"
+                            onClick={handleLogoPreviewClose}
+                        >
+                            <button
+                                type="button"
+                                className="jav-logo-preview-close"
+                                aria-label="关闭 logo 大图"
+                                onClick={handleLogoPreviewClose}
+                            >
+                                ×
+                            </button>
+                            <div className="jav-logo-preview-frame" onClick={(event) => event.stopPropagation()}>
+                                <img src="/static/logo.jpg" alt="JavJaeger logo 大图" className="jav-logo-preview-image" />
+                            </div>
+                        </div>
+                    )}
 
                     {activePage === 'jav' ? (
                     <Layout className="jav-workspace">
@@ -2002,23 +2087,7 @@ export default function JavPage() {
                             </div>
                         </Sider>
                     </Layout>
-                    ) : activePage === 'localScrape' ? (
-                    <div className="jav-webdav-shell">
-                        <LocalScrapePage />
-                    </div>
-                    ) : activePage === 'localLibrary' ? (
-                    <div className="jav-webdav-shell">
-                        <LocalLibraryPage />
-                    </div>
-                    ) : activePage === 'settings' ? (
-                    <div className="jav-webdav-shell">
-                        <SettingsPage />
-                    </div>
-                    ) : (
-                    <div className="jav-webdav-shell">
-                        <WebDavPage />
-                    </div>
-                    )}
+                    ) : renderStandalonePage(activePage)}
                 </Layout>
             </div>
         </ConfigProvider>

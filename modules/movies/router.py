@@ -1,8 +1,9 @@
 import logging
 
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 
+from modules.history.service import local_movie_library_service
 from .local_library import clear_local_library, get_local_library_payload, get_local_library_status, scan_local_library
 from .local_scrape import apply_local_scrape, preview_local_scrape
 from .schemas import LocalLibraryScanRequest, LocalScrapeApplyRequest, LocalScrapePreviewRequest, MovieCodeDownloadRequest, MovieRecognitionRequest
@@ -66,6 +67,14 @@ async def clear_local_movie_library():
     except Exception as exc:
         logger.error("Local library clear failed: %s", exc)
         return {"success": False, "error": "library_clear_failed", "message": "清空本地影片库失败"}
+
+
+@router.get("/api/movies/local-library/poster/{movie_id}")
+async def get_local_movie_library_poster(movie_id: str):
+    poster_path = await local_movie_library_service.get_poster_path(movie_id)
+    if poster_path is None:
+        raise HTTPException(status_code=404, detail="poster_not_found")
+    return FileResponse(poster_path)
 
 
 @router.get("/api/movies/local-library/{movie_id}")

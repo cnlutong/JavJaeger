@@ -4,6 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import main
+from modules.automation.schemas import AutomationTaskCreate, AutomationTaskUpdate
+from modules.automation.service import AutomationService
+from modules.automation import service as automation_service_module
+from modules.history.service import local_movie_library_service
 from modules.common import runtime
 from modules.movies import local_scrape
 from modules.movies import service as movies_service
@@ -23,7 +27,17 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
 
     assert "/api/system/info" in api_paths
     assert "/api/movies" in api_paths
+    assert "/api/automation/tasks" in api_paths
+    assert api_paths.index("/api/automation/tasks") < api_paths.index("/api/{path:path}")
     assert "/api/{path:path}" == api_paths[-1]
+
+
+def test_local_library_poster_route_is_before_status_route():
+    api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
+
+    assert api_paths.index("/api/movies/local-library/poster/{movie_id}") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
 
 
 def test_client_config_redacts_sensitive_values(monkeypatch):
@@ -394,3 +408,234 @@ def test_local_scrape_empty_folder_template_uses_target_root():
     assert target_dir == Path(r"D:\library")
     assert target_stem == "ABP-123 Sample Title"
     assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"
+
+
+def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
+    video = tmp_path / "ABP-123.mp4"
+    poster = tmp_path / "ABP-123-poster.jpg"
+    video.write_text("video", encoding="utf-8")
+    poster.write_bytes(b"poster")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Sample",
+                        "cover_url": "https://www.javbus.com/pics/cover.jpg",
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Sample",
+                }
+            ],
+        )
+        return await service.get_summary(), await service.get_poster_path("ABP-123")
+
+    summary, poster_path = asyncio.run(exercise())
+
+    record = summary["records"][0]
+    assert record["cover_url"] == "https://www.javbus.com/pics/cover.jpg"
+    assert record["poster_url"] == "/api/movies/local-library/poster/ABP-123"
+    assert poster_path == poster.resolve()
+
+
+def test_automation_task_crud_persists(tmp_path):
+    async def exercise():
+        service = AutomationService(str(tmp_path / "automation_tasks.json"), scheduler_enabled=False)
+        created = await service.create_task(
+            AutomationTaskCreate(
+                name="每日有码检索",
+                enabled=True,
+                trigger={"type": "interval", "interval_minutes": 90},
+                nodes=[
+                    {"id": "trigger", "type": "trigger", "position": {"x": 40, "y": 80}, "config": {}},
+                    {
+                        "id": "search",
+                        "type": "search",
+                        "position": {"x": 300, "y": 80},
+                        "config": {"mode": "keyword", "keyword": "ABP", "max_results": 3},
+                    },
+                    {
+                        "id": "magnet",
+                        "type": "magnet",
+                        "position": {"x": 560, "y": 80},
+                        "config": {"source": "javbus", "exclude_4k": True},
+                    },
+                    {
+                        "id": "download",
+                        "type": "download",
+                        "position": {"x": 820, "y": 80},
+                        "config": {"tool": "pikpak"},
+                    },
+                ],
+                edges=[
+                    {"id": "e1", "source": "trigger", "target": "search"},
+                    {"id": "e2", "source": "search", "target": "magnet"},
+                    {"id": "e3", "source": "magnet", "target": "download"},
+                ],
+            )
+        )
+        await service.update_task(created.id, AutomationTaskUpdate(name="工作日检索", enabled=False))
+        reloaded = AutomationService(str(tmp_path / "automation_tasks.json"), scheduler_enabled=False)
+        tasks = await reloaded.list_tasks()
+        return created, tasks
+
+    created, tasks = asyncio.run(exercise())
+
+    assert created.id
+    assert len(tasks) == 1
+    assert tasks[0].name == "工作日检索"
+    assert tasks[0].enabled is False
+    assert tasks[0].trigger.interval_minutes == 90
+    assert tasks[0].nodes[1].config["keyword"] == "ABP"
+
+
+def test_automation_service_dispatches_best_magnets(tmp_path, monkeypatch):
+    dispatched = []
+
+    async def fake_get_movies_by_keyword_and_page(keyword, page="1", magnet=None, movie_type=None):
+        return {
+            "movies": [
+                {"id": "ABP-123", "title": "ABP-123 Title"},
+                {"id": "ABP-124", "title": "ABP-124 Title"},
+            ],
+            "pagination": {"total": 2},
+        }
+
+    async def fake_get_best_magnet_payload(movie_id, **kwargs):
+        if movie_id == "ABP-124":
+            return None
+        return {"link": "magnet:?xt=urn:btih:abc", "title": "ABP-123 best", "size": "2 GB"}
+
+    async def fake_is_movie_downloaded(movie_id):
+        return False
+
+    async def fake_is_movie_present(movie_id):
+        return False
+
+    async def fake_pikpak_download(request):
+        dispatched.extend(request.magnet_links)
+        return {"success": True, "success_count": len(request.magnet_links), "results": [{"success": True}]}
+
+    monkeypatch.setattr(
+        automation_service_module.javbus_api_service,
+        "get_movies_by_keyword_and_page",
+        fake_get_movies_by_keyword_and_page,
+    )
+    monkeypatch.setattr(automation_service_module, "get_best_magnet_payload", fake_get_best_magnet_payload)
+    monkeypatch.setattr(
+        automation_service_module.download_history_service,
+        "is_movie_downloaded",
+        fake_is_movie_downloaded,
+    )
+    monkeypatch.setattr(
+        automation_service_module.local_movie_library_service,
+        "is_movie_present",
+        fake_is_movie_present,
+    )
+    monkeypatch.setattr(automation_service_module, "pikpak_download", fake_pikpak_download)
+
+    async def exercise():
+        service = AutomationService(str(tmp_path / "automation_tasks.json"), scheduler_enabled=False)
+        task = await service.create_task(
+            AutomationTaskCreate(
+                name="自动检索",
+                enabled=True,
+                trigger={"type": "auto"},
+                nodes=[
+                    {"id": "trigger", "type": "trigger", "position": {"x": 40, "y": 80}, "config": {}},
+                    {
+                        "id": "search",
+                        "type": "search",
+                        "position": {"x": 300, "y": 80},
+                        "config": {"mode": "keyword", "keyword": "ABP", "max_results": 2},
+                    },
+                    {
+                        "id": "magnet",
+                        "type": "magnet",
+                        "position": {"x": 560, "y": 80},
+                        "config": {"source": "javbus"},
+                    },
+                    {
+                        "id": "download",
+                        "type": "download",
+                        "position": {"x": 820, "y": 80},
+                        "config": {"tool": "pikpak"},
+                    },
+                ],
+                edges=[
+                    {"id": "e1", "source": "trigger", "target": "search"},
+                    {"id": "e2", "source": "search", "target": "magnet"},
+                    {"id": "e3", "source": "magnet", "target": "download"},
+                ],
+            )
+        )
+        return await service.run_task(task.id, manual=True)
+
+    run = asyncio.run(exercise())
+
+    assert dispatched == ["magnet:?xt=urn:btih:abc"]
+    assert run.status == "success"
+    assert run.found_count == 2
+    assert run.magnet_count == 1
+    assert run.dispatched_count == 1
+    assert run.skipped_count == 1
+
+
+def test_automation_filter_search_supports_multiple_conditions_and_all_results(tmp_path, monkeypatch):
+    page_queries = []
+
+    async def fake_get_movies_by_page(query):
+        page_queries.append(query)
+        if str(query.get("page")) == "2":
+            return {
+                "movies": [{"id": "MATCH-002"}, {"id": "MISS-002"}],
+                "pagination": {"currentPage": 2, "hasNextPage": False, "nextPage": None, "pages": [1, 2]},
+            }
+        return {
+            "movies": [{"id": "MATCH-001"}, {"id": "MISS-001"}],
+            "pagination": {"currentPage": 1, "hasNextPage": True, "nextPage": 2, "pages": [1, 2]},
+        }
+
+    async def fake_get_movie_detail(movie_id):
+        details = {
+            "MATCH-001": {"genres": [{"id": "4y", "name": "Genre A"}], "stars": [{"id": "abc", "name": "Actor A"}]},
+            "MATCH-002": {"genres": [{"id": "4y", "name": "Genre A"}], "stars": [{"id": "abc", "name": "Actor A"}]},
+            "MISS-001": {"genres": [{"id": "4y", "name": "Genre A"}], "stars": [{"id": "def", "name": "Actor B"}]},
+            "MISS-002": {"genres": [{"id": "5g", "name": "Genre B"}], "stars": [{"id": "abc", "name": "Actor A"}]},
+        }
+        return details[movie_id]
+
+    monkeypatch.setattr(automation_service_module.javbus_api_service, "get_movies_by_page", fake_get_movies_by_page)
+    monkeypatch.setattr(movies_service, "javbus_api_service", SimpleNamespace(get_movie_detail=fake_get_movie_detail))
+
+    async def exercise():
+        service = AutomationService(str(tmp_path / "automation_tasks.json"), scheduler_enabled=False)
+        return await service._search_movies(
+            {
+                "mode": "filter",
+                "max_results": "all",
+                "filters": [
+                    {"type": "genre", "value": "4y", "label": "Genre A"},
+                    {"type": "star", "value": "abc", "label": "Actor A"},
+                ],
+                "magnet": "exist",
+                "type": "normal",
+            }
+        )
+
+    movies = asyncio.run(exercise())
+
+    assert [movie["id"] for movie in movies] == ["MATCH-001", "MATCH-002"]
+    assert page_queries == [
+        {"filterType": "genre", "filterValue": "4y", "magnet": "exist", "type": "normal", "page": "1"},
+        {"filterType": "genre", "filterValue": "4y", "magnet": "exist", "type": "normal", "page": "2"},
+    ]

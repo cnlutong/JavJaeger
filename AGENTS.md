@@ -89,6 +89,12 @@ Use this as the source-of-truth ownership map.
   - WebDAV browsing
   - Aria2 dispatch
   - session-scoped downloader state
+- `modules/automation/`
+  - saved automation task persistence
+  - trigger scheduling
+  - movie discovery orchestration
+  - magnet selection orchestration
+  - PikPak or Aria2 download dispatch orchestration
 - `modules/proxy/`
   - final catch-all API route
   - explicit 404 for unknown API paths
@@ -285,6 +291,7 @@ Current approved backend cross-module dependencies:
 - `history` -> `javbus_api`
 - `system` -> `javbus_api`
 - `pikpak` -> `history`
+- `automation` -> `javbus_api`, `movies`, `magnets`, `pikpak`, `webdav`, `history`
 
 If a new module is needed, define its ownership and allowed imports before writing code.
 

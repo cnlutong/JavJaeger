@@ -7,6 +7,7 @@ const icons = window.icons || {};
 const {
     Alert,
     Button,
+    Card,
     Checkbox,
     Divider,
     Drawer,
@@ -14,6 +15,8 @@ const {
     Input,
     InputNumber,
     Popconfirm,
+    Segmented,
+    Slider,
     Space,
     Table,
     Tag,
@@ -22,11 +25,13 @@ const {
 } = antd;
 const { Text, Title } = Typography;
 const {
+    AppstoreOutlined,
     DatabaseOutlined,
     FilterOutlined,
     FolderOpenOutlined,
     ReloadOutlined,
     SearchOutlined,
+    UnorderedListOutlined,
 } = icons;
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
@@ -85,6 +90,32 @@ const matchesAny = (recordValues, selectedValues) => {
     return selectedValues.some((value) => normalized.has(String(value)));
 };
 
+const posterSource = (record) => {
+    if (record?.poster_url) {
+        return record.poster_url;
+    }
+    const coverUrl = record?.cover_url || record?.metadata?.cover_url || record?.img || "";
+    return coverUrl ? `/api/image-proxy?url=${encodeURIComponent(coverUrl)}` : "";
+};
+
+const MoviePoster = ({ record, compact = false, width = null }) => {
+    const [failed, setFailed] = React.useState(false);
+    const src = posterSource(record);
+    const style = width ? { width, height: compact ? Math.round(width * 1.5) : undefined } : undefined;
+    if (src && !failed) {
+        return (
+            <div className={`jav-library-poster ${compact ? "is-compact" : ""}`} style={style}>
+                <img src={src} alt={record.title || record.movie_id} onError={() => setFailed(true)} />
+            </div>
+        );
+    }
+    return (
+        <div className={`jav-library-poster is-placeholder ${compact ? "is-compact" : ""}`} style={style}>
+            <span>{record.movie_id || "N/A"}</span>
+        </div>
+    );
+};
+
 export default function LocalLibraryPage() {
     const [form] = Form.useForm();
     const [library, setLibrary] = React.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
@@ -93,6 +124,9 @@ export default function LocalLibraryPage() {
     const [scanning, setScanning] = React.useState(false);
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
+    const [viewMode, setViewMode] = React.useState("list");
+    const [listPosterSize, setListPosterSize] = React.useState(56);
+    const [gridPosterSize, setGridPosterSize] = React.useState(156);
     const [filters, setFilters] = React.useState({
         keyword: "",
         genres: [],
@@ -276,6 +310,12 @@ export default function LocalLibraryPage() {
 
     const columns = [
         {
+            title: "封面",
+            key: "poster",
+            width: listPosterSize + 30,
+            render: (_, record) => <MoviePoster record={record} compact width={listPosterSize} />,
+        },
+        {
             title: "番号",
             dataIndex: "movie_id",
             key: "movie_id",
@@ -352,6 +392,25 @@ export default function LocalLibraryPage() {
                             value={filters.keyword}
                             onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
                         />
+                        <Segmented
+                            value={viewMode}
+                            onChange={setViewMode}
+                            options={[
+                                { label: <span><Icon as={UnorderedListOutlined} /> 列表</span>, value: "list" },
+                                { label: <span><Icon as={AppstoreOutlined} /> 卡片</span>, value: "grid" },
+                            ]}
+                        />
+                        <div className="jav-library-size-control">
+                            <Text type="secondary">大小</Text>
+                            <Slider
+                                min={viewMode === "grid" ? 120 : 44}
+                                max={viewMode === "grid" ? 240 : 96}
+                                step={4}
+                                value={viewMode === "grid" ? gridPosterSize : listPosterSize}
+                                onChange={viewMode === "grid" ? setGridPosterSize : setListPosterSize}
+                                tooltip={{ formatter: (value) => `${value}px` }}
+                            />
+                        </div>
                         <Button icon={<Icon as={FolderOpenOutlined} />} onClick={() => setScanOpen(true)}>
                             扫描入库
                         </Button>
@@ -411,15 +470,49 @@ export default function LocalLibraryPage() {
                         />
                     )}
                     <Divider className="jav-section-divider" />
-                    <Table
-                        rowKey="movie_id"
-                        size="small"
-                        dataSource={filteredRecords}
-                        columns={columns}
-                        loading={loading}
-                        pagination={{ pageSize: 12, showSizeChanger: true }}
-                        locale={{ emptyText: "暂无影视库记录，请先扫描目录" }}
-                    />
+                    {viewMode === "grid" ? (
+                        filteredRecords.length ? (
+                            <div
+                                className="jav-library-poster-grid"
+                                style={{ "--jav-library-card-min": `${gridPosterSize}px` }}
+                            >
+                                {filteredRecords.map((record) => (
+                                    <Card
+                                        key={record.movie_id}
+                                        hoverable
+                                        className="jav-library-poster-card"
+                                        cover={<MoviePoster record={record} />}
+                                    >
+                                        <Text strong ellipsis={{ tooltip: record.title }} className="jav-library-poster-title">
+                                            {record.title || record.movie_id}
+                                        </Text>
+                                        <div className="jav-library-poster-meta">
+                                            <Tag color="blue">{record.movie_id}</Tag>
+                                            {record.date && <Text type="secondary">{String(record.date).slice(0, 4)}</Text>}
+                                        </div>
+                                        <div className="jav-library-poster-tags">
+                                            {(record.stars || []).slice(0, 2).map((star) => <Tag color="magenta" key={star}>{star}</Tag>)}
+                                            {(record.genres || []).slice(0, 2).map((genre) => <Tag color="cyan" key={genre}>{genre}</Tag>)}
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="jav-state-panel jav-library-empty-state">
+                                <Text type="secondary">暂无影视库记录，请先扫描目录</Text>
+                            </div>
+                        )
+                    ) : (
+                        <Table
+                            rowKey="movie_id"
+                            size="small"
+                            dataSource={filteredRecords}
+                            columns={columns}
+                            loading={loading}
+                            pagination={{ pageSize: 12, showSizeChanger: true }}
+                            locale={{ emptyText: "暂无影视库记录，请先扫描目录" }}
+                        />
+                    )}
                     <Drawer
                         title="扫描入库"
                         placement="right"

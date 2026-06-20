@@ -275,7 +275,7 @@ input::placeholder {
 }
 
 /* 按钮样式 */
-button {
+button:not(.ant-btn):not(.ant-switch):not(.ant-segmented-item):not(.jav-brand-logo-button):not(.jav-logo-preview-close):not(.automation-node) {
     padding: 0.75rem 1rem;
     background: #2383e2;
     color: #ffffff;
@@ -288,17 +288,17 @@ button {
     font-family: inherit;
 }
 
-button:hover:not(:disabled) {
+button:not(.ant-btn):not(.ant-switch):not(.ant-segmented-item):not(.jav-brand-logo-button):not(.jav-logo-preview-close):not(.automation-node):hover:not(:disabled) {
     background: #1a73d1;
     transform: translateY(-1px);
     box-shadow: 0 2px 8px rgba(35, 131, 226, 0.2);
 }
 
-button:active:not(:disabled) {
+button:not(.ant-btn):not(.ant-switch):not(.ant-segmented-item):not(.jav-brand-logo-button):not(.jav-logo-preview-close):not(.automation-node):active:not(:disabled) {
     transform: translateY(0);
 }
 
-button:disabled {
+button:not(.ant-btn):not(.ant-switch):not(.ant-segmented-item):not(.jav-brand-logo-button):not(.jav-logo-preview-close):not(.automation-node):disabled {
     background: #e9e9e7;
     color: #a0a0a0;
     cursor: not-allowed;
@@ -2394,11 +2394,11 @@ textarea::placeholder {
     input,
     select,
     textarea,
-    button {
+    button:not(.ant-btn):not(.ant-switch):not(.ant-segmented-item) {
         min-height: var(--control-min-h);
     }
 
-    button:disabled,
+    button:not(.ant-btn):not(.ant-switch):not(.ant-segmented-item):disabled,
     .btn:disabled {
         pointer-events: none;
     }
@@ -2630,6 +2630,30 @@ textarea::placeholder {
 .jav-app {
     min-height: 100vh;
     background: #f5f7fb;
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: 0;
+}
+
+.jav-app .ant-typography,
+.jav-app .ant-form-item,
+.jav-app .ant-input,
+.jav-app .ant-input-affix-wrapper,
+.jav-app .ant-input-number,
+.jav-app .ant-select,
+.jav-app .ant-btn,
+.jav-app .ant-table,
+.jav-app .ant-segmented {
+    font-size: 14px;
+}
+
+.jav-app .ant-tag,
+.jav-app .ant-badge-status-text,
+.jav-app .ant-breadcrumb,
+.jav-app .ant-form-item-extra,
+.jav-app .ant-form-item-explain {
+    font-size: 12px;
+    line-height: 1.45;
 }
 
 .jav-app-layout {
@@ -2647,27 +2671,59 @@ textarea::placeholder {
     padding: 0 24px;
     background: #ffffff;
     border-bottom: 1px solid #e5e7eb;
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto minmax(180px, 1fr);
     align-items: center;
-    justify-content: space-between;
     gap: 20px;
 }
 
 .jav-header-left,
 .jav-brand,
+.jav-header-nav,
 .jav-header-actions {
     display: flex;
     align-items: center;
 }
 
 .jav-header-left {
-    gap: 20px;
     min-width: 0;
+    justify-self: start;
+}
+
+.jav-header-nav {
+    min-width: 0;
+    justify-self: center;
+    justify-content: center;
 }
 
 .jav-brand {
     gap: 12px;
     min-width: 0;
+}
+
+.jav-brand-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.jav-brand-logo-button {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-in;
+}
+
+.jav-brand-logo-button:focus-visible {
+    outline: 2px solid #1677ff;
+    outline-offset: 3px;
 }
 
 .jav-brand-logo {
@@ -2678,12 +2734,84 @@ textarea::placeholder {
     box-shadow: 0 1px 3px rgba(15, 23, 42, 0.16);
 }
 
-.jav-brand-title.ant-typography {
+.jav-logo-preview-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    padding: 40px;
+    background: rgba(15, 23, 42, 0.86);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+}
+
+.jav-logo-preview-frame {
+    max-width: min(720px, 92vw);
+    max-height: min(720px, 86vh);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+    overflow: hidden;
+    cursor: default;
+}
+
+.jav-logo-preview-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-height: min(720px, 86vh);
+    object-fit: contain;
+}
+
+.jav-logo-preview-close {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-size: 28px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.jav-logo-preview-close:hover,
+.jav-logo-preview-close:focus-visible {
+    background: rgba(255, 255, 255, 0.2);
+    outline: none;
+}
+
+.jav-brand-name.ant-typography,
+.jav-brand-slogan.ant-typography {
     margin: 0;
-    color: #262626;
-    font-weight: 750;
     letter-spacing: 0;
     white-space: nowrap;
+}
+
+.jav-brand-name.ant-typography {
+    color: #262626;
+    font-size: 15px;
+    font-weight: 780;
+    line-height: 1.1;
+}
+
+.jav-brand-slogan.ant-typography {
+    max-width: 420px;
+    color: #4b5563;
+    font-size: 12px;
+    font-weight: 520;
+    line-height: 1.15;
+    white-space: normal;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
 }
 
 .jav-page-tabs {
@@ -2693,6 +2821,10 @@ textarea::placeholder {
 .jav-version {
     font-size: 12px;
     white-space: nowrap;
+}
+
+.jav-header-actions {
+    justify-self: end;
 }
 
 .jav-github-link {
@@ -2902,9 +3034,18 @@ textarea::placeholder {
     min-height: 0;
     background: #f5f5f5;
     overflow: hidden;
+    max-width: 1840px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 0 22px;
+    box-sizing: border-box;
 }
 
 @media (max-width: 1180px) {
+    .jav-webdav-shell {
+        padding: 0 16px;
+    }
+
     .jav-workspace,
     .jav-workspace.ant-layout-has-sider {
         flex-direction: column;
@@ -2929,31 +3070,88 @@ textarea::placeholder {
 }
 
 @media (max-width: 760px) {
+    .jav-webdav-shell {
+        padding: 0 12px;
+    }
+}
+
+.webdav-page {
+    width: 100%;
+}
+
+.webdav-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.webdav-status-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+}
+
+.webdav-connection-card,
+.webdav-work-card {
+    margin-bottom: 16px;
+}
+
+.webdav-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+@media (max-width: 760px) {
     .jav-header {
-        min-height: 64px;
+        height: auto;
+        min-height: 92px;
         padding: 10px 14px;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto;
+        align-content: center;
         gap: 8px;
-        flex-wrap: nowrap;
     }
 
     .jav-header-left {
-        flex: 1 1 auto;
+        justify-self: center;
         justify-content: flex-start;
-        gap: 8px;
         min-width: 0;
+    }
+
+    .jav-header-nav {
+        width: 100%;
+        justify-self: center;
+        max-width: 100%;
+        justify-content: center;
     }
 
     .jav-brand {
         gap: 8px;
     }
 
+    .jav-brand-logo-button,
     .jav-brand-logo {
         width: 36px;
         height: 36px;
     }
 
-    .jav-brand-title.ant-typography {
-        font-size: 19px;
+    .jav-brand-copy {
+        max-width: 44vw;
+    }
+
+    .jav-brand-name.ant-typography {
+        font-size: 14px;
+    }
+
+    .jav-brand-slogan.ant-typography {
+        max-width: 100%;
+        overflow: hidden;
+        font-size: 12px;
     }
 
     .jav-header-actions {
@@ -3252,8 +3450,12 @@ body:has(.jav-app) {
         box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
     }
 
-    .jav-brand-title.ant-typography {
-        font-size: 18px;
+    .jav-brand-name.ant-typography {
+        font-size: 14px;
+    }
+
+    .jav-brand-slogan.ant-typography {
+        font-size: 12px;
     }
 
     .jav-page-tabs.ant-segmented {
@@ -3325,10 +3527,14 @@ body:has(.jav-app) {
     box-shadow: 0 1px 2px rgba(16, 24, 40, 0.12);
 }
 
-.jav-brand-title.ant-typography {
+.jav-brand-name.ant-typography {
     color: var(--jj-ink);
-    font-size: 23px;
-    font-weight: 780;
+    font-size: 15px;
+    font-weight: 740;
+}
+
+.jav-brand-slogan.ant-typography {
+    color: #667085;
 }
 
 .jav-page-tabs.ant-segmented {
@@ -3640,24 +3846,31 @@ body:has(.jav-app) {
 
 @media (max-width: 760px) {
     .jav-header {
-        height: 62px;
-        min-height: 62px;
+        height: auto;
+        min-height: 92px;
         padding: 9px 14px;
     }
 
+    .jav-brand-logo-button,
     .jav-brand-logo {
         width: 34px;
         height: 34px;
         border-radius: 8px;
     }
 
-    .jav-brand-title.ant-typography {
-        font-size: 18px;
+    .jav-brand-name.ant-typography {
+        font-size: 14px;
+    }
+
+    .jav-brand-slogan.ant-typography {
+        font-size: 12px;
     }
 
     .jav-page-tabs.ant-segmented {
         min-height: 34px;
         padding: 3px;
+        max-width: 100%;
+        overflow-x: auto;
     }
 
     .jav-page-tabs .ant-segmented-item-label {
@@ -3748,7 +3961,7 @@ body:has(.jav-app),
     border-color: #d9d9d9 !important;
 }
 
-.jav-brand-title.ant-typography,
+.jav-brand-name.ant-typography,
 .jav-results-title.ant-typography,
 .jav-kpi-card strong,
 .jav-process-item strong {
@@ -3844,7 +4057,6 @@ body:has(.jav-app),
 
 .jav-local-scrape {
     min-height: calc(100vh - 68px);
-    padding: 22px;
     background: #f5f5f5;
 }
 
@@ -3888,7 +4100,7 @@ body:has(.jav-app),
 .jav-local-genre-tags .ant-tag {
     margin-inline-end: 0;
     padding: 0 6px;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 18px;
 }
 
@@ -3943,7 +4155,7 @@ body:has(.jav-app),
 .jav-template-card small {
     max-width: 100%;
     color: #595959;
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -4039,10 +4251,122 @@ body:has(.jav-app),
 
 .jav-library-toolbar {
     display: grid;
-    grid-template-columns: minmax(280px, 1fr) repeat(4, auto);
+    grid-template-columns: minmax(280px, 1fr) auto minmax(150px, 210px) repeat(4, auto);
     gap: 8px;
     align-items: center;
     margin: 14px 0 10px;
+}
+
+.jav-library-size-control {
+    min-width: 150px;
+    display: grid;
+    grid-template-columns: auto minmax(96px, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+}
+
+.jav-library-size-control .ant-slider {
+    margin: 4px 0;
+}
+
+.jav-library-poster {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    overflow: hidden;
+    background: #f0f0f0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.jav-library-poster.is-compact {
+    width: 56px;
+    height: 84px;
+    aspect-ratio: auto;
+    border-radius: 6px;
+}
+
+.jav-library-poster img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.jav-library-poster.is-placeholder {
+    padding: 8px;
+    color: #8c8c8c;
+    border: 1px dashed #d9d9d9;
+    background: linear-gradient(180deg, #fafafa 0%, #f0f0f0 100%);
+    text-align: center;
+    font-weight: 760;
+    font-size: 13px;
+    line-height: 1.25;
+}
+
+.jav-library-poster-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--jav-library-card-min, 156px), 1fr));
+    gap: 18px 14px;
+    align-items: start;
+}
+
+.jav-library-poster-card.ant-card {
+    border-radius: 8px;
+    overflow: hidden;
+    border-color: #d9d9d9;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.jav-library-poster-card.ant-card:hover {
+    border-color: #91caff;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+
+.jav-library-poster-card .ant-card-cover {
+    background: #f5f5f5;
+}
+
+.jav-library-poster-card .ant-card-cover .jav-library-poster {
+    border-radius: 0;
+}
+
+.jav-library-poster-card .ant-card-body {
+    padding: 10px;
+}
+
+.jav-library-poster-title {
+    display: block;
+    min-height: 40px;
+    color: #262626;
+    line-height: 1.35;
+}
+
+.jav-library-poster-meta,
+.jav-library-poster-tags {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 7px;
+}
+
+.jav-library-poster-meta .ant-tag,
+.jav-library-poster-tags .ant-tag {
+    margin-inline-end: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jav-library-empty-state {
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .jav-library-active-filters {
@@ -4135,6 +4459,10 @@ body:has(.jav-app),
     .jav-library-toolbar .ant-input-affix-wrapper {
         grid-column: 1 / -1;
     }
+
+    .jav-library-poster-grid {
+        grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    }
 }
 
 @media (max-width: 760px) {
@@ -4148,6 +4476,28 @@ body:has(.jav-app),
 
     .jav-local-kpis {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .jav-library-toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .jav-library-toolbar > *,
+    .jav-library-toolbar .ant-btn,
+    .jav-library-toolbar .ant-segmented,
+    .jav-library-size-control {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .jav-library-size-control {
+        grid-template-columns: 42px minmax(0, 1fr);
+        padding: 0;
+    }
+
+    .jav-library-poster-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
     }
 }
 
@@ -4222,6 +4572,44 @@ body:has(.jav-app),
     scrollbar-gutter: stable;
 }
 
+.jav-page-workspace {
+    min-height: calc(100vh - 68px);
+    background: #f5f5f5;
+    overflow: visible;
+}
+
+.jav-page-content {
+    height: auto;
+    overflow: visible;
+    width: 100%;
+    min-width: 0;
+    padding: 14px 0 0;
+    scrollbar-gutter: auto;
+}
+
+.jav-page-panel {
+    min-height: 100%;
+}
+
+.jav-page-content > .jav-local-scrape,
+.jav-page-content > .webdav-page {
+    min-height: 100%;
+    padding: 0;
+    background: transparent;
+}
+
+.jav-page-panel > .jav-local-scrape,
+.jav-page-panel > .webdav-page,
+.jav-page-panel > .automation-page {
+    min-height: 100%;
+    background: transparent;
+}
+
+.jav-page-content .jav-local-layout,
+.jav-page-content .jav-library-layout {
+    width: 100%;
+}
+
 .jav-results-panel {
     min-height: 100%;
 }
@@ -4249,5 +4637,269 @@ body:has(.jav-app),
 
     .jav-sidebar-content {
         padding-bottom: 18px;
+    }
+}
+
+.automation-page {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    min-height: calc(100vh - 64px);
+    background: #f5f5f5;
+}
+
+.automation-sidebar {
+    border-right: 1px solid #d9d9d9;
+    background: #ffffff;
+    min-width: 0;
+    overflow: auto;
+}
+
+.automation-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 16px 12px;
+}
+
+.automation-sidebar-header .ant-typography {
+    margin: 0;
+}
+
+.automation-task-item {
+    cursor: pointer;
+    padding: 12px 16px !important;
+    border-left: 3px solid transparent;
+}
+
+.automation-task-item.is-active {
+    background: #f0f7ff;
+    border-left-color: #1677ff;
+}
+
+.automation-task-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.automation-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.automation-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 18px;
+    border-bottom: 1px solid #d9d9d9;
+    background: #ffffff;
+}
+
+.automation-name-input {
+    width: min(360px, 42vw);
+    font-weight: 600;
+}
+
+.automation-layout-button.ant-btn {
+    border-color: #91caff;
+    color: #0958d9;
+    background: #f0f7ff;
+    font-weight: 650;
+}
+
+.automation-layout-button.ant-btn:hover,
+.automation-layout-button.ant-btn:focus-visible {
+    border-color: #1677ff;
+    color: #003eb3;
+    background: #e6f4ff;
+}
+
+.automation-workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 14px;
+    padding: 14px;
+    min-height: 460px;
+}
+
+.automation-canvas {
+    position: relative;
+    min-height: 450px;
+    overflow: hidden;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background-color: #fbfbfb;
+    background-image:
+        linear-gradient(#edf0f2 1px, transparent 1px),
+        linear-gradient(90deg, #edf0f2 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+.automation-flow-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.automation-flow-lines path {
+    fill: none;
+    stroke: #8c8c8c;
+    stroke-width: 2;
+}
+
+.automation-node {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 196px;
+    height: 84px;
+    padding: 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+    cursor: grab;
+    text-align: left;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.automation-node:active {
+    cursor: grabbing;
+}
+
+.automation-node.is-selected {
+    border-color: #1677ff;
+    box-shadow: 0 10px 24px rgba(22, 119, 255, 0.18);
+}
+
+.automation-node-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    color: #ffffff;
+    background: #1677ff;
+}
+
+.automation-node-trigger .automation-node-icon {
+    background: #13a8a8;
+}
+
+.automation-node-search .automation-node-icon {
+    background: #1677ff;
+}
+
+.automation-node-magnet .automation-node-icon {
+    background: #722ed1;
+}
+
+.automation-node-download .automation-node-icon {
+    background: #d46b08;
+}
+
+.automation-node-body {
+    min-width: 0;
+}
+
+.automation-node-body strong,
+.automation-node-body em {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.automation-node-body strong {
+    color: #1f2937;
+    font-size: 14px;
+}
+
+.automation-node-body em {
+    margin-top: 4px;
+    color: #6b7280;
+    font-size: 12px;
+    font-style: normal;
+}
+
+.automation-inspector {
+    min-width: 0;
+}
+
+.automation-inspector .ant-card {
+    height: 100%;
+}
+
+.automation-inspector-form .ant-form-item {
+    margin-bottom: 14px;
+}
+
+.automation-filter-builder {
+    padding: 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fbfbfb;
+}
+
+.automation-filter-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 24px;
+}
+
+.automation-runs {
+    padding: 0 14px 14px;
+}
+
+@media (max-width: 1100px) {
+    .automation-page {
+        grid-template-columns: 1fr;
+    }
+
+    .automation-sidebar {
+        max-height: 220px;
+        border-right: 0;
+        border-bottom: 1px solid #d9d9d9;
+    }
+
+    .automation-workbench {
+        grid-template-columns: 1fr;
+    }
+
+    .automation-inspector .ant-card {
+        height: auto;
+    }
+}
+
+@media (max-width: 720px) {
+    .automation-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .automation-name-input {
+        width: 100%;
+    }
+
+    .automation-workbench {
+        padding: 10px;
+    }
+
+    .automation-canvas {
+        overflow: auto;
+        min-width: 760px;
     }
 }

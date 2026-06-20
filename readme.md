@@ -207,6 +207,7 @@ JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
 ### 📁 数据与静态资源
 - 下载记录持久化文件：`data/downloaded_movies.json`
 - 本地影片库持久化文件：`data/local_movie_library.json`
+- 自动任务持久化文件：`data/automation_tasks.json`
 - 前端静态资源目录：`static/`
 - 模板目录：`templates/`
 
@@ -228,6 +229,7 @@ JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
 | 🎯 **筛选功能** | 按演员、类别等条件筛选 | 选择筛选条件并输入值 |
 | 🧲 **磁力查询** | 获取影片下载链接 | 输入番号/在影片详情内查询 |
 | 🧾 **批量模式** | 支持粘贴番号列表逐个查询 | 支持流式返回、逐条展示 |
+| ⚙️ **自动模式** | 保存检索、磁力选择、下载派发的自动任务 | 在 `自动模式` 分页编辑图形化流程并启用 |
 | 📥 **PikPak下载** | 登录后一键下载到云盘 | 手动登录或使用配置登录后批量下载 |
 | 🌐 **WebDAV下载页** | 浏览 WebDAV 目录并发送到 Aria2 | 切换到 `WebDAV 下载中心` 分页 |
 
@@ -235,6 +237,12 @@ JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
 1. 在前端页面手动登录 PikPak，或在 `config.json` 中配置 `pikpak` 并使用“使用配置登录”。
 2. 选择目标影片或批量模式发起下载。
 3. 成功下发后，系统将把番号写入 `data/downloaded_movies.json`；也可以在“下载整理”页扫描本地媒体库写入 `data/local_movie_library.json`，两者都会用于避免重复下载。
+
+### ⚙️ 自动模式
+1. 进入 `自动模式` 分页，新建任务后在画布中配置触发、检索、磁力和下载节点。
+2. 触发条件支持自动运行、每天指定时间运行、按分钟间隔运行；任务需要保存并启用后才会被后台调度器执行。
+3. 检索节点支持关键词、番号列表、标签筛选；标签筛选可预览并多选类别和演员，可配置多个筛选条件，最大筛选结果支持选择“全部”；磁力节点支持 JavBus 或 Cilisousuo 来源、字幕过滤和 4K 排除；下载节点支持 PikPak 或 Aria2。
+4. 任务持久化在 `data/automation_tasks.json`，运行记录保留在任务内；派发前会复用已下载记录和本地影视库索引避免重复下载。
 
 ### 🌐 WebDAV 与 Aria2
 1. 在 `config.json` 中配置 `webdav` 和 `aria2`，或在页面中手动填写。
@@ -292,6 +300,14 @@ POST /api/pikpak/download   # PikPak 批量离线下载
 
 GET  /api/client-config         # 返回前端可见的脱敏默认配置
 
+GET    /api/automation/tasks             # 自动模式任务列表
+POST   /api/automation/tasks             # 创建自动任务
+GET    /api/automation/tasks/{task_id}   # 自动任务详情
+PUT    /api/automation/tasks/{task_id}   # 更新任务、触发器、节点和连线
+DELETE /api/automation/tasks/{task_id}   # 删除自动任务
+POST   /api/automation/tasks/{task_id}/run   # 手动运行自动任务
+GET    /api/automation/tasks/{task_id}/runs  # 自动任务运行记录
+
 GET  /api/downloaded-movies             # 已下载番号列表
 GET  /api/downloaded-movies/{movie_id}  # 检查是否已下载
 
@@ -338,14 +354,15 @@ GET  /api/aria2/downloads          # 下载任务列表
 ```text
 JavJaeger/
 ├─ main.py                  # FastAPI 应用装配入口
-├─ modules/                 # 后端业务模块（movies / magnets / pikpak / webdav / ...）
+├─ modules/                 # 后端业务模块（movies / magnets / pikpak / webdav / automation / ...）
 ├─ frontend/src/            # 前端源码
 ├─ static/                  # 静态资源与前端构建产物
 ├─ templates/
 │  └─ index.html            # 首页模板
 ├─ data/
 │  ├─ downloaded_movies.json      # 已下载记录
-│  └─ local_movie_library.json    # 本地影片库索引
+│  ├─ local_movie_library.json    # 本地影片库索引
+│  └─ automation_tasks.json       # 自动模式任务与运行记录
 ├─ config.json              # 运行配置（JavBus / WebDAV / Aria2 / PikPak）
 ├─ package.json             # 前端构建脚本
 └─ cilisousuo_cli.py        # 备用磁力源（cilisousuo）

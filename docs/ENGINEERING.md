@@ -45,6 +45,7 @@ The current baseline tests protect these non-feature requirements:
 - Browser-visible client config does not expose WebDAV passwords, Aria2 secrets, or PikPak passwords.
 - WebDAV download URLs do not embed `username:password@host`; credentials are passed through downloader options instead.
 - WebDAV and Aria2 state remains session-scoped.
+- Automation tasks persist through `modules/automation/`, concrete automation routes stay before the proxy catch-all, and task execution must be tested with fakes for discovery, magnet selection, and download dispatch.
 
 Add new baseline contracts whenever project architecture, security model, route layout, or workflow ownership changes.
 
@@ -54,4 +55,3 @@ Add new baseline contracts whenever project architecture, security model, route 
 - Do not read real runtime state from `data/`.
 - Do not use files under `archive/` as active fixtures unless the test name explicitly documents historical compatibility.
 - Never commit real credentials, cookies, tokens, or private download URLs.
-

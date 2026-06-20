@@ -27,3 +27,37 @@ export const updateJavBusSettings = async (javbus) => fetchWithRetry(
     },
     0
 );
+
+export const fetchAutomationTasks = async () => fetchWithRetry("/api/automation/tasks", {}, 0);
+
+export const createAutomationTask = async (payload) => fetchWithRetry(
+    "/api/automation/tasks",
+    {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    },
+    0
+);
+
+export const updateAutomationTask = async (taskId, payload) => fetchWithRetry(
+    `/api/automation/tasks/${encodeURIComponent(taskId)}`,
+    {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    },
+    0
+);
+
+export const deleteAutomationTask = async (taskId) => fetchWithRetry(
+    `/api/automation/tasks/${encodeURIComponent(taskId)}`,
+    { method: "DELETE" },
+    0
+);
+
+export const runAutomationTask = async (taskId) => fetchWithRetry(
+    `/api/automation/tasks/${encodeURIComponent(taskId)}/run`,
+    { method: "POST" },
+    0
+);
