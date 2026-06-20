@@ -47,3 +47,11 @@ test("local scrape table page size selection is controlled by component state", 
     assert.match(localScrapePage, /pagination=\{\{[\s\S]*pageSize: tablePageSize[\s\S]*showSizeChanger: true[\s\S]*onShowSizeChange: \(_, size\) => setTablePageSize\(size\)[\s\S]*onChange: \(_, size\) => setTablePageSize\(size\)/);
     assert.doesNotMatch(localScrapePage, /pagination=\{\{ pageSize: 12, showSizeChanger: true \}\}/);
 });
+
+test("local scrape page starts scrape work as background jobs and polls progress", () => {
+    assert.match(localScrapePage, /\/api\/movies\/local-scrape\/preview\/jobs/);
+    assert.match(localScrapePage, /\/api\/movies\/local-scrape\/apply\/jobs/);
+    assert.match(localScrapePage, /\/api\/movies\/local-scrape\/jobs\/\$\{encodeURIComponent\(activeTask\.taskId\)\}/);
+    assert.match(localScrapePage, /<Progress[\s\S]*percent=\{activeTask\.percent/);
+    assert.match(localScrapePage, /sessionStorage\.setItem\(LOCAL_SCRAPE_ACTIVE_TASK_KEY/);
+});

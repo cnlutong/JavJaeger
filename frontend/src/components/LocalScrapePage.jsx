@@ -34,6 +34,7 @@ const {
     Input,
     InputNumber,
     Popconfirm,
+    Progress,
     Select,
     Space,
     Switch,
@@ -57,6 +58,7 @@ const {
 } = icons;
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
+const LOCAL_SCRAPE_ACTIVE_TASK_KEY = "localScrapeActiveTask";
 
 const postJson = async (url, body) => {
     const response = await fetch(url, {
@@ -133,6 +135,7 @@ export default function LocalScrapePage() {
     const [tablePageSize, setTablePageSize] = React.useState(12);
     const [applyResult, setApplyResult] = React.useState(null);
     const [taskTemplates, setTaskTemplates] = React.useState(() => loadLocalScrapeTaskTemplates());
+    const [activeTask, setActiveTask] = React.useState(null);
     const [selectedTemplateId, setSelectedTemplateId] = React.useState("");
     const [templateName, setTemplateName] = React.useState("");
     const [templateDesignerOpen, setTemplateDesignerOpen] = React.useState(false);
@@ -155,7 +158,92 @@ export default function LocalScrapePage() {
 
     React.useEffect(() => {
         setTaskTemplates(loadLocalScrapeTaskTemplates());
+        try {
+            const savedTask = JSON.parse(window.sessionStorage.getItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY) || "null");
+            if (savedTask?.taskId && savedTask?.type) {
+                setActiveTask(savedTask);
+                setLoadingPreview(savedTask.type === "preview");
+                setLoadingApply(savedTask.type === "apply");
+            }
+        } catch (error) {
+            window.sessionStorage.removeItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY);
+        }
     }, []);
+
+    React.useEffect(() => {
+        if (!activeTask?.taskId) {
+            return undefined;
+        }
+
+        let stopped = false;
+        let terminalHandled = false;
+        const pollTask = async () => {
+            if (terminalHandled) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/movies/local-scrape/jobs/${encodeURIComponent(activeTask.taskId)}`, { cache: "no-store" });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || `HTTP ${response.status}`);
+                }
+                if (stopped) {
+                    return;
+                }
+
+                const nextTask = {
+                    ...activeTask,
+                    status: data.status,
+                    phase: data.phase,
+                    percent: data.percent || 0,
+                    completed: data.completed || 0,
+                    total: data.total || 0,
+                    message: data.message || "",
+                    logs: data.logs || [],
+                    result: data.result || null,
+                    error: data.error || null,
+                };
+                setActiveTask(nextTask);
+
+                if (data.status === "running") {
+                    window.sessionStorage.setItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY, JSON.stringify({
+                        taskId: activeTask.taskId,
+                        type: activeTask.type,
+                    }));
+                    return;
+                }
+
+                terminalHandled = true;
+                window.sessionStorage.removeItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY);
+                setLoadingPreview(false);
+                setLoadingApply(false);
+                if (data.result) {
+                    if (activeTask.type === "preview") {
+                        handlePreviewResult(data.result);
+                    } else {
+                        handleApplyResult(data.result);
+                    }
+                } else {
+                    message.error(data.message || "刮削任务失败");
+                }
+            } catch (error) {
+                if (!stopped) {
+                    setActiveTask((current) => current ? { ...current, status: "failed", message: error.message } : current);
+                    window.sessionStorage.removeItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY);
+                    setLoadingPreview(false);
+                    setLoadingApply(false);
+                    message.error(`刮削任务状态读取失败：${error.message}`);
+                }
+            }
+        };
+
+        pollTask();
+        const timer = window.setInterval(pollTask, 1000);
+        return () => {
+            stopped = true;
+            window.clearInterval(timer);
+        };
+    }, [activeTask?.taskId, activeTask?.type]);
 
     const buildDefaultTemplateName = (values) => {
         const directoryName = String(values.directory || "")
@@ -196,6 +284,51 @@ export default function LocalScrapePage() {
     const handleTemplateSelect = (templateId) => {
         const template = taskTemplates.find((item) => item.id === templateId);
         applyTemplateToForm(template);
+    };
+
+    const startLocalScrapeTask = async (type, payload) => {
+        const endpoint = type === "apply"
+            ? "/api/movies/local-scrape/apply/jobs"
+            : "/api/movies/local-scrape/preview/jobs";
+        const data = await postJson(endpoint, payload);
+        const task = {
+            taskId: data.task_id,
+            type,
+            status: "running",
+            phase: "queued",
+            percent: 0,
+            completed: 0,
+            total: 0,
+            message: "任务已提交，正在后台运行",
+            logs: [],
+            result: null,
+        };
+        window.sessionStorage.setItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY, JSON.stringify({ taskId: task.taskId, type }));
+        setActiveTask(task);
+        return task;
+    };
+
+    const handlePreviewResult = (data) => {
+        if (!data.success) {
+            message.error(data.message || "扫描失败");
+            setPreview(null);
+            return;
+        }
+        setPreview(data);
+        const selectable = (data.items || [])
+            .filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate)
+            .map((item) => item.source_path);
+        setSelectedRowKeys(selectable);
+        message.success(`扫描完成：${data.total_files} 个视频，${data.found_count} 个匹配成功`);
+    };
+
+    const handleApplyResult = (data) => {
+        setApplyResult(data);
+        if (data.success) {
+            message.success(`刮削完成：${data.success_count} 个文件，自动入库 ${data.library_recorded_count || 0} 个`);
+        } else {
+            message.warning(`部分完成：成功 ${data.success_count}，失败 ${data.failed_count}，自动入库 ${data.library_recorded_count || 0}`);
+        }
     };
 
     const handleSaveTemplate = async () => {
@@ -330,21 +463,10 @@ export default function LocalScrapePage() {
         setApplyResult(null);
         setSelectedRowKeys([]);
         try {
-            const data = await postJson("/api/movies/local-scrape/preview", buildPayload(values));
-            if (!data.success) {
-                message.error(data.message || "扫描失败");
-                setPreview(null);
-                return;
-            }
-            setPreview(data);
-            const selectable = (data.items || [])
-                .filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate)
-                .map((item) => item.source_path);
-            setSelectedRowKeys(selectable);
-            message.success(`扫描完成：${data.total_files} 个视频，${data.found_count} 个匹配成功`);
+            await startLocalScrapeTask("preview", buildPayload(values));
+            message.success("刮削预览已在后台启动");
         } catch (error) {
-            message.error(`扫描失败：${error.message}`);
-        } finally {
+            message.error(`扫描启动失败：${error.message}`);
             setLoadingPreview(false);
         }
     };
@@ -367,16 +489,10 @@ export default function LocalScrapePage() {
         };
         setLoadingApply(true);
         try {
-            const data = await postJson("/api/movies/local-scrape/apply", payload);
-            setApplyResult(data);
-            if (data.success) {
-                message.success(`刮削完成：${data.success_count} 个文件，自动入库 ${data.library_recorded_count || 0} 个`);
-            } else {
-                message.warning(`部分完成：成功 ${data.success_count}，失败 ${data.failed_count}，自动入库 ${data.library_recorded_count || 0}`);
-            }
+            await startLocalScrapeTask("apply", payload);
+            message.success("刮削执行已在后台启动");
         } catch (error) {
-            message.error(`执行失败：${error.message}`);
-        } finally {
+            message.error(`执行启动失败：${error.message}`);
             setLoadingApply(false);
         }
     };
@@ -431,6 +547,46 @@ export default function LocalScrapePage() {
         } finally {
             setLoadingDelete(false);
         }
+    };
+
+    const renderActiveTaskPanel = () => {
+        if (!activeTask) {
+            return null;
+        }
+        const logs = Array.isArray(activeTask.logs) ? activeTask.logs.slice(-12) : [];
+        const statusText = activeTask.status === "running"
+            ? "运行中"
+            : activeTask.status === "success"
+                ? "已完成"
+                : "失败";
+        return (
+            <Card size="small" className="jav-local-task-card" title={`后台任务：${activeTask.type === "apply" ? "执行刮削" : "生成预览"}`}>
+                <Space direction="vertical" style={{ width: "100%" }} size={8}>
+                    <Space wrap>
+                        <Tag color={activeTask.status === "failed" ? "red" : activeTask.status === "success" ? "green" : "processing"}>
+                            {statusText}
+                        </Tag>
+                        <Text type="secondary">{activeTask.phase || "queued"}</Text>
+                        {activeTask.total > 0 && <Text type="secondary">{activeTask.completed}/{activeTask.total}</Text>}
+                    </Space>
+                    <Progress
+                        percent={activeTask.percent || 0}
+                        status={activeTask.status === "failed" ? "exception" : activeTask.status === "success" ? "success" : "active"}
+                    />
+                    <Text>{activeTask.message || "任务正在后台运行"}</Text>
+                    {logs.length > 0 && (
+                        <div className="jav-local-task-log">
+                            {logs.map((entry, index) => (
+                                <div key={`${entry.time || "log"}-${index}`}>
+                                    <Text type="secondary">{entry.time ? entry.time.slice(11, 19) : "--:--:--"}</Text>
+                                    <Text>{entry.message}</Text>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Space>
+            </Card>
+        );
     };
 
     const columns = [
@@ -729,6 +885,8 @@ export default function LocalScrapePage() {
                             </Popconfirm>
                         </Space>
                     </div>
+
+                    {renderActiveTaskPanel()}
 
                     {preview && (
                         <div className="jav-kpi-grid jav-local-kpis">

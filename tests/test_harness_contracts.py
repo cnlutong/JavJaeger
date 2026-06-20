@@ -10,6 +10,7 @@ from modules.automation import service as automation_service_module
 from modules.history.service import local_movie_library_service
 from modules.common import runtime
 from modules.movies import local_scrape
+from modules.movies.local_scrape_tasks import LocalScrapeTaskManager
 from modules.movies import service as movies_service
 from modules.system import path_browser
 from modules.system import settings as system_settings
@@ -572,6 +573,52 @@ def test_local_scrape_delete_removes_only_video_files_inside_preview_directory(t
         "not_video_file",
         "path_outside_directory",
     ]
+
+
+def test_local_scrape_preview_reports_progress(tmp_path):
+    first = tmp_path / "ABP-123.mp4"
+    second = tmp_path / "BAD.mp4"
+    first.write_bytes(b"video")
+    second.write_bytes(b"video")
+    events = []
+
+    payload = asyncio.run(
+        local_scrape.preview_local_scrape(
+            local_scrape.LocalScrapePreviewRequest(directory=str(tmp_path), scrape=False),
+            progress_callback=events.append,
+        )
+    )
+
+    assert payload["success"] is True
+    assert events[0]["phase"] == "scan"
+    assert events[1]["total"] == 2
+    assert events[-1]["phase"] == "complete"
+    assert events[-1]["completed"] == 2
+    assert any("ABP-123.mp4" in event.get("message", "") for event in events)
+
+
+def test_local_scrape_background_task_manager_tracks_status_and_logs(tmp_path):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+
+    async def exercise():
+        manager = LocalScrapeTaskManager()
+        task_id = manager.start_preview_task(local_scrape.LocalScrapePreviewRequest(directory=str(tmp_path), scrape=False))
+        initial = manager.get_task(task_id)
+        assert initial["status"] == "running"
+        while True:
+            snapshot = manager.get_task(task_id)
+            if snapshot["status"] != "running":
+                return initial, snapshot
+            await asyncio.sleep(0.01)
+
+    initial, finished = asyncio.run(exercise())
+
+    assert initial["task_id"]
+    assert finished["status"] == "success"
+    assert finished["percent"] == 100
+    assert finished["result"]["total_files"] == 1
+    assert finished["logs"]
 
 
 def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):

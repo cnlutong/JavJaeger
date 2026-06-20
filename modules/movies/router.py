@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from modules.history.service import local_movie_library_service
 from .local_library import clear_local_library, get_local_library_payload, get_local_library_status, scan_local_library
 from .local_scrape import apply_local_scrape, delete_local_scrape_files, preview_local_scrape
+from .local_scrape_tasks import local_scrape_task_manager
 from .schemas import (
     LocalLibraryScanRequest,
     LocalScrapeApplyRequest,
@@ -109,6 +110,26 @@ async def get_local_movie_library_status(movie_id: str):
     except Exception as exc:
         logger.error("Local library status failed: %s", exc)
         return {"success": False, "error": "library_status_failed", "message": "读取本地影片库状态失败"}
+
+
+@router.post("/api/movies/local-scrape/preview/jobs")
+async def start_local_movie_scrape_preview_job(request: LocalScrapePreviewRequest):
+    task_id = local_scrape_task_manager.start_preview_task(request)
+    return {"success": True, "task_id": task_id}
+
+
+@router.post("/api/movies/local-scrape/apply/jobs")
+async def start_local_movie_scrape_apply_job(request: LocalScrapeApplyRequest):
+    task_id = local_scrape_task_manager.start_apply_task(request)
+    return {"success": True, "task_id": task_id}
+
+
+@router.get("/api/movies/local-scrape/jobs/{task_id}")
+async def get_local_movie_scrape_job(task_id: str):
+    task = local_scrape_task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="local_scrape_task_not_found")
+    return task
 
 
 @router.get("/api/movies/{movie_id}")

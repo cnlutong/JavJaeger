@@ -1097,6 +1097,7 @@
     Input: Input3,
     InputNumber: InputNumber2,
     Popconfirm: Popconfirm2,
+    Progress: Progress2,
     Select,
     Space: Space3,
     Switch: Switch2,
@@ -1119,6 +1120,7 @@
     WarningOutlined
   } = icons3;
   var Icon2 = ({ as: Component }) => Component ? /* @__PURE__ */ React3.createElement(Component, null) : null;
+  var LOCAL_SCRAPE_ACTIVE_TASK_KEY = "localScrapeActiveTask";
   var postJson = async (url, body) => {
     const response = await fetch(url, {
       method: "POST",
@@ -1183,6 +1185,7 @@
     const [tablePageSize, setTablePageSize] = React3.useState(12);
     const [applyResult, setApplyResult] = React3.useState(null);
     const [taskTemplates, setTaskTemplates] = React3.useState(() => loadLocalScrapeTaskTemplates());
+    const [activeTask, setActiveTask] = React3.useState(null);
     const [selectedTemplateId, setSelectedTemplateId] = React3.useState("");
     const [templateName, setTemplateName] = React3.useState("");
     const [templateDesignerOpen, setTemplateDesignerOpen] = React3.useState(false);
@@ -1203,7 +1206,86 @@
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
     React3.useEffect(() => {
       setTaskTemplates(loadLocalScrapeTaskTemplates());
+      try {
+        const savedTask = JSON.parse(window.sessionStorage.getItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY) || "null");
+        if (savedTask?.taskId && savedTask?.type) {
+          setActiveTask(savedTask);
+          setLoadingPreview(savedTask.type === "preview");
+          setLoadingApply(savedTask.type === "apply");
+        }
+      } catch (error) {
+        window.sessionStorage.removeItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY);
+      }
     }, []);
+    React3.useEffect(() => {
+      if (!activeTask?.taskId) {
+        return void 0;
+      }
+      let stopped = false;
+      let terminalHandled = false;
+      const pollTask = async () => {
+        if (terminalHandled) {
+          return;
+        }
+        try {
+          const response = await fetch(`/api/movies/local-scrape/jobs/${encodeURIComponent(activeTask.taskId)}`, { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.detail || `HTTP ${response.status}`);
+          }
+          if (stopped) {
+            return;
+          }
+          const nextTask = {
+            ...activeTask,
+            status: data.status,
+            phase: data.phase,
+            percent: data.percent || 0,
+            completed: data.completed || 0,
+            total: data.total || 0,
+            message: data.message || "",
+            logs: data.logs || [],
+            result: data.result || null,
+            error: data.error || null
+          };
+          setActiveTask(nextTask);
+          if (data.status === "running") {
+            window.sessionStorage.setItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY, JSON.stringify({
+              taskId: activeTask.taskId,
+              type: activeTask.type
+            }));
+            return;
+          }
+          terminalHandled = true;
+          window.sessionStorage.removeItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY);
+          setLoadingPreview(false);
+          setLoadingApply(false);
+          if (data.result) {
+            if (activeTask.type === "preview") {
+              handlePreviewResult(data.result);
+            } else {
+              handleApplyResult(data.result);
+            }
+          } else {
+            message3.error(data.message || "\u522E\u524A\u4EFB\u52A1\u5931\u8D25");
+          }
+        } catch (error) {
+          if (!stopped) {
+            setActiveTask((current) => current ? { ...current, status: "failed", message: error.message } : current);
+            window.sessionStorage.removeItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY);
+            setLoadingPreview(false);
+            setLoadingApply(false);
+            message3.error(`\u522E\u524A\u4EFB\u52A1\u72B6\u6001\u8BFB\u53D6\u5931\u8D25\uFF1A${error.message}`);
+          }
+        }
+      };
+      pollTask();
+      const timer = window.setInterval(pollTask, 1e3);
+      return () => {
+        stopped = true;
+        window.clearInterval(timer);
+      };
+    }, [activeTask?.taskId, activeTask?.type]);
     const buildDefaultTemplateName = (values) => {
       const directoryName = String(values.directory || "").split(/[\\/]/).filter(Boolean).pop();
       return directoryName ? `\u522E\u524A\uFF1A${directoryName}` : "\u672C\u5730\u522E\u524A\u4EFB\u52A1";
@@ -1235,6 +1317,44 @@
     const handleTemplateSelect = (templateId) => {
       const template = taskTemplates.find((item) => item.id === templateId);
       applyTemplateToForm(template);
+    };
+    const startLocalScrapeTask = async (type, payload) => {
+      const endpoint = type === "apply" ? "/api/movies/local-scrape/apply/jobs" : "/api/movies/local-scrape/preview/jobs";
+      const data = await postJson(endpoint, payload);
+      const task = {
+        taskId: data.task_id,
+        type,
+        status: "running",
+        phase: "queued",
+        percent: 0,
+        completed: 0,
+        total: 0,
+        message: "\u4EFB\u52A1\u5DF2\u63D0\u4EA4\uFF0C\u6B63\u5728\u540E\u53F0\u8FD0\u884C",
+        logs: [],
+        result: null
+      };
+      window.sessionStorage.setItem(LOCAL_SCRAPE_ACTIVE_TASK_KEY, JSON.stringify({ taskId: task.taskId, type }));
+      setActiveTask(task);
+      return task;
+    };
+    const handlePreviewResult = (data) => {
+      if (!data.success) {
+        message3.error(data.message || "\u626B\u63CF\u5931\u8D25");
+        setPreview(null);
+        return;
+      }
+      setPreview(data);
+      const selectable = (data.items || []).filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate).map((item) => item.source_path);
+      setSelectedRowKeys(selectable);
+      message3.success(`\u626B\u63CF\u5B8C\u6210\uFF1A${data.total_files} \u4E2A\u89C6\u9891\uFF0C${data.found_count} \u4E2A\u5339\u914D\u6210\u529F`);
+    };
+    const handleApplyResult = (data) => {
+      setApplyResult(data);
+      if (data.success) {
+        message3.success(`\u522E\u524A\u5B8C\u6210\uFF1A${data.success_count} \u4E2A\u6587\u4EF6\uFF0C\u81EA\u52A8\u5165\u5E93 ${data.library_recorded_count || 0} \u4E2A`);
+      } else {
+        message3.warning(`\u90E8\u5206\u5B8C\u6210\uFF1A\u6210\u529F ${data.success_count}\uFF0C\u5931\u8D25 ${data.failed_count}\uFF0C\u81EA\u52A8\u5165\u5E93 ${data.library_recorded_count || 0}`);
+      }
     };
     const handleSaveTemplate = async () => {
       try {
@@ -1354,19 +1474,10 @@
       setApplyResult(null);
       setSelectedRowKeys([]);
       try {
-        const data = await postJson("/api/movies/local-scrape/preview", buildPayload(values));
-        if (!data.success) {
-          message3.error(data.message || "\u626B\u63CF\u5931\u8D25");
-          setPreview(null);
-          return;
-        }
-        setPreview(data);
-        const selectable = (data.items || []).filter((item) => isConformingLocalScrapeItem(item) && !item.target_exists && !item.target_duplicate).map((item) => item.source_path);
-        setSelectedRowKeys(selectable);
-        message3.success(`\u626B\u63CF\u5B8C\u6210\uFF1A${data.total_files} \u4E2A\u89C6\u9891\uFF0C${data.found_count} \u4E2A\u5339\u914D\u6210\u529F`);
+        await startLocalScrapeTask("preview", buildPayload(values));
+        message3.success("\u522E\u524A\u9884\u89C8\u5DF2\u5728\u540E\u53F0\u542F\u52A8");
       } catch (error) {
-        message3.error(`\u626B\u63CF\u5931\u8D25\uFF1A${error.message}`);
-      } finally {
+        message3.error(`\u626B\u63CF\u542F\u52A8\u5931\u8D25\uFF1A${error.message}`);
         setLoadingPreview(false);
       }
     };
@@ -1388,16 +1499,10 @@
       };
       setLoadingApply(true);
       try {
-        const data = await postJson("/api/movies/local-scrape/apply", payload);
-        setApplyResult(data);
-        if (data.success) {
-          message3.success(`\u522E\u524A\u5B8C\u6210\uFF1A${data.success_count} \u4E2A\u6587\u4EF6\uFF0C\u81EA\u52A8\u5165\u5E93 ${data.library_recorded_count || 0} \u4E2A`);
-        } else {
-          message3.warning(`\u90E8\u5206\u5B8C\u6210\uFF1A\u6210\u529F ${data.success_count}\uFF0C\u5931\u8D25 ${data.failed_count}\uFF0C\u81EA\u52A8\u5165\u5E93 ${data.library_recorded_count || 0}`);
-        }
+        await startLocalScrapeTask("apply", payload);
+        message3.success("\u522E\u524A\u6267\u884C\u5DF2\u5728\u540E\u53F0\u542F\u52A8");
       } catch (error) {
-        message3.error(`\u6267\u884C\u5931\u8D25\uFF1A${error.message}`);
-      } finally {
+        message3.error(`\u6267\u884C\u542F\u52A8\u5931\u8D25\uFF1A${error.message}`);
         setLoadingApply(false);
       }
     };
@@ -1448,6 +1553,20 @@
       } finally {
         setLoadingDelete(false);
       }
+    };
+    const renderActiveTaskPanel = () => {
+      if (!activeTask) {
+        return null;
+      }
+      const logs = Array.isArray(activeTask.logs) ? activeTask.logs.slice(-12) : [];
+      const statusText = activeTask.status === "running" ? "\u8FD0\u884C\u4E2D" : activeTask.status === "success" ? "\u5DF2\u5B8C\u6210" : "\u5931\u8D25";
+      return /* @__PURE__ */ React3.createElement(Card2, { size: "small", className: "jav-local-task-card", title: `\u540E\u53F0\u4EFB\u52A1\uFF1A${activeTask.type === "apply" ? "\u6267\u884C\u522E\u524A" : "\u751F\u6210\u9884\u89C8"}` }, /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", style: { width: "100%" }, size: 8 }, /* @__PURE__ */ React3.createElement(Space3, { wrap: true }, /* @__PURE__ */ React3.createElement(Tag2, { color: activeTask.status === "failed" ? "red" : activeTask.status === "success" ? "green" : "processing" }, statusText), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, activeTask.phase || "queued"), activeTask.total > 0 && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, activeTask.completed, "/", activeTask.total)), /* @__PURE__ */ React3.createElement(
+        Progress2,
+        {
+          percent: activeTask.percent || 0,
+          status: activeTask.status === "failed" ? "exception" : activeTask.status === "success" ? "success" : "active"
+        }
+      ), /* @__PURE__ */ React3.createElement(Text3, null, activeTask.message || "\u4EFB\u52A1\u6B63\u5728\u540E\u53F0\u8FD0\u884C"), logs.length > 0 && /* @__PURE__ */ React3.createElement("div", { className: "jav-local-task-log" }, logs.map((entry, index) => /* @__PURE__ */ React3.createElement("div", { key: `${entry.time || "log"}-${index}` }, /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, entry.time ? entry.time.slice(11, 19) : "--:--:--"), /* @__PURE__ */ React3.createElement(Text3, null, entry.message))))));
     };
     const columns = [
       {
@@ -1678,7 +1797,7 @@
         },
         "\u6267\u884C\u9009\u4E2D\u9879"
       )
-    ))), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
+    ))), renderActiveTaskPanel(), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
       Table2,
       {
         rowKey: "source_path",

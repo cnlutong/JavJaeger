@@ -4104,6 +4104,28 @@ body:has(.jav-app),
     line-height: 18px;
 }
 
+.jav-local-task-card {
+    margin: 0 0 16px;
+}
+
+.jav-local-task-log {
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    border-radius: 6px;
+    background: #fafafa;
+    padding: 8px 10px;
+}
+
+.jav-local-task-log > div {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
 .jav-template-designer {
     display: grid;
     gap: 18px;

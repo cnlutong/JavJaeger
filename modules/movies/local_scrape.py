@@ -20,6 +20,7 @@ from .schemas import LocalScrapeApplyRequest, LocalScrapeDeleteRequest, LocalScr
 
 
 logger = logging.getLogger(__name__)
+ProgressCallback = Any
 
 
 VIDEO_EXTENSIONS = {
@@ -144,6 +145,15 @@ def _should_scan_as_video(path: Path) -> bool:
     except OSError:
         return False
     return _is_mpeg_ts_header(path)
+
+
+def _emit_progress(progress_callback: ProgressCallback | None, event: dict[str, Any]) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(event)
+    except Exception as exc:
+        logger.warning("Local scrape progress callback failed: %s", exc)
 
 
 def _walk_video_files(root: Path, recursive: bool, max_depth: int | None) -> list[Path]:
@@ -466,7 +476,10 @@ def _build_library_record_for_applied_video(
     }
 
 
-async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, Any]:
+async def preview_local_scrape(
+    request: LocalScrapePreviewRequest,
+    progress_callback: ProgressCallback | None = None,
+) -> dict[str, Any]:
     try:
         directory = resolve_existing_directory(request.directory)
         if request.target_directory:
@@ -474,7 +487,25 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
     except UserPathError as exc:
         return {"success": False, "error": exc.code, "message": exc.message}
 
+    _emit_progress(
+        progress_callback,
+        {
+            "phase": "scan",
+            "message": f"开始扫描目录：{directory}",
+            "completed": 0,
+            "total": 0,
+        },
+    )
     video_files = _walk_video_files(directory, request.recursive, request.max_depth)
+    _emit_progress(
+        progress_callback,
+        {
+            "phase": "scan",
+            "message": f"扫描完成，发现 {len(video_files)} 个视频文件",
+            "completed": 0,
+            "total": len(video_files),
+        },
+    )
     candidates = [
         LocalFileCandidate(
             path=path,
@@ -486,11 +517,23 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
     ]
 
     semaphore = asyncio.Semaphore(max(1, min(request.concurrent, 5)))
+    completed = 0
 
     async def enrich(candidate: LocalFileCandidate) -> dict[str, Any]:
+        nonlocal completed
         movie_detail = None
         scrape_status = "skipped"
         error = None
+        _emit_progress(
+            progress_callback,
+            {
+                "phase": "scrape",
+                "message": f"处理文件：{candidate.path.name}",
+                "completed": completed,
+                "total": len(candidates),
+                "current": str(candidate.path),
+            },
+        )
         if candidate.code and request.scrape:
             async with semaphore:
                 try:
@@ -520,7 +563,7 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
         already_scraped = current_nfo.exists() and current_poster.exists()
         conflict = target_video.exists() and target_video.resolve() != candidate.path.resolve()
 
-        return {
+        item = {
             "source_path": str(candidate.path),
             "relative_path": str(candidate.path.relative_to(directory.resolve())),
             "file_name": candidate.path.name,
@@ -542,6 +585,18 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
             "will_download_list_thumbnail": bool(request.download_list_thumbnail and metadata.get("list_thumbnail_url")),
             "will_move": str(target_video.resolve()) != str(candidate.path.resolve()),
         }
+        completed += 1
+        _emit_progress(
+            progress_callback,
+            {
+                "phase": "scrape",
+                "message": f"完成 {completed}/{len(candidates)}：{candidate.path.name}",
+                "completed": completed,
+                "total": len(candidates),
+                "current": str(candidate.path),
+            },
+        )
+        return item
 
     items = await asyncio.gather(*[enrich(candidate) for candidate in candidates])
     target_counts = Counter(str(item.get("target_video_path") or "").lower() for item in items)
@@ -551,7 +606,7 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
         item["target_duplicate"] = target_duplicate
         if target_duplicate:
             item["target_exists"] = True
-    return {
+    payload = {
         "success": True,
         "directory": str(directory.resolve()),
         "total_files": len(video_files),
@@ -561,6 +616,16 @@ async def preview_local_scrape(request: LocalScrapePreviewRequest) -> dict[str, 
         "conflict_count": sum(1 for item in items if item.get("target_exists")),
         "items": items,
     }
+    _emit_progress(
+        progress_callback,
+        {
+            "phase": "complete",
+            "message": f"预览完成：{payload['found_count']}/{payload['total_files']} 个文件匹配成功",
+            "completed": len(video_files),
+            "total": len(video_files),
+        },
+    )
+    return payload
 
 
 def _move_file(source: Path, target: Path, overwrite: bool) -> None:
@@ -730,10 +795,24 @@ async def _write_list_thumbnail(video_path: Path, metadata: dict[str, Any], over
     )
 
 
-async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]:
+async def apply_local_scrape(
+    request: LocalScrapeApplyRequest,
+    progress_callback: ProgressCallback | None = None,
+) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     library_records_by_root: dict[str, list[dict[str, Any]]] = defaultdict(list)
     success_count = 0
+    total_items = len(request.items)
+
+    _emit_progress(
+        progress_callback,
+        {
+            "phase": "apply",
+            "message": f"开始执行刮削：{total_items} 个文件",
+            "completed": 0,
+            "total": total_items,
+        },
+    )
 
     if request.target_directory:
         try:
@@ -751,11 +830,31 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
                 "results": [],
             }
 
-    for item in request.items:
+    for index, item in enumerate(request.items, start=1):
+        _emit_progress(
+            progress_callback,
+            {
+                "phase": "apply",
+                "message": f"执行 {index}/{total_items}：{item.source_path}",
+                "completed": index - 1,
+                "total": total_items,
+                "current": item.source_path,
+            },
+        )
         try:
             source_path = resolve_existing_file(item.source_path)
         except UserPathError as exc:
             results.append({"source_path": item.source_path, "success": False, "error": exc.code, "message": exc.message})
+            _emit_progress(
+                progress_callback,
+                {
+                    "phase": "apply",
+                    "message": f"跳过 {index}/{total_items}：{exc.message}",
+                    "completed": index,
+                    "total": total_items,
+                    "current": item.source_path,
+                },
+            )
             continue
 
         metadata = _build_metadata(item.metadata, item.code, source_path.stem)
@@ -835,9 +934,29 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
                     "library_recorded": library_recorded,
                 }
             )
+            _emit_progress(
+                progress_callback,
+                {
+                    "phase": "apply",
+                    "message": f"完成 {index}/{total_items}：{current_video.name}",
+                    "completed": index,
+                    "total": total_items,
+                    "current": str(current_video),
+                },
+            )
         except Exception as exc:
             logger.error("Local scrape apply failed for %s: %s", source_path, exc)
             results.append({"source_path": item.source_path, "success": False, "error": "apply_failed"})
+            _emit_progress(
+                progress_callback,
+                {
+                    "phase": "apply",
+                    "message": f"失败 {index}/{total_items}：{item.source_path}",
+                    "completed": index,
+                    "total": total_items,
+                    "current": item.source_path,
+                },
+            )
 
     library_updates: list[dict[str, Any]] = []
     for root, records in library_records_by_root.items():
@@ -855,7 +974,7 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
     library_recorded_count = sum(len(records) for records in library_records_by_root.values())
     library_failed_count = sum(1 for update in library_updates if not update.get("success"))
 
-    return {
+    payload = {
         "success": success_count == len(request.items) and library_failed_count == 0,
         "success_count": success_count,
         "failed_count": len(request.items) - success_count,
@@ -864,6 +983,16 @@ async def apply_local_scrape(request: LocalScrapeApplyRequest) -> dict[str, Any]
         "library_updates": library_updates,
         "results": results,
     }
+    _emit_progress(
+        progress_callback,
+        {
+            "phase": "complete",
+            "message": f"执行完成：成功 {payload['success_count']}，失败 {payload['failed_count']}，入库 {payload['library_recorded_count']}",
+            "completed": total_items,
+            "total": total_items,
+        },
+    )
+    return payload
 
 
 async def delete_local_scrape_files(request: LocalScrapeDeleteRequest) -> dict[str, Any]:
