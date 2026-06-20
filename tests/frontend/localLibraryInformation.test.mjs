@@ -18,3 +18,13 @@ test("local library page exposes information check and scrape-aligned download a
     assert.match(localLibraryPage, /download_list_thumbnail: !!values\.downloadListThumbnail/);
     assert.match(localLibraryPage, /overwrite_existing: !!values\.overwriteExisting/);
 });
+
+test("local library page can remove individual movies without deleting files", () => {
+    assert.match(localLibraryPage, /const \[deletingMovieId, setDeletingMovieId\] = React\.useState\(""\)/);
+    assert.match(localLibraryPage, /const handleDeleteMovie = async \(record\) =>/);
+    assert.match(localLibraryPage, /\/api\/movies\/local-library\/\$\{encodeURIComponent\(movieId\)\}/);
+    assert.match(localLibraryPage, /method: "DELETE"/);
+    assert.match(localLibraryPage, /只删除数据库记录，不删除本地视频文件。/);
+    assert.match(localLibraryPage, /onClick=\{\(event\) => event\.stopPropagation\(\)\}/);
+    assert.match(localLibraryPage, /Icon as=\{DeleteOutlined\}/);
+});

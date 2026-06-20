@@ -28,6 +28,7 @@ const {
     ArrowLeftOutlined,
     AppstoreOutlined,
     DatabaseOutlined,
+    DeleteOutlined,
     DownloadOutlined,
     FilterOutlined,
     FolderOpenOutlined,
@@ -101,14 +102,24 @@ const posterSource = (record) => {
     return coverUrl ? `/api/image-proxy?url=${encodeURIComponent(coverUrl)}` : "";
 };
 
-const thumbnailSource = (record) => {
-    const thumbnailUrl = record?.thumbnail_url || record?.metadata?.list_thumbnail_url || "";
-    if (!thumbnailUrl) {
+const proxiedImageSource = (url) => {
+    if (!url) {
         return "";
     }
-    return thumbnailUrl.startsWith("/api/")
-        ? thumbnailUrl
-        : `/api/image-proxy?url=${encodeURIComponent(thumbnailUrl)}`;
+    return url.startsWith("/api/")
+        ? url
+        : `/api/image-proxy?url=${encodeURIComponent(url)}`;
+};
+
+const thumbnailSource = (record) => {
+    const thumbnailUrl = record?.thumbnail_url || "";
+    if (thumbnailUrl.startsWith("/api/")) {
+        return thumbnailUrl;
+    }
+    if (record?.poster_url) {
+        return record.poster_url;
+    }
+    return proxiedImageSource(thumbnailUrl || record?.metadata?.list_thumbnail_url || "");
 };
 
 const actorName = (actor) => {
@@ -139,16 +150,16 @@ const normalizeActors = (record) => {
     return Array.from(actorsByName.values());
 };
 
-const actorAvatarSource = (record, actor) => {
-    if (actor?.avatar) {
-        return actor.avatar.startsWith("/api/")
-            ? actor.avatar
-            : `/api/image-proxy?url=${encodeURIComponent(actor.avatar)}`;
+const actorAvatarSources = (record, actor) => {
+    const sources = [];
+    if (record?.movie_id && actor?.name) {
+        sources.push(`/api/movies/local-library/actor-avatar/${encodeURIComponent(record.movie_id)}/${encodeURIComponent(actor.name)}`);
     }
-    if (!record?.movie_id || !actor?.name) {
-        return "";
+    const remoteAvatar = proxiedImageSource(actor?.avatar || "");
+    if (remoteAvatar) {
+        sources.push(remoteAvatar);
     }
-    return `/api/movies/local-library/actor-avatar/${encodeURIComponent(record.movie_id)}/${encodeURIComponent(actor.name)}`;
+    return sources;
 };
 
 const MoviePoster = ({ record, compact = false, width = null, variant = "poster", onRatio = null }) => {
@@ -180,14 +191,19 @@ const MoviePoster = ({ record, compact = false, width = null, variant = "poster"
 };
 
 const ActorPill = ({ record, actor, onClick }) => {
-    const [failed, setFailed] = React.useState(false);
-    const src = actorAvatarSource(record, actor);
+    const [sourceIndex, setSourceIndex] = React.useState(0);
+    const sources = actorAvatarSources(record, actor);
+    const src = sources[sourceIndex] || "";
     const initial = (actor.name || "?").slice(0, 1).toUpperCase();
     return (
         <button className="jav-library-actor-pill" type="button" onClick={onClick}>
             <span className="jav-library-actor-avatar">
-                {src && !failed ? (
-                    <img src={src} alt={actor.name} onError={() => setFailed(true)} />
+                {src ? (
+                    <img
+                        src={src}
+                        alt={actor.name}
+                        onError={() => setSourceIndex((index) => index + 1)}
+                    />
                 ) : (
                     <span>{initial}</span>
                 )}
@@ -206,6 +222,7 @@ export default function LocalLibraryPage() {
     const [scanning, setScanning] = React.useState(false);
     const [checkingInformation, setCheckingInformation] = React.useState(false);
     const [downloadingInformation, setDownloadingInformation] = React.useState(false);
+    const [deletingMovieId, setDeletingMovieId] = React.useState("");
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
     const [informationDownloadOpen, setInformationDownloadOpen] = React.useState(false);
@@ -401,6 +418,46 @@ export default function LocalLibraryPage() {
             message.error(`清空失败：${error.message}`);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteMovie = async (record) => {
+        const movieId = String(record?.movie_id || "").trim();
+        if (!movieId) {
+            message.warning("影片番号无效");
+            return;
+        }
+        setDeletingMovieId(movieId);
+        try {
+            const response = await fetch(`/api/movies/local-library/${encodeURIComponent(movieId)}`, { method: "DELETE" });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "删除失败");
+            }
+            if (selectedRecord?.movie_id === movieId) {
+                closeRecordPreview();
+            }
+            setInformationCheck((current) => {
+                if (!current?.records) {
+                    return current;
+                }
+                const records = current.records.filter((item) => String(item.movie_id || "").toUpperCase() !== movieId.toUpperCase());
+                const incompleteRecords = records.filter((item) => !item.info_complete);
+                return {
+                    ...current,
+                    records,
+                    incomplete_records: incompleteRecords,
+                    total_movies: records.length,
+                    complete_count: records.length - incompleteRecords.length,
+                    incomplete_count: incompleteRecords.length,
+                };
+            });
+            await loadLibrary();
+            message.success(`已从影视库移除 ${movieId}`);
+        } catch (error) {
+            message.error(`删除影片失败：${error.message}`);
+        } finally {
+            setDeletingMovieId("");
         }
     };
 
@@ -609,6 +666,21 @@ export default function LocalLibraryPage() {
                             >
                                 播放影片
                             </Button>
+                            <Popconfirm
+                                title={`从影视库移除 ${selectedRecord.movie_id}？`}
+                                description="只删除数据库记录，不删除本地视频文件。"
+                                okText="移除"
+                                cancelText="取消"
+                                onConfirm={() => handleDeleteMovie(selectedRecord)}
+                            >
+                                <Button
+                                    danger
+                                    icon={<Icon as={DeleteOutlined} />}
+                                    loading={deletingMovieId === selectedRecord.movie_id}
+                                >
+                                    移除
+                                </Button>
+                            </Popconfirm>
                             <Tag color="blue">{selectedRecord.movie_id}</Tag>
                         </Space>
                     </div>
@@ -739,6 +811,33 @@ export default function LocalLibraryPage() {
                 </Space>
             ),
         },
+        {
+            title: "操作",
+            key: "actions",
+            width: 96,
+            render: (_, record) => (
+                <Popconfirm
+                    title={`从影视库移除 ${record.movie_id}？`}
+                    description="只删除数据库记录，不删除本地视频文件。"
+                    okText="移除"
+                    cancelText="取消"
+                    onConfirm={(event) => {
+                        event?.stopPropagation?.();
+                        return handleDeleteMovie(record);
+                    }}
+                >
+                    <Button
+                        danger
+                        size="small"
+                        icon={<Icon as={DeleteOutlined} />}
+                        loading={deletingMovieId === record.movie_id}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        移除
+                    </Button>
+                </Popconfirm>
+            ),
+        },
     ];
 
     if (selectedRecord) {
@@ -849,7 +948,7 @@ export default function LocalLibraryPage() {
                             <Button size="small" type="link" onClick={clearFilters}>清除全部</Button>
                         </div>
                     )}
-                    <div className="jav-kpi-grid jav-local-kpis">
+                    <div className="jav-kpi-grid jav-local-kpis jav-library-kpis">
                         <div className="jav-kpi-card">
                             <span className="jav-kpi-label">影片</span>
                             <strong>{library.total_movies || 0}</strong>
@@ -873,7 +972,7 @@ export default function LocalLibraryPage() {
                         <div className="jav-kpi-card">
                             <span className="jav-kpi-label">信息</span>
                             <strong>{informationCheck ? informationCheck.incomplete_count : "-"}</strong>
-                            <span className="jav-kpi-note">缺失影片</span>
+                            <span className="jav-kpi-note">缺失资料</span>
                         </div>
                     </div>
                     {informationCheck && (
@@ -884,8 +983,8 @@ export default function LocalLibraryPage() {
                             message={`信息检查：完整 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`}
                             description={
                                 informationCheck.incomplete_count > 0
-                                    ? `缺失 ${informationCheck.incomplete_count} 部，点击“下载缺失信息”会只补全这些影片。`
-                                    : "当前已入库影片信息完整。"
+                                    ? `缺失 ${informationCheck.incomplete_count} 部，点击“下载缺失信息”会补全元数据和本地资料文件。`
+                                    : "当前已入库影片信息和本地资料完整。"
                             }
                         />
                     )}
@@ -920,6 +1019,27 @@ export default function LocalLibraryPage() {
                                             <Tag color="blue">{record.movie_id}</Tag>
                                             {record.date && <Text type="secondary">{String(record.date).slice(0, 4)}</Text>}
                                         </div>
+                                        <Popconfirm
+                                            title={`从影视库移除 ${record.movie_id}？`}
+                                            description="只删除数据库记录，不删除本地视频文件。"
+                                            okText="移除"
+                                            cancelText="取消"
+                                            onConfirm={(event) => {
+                                                event?.stopPropagation?.();
+                                                return handleDeleteMovie(record);
+                                            }}
+                                        >
+                                            <Button
+                                                danger
+                                                size="small"
+                                                icon={<Icon as={DeleteOutlined} />}
+                                                loading={deletingMovieId === record.movie_id}
+                                                onClick={(event) => event.stopPropagation()}
+                                                style={{ marginTop: 8 }}
+                                            >
+                                                移除
+                                            </Button>
+                                        </Popconfirm>
                                         <div className="jav-library-poster-tags">
                                             {(record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta"))}
                                             {(record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan"))}

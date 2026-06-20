@@ -4089,6 +4089,43 @@ body:has(.jav-app),
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.jav-library-kpis {
+    grid-template-columns: repeat(5, minmax(118px, 1fr));
+    gap: 8px;
+    margin: 10px 0 2px;
+}
+
+.jav-library-kpis .jav-kpi-card {
+    min-height: 42px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    align-items: baseline;
+    justify-content: stretch;
+    gap: 8px;
+}
+
+.jav-library-kpis .jav-kpi-card strong {
+    min-width: 0;
+    font-size: 20px;
+    line-height: 1;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jav-library-kpis .jav-kpi-label,
+.jav-library-kpis .jav-kpi-note {
+    white-space: nowrap;
+    line-height: 1;
+}
+
+.jav-library-kpis .jav-kpi-note {
+    color: #8c8c8c;
+}
+
 .jav-local-genre-tags {
     display: flex;
     flex-wrap: wrap;

@@ -18,6 +18,16 @@ export const fetchClientConfig = async () => fetchWithRetry("/api/client-config"
 
 export const fetchSystemSettings = async () => fetchWithRetry("/api/system/settings");
 
+export const updateSystemSettings = async (settings) => fetchWithRetry(
+    "/api/system/settings",
+    {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+    },
+    0
+);
+
 export const updateJavBusSettings = async (javbus) => fetchWithRetry(
     "/api/system/settings/javbus",
     {

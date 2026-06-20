@@ -234,6 +234,7 @@ GET    /api/system/info           # 系统和版本信息
 GET    /api/client-config         # 前端可见的脱敏配置
 GET    /api/system/directories    # 服务端目录浏览
 GET    /api/system/settings       # 系统设置摘要
+PUT    /api/system/settings       # 更新 JavBus、WebDAV、Aria2 和 PikPak 配置
 PUT    /api/system/settings/javbus
 
 GET    /api/movies
@@ -248,6 +249,7 @@ POST   /api/movies/download-by-codes
 GET    /api/movies/local-library
 POST   /api/movies/local-library/scan
 DELETE /api/movies/local-library
+DELETE /api/movies/local-library/{movie_id}
 GET    /api/movies/local-library/information/check
 POST   /api/movies/local-library/information/download
 GET    /api/movies/local-library/poster/{movie_id}
@@ -294,7 +296,7 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/{path:path}` 是最后注册的代理 catch-all。新增具体 API 时必须放在代理路由之前。
 
-`/api/movies/local-library/information/download` 支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
+`/api/movies/local-library/information/check` 会检查元数据以及默认本地资料文件（NFO、本地封面）是否缺失。`/api/movies/local-library/information/download` 支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
 
 `/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `keep_source` 或 `keep_target`。
 

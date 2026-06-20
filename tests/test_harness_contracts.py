@@ -67,6 +67,16 @@ def test_local_library_information_routes_are_before_status_route():
     )
 
 
+def test_local_library_delete_movie_route_is_registered():
+    movie_routes = [
+        route for route in main.app.routes
+        if getattr(route, "path", "") == "/api/movies/local-library/{movie_id}"
+    ]
+
+    assert any("GET" in getattr(route, "methods", set()) for route in movie_routes)
+    assert any("DELETE" in getattr(route, "methods", set()) for route in movie_routes)
+
+
 def test_client_config_redacts_sensitive_values(monkeypatch):
     test_config = runtime.merge_config(
         runtime.DEFAULT_CONFIG,
@@ -156,6 +166,93 @@ def test_system_settings_update_persists_and_reconfigures_javbus(tmp_path, monke
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["javbus"]["base_url"] == "https://new.example.test"
     assert saved["javbus"]["cache_max_size"] == 2000
+
+
+def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypatch):
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "webdav": {
+                "enabled": True,
+                "url": "https://dav.example.test/",
+                "username": "webdav-user",
+                "password": "webdav-password",
+                "auto_connect": True,
+            },
+            "aria2": {
+                "enabled": True,
+                "url": "http://127.0.0.1:6800/jsonrpc",
+                "secret": "aria2-secret",
+                "auto_connect": True,
+            },
+            "pikpak": {
+                "enabled": True,
+                "username": "pikpak-user",
+                "password": "pikpak-password",
+                "auto_login": True,
+            },
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+
+    payload = system_settings.build_settings_payload()
+
+    assert set(["javbus", "webdav", "aria2", "pikpak", "security"]).issubset(payload)
+    assert payload["webdav"]["url"] == "https://dav.example.test/"
+    assert payload["webdav"]["has_password"] is True
+    assert "password" not in payload["webdav"]
+    assert payload["aria2"]["has_secret"] is True
+    assert "secret" not in payload["aria2"]
+    assert payload["pikpak"]["username"] == "pikpak-user"
+    assert payload["pikpak"]["has_password"] is True
+    assert "password" not in payload["pikpak"]
+
+
+def test_system_settings_update_persists_connector_sections_without_echoing_secrets(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    test_config = runtime.merge_config(runtime.DEFAULT_CONFIG, {})
+    monkeypatch.setattr(runtime, "config", test_config)
+    monkeypatch.setattr(runtime, "CONFIG_PATH", str(config_path))
+
+    client = TestClient(main.app)
+    response = client.put(
+        "/api/system/settings",
+        json={
+            "webdav": {
+                "enabled": True,
+                "url": "https://dav.example.test/",
+                "username": "webdav-user",
+                "password": "webdav-password",
+                "auto_connect": True,
+            },
+            "aria2": {
+                "enabled": True,
+                "url": "http://127.0.0.1:6800/jsonrpc",
+                "secret": "aria2-secret",
+                "auto_connect": True,
+            },
+            "pikpak": {
+                "enabled": True,
+                "username": "pikpak-user",
+                "password": "pikpak-password",
+                "auto_login": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["webdav"]["has_password"] is True
+    assert "password" not in payload["webdav"]
+    assert payload["aria2"]["has_secret"] is True
+    assert "secret" not in payload["aria2"]
+    assert payload["pikpak"]["has_password"] is True
+    assert "password" not in payload["pikpak"]
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["webdav"]["password"] == "webdav-password"
+    assert saved["aria2"]["secret"] == "aria2-secret"
+    assert saved["pikpak"]["password"] == "pikpak-password"
 
 
 def test_system_settings_rejects_invalid_javbus_values():
@@ -778,15 +875,23 @@ def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
                 }
             ],
         )
-        return await service.get_summary(), await service.get_poster_path("ABP-123")
+        summary = await service.get_summary()
+        poster_path = await service.get_poster_path("ABP-123")
+        poster.unlink()
+        thumbnail.unlink()
+        refreshed_summary = await service.get_summary()
+        return summary, poster_path, refreshed_summary
 
-    summary, poster_path = asyncio.run(exercise())
+    summary, poster_path, refreshed_summary = asyncio.run(exercise())
 
     record = summary["records"][0]
     assert record["cover_url"] == "https://www.javbus.com/pics/cover.jpg"
     assert record["poster_url"] == "/api/movies/local-library/poster/ABP-123"
     assert record["thumbnail_url"] == "/api/movies/local-library/thumbnail/ABP-123"
     assert poster_path == poster.resolve()
+    refreshed_record = refreshed_summary["records"][0]
+    assert "poster_url" not in refreshed_record
+    assert refreshed_record["thumbnail_url"] == "https://www.javbus.com/pics/thumb.jpg"
 
 
 def test_local_library_play_file_path_comes_from_indexed_record(tmp_path):
@@ -831,6 +936,53 @@ def test_local_library_play_file_path_comes_from_indexed_record(tmp_path):
     assert invalid_id_path is None
 
 
+def test_local_library_delete_movie_removes_only_requested_record(tmp_path):
+    first_video = tmp_path / "ABP-123.mp4"
+    second_video = tmp_path / "ABP-124.mp4"
+    first_video.write_bytes(b"video-a")
+    second_video.write_bytes(b"video-b")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(first_video),
+                    "relative_path": first_video.name,
+                    "file_name": first_video.name,
+                    "size": first_video.stat().st_size,
+                },
+                {
+                    "movie_id": "ABP-124",
+                    "path": str(second_video),
+                    "relative_path": second_video.name,
+                    "file_name": second_video.name,
+                    "size": second_video.stat().st_size,
+                },
+            ],
+        )
+        deleted = await service.delete_movie("abp-123")
+        missing = await service.delete_movie("abp-999")
+        summary = await service.get_summary()
+        with open(tmp_path / "library.json", "r", encoding="utf-8") as file:
+            saved = json.load(file)
+        return deleted, missing, summary, saved
+
+    deleted, missing, summary, saved = asyncio.run(exercise())
+
+    assert deleted["success"] is True
+    assert deleted["deleted"] is True
+    assert deleted["movie_id"] == "ABP-123"
+    assert missing["success"] is False
+    assert missing["error"] == "movie_not_found"
+    assert [record["movie_id"] for record in summary["records"]] == ["ABP-124"]
+    assert set(saved["movies"].keys()) == {"ABP-124"}
+    assert first_video.exists()
+    assert second_video.exists()
+
+
 def test_local_library_actor_avatar_path_comes_from_movie_actor_directory(tmp_path):
     video = tmp_path / "ABP-123 Sample.mp4"
     actor_dir = tmp_path / "actors"
@@ -870,6 +1022,8 @@ def test_local_library_information_check_reports_missing_metadata(tmp_path):
     second_video = tmp_path / "ABP-124.mp4"
     first_video.write_bytes(b"video-a")
     second_video.write_bytes(b"video-b")
+    first_video.with_suffix(".nfo").write_text("nfo", encoding="utf-8")
+    first_video.with_name("ABP-123-poster.jpg").write_bytes(b"poster")
 
     async def exercise():
         service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
@@ -922,6 +1076,8 @@ def test_local_library_information_download_refreshes_only_missing_records(tmp_p
     second_video = tmp_path / "ABP-124.mp4"
     first_video.write_bytes(b"video-a")
     second_video.write_bytes(b"video-b")
+    first_video.with_suffix(".nfo").write_text("nfo", encoding="utf-8")
+    first_video.with_name("ABP-123-poster.jpg").write_bytes(b"poster")
     fetched_ids = []
 
     async def fake_get_movie_detail(movie_id):
@@ -988,7 +1144,8 @@ def test_local_library_information_download_refreshes_only_missing_records(tmp_p
 
     assert fetched_ids == ["ABP-124"]
     assert result["updated_count"] == 1
-    assert result["information_check"]["incomplete_count"] == 0
+    assert result["information_check"]["incomplete_count"] == 1
+    assert result["information_check"]["incomplete_records"][0]["missing_fields"] == ["nfo", "poster_file"]
     refreshed = {record["movie_id"]: record for record in summary["records"]}["ABP-124"]
     assert refreshed["title"] == "ABP-124 Remote Title"
     assert refreshed["cover_url"] == "https://www.javbus.com/pics/remote.jpg"
@@ -1012,6 +1169,7 @@ def test_local_library_information_download_supports_scrape_asset_options(tmp_pa
 
     async def fake_write_images(video_path, metadata, overwrite, include_samples=False):
         asset_calls.append(("images", video_path, overwrite, include_samples))
+        video_path.with_name("ABP-124-poster.jpg").write_bytes(b"poster")
         return "ABP-124-poster.jpg", ["extrafanart/fanart1.jpg"] if include_samples else []
 
     async def fake_write_actor_images(video_path, metadata, overwrite):
@@ -1068,6 +1226,7 @@ def test_local_library_information_download_supports_scrape_asset_options(tmp_pa
     result = asyncio.run(exercise())
 
     assert result["updated_count"] == 1
+    assert result["information_check"]["incomplete_count"] == 0
     assert result["results"][0]["poster"] == "ABP-124-poster.jpg"
     assert result["results"][0]["samples"] == ["extrafanart/fanart1.jpg"]
     assert result["results"][0]["actor_images"] == ["actors/Actor One.jpg"]
@@ -1075,6 +1234,82 @@ def test_local_library_information_download_supports_scrape_asset_options(tmp_pa
     assert result["results"][0]["nfo_path"] == str(video.with_suffix(".nfo"))
     assert [call[0] for call in asset_calls] == ["images", "actors", "thumbnail", "nfo"]
     assert asset_calls[0][2:] == (True, True)
+
+
+def test_local_library_information_download_uses_existing_metadata_for_asset_only_missing(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-125.mp4"
+    video.write_bytes(b"video")
+    asset_calls = []
+    fetch_calls = []
+
+    async def fake_get_movie_detail(movie_id):
+        fetch_calls.append(movie_id)
+        raise AssertionError("asset-only downloads should not refetch remote metadata")
+
+    async def fake_write_images(video_path, metadata, overwrite, include_samples=False):
+        asset_calls.append(("images", video_path, metadata["title"], overwrite, include_samples))
+        video_path.with_name("ABP-125-poster.jpg").write_bytes(b"poster")
+        return "ABP-125-poster.jpg", []
+
+    def fake_write_nfo(video_path, metadata, poster_name, sample_names):
+        asset_calls.append(("nfo", video_path, metadata["title"], poster_name, tuple(sample_names)))
+        nfo = video_path.with_suffix(".nfo")
+        nfo.write_text("nfo", encoding="utf-8")
+        return nfo
+
+    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(movies_local_library, "_write_images", fake_write_images)
+    monkeypatch.setattr(movies_local_library, "_write_nfo", fake_write_nfo)
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-125",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 456,
+                    "metadata": {
+                        "id": "ABP-125",
+                        "title": "ABP-125 Existing Title",
+                        "date": "2024-01-02",
+                        "stars": ["Actor One"],
+                        "genres": ["Genre A"],
+                        "cover_url": "https://www.javbus.com/pics/existing.jpg",
+                        "raw": {"id": "ABP-125"},
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-125 Existing Title Actor One",
+                },
+            ],
+        )
+        before = await service.get_information_check()
+        result = await movies_local_library.download_missing_local_library_information(
+            movies_local_library.LocalLibraryInformationDownloadRequest(
+                only_missing=True,
+                concurrent=1,
+                write_nfo=True,
+                download_images=True,
+            )
+        )
+        after = await service.get_information_check()
+        summary = await service.get_summary()
+        return before, result, after, summary
+
+    before, result, after, summary = asyncio.run(exercise())
+
+    assert before["incomplete_records"][0]["missing_fields"] == ["nfo", "poster_file"]
+    assert fetch_calls == []
+    assert result["updated_count"] == 1
+    assert result["results"][0]["poster"] == "ABP-125-poster.jpg"
+    assert result["results"][0]["nfo_path"] == str(video.with_suffix(".nfo"))
+    assert after["incomplete_count"] == 0
+    assert summary["records"][0]["title"] == "ABP-125 Existing Title"
+    assert [call[0] for call in asset_calls] == ["images", "nfo"]
 
 
 def test_automation_task_crud_persists(tmp_path):

@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from modules.history.service import local_movie_library_service
 from .local_library import (
     clear_local_library,
+    delete_local_library_movie,
     download_missing_local_library_information,
     get_local_library_information_check,
     get_local_library_payload,
@@ -144,6 +145,15 @@ async def get_local_movie_library_status(movie_id: str):
     except Exception as exc:
         logger.error("Local library status failed: %s", exc)
         return {"success": False, "error": "library_status_failed", "message": "读取本地影片库状态失败"}
+
+
+@router.delete("/api/movies/local-library/{movie_id}")
+async def delete_local_movie_library_movie(movie_id: str):
+    try:
+        return await delete_local_library_movie(movie_id)
+    except Exception as exc:
+        logger.error("Local library movie delete failed: %s", exc)
+        return {"success": False, "error": "library_movie_delete_failed", "message": "删除影视库影片失败"}
 
 
 @router.post("/api/movies/local-scrape/preview/jobs")

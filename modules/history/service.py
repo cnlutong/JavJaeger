@@ -14,12 +14,15 @@ logger = logging.getLogger(__name__)
 
 
 LOCAL_LIBRARY_INFORMATION_FIELDS = ("title", "date", "stars", "genres", "cover_url")
+LOCAL_LIBRARY_INFORMATION_ASSET_FIELDS = ("nfo", "poster_file")
 LOCAL_LIBRARY_INFORMATION_FIELD_LABELS = {
     "title": "标题",
     "date": "发行日期",
     "stars": "演员",
     "genres": "标签",
     "cover_url": "封面",
+    "nfo": "NFO",
+    "poster_file": "本地封面",
 }
 
 
@@ -176,10 +179,12 @@ class LocalMovieLibraryService:
         return values
 
     async def get_summary(self) -> dict[str, Any]:
-        records = await self.get_all()
+        records = [dict(record) for record in await self.get_all()]
         for record in records:
             metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
             record["cover_url"] = metadata.get("cover_url") or record.get("img") or ""
+            record.pop("poster_url", None)
+            record.pop("thumbnail_url", None)
             if await self.get_poster_path(str(record.get("movie_id") or "")):
                 record["poster_url"] = f"/api/movies/local-library/poster/{record.get('movie_id')}"
             thumbnail_path = await self.get_thumbnail_path(str(record.get("movie_id") or ""))
@@ -208,6 +213,46 @@ class LocalMovieLibraryService:
             return metadata.get("cover_url") or record.get("cover_url") or record.get("img")
         return metadata.get(field_name) if field_name in metadata else record.get(field_name)
 
+    def _iter_existing_video_paths(self, record: dict[str, Any]) -> list[Path]:
+        paths: list[Path] = []
+        for file_record in record.get("files", []):
+            video_path = Path(str(file_record.get("path") or ""))
+            if not video_path.name:
+                continue
+            try:
+                resolved = video_path.resolve()
+            except OSError:
+                continue
+            if resolved.exists() and resolved.is_file():
+                paths.append(resolved)
+        return paths
+
+    def _has_nfo_file(self, record: dict[str, Any]) -> bool:
+        for video_path in self._iter_existing_video_paths(record):
+            try:
+                if video_path.with_suffix(".nfo").exists():
+                    return True
+            except OSError:
+                continue
+        return False
+
+    def _has_poster_file(self, record: dict[str, Any]) -> bool:
+        for video_path in self._iter_existing_video_paths(record):
+            candidates = [
+                video_path.with_name(f"{video_path.stem}-poster.jpg"),
+                video_path.with_name(f"{video_path.stem}-poster.png"),
+                video_path.with_name("poster.jpg"),
+                video_path.with_name("folder.jpg"),
+                video_path.with_name("cover.jpg"),
+            ]
+            for candidate in candidates:
+                try:
+                    if candidate.exists() and candidate.is_file():
+                        return True
+                except OSError:
+                    continue
+        return False
+
     def _missing_information_fields(
         self,
         record: dict[str, Any],
@@ -223,6 +268,10 @@ class LocalMovieLibraryService:
                 is_missing = True
             if is_missing:
                 missing.append(field_name)
+        if has_remote_metadata and not self._has_nfo_file(record):
+            missing.append("nfo")
+        if self._information_value(record, "cover_url") and not self._has_poster_file(record):
+            missing.append("poster_file")
         return missing
 
     async def get_information_check(self) -> dict[str, Any]:
@@ -298,6 +347,38 @@ class LocalMovieLibraryService:
             self._cache.clear()
             await self._save_locked()
         return {"success": True, "message": "本地影片库已清空"}
+
+    async def delete_movie(self, movie_id: str) -> dict[str, Any]:
+        await self.load_records()
+        normalized = str(movie_id or "").strip().upper()
+        if not normalized:
+            return {
+                "success": False,
+                "deleted": False,
+                "movie_id": "",
+                "error": "invalid_movie_id",
+                "message": "影片番号无效",
+            }
+
+        async with self._lock:
+            record = self._cache.pop(normalized, None)
+            if not record:
+                return {
+                    "success": False,
+                    "deleted": False,
+                    "movie_id": normalized,
+                    "error": "movie_not_found",
+                    "message": "影片不在影视库中",
+                }
+            await self._save_locked()
+
+        return {
+            "success": True,
+            "deleted": True,
+            "movie_id": normalized,
+            "file_count": int(record.get("file_count") or len(record.get("files", []))),
+            "message": "影片已从影视库移除",
+        }
 
     async def is_movie_present(self, movie_id: str) -> bool:
         if not movie_id:

@@ -37,12 +37,22 @@ test("local library immersive preview adapts layout to poster aspect ratio", () 
     assert.doesNotMatch(desktopLandscapeRule, /grid-template-columns:\s*1fr;/);
 });
 
-test("local library list and card posters prefer search thumbnails before preview", () => {
+test("local library list and card posters prefer local images before remote thumbnails", () => {
     assert.match(localLibraryPage, /const thumbnailSource = \(record\) =>/);
+    assert.match(localLibraryPage, /if \(thumbnailUrl\.startsWith\("\/api\/"\)\) \{[\s\S]*return thumbnailUrl;[\s\S]*if \(record\?\.poster_url\) \{[\s\S]*return record\.poster_url;/);
+    assert.match(localLibraryPage, /return proxiedImageSource\(thumbnailUrl \|\| record\?\.metadata\?\.list_thumbnail_url \|\| ""\)/);
     assert.match(localLibraryPage, /variant === "thumbnail"\s*\?\s*thumbnailSource\(record\)/);
     assert.match(localLibraryPage, /<MoviePoster record=\{record\} compact width=\{listPosterSize\} variant="thumbnail" \/>/);
     assert.match(localLibraryPage, /cover=\{<MoviePoster record=\{record\} variant="thumbnail" \/>\}/);
     assert.match(localLibraryPage, /<MoviePoster record=\{selectedRecord\} onRatio=\{handlePosterAspectRatio\} \/>/);
+});
+
+test("local library KPI cards use a compact single-line layout", () => {
+    assert.match(localLibraryPage, /className="jav-kpi-grid jav-local-kpis jav-library-kpis"/);
+    assert.match(css, /\.jav-library-kpis\s*\{[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(118px,\s*1fr\)\)/);
+    assert.match(css, /\.jav-library-kpis \.jav-kpi-card\s*\{[\s\S]*min-height:\s*42px;[\s\S]*grid-template-columns:\s*max-content minmax\(0,\s*1fr\) max-content;/);
+    assert.match(css, /\.jav-library-kpis \.jav-kpi-card strong\s*\{[\s\S]*font-size:\s*20px;[\s\S]*white-space:\s*nowrap;/);
+    assert.match(css, /\.jav-library-kpis \.jav-kpi-label,[\s\S]*\.jav-library-kpis \.jav-kpi-note\s*\{[\s\S]*white-space:\s*nowrap;/);
 });
 
 test("local library preview exposes a click-to-play video player", () => {
@@ -68,8 +78,10 @@ test("local library actor and genre tags filter from list, grid, and preview", (
 test("local library preview shows actors with avatars below the poster", () => {
     assert.match(localLibraryPage, /normalizeActors/);
     assert.match(localLibraryPage, /ActorPill/);
-    assert.match(localLibraryPage, /actorAvatarSource/);
-    assert.match(localLibraryPage, /\/api\/movies\/local-library\/actor-avatar\/\$\{encodeURIComponent\(record\.movie_id\)\}\/\$\{encodeURIComponent\(actor\.name\)\}/);
+    assert.match(localLibraryPage, /actorAvatarSources/);
+    assert.match(localLibraryPage, /sources\.push\(`\/api\/movies\/local-library\/actor-avatar\/\$\{encodeURIComponent\(record\.movie_id\)\}\/\$\{encodeURIComponent\(actor\.name\)\}`\)/);
+    assert.match(localLibraryPage, /sources\.push\(remoteAvatar\)/);
+    assert.match(localLibraryPage, /onError=\{\(\) => setSourceIndex\(\(index\) => index \+ 1\)\}/);
     assert.match(localLibraryPage, /className="jav-library-preview-poster-extras"/);
     assert.match(localLibraryPage, /className="jav-library-preview-section jav-library-preview-cast"/);
     assert.match(localLibraryPage, /renderActorList\(selectedRecord,\s*"cast"\)/);

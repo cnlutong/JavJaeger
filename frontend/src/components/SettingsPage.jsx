@@ -1,4 +1,4 @@
-import { fetchSystemSettings, updateJavBusSettings } from "../utils/api.js";
+import { fetchSystemSettings, updateSystemSettings } from "../utils/api.js";
 
 const React = window.React;
 const antd = window.antd;
@@ -15,14 +15,52 @@ const {
     Row,
     Space,
     Spin,
+    Switch,
     Tag,
     Typography,
     message,
 } = antd;
 const { Title, Text } = Typography;
-const { ApiOutlined, ReloadOutlined, SaveOutlined, SettingOutlined } = icons;
+const {
+    ApiOutlined,
+    CloudOutlined,
+    CloudServerOutlined,
+    LoginOutlined,
+    ReloadOutlined,
+    SafetyCertificateOutlined,
+    SaveOutlined,
+    SettingOutlined,
+} = icons;
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
+
+const withSecretPlaceholders = (payload = {}) => ({
+    javbus: payload.javbus || {},
+    webdav: { ...(payload.webdav || {}), password: "" },
+    aria2: { ...(payload.aria2 || {}), secret: "" },
+    pikpak: { ...(payload.pikpak || {}), password: "" },
+});
+
+const buildSettingsPayload = (values = {}) => {
+    const payload = {
+        javbus: { ...(values.javbus || {}) },
+        webdav: { ...(values.webdav || {}) },
+        aria2: { ...(values.aria2 || {}) },
+        pikpak: { ...(values.pikpak || {}) },
+    };
+
+    if (!payload.webdav.password) {
+        delete payload.webdav.password;
+    }
+    if (!payload.aria2.secret) {
+        delete payload.aria2.secret;
+    }
+    if (!payload.pikpak.password) {
+        delete payload.pikpak.password;
+    }
+
+    return payload;
+};
 
 export default function SettingsPage() {
     const [form] = Form.useForm();
@@ -35,7 +73,7 @@ export default function SettingsPage() {
         try {
             const payload = await fetchSystemSettings();
             setSettings(payload);
-            form.setFieldsValue(payload.javbus || {});
+            form.setFieldsValue(withSecretPlaceholders(payload));
         } catch (error) {
             message.error("加载设置失败");
         } finally {
@@ -50,10 +88,10 @@ export default function SettingsPage() {
     const saveSettings = async (values) => {
         setSaving(true);
         try {
-            const payload = await updateJavBusSettings(values);
+            const payload = await updateSystemSettings(buildSettingsPayload(values));
             setSettings(payload);
-            form.setFieldsValue(payload.javbus || {});
-            message.success("API 设置已保存");
+            form.setFieldsValue(withSecretPlaceholders(payload));
+            message.success("设置已保存");
         } catch (error) {
             message.error("保存设置失败，请检查输入值");
         } finally {
@@ -61,15 +99,20 @@ export default function SettingsPage() {
         }
     };
 
+    const resetForm = () => {
+        form.setFieldsValue(withSecretPlaceholders(settings || {}));
+    };
+
     const envOverrides = settings?.environment_overrides?.javbus || {};
     const hasEnvOverrides = Object.values(envOverrides).some(Boolean);
+    const security = settings?.security || {};
 
     return (
         <div className="webdav-page">
             <div className="webdav-page-header">
                 <div>
                     <Title level={3} style={{ marginBottom: 4 }}>设置</Title>
-                    <Text type="secondary">API 参数与运行配置</Text>
+                    <Text type="secondary">按类别管理可热更新的运行配置</Text>
                 </div>
                 <Space>
                     {hasEnvOverrides && <Tag color="warning">环境变量覆盖中</Tag>}
@@ -80,20 +123,20 @@ export default function SettingsPage() {
             </div>
 
             <Spin spinning={loading}>
-                <Row gutter={[24, 24]}>
-                    <Col xs={24} lg={16}>
-                        <Card className="webdav-connection-card" title={<><Icon as={ApiOutlined} /> JavBus API</>}>
-                            {hasEnvOverrides && (
-                                <Alert
-                                    showIcon
-                                    type="warning"
-                                    style={{ marginBottom: 16 }}
-                                    message="部分字段正由环境变量覆盖，保存到 config.json 后需移除对应环境变量才会生效。"
-                                />
-                            )}
-                            <Form form={form} layout="vertical" onFinish={saveSettings}>
+                <Form form={form} layout="vertical" onFinish={saveSettings}>
+                    <Row gutter={[24, 24]}>
+                        <Col xs={24} xl={14}>
+                            <Card className="webdav-connection-card" title={<><Icon as={ApiOutlined} /> JavBus API</>}>
+                                {hasEnvOverrides && (
+                                    <Alert
+                                        showIcon
+                                        type="warning"
+                                        style={{ marginBottom: 16 }}
+                                        message="部分字段正由环境变量覆盖，保存到 config.json 后需移除对应环境变量才会生效。"
+                                    />
+                                )}
                                 <Form.Item
-                                    name="base_url"
+                                    name={["javbus", "base_url"]}
                                     label="Base URL"
                                     rules={[{ required: true, message: "请输入 API 基础地址" }]}
                                     extra={envOverrides.base_url ? "JAVBUS_BASE_URL 正在覆盖此字段" : null}
@@ -102,7 +145,7 @@ export default function SettingsPage() {
                                 </Form.Item>
 
                                 <Form.Item
-                                    name="proxy"
+                                    name={["javbus", "proxy"]}
                                     label="代理"
                                     extra={envOverrides.proxy ? "JAVBUS_PROXY 正在覆盖此字段" : "支持 http、https、socks5、socks5h；留空表示不使用代理"}
                                 >
@@ -111,13 +154,13 @@ export default function SettingsPage() {
 
                                 <Row gutter={16}>
                                     <Col xs={24} md={12}>
-                                        <Form.Item name="timeout_seconds" label="请求超时（秒）" rules={[{ required: true, message: "请输入请求超时" }]}>
+                                        <Form.Item name={["javbus", "timeout_seconds"]} label="请求超时（秒）" rules={[{ required: true, message: "请输入请求超时" }]}>
                                             <InputNumber min={1} max={60} step={1} style={{ width: "100%" }} />
                                         </Form.Item>
                                     </Col>
                                     <Col xs={24} md={12}>
                                         <Form.Item
-                                            name="request_interval_seconds"
+                                            name={["javbus", "request_interval_seconds"]}
                                             label="请求间隔（秒）"
                                             rules={[{ required: true, message: "请输入请求间隔" }]}
                                             extra={envOverrides.request_interval_seconds ? "JAVBUS_REQUEST_INTERVAL_SECONDS 正在覆盖此字段" : null}
@@ -129,52 +172,170 @@ export default function SettingsPage() {
 
                                 <Row gutter={16}>
                                     <Col xs={24} md={12}>
-                                        <Form.Item name="cache_expire_seconds" label="缓存有效期（秒）" rules={[{ required: true, message: "请输入缓存有效期" }]}>
+                                        <Form.Item name={["javbus", "cache_expire_seconds"]} label="缓存有效期（秒）" rules={[{ required: true, message: "请输入缓存有效期" }]}>
                                             <InputNumber min={0} max={86400} step={60} style={{ width: "100%" }} />
                                         </Form.Item>
                                     </Col>
                                     <Col xs={24} md={12}>
-                                        <Form.Item name="cache_max_size" label="缓存容量" rules={[{ required: true, message: "请输入缓存容量" }]}>
+                                        <Form.Item name={["javbus", "cache_max_size"]} label="缓存容量" rules={[{ required: true, message: "请输入缓存容量" }]}>
                                             <InputNumber min={1} max={100000} step={100} style={{ width: "100%" }} />
                                         </Form.Item>
                                     </Col>
                                 </Row>
+                            </Card>
+                        </Col>
 
-                                <Space wrap>
-                                    <Button type="primary" htmlType="submit" icon={<Icon as={SaveOutlined} />} loading={saving}>
-                                        保存设置
-                                    </Button>
-                                    <Button onClick={() => form.setFieldsValue(settings?.javbus || {})} disabled={saving}>
-                                        重置表单
-                                    </Button>
-                                </Space>
-                            </Form>
-                        </Card>
-                    </Col>
-
-                    <Col xs={24} lg={8}>
-                        <Card className="webdav-connection-card" title={<><Icon as={SettingOutlined} /> 当前状态</>}>
-                            <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                                <div>
-                                    <Text type="secondary">请求间隔</Text>
-                                    <div><Text strong>{settings?.javbus?.request_interval_seconds ?? "-"} 秒</Text></div>
-                                </div>
-                                <div>
-                                    <Text type="secondary">缓存容量</Text>
-                                    <div><Text strong>{settings?.javbus?.cache_max_size ?? "-"} 条</Text></div>
-                                </div>
-                                <div>
-                                    <Text type="secondary">环境变量覆盖</Text>
-                                    <div style={{ marginTop: 6 }}>
-                                        {Object.entries(envOverrides).map(([key, active]) => (
-                                            <Tag key={key} color={active ? "warning" : "default"}>{key}: {active ? "是" : "否"}</Tag>
-                                        ))}
+                        <Col xs={24} xl={10}>
+                            <Card className="webdav-connection-card" title={<><Icon as={SettingOutlined} /> 运行与安全</>}>
+                                <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                    <div>
+                                        <Text type="secondary">session_secret</Text>
+                                        <div style={{ marginTop: 6 }}>
+                                            <Tag color={security.session_secret_configured ? "success" : "warning"}>
+                                                {security.session_secret_configured ? "已配置" : "未配置"}
+                                            </Tag>
+                                            <Tag color={security.using_default_session_secret ? "error" : "success"}>
+                                                {security.using_default_session_secret ? "使用默认值" : "非默认值"}
+                                            </Tag>
+                                        </div>
                                     </div>
-                                </div>
-                            </Space>
-                        </Card>
-                    </Col>
-                </Row>
+                                    <div>
+                                        <Text type="secondary">当前 JavBus 请求间隔</Text>
+                                        <div><Text strong>{settings?.javbus?.request_interval_seconds ?? "-"} 秒</Text></div>
+                                    </div>
+                                    <div>
+                                        <Text type="secondary">当前 JavBus 缓存容量</Text>
+                                        <div><Text strong>{settings?.javbus?.cache_max_size ?? "-"} 条</Text></div>
+                                    </div>
+                                    <div>
+                                        <Text type="secondary">环境变量覆盖</Text>
+                                        <div style={{ marginTop: 6 }}>
+                                            {Object.entries(envOverrides).map(([key, active]) => (
+                                                <Tag key={key} color={active ? "warning" : "default"}>{key}: {active ? "是" : "否"}</Tag>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </Space>
+                            </Card>
+                        </Col>
+
+                        <Col xs={24} lg={12}>
+                            <Card className="webdav-connection-card" title={<><Icon as={CloudOutlined} /> WebDAV</>}>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["webdav", "enabled"]} label="启用配置连接" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["webdav", "auto_connect"]} label="页面加载后自动连接" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                                <Form.Item name={["webdav", "url"]} label="WebDAV 地址">
+                                    <Input placeholder="https://dav.example.com/" autoComplete="url" />
+                                </Form.Item>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["webdav", "username"]} label="用户名">
+                                            <Input autoComplete="username" />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["webdav", "password"]}
+                                            label="密码"
+                                            extra={settings?.webdav?.has_password ? "已保存密码；留空表示保留原值" : "仅在填写时写入 config.json"}
+                                        >
+                                            <Input.Password autoComplete="new-password" />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                            </Card>
+                        </Col>
+
+                        <Col xs={24} lg={12}>
+                            <Card className="webdav-connection-card" title={<><Icon as={CloudServerOutlined} /> Aria2</>}>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["aria2", "enabled"]} label="启用配置连接" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["aria2", "auto_connect"]} label="页面加载后自动连接" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                                <Form.Item name={["aria2", "url"]} label="RPC 地址">
+                                    <Input placeholder="http://127.0.0.1:6800/jsonrpc" autoComplete="url" />
+                                </Form.Item>
+                                <Form.Item
+                                    name={["aria2", "secret"]}
+                                    label="RPC Secret"
+                                    extra={settings?.aria2?.has_secret ? "已保存 secret；留空表示保留原值" : "仅在填写时写入 config.json"}
+                                >
+                                    <Input.Password autoComplete="new-password" />
+                                </Form.Item>
+                            </Card>
+                        </Col>
+
+                        <Col xs={24} lg={12}>
+                            <Card className="webdav-connection-card" title={<><Icon as={LoginOutlined} /> PikPak</>}>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["pikpak", "enabled"]} label="启用配置登录" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["pikpak", "auto_login"]} label="页面加载后自动登录" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["pikpak", "username"]} label="账号">
+                                            <Input autoComplete="username" />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["pikpak", "password"]}
+                                            label="密码"
+                                            extra={settings?.pikpak?.has_password ? "已保存密码；留空表示保留原值" : "仅在填写时写入 config.json"}
+                                        >
+                                            <Input.Password autoComplete="new-password" />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                            </Card>
+                        </Col>
+
+                        <Col xs={24} lg={12}>
+                            <Card className="webdav-connection-card" title={<><Icon as={SafetyCertificateOutlined} /> 保存策略</>}>
+                                <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                    <Alert
+                                        showIcon
+                                        type="info"
+                                        message="敏感字段不会从接口回显。密码或 secret 留空时，保存不会覆盖 config.json 中已有值。"
+                                    />
+                                    <Space wrap>
+                                        <Button type="primary" htmlType="submit" icon={<Icon as={SaveOutlined} />} loading={saving}>
+                                            保存全部设置
+                                        </Button>
+                                        <Button onClick={resetForm} disabled={saving}>
+                                            重置表单
+                                        </Button>
+                                    </Space>
+                                </Space>
+                            </Card>
+                        </Col>
+                    </Row>
+                </Form>
             </Spin>
         </div>
     );
