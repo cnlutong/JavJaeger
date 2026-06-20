@@ -467,13 +467,14 @@ export default function LocalLibraryPage() {
         );
     };
 
-    const renderActorList = (record) => {
+    const renderActorList = (record, variant = "compact") => {
         const actors = normalizeActors(record);
         if (!actors.length) {
             return <Text type="secondary">-</Text>;
         }
+        const className = variant === "cast" ? "jav-library-actor-list is-cast" : "jav-library-actor-list";
         return (
-            <div className="jav-library-actor-list">
+            <div className={className}>
                 {actors.map((actor) => (
                     <ActorPill
                         key={actor.name}
@@ -561,6 +562,10 @@ export default function LocalLibraryPage() {
                                 description={selectedRecord.scrape_error}
                             />
                         )}
+                    </div>
+                    <div className="jav-library-preview-section jav-library-preview-cast">
+                        <Text strong>演员阵容</Text>
+                        {renderActorList(selectedRecord, "cast")}
                     </div>
                     {isPlayingSelectedRecord && (
                         <video controls className="jav-library-preview-player" src={videoSrc}>

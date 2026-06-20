@@ -71,9 +71,13 @@ test("local library preview shows actors with avatars below the poster", () => {
     assert.match(localLibraryPage, /actorAvatarSource/);
     assert.match(localLibraryPage, /\/api\/movies\/local-library\/actor-avatar\/\$\{encodeURIComponent\(record\.movie_id\)\}\/\$\{encodeURIComponent\(actor\.name\)\}/);
     assert.match(localLibraryPage, /className="jav-library-preview-poster-extras"/);
+    assert.match(localLibraryPage, /className="jav-library-preview-section jav-library-preview-cast"/);
+    assert.match(localLibraryPage, /renderActorList\(selectedRecord,\s*"cast"\)/);
     assert.match(localLibraryPage, /className="jav-library-actor-avatar"/);
     assert.match(css, /\.jav-library-preview-poster-extras\s*\{[\s\S]*display:\s*grid;/);
     assert.match(css, /\.jav-library-actor-pill\s*\{[\s\S]*grid-template-columns:\s*32px minmax\(0,\s*1fr\);/);
+    assert.match(css, /\.jav-library-actor-list\.is-cast \.jav-library-actor-pill\s*\{[\s\S]*grid-template-columns:\s*56px minmax\(0,\s*1fr\);/);
+    assert.match(css, /\.jav-library-actor-list\.is-cast \.jav-library-actor-avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;/);
 });
 
 test("local library immersive preview uses dark backdrop and closes from background clicks", () => {

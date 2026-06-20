@@ -4607,6 +4607,29 @@ body:has(.jav-app),
     background: rgba(157, 23, 77, 0.48);
 }
 
+.jav-library-preview-cast {
+    margin-top: 2px;
+}
+
+.jav-library-actor-list.is-cast {
+    gap: 10px;
+}
+
+.jav-library-actor-list.is-cast .jav-library-actor-pill {
+    grid-template-columns: 56px minmax(0, 1fr);
+    min-width: 168px;
+    max-width: 240px;
+    padding: 6px 12px 6px 6px;
+    background: rgba(38, 38, 38, 0.46);
+    border-color: rgba(245, 245, 245, 0.12);
+}
+
+.jav-library-actor-list.is-cast .jav-library-actor-avatar {
+    width: 56px;
+    height: 56px;
+    font-size: 18px;
+}
+
 .jav-library-actor-avatar {
     width: 32px;
     height: 32px;
