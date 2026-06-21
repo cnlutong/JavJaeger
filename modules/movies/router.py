@@ -4,7 +4,7 @@ import mimetypes
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
-from modules.history.service import local_movie_library_service
+from modules.history.service import local_actor_library_service, local_movie_library_service
 from .local_library import (
     clear_local_library,
     delete_local_library_movie,
@@ -103,6 +103,32 @@ async def download_local_movie_library_information(request: LocalLibraryInformat
     except Exception as exc:
         logger.error("Local library information download failed: %s", exc)
         return {"success": False, "error": "information_download_failed", "message": "下载影视库缺失信息失败"}
+
+
+@router.get("/api/movies/local-library/actors")
+async def get_local_movie_library_actors():
+    try:
+        return await local_actor_library_service.get_summary()
+    except Exception as exc:
+        logger.error("Local actor library read failed: %s", exc)
+        return {"success": False, "error": "actor_library_read_failed", "message": "璇诲彇婕斿憳淇℃伅搴撳け璐?"}
+
+
+@router.get("/api/movies/local-library/actors/{actor_key}/movies")
+async def get_local_movie_library_actor_movies(actor_key: str):
+    try:
+        return await local_actor_library_service.get_movies_for_actor(actor_key)
+    except Exception as exc:
+        logger.error("Local actor library movies failed: %s", exc)
+        return {"success": False, "error": "actor_movies_read_failed", "message": "璇诲彇婕斿憳褰辩墖澶辫触"}
+
+
+@router.get("/api/movies/local-library/actors/{actor_key}/avatar")
+async def get_local_movie_library_actor_library_avatar(actor_key: str):
+    avatar_path = await local_actor_library_service.get_avatar_path(actor_key)
+    if avatar_path is None:
+        raise HTTPException(status_code=404, detail="actor_avatar_not_found")
+    return FileResponse(avatar_path)
 
 
 @router.get("/api/movies/local-library/poster/{movie_id}")

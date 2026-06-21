@@ -47,6 +47,71 @@ test("local library list and card posters prefer local images before remote thum
     assert.match(localLibraryPage, /<MoviePoster record=\{selectedRecord\} onRatio=\{handlePosterAspectRatio\} \/>/);
 });
 
+test("local library list and card modes paginate visible records", () => {
+    assert.match(localLibraryPage, /const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;/);
+    assert.match(localLibraryPage, /const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;/);
+    assert.match(localLibraryPage, /const \[gridPage, setGridPage\] = React\.useState\(1\)/);
+    assert.match(localLibraryPage, /const \[listPage, setListPage\] = React\.useState\(1\)/);
+    assert.match(localLibraryPage, /const \[listPageSize, setListPageSize\] = React\.useState\(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE\)/);
+    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(gridStartIndex, gridStartIndex \+ LOCAL_LIBRARY_GRID_PAGE_SIZE\)/);
+    assert.match(localLibraryPage, /<Pagination[\s\S]*current=\{gridPage\}[\s\S]*pageSize=\{LOCAL_LIBRARY_GRID_PAGE_SIZE\}[\s\S]*showSizeChanger=\{false\}/);
+    assert.match(localLibraryPage, /className="jav-library-grid-loading"/);
+    assert.match(localLibraryPage, /dataSource=\{sortedRecords\}[\s\S]*pagination=\{\{[\s\S]*current: listPage[\s\S]*pageSize: listPageSize[\s\S]*showSizeChanger: true[\s\S]*onShowSizeChange: \(_, size\) => \{[\s\S]*setListPage\(1\);[\s\S]*setListPageSize\(size\);[\s\S]*onChange: \(page, size\) => \{[\s\S]*setListPage\(page\);[\s\S]*setListPageSize\(size\);/);
+    assert.doesNotMatch(localLibraryPage, /filteredRecords\.map\(\(record\) => \(/);
+    assert.doesNotMatch(localLibraryPage, /pagination=\{\{ pageSize: 12, showSizeChanger: true \}\}/);
+});
+
+test("local library list and card modes support multiple sort rules", () => {
+    assert.match(localLibraryPage, /const LOCAL_LIBRARY_SORT_OPTIONS = \[/);
+    assert.match(localLibraryPage, /value: "date_desc"/);
+    assert.match(localLibraryPage, /value: "updated_desc"/);
+    assert.match(localLibraryPage, /value: "size_desc"/);
+    assert.match(localLibraryPage, /value: "resolution_desc"/);
+    assert.match(localLibraryPage, /const sortLocalLibraryRecords = \(records, sortRule\) =>/);
+    assert.match(localLibraryPage, /const \[sortRule, setSortRule\] = React\.useState\("date_desc"\)/);
+    assert.match(localLibraryPage, /const sortedRecords = React\.useMemo\(\(\) => sortLocalLibraryRecords\(filteredRecords, sortRule\), \[filteredRecords, sortRule\]\)/);
+    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(gridStartIndex, gridStartIndex \+ LOCAL_LIBRARY_GRID_PAGE_SIZE\)/);
+    assert.match(localLibraryPage, /<Select[\s\S]*value=\{sortRule\}[\s\S]*onChange=\{setSortRule\}[\s\S]*options=\{LOCAL_LIBRARY_SORT_OPTIONS\}/);
+    assert.match(localLibraryPage, /dataSource=\{sortedRecords\}/);
+    assert.match(localLibraryPage, /total=\{sortedRecords\.length\}/);
+});
+
+test("local library search box keeps search and clear actions in the same row", () => {
+    assert.match(localLibraryPage, /const \[keywordDraft, setKeywordDraft\] = React\.useState\(""\)/);
+    assert.match(localLibraryPage, /const handleKeywordSearch = \(\) =>/);
+    assert.match(localLibraryPage, /const handleKeywordClear = \(\) =>/);
+    assert.match(localLibraryPage, /className="jav-library-search-row"/);
+    assert.match(localLibraryPage, /value=\{keywordDraft\}/);
+    assert.match(localLibraryPage, /onPressEnter=\{handleKeywordSearch\}/);
+    assert.match(localLibraryPage, /onClick=\{handleKeywordSearch\}[\s\S]*搜索/);
+    assert.match(localLibraryPage, /onClick=\{handleKeywordClear\}[\s\S]*清空/);
+    assert.match(css, /\.jav-library-search-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+auto;/);
+});
+
+test("local library page does not expose scan import controls", () => {
+    assert.doesNotMatch(localLibraryPage, /scanOpen/);
+    assert.doesNotMatch(localLibraryPage, /handleScan/);
+    assert.doesNotMatch(localLibraryPage, /scanResult/);
+    assert.doesNotMatch(localLibraryPage, /\/api\/movies\/local-library\/scan/);
+    assert.doesNotMatch(localLibraryPage, /扫描入库/);
+    assert.doesNotMatch(localLibraryPage, /FolderOpenOutlined/);
+    assert.doesNotMatch(css, /jav-library-scan-options/);
+});
+
+test("local library list mode shows every genre tag in movie information", () => {
+    assert.match(localLibraryPage, /\(record\.genres \|\| \[\]\)\.map\(\(genre\) => renderFilterTag\("genres", genre, "cyan"\)\)/);
+    assert.doesNotMatch(localLibraryPage, /\(record\.genres \|\| \[\]\)\.slice\(0,\s*8\)\.map\(\(genre\) => renderFilterTag\("genres", genre, "cyan"\)\)/);
+    assert.doesNotMatch(localLibraryPage, /\(record\.genres \|\| \[\]\)\.length > 8 && <Tag>\+\{record\.genres\.length - 8\}<\/Tag>/);
+});
+
+test("local library poster images show a loading animation while local artwork is read", () => {
+    assert.match(localLibraryPage, /const \[imageLoading, setImageLoading\] = React\.useState\(!!src\)/);
+    assert.match(localLibraryPage, /setImageLoading\(false\)/);
+    assert.match(localLibraryPage, /className="jav-library-poster-loader"/);
+    assert.match(css, /\.jav-library-poster-loader\s*\{[\s\S]*animation:\s*poster-loader-pulse/);
+    assert.match(css, /@keyframes poster-loader-pulse/);
+});
+
 test("local library KPI cards use a compact single-line layout", () => {
     assert.match(localLibraryPage, /className="jav-kpi-grid jav-local-kpis jav-library-kpis"/);
     assert.match(css, /\.jav-library-kpis\s*\{[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(118px,\s*1fr\)\)/);
@@ -62,6 +127,18 @@ test("local library preview exposes a click-to-play video player", () => {
     assert.match(localLibraryPage, /\/api\/movies\/local-library\/\$\{encodeURIComponent\(selectedRecord\.movie_id\)\}\/play\?file_index=\$\{selectedPlayFileIndex\}/);
     assert.match(localLibraryPage, /<video[\s\S]*controls[\s\S]*className="jav-library-preview-player"/);
     assert.match(css, /\.jav-library-preview-player\s*\{[\s\S]*width:\s*100%;/);
+});
+
+test("local library shows probed video resolution and bitrate", () => {
+    assert.match(localLibraryPage, /const formatBitrate = \(bitrate\) =>/);
+    assert.match(localLibraryPage, /const formatResolution = \(mediaInfo\) =>/);
+    assert.match(localLibraryPage, /const primaryMediaInfo = \(record\) =>/);
+    assert.match(localLibraryPage, /const renderMediaTags = \(mediaInfo\) =>/);
+    assert.match(localLibraryPage, /\["分辨率", selectedMediaInfo\.width && selectedMediaInfo\.height \? formatResolution\(selectedMediaInfo\) : ""\]/);
+    assert.match(localLibraryPage, /\["码率", selectedMediaInfo\.bitrate \? formatBitrate\(selectedMediaInfo\.bitrate\) : ""\]/);
+    assert.match(localLibraryPage, /\{renderMediaTags\(file\)\}/);
+    assert.match(localLibraryPage, /\{renderMediaTags\(primaryMediaInfo\(record\)\)\}/);
+    assert.match(localLibraryPage, /\{renderMediaTags\(mediaInfo\)\}/);
 });
 
 test("local library actor and genre tags filter from list, grid, and preview", () => {
@@ -90,6 +167,18 @@ test("local library preview shows actors with avatars below the poster", () => {
     assert.match(css, /\.jav-library-actor-pill\s*\{[\s\S]*grid-template-columns:\s*32px minmax\(0,\s*1fr\);/);
     assert.match(css, /\.jav-library-actor-list\.is-cast \.jav-library-actor-pill\s*\{[\s\S]*grid-template-columns:\s*56px minmax\(0,\s*1fr\);/);
     assert.match(css, /\.jav-library-actor-list\.is-cast \.jav-library-actor-avatar\s*\{[\s\S]*width:\s*56px;[\s\S]*height:\s*56px;/);
+});
+
+test("local library exposes an actor-indexed browsing view", () => {
+    assert.match(localLibraryPage, /actorLibrary/);
+    assert.match(localLibraryPage, /loadActorLibrary/);
+    assert.match(localLibraryPage, /\/api\/movies\/local-library\/actors/);
+    assert.match(localLibraryPage, /value: "actors"/);
+    assert.match(localLibraryPage, /renderActorLibraryView/);
+    assert.match(localLibraryPage, /setFilters\(\(prev\) => \(\{[\s\S]*stars: \[actor\.name\]/);
+    assert.match(localLibraryPage, /\/api\/movies\/local-library\/actors\/\$\{encodeURIComponent\(actor\.key\)\}\/avatar/);
+    assert.match(css, /\.jav-library-actor-grid\s*\{/);
+    assert.match(css, /\.jav-library-actor-card\s*\{/);
 });
 
 test("local library immersive preview uses dark backdrop and closes from background clicks", () => {

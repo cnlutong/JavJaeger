@@ -160,6 +160,7 @@ export default function LocalScrapePage() {
     const [templateDesignerOpen, setTemplateDesignerOpen] = React.useState(false);
     const [conflictCompareItem, setConflictCompareItem] = React.useState(null);
     const [conflictResolutions, setConflictResolutions] = React.useState({});
+    const [bulkConflictResolution, setBulkConflictResolution] = React.useState("");
     const [templateDesignerTarget, setTemplateDesignerTarget] = React.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form.useWatch("overwriteExisting", form);
@@ -195,6 +196,7 @@ export default function LocalScrapePage() {
         { value: "keep_higher_resolution", label: "保留分辨率高的" },
         { value: "keep_higher_bitrate", label: "保留码率高的" },
     ];
+    const selectedConflictItems = selectedItems.filter((item) => item.target_exists && !item.target_duplicate);
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "文件夹模板" : "文件命名模板";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
 
@@ -505,12 +507,27 @@ export default function LocalScrapePage() {
 
     const isResolvableConflict = (item) => Boolean(
         item?.target_exists
-        && !item?.target_duplicate
-        && item?.source_file
-        && item?.target_file,
+        && !item?.target_duplicate,
     );
 
     const getConflictResolution = (item) => conflictResolutions[item?.source_path] || "";
+
+    const getConflictSourceFile = (item) => item?.source_file || {
+        path: item?.source_path || "",
+        file_name: item?.file_name || "",
+        size: item?.file_size || 0,
+        modified_at: "",
+        extension: "",
+    };
+
+    const getConflictTargetFile = (item) => item?.target_file || {
+        path: item?.target_video_path || "",
+        file_name: String(item?.target_video_path || "").split(/[\\/]/).filter(Boolean).pop() || "",
+        exists: true,
+        size: 0,
+        modified_at: "",
+        extension: "",
+    };
 
     const updateConflictResolution = (item, resolution) => {
         if (!item?.source_path) {
@@ -557,6 +574,28 @@ export default function LocalScrapePage() {
         }
     };
 
+    const buildApplyItems = (sourceItems, overrideConflictResolution = null) => sourceItems.map((item) => ({
+        source_path: item.source_path,
+        code: item.code,
+        metadata: item.metadata,
+        conflict_resolution: overrideConflictResolution || getConflictResolution(item) || null,
+    }));
+
+    const startApplyForItems = async (values, sourceItems, successMessage, overrideConflictResolution = null) => {
+        const payload = {
+            ...buildPayload(values),
+            items: buildApplyItems(sourceItems, overrideConflictResolution),
+        };
+        setLoadingApply(true);
+        try {
+            await startLocalScrapeTask("apply", payload);
+            message.success(successMessage);
+        } catch (error) {
+            message.error(`执行启动失败：${error.message}`);
+            setLoadingApply(false);
+        }
+    };
+
     const handleApply = async () => {
         let values;
         try {
@@ -575,23 +614,38 @@ export default function LocalScrapePage() {
             setConflictCompareItem(unresolvedConflicts[0]);
             return;
         }
-        const payload = {
-            ...buildPayload(values),
-            items: selectedItems.map((item) => ({
-                source_path: item.source_path,
-                code: item.code,
-                metadata: item.metadata,
-                conflict_resolution: getConflictResolution(item) || null,
-            })),
-        };
-        setLoadingApply(true);
-        try {
-            await startLocalScrapeTask("apply", payload);
-            message.success("刮削执行已在后台启动");
-        } catch (error) {
-            message.error(`执行启动失败：${error.message}`);
-            setLoadingApply(false);
+        await startApplyForItems(values, selectedItems, "刮削执行已在后台启动");
+    };
+
+    const handleBulkConflictApply = async () => {
+        if (selectedConflictItems.length === 0) {
+            message.warning("请先选择需要批量处理的冲突文件");
+            return;
         }
+        if (!bulkConflictResolution) {
+            message.warning("请先选择批量冲突策略");
+            return;
+        }
+        let values;
+        try {
+            values = await form.validateFields();
+        } catch (error) {
+            message.warning("请先补全刮削设置");
+            return;
+        }
+        setConflictResolutions((current) => {
+            const next = { ...current };
+            selectedConflictItems.forEach((item) => {
+                next[item.source_path] = bulkConflictResolution;
+            });
+            return next;
+        });
+        await startApplyForItems(
+            values,
+            selectedConflictItems,
+            `已按「${conflictResolutionLabels[bulkConflictResolution]}」批量处理 ${selectedConflictItems.length} 个冲突文件`,
+            bulkConflictResolution,
+        );
     };
 
     const handleSelectNonConforming = () => {
@@ -744,11 +798,6 @@ export default function LocalScrapePage() {
                     {item.target_exists && (
                         <Space size={6} wrap>
                             <Text type="danger" style={{ fontSize: 12 }}>目标文件已存在</Text>
-                            {isResolvableConflict(item) && (
-                                <Button size="small" onClick={() => setConflictCompareItem(item)}>
-                                    比较文件
-                                </Button>
-                            )}
                             {getConflictResolution(item) && (
                                 <Tag color="gold">{conflictResolutionLabels[getConflictResolution(item)]}</Tag>
                             )}
@@ -756,6 +805,32 @@ export default function LocalScrapePage() {
                     )}
                 </Space>
             ),
+        },
+        {
+            title: "冲突处理",
+            key: "conflict_action",
+            width: 150,
+            render: (_, item) => {
+                if (!item.target_exists) {
+                    return <Text type="secondary">-</Text>;
+                }
+                if (item.target_duplicate) {
+                    return <Tag color="red">目标重复</Tag>;
+                }
+                const resolution = getConflictResolution(item);
+                return (
+                    <Space direction="vertical" size={4}>
+                        <Button type="primary" size="small" onClick={() => setConflictCompareItem(item)}>
+                            {resolution ? "修改策略" : "选择策略"}
+                        </Button>
+                        {resolution ? (
+                            <Tag color="gold">{conflictResolutionLabels[resolution]}</Tag>
+                        ) : (
+                            !overwriteExisting && <Text type="danger" style={{ fontSize: 12 }}>未选择策略</Text>
+                        )}
+                    </Space>
+                );
+            },
         },
     ];
 
@@ -1022,6 +1097,33 @@ export default function LocalScrapePage() {
                                     执行选中项
                                 </Button>
                             </Popconfirm>
+                            <Space.Compact>
+                                <Select
+                                    value={bulkConflictResolution || undefined}
+                                    placeholder="批量冲突策略"
+                                    style={{ width: 180 }}
+                                    options={conflictResolutionOptions}
+                                    onChange={setBulkConflictResolution}
+                                    disabled={selectedConflictItems.length === 0 || loadingApply}
+                                />
+                                <Popconfirm
+                                    title={`确认按该策略批量处理 ${selectedConflictItems.length} 个选中冲突文件？`}
+                                    description="此操作会直接启动后台刮削执行任务，只处理当前选中的冲突文件。"
+                                    okText="确认执行"
+                                    cancelText="取消"
+                                    disabled={selectedConflictItems.length === 0 || !bulkConflictResolution || loadingApply}
+                                    onConfirm={handleBulkConflictApply}
+                                >
+                                    <Button
+                                        type="primary"
+                                        disabled={selectedConflictItems.length === 0 || !bulkConflictResolution}
+                                        loading={loadingApply}
+                                        icon={<Icon as={PlayCircleOutlined} />}
+                                    >
+                                        批量处理冲突
+                                    </Button>
+                                </Popconfirm>
+                            </Space.Compact>
                         </Space>
                     </div>
 
@@ -1070,11 +1172,7 @@ export default function LocalScrapePage() {
                             onChange: setSelectedRowKeys,
                             getCheckboxProps: (item) => ({
                                 disabled: isConformingLocalScrapeItem(item)
-                                    ? item.target_duplicate || (
-                                        isResolvableConflict(item)
-                                        && !overwriteExisting
-                                        && !getConflictResolution(item)
-                                    )
+                                    ? item.target_duplicate
                                     : false,
                             }),
                         }}
@@ -1146,8 +1244,8 @@ export default function LocalScrapePage() {
                                 gap: 12,
                             }}
                         >
-                            {renderConflictFileDetail("源文件", conflictCompareItem.source_file)}
-                            {renderConflictFileDetail("目标文件", conflictCompareItem.target_file)}
+                            {renderConflictFileDetail("源文件", getConflictSourceFile(conflictCompareItem))}
+                            {renderConflictFileDetail("目标文件", getConflictTargetFile(conflictCompareItem))}
                         </div>
                         {getConflictResolution(conflictCompareItem) && (
                             <Alert

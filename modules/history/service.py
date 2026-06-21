@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from modules.common.image_download import download_image
 from modules.javbus_api import javbus_api_service
 
 
@@ -144,9 +145,275 @@ class DownloadHistoryService:
 download_history_service = DownloadHistoryService()
 
 
-class LocalMovieLibraryService:
-    def __init__(self, file_path: str = "data/local_movie_library.json") -> None:
+def _safe_actor_file_stem(value: str, fallback: str = "actor") -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", str(value or "")).strip().strip(". ")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return (cleaned or fallback)[:180].rstrip(". ")
+
+
+def _actor_name(actor: Any) -> str:
+    if isinstance(actor, dict):
+        return str(actor.get("name") or actor.get("title") or actor.get("id") or "").strip()
+    return str(actor or "").strip()
+
+
+class ActorLibraryService:
+    def __init__(self, file_path: str = "data/local_actor_library.json", image_dir: str = "data/actor_images") -> None:
         self.file_path = file_path
+        self.image_dir = image_dir
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._loaded = False
+        self._lock = asyncio.Lock()
+
+    def _empty_payload(self) -> dict[str, Any]:
+        return {"version": 1, "updated_at": "", "actors": {}}
+
+    def _actor_key(self, actor: dict[str, Any]) -> str:
+        actor_id = str(actor.get("id") or "").strip()
+        if actor_id:
+            return _safe_actor_file_stem(actor_id.lower(), actor_id)
+        return _safe_actor_file_stem(str(actor.get("name") or "").strip(), "actor")
+
+    def _avatar_target(self, actor_key: str) -> Path:
+        return Path(self.image_dir) / f"{_safe_actor_file_stem(actor_key, 'actor')}.jpg"
+
+    def _actor_refs_from_record(self, record: dict[str, Any]) -> list[dict[str, str]]:
+        values: list[Any] = []
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        raw = metadata.get("raw") if isinstance(metadata.get("raw"), dict) else {}
+        for source in (
+            raw.get("stars"),
+            metadata.get("actor_refs"),
+            metadata.get("stars"),
+            record.get("stars"),
+        ):
+            if isinstance(source, list):
+                values.extend(source)
+
+        refs: list[dict[str, str]] = []
+        seen: set[str] = set()
+        seen_names: set[str] = set()
+        for value in values:
+            name = _actor_name(value)
+            if isinstance(value, dict):
+                actor_id = str(value.get("id") or "").strip()
+                avatar = str(
+                    value.get("avatar")
+                    or value.get("img")
+                    or value.get("image")
+                    or value.get("thumbnail")
+                    or ""
+                ).strip()
+            else:
+                actor_id = ""
+                avatar = ""
+            if not (name or actor_id):
+                continue
+            actor = {"id": actor_id, "name": name or actor_id}
+            if avatar:
+                actor["avatar"] = avatar
+            key = self._actor_key(actor)
+            normalized_name = actor["name"].strip().lower()
+            if key in seen or (normalized_name and normalized_name in seen_names):
+                continue
+            seen.add(key)
+            if normalized_name:
+                seen_names.add(normalized_name)
+            refs.append(actor)
+        return refs
+
+    def _movie_summary_from_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        movie_id = str(record.get("movie_id") or metadata.get("id") or "").strip().upper()
+        return {
+            "movie_id": movie_id,
+            "title": record.get("title") or metadata.get("title") or movie_id,
+            "date": record.get("date") or metadata.get("date") or "",
+            "cover_url": metadata.get("cover_url") or record.get("cover_url") or record.get("img") or "",
+        }
+
+    async def load_records(self) -> dict[str, dict[str, Any]]:
+        async with self._lock:
+            if self._loaded:
+                return self._cache
+
+            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+            if os.path.exists(self.file_path):
+                with open(self.file_path, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+                actors = data.get("actors", {}) if isinstance(data, dict) else {}
+                self._cache = {str(actor_key): record for actor_key, record in actors.items() if isinstance(record, dict)}
+            else:
+                with open(self.file_path, "w", encoding="utf-8") as file:
+                    json.dump(self._empty_payload(), file, ensure_ascii=False, indent=2)
+                self._cache = {}
+            self._loaded = True
+            return self._cache
+
+    async def _save_locked(self) -> None:
+        now = datetime.datetime.now().isoformat()
+        payload = {"version": 1, "updated_at": now, "actors": self._cache}
+        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        with open(self.file_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=2)
+
+    async def _ensure_actor_avatar(self, actor_key: str, actor: dict[str, Any], overwrite: bool) -> bool:
+        existing_path = await self.get_avatar_path(actor_key)
+        if existing_path and not overwrite:
+            return False
+
+        avatar_url = str(actor.get("remote_avatar_url") or "").strip()
+        actor_id = str(actor.get("id") or "").strip()
+        if not avatar_url and actor_id:
+            try:
+                star_info = await javbus_api_service.get_star_info(actor_id)
+                if isinstance(star_info, dict):
+                    avatar_url = str(star_info.get("avatar") or "").strip()
+                    if avatar_url:
+                        actor["remote_avatar_url"] = avatar_url
+            except Exception as exc:
+                logger.warning("Actor avatar lookup failed for %s: %r", actor_id, exc)
+                return False
+        if not avatar_url:
+            return False
+
+        target = self._avatar_target(actor_key)
+        if target.exists() and not overwrite:
+            actor["avatar_file"] = target.name
+            return False
+        try:
+            name = await download_image(avatar_url, target, overwrite)
+        except Exception as exc:
+            logger.warning("Actor avatar download failed for %s: %r", avatar_url, exc)
+            return False
+        if not name:
+            return False
+        actor["avatar_file"] = name
+        return True
+
+    async def sync_from_movie_records(
+        self,
+        records: list[dict[str, Any]] | dict[str, dict[str, Any]],
+        download_missing_avatars: bool = True,
+        overwrite_existing_avatars: bool = False,
+    ) -> dict[str, Any]:
+        await self.load_records()
+        source_records = list(records.values()) if isinstance(records, dict) else list(records or [])
+        previous = {actor_key: dict(actor) for actor_key, actor in self._cache.items()}
+        now = datetime.datetime.now().isoformat()
+        next_cache: dict[str, dict[str, Any]] = {}
+
+        for record in source_records:
+            movie = self._movie_summary_from_record(record)
+            if not movie["movie_id"]:
+                continue
+            for actor_ref in self._actor_refs_from_record(record):
+                actor_key = self._actor_key(actor_ref)
+                existing = previous.get(actor_key, {})
+                actor = next_cache.get(actor_key) or {
+                    "key": actor_key,
+                    "id": existing.get("id") or actor_ref.get("id") or "",
+                    "name": existing.get("name") or actor_ref.get("name") or actor_key,
+                    "remote_avatar_url": existing.get("remote_avatar_url") or actor_ref.get("avatar") or "",
+                    "avatar_file": existing.get("avatar_file") or "",
+                    "first_seen_at": existing.get("first_seen_at") or now,
+                    "movies": {},
+                }
+                if actor_ref.get("id") and not actor.get("id"):
+                    actor["id"] = actor_ref["id"]
+                if actor_ref.get("name") and actor.get("name") == actor_key:
+                    actor["name"] = actor_ref["name"]
+                if actor_ref.get("avatar") and not actor.get("remote_avatar_url"):
+                    actor["remote_avatar_url"] = actor_ref["avatar"]
+                actor["movies"][movie["movie_id"]] = movie
+                actor["updated_at"] = now
+                next_cache[actor_key] = actor
+
+        changed_avatar_count = 0
+        if download_missing_avatars:
+            for actor_key, actor in next_cache.items():
+                if await self._ensure_actor_avatar(actor_key, actor, overwrite_existing_avatars):
+                    changed_avatar_count += 1
+
+        for actor in next_cache.values():
+            movies = actor.get("movies") if isinstance(actor.get("movies"), dict) else {}
+            actor["movie_ids"] = sorted(movies.keys())
+            actor["movie_count"] = len(actor["movie_ids"])
+
+        async with self._lock:
+            self._cache = next_cache
+            self._loaded = True
+            await self._save_locked()
+
+        return {
+            "success": True,
+            "total_actors": len(next_cache),
+            "downloaded_avatar_count": changed_avatar_count,
+        }
+
+    async def get_summary(self) -> dict[str, Any]:
+        records = await self.load_records()
+        actors: list[dict[str, Any]] = []
+        for actor_key, actor in records.items():
+            movies = actor.get("movies") if isinstance(actor.get("movies"), dict) else {}
+            actor_payload = dict(actor)
+            actor_payload["key"] = actor_key
+            actor_payload["movie_ids"] = sorted(movies.keys())
+            actor_payload["movie_count"] = len(actor_payload["movie_ids"])
+            actor_payload["movies"] = [movies[movie_id] for movie_id in actor_payload["movie_ids"]]
+            actor_payload.pop("avatar_url", None)
+            if await self.get_avatar_path(actor_key):
+                actor_payload["avatar_url"] = f"/api/movies/local-library/actors/{actor_key}/avatar"
+            actors.append(actor_payload)
+        actors.sort(key=lambda item: (-int(item.get("movie_count") or 0), str(item.get("name") or "")))
+        return {"success": True, "total_actors": len(actors), "actors": actors}
+
+    async def get_avatar_path(self, actor_key: str) -> Path | None:
+        records = await self.load_records()
+        actor = records.get(str(actor_key or ""))
+        if not actor:
+            return None
+
+        candidates: list[Path] = []
+        avatar_file = str(actor.get("avatar_file") or "").strip()
+        if avatar_file:
+            candidates.append(Path(self.image_dir) / avatar_file)
+        candidates.append(self._avatar_target(str(actor_key)))
+        for candidate in candidates:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                continue
+            if resolved.exists() and resolved.is_file():
+                return resolved
+        return None
+
+    async def get_movies_for_actor(self, actor_key: str) -> dict[str, Any]:
+        records = await self.load_records()
+        actor = records.get(str(actor_key or ""))
+        if not actor:
+            return {"success": False, "error": "actor_not_found", "actor": None, "movies": []}
+        movies = actor.get("movies") if isinstance(actor.get("movies"), dict) else {}
+        movie_ids = sorted(movies.keys())
+        return {
+            "success": True,
+            "actor": dict(actor),
+            "movies": [movies[movie_id] for movie_id in movie_ids],
+            "movie_ids": movie_ids,
+        }
+
+
+local_actor_library_service = ActorLibraryService()
+
+
+class LocalMovieLibraryService:
+    def __init__(
+        self,
+        file_path: str = "data/local_movie_library.json",
+        actor_library_service: ActorLibraryService | None = None,
+    ) -> None:
+        self.file_path = file_path
+        self.actor_library_service = actor_library_service
         self._cache: dict[str, dict[str, Any]] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
@@ -185,6 +452,19 @@ class LocalMovieLibraryService:
         with open(self.file_path, "w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
 
+    async def _sync_actor_library(
+        self,
+        records: list[dict[str, Any]] | None = None,
+        download_missing_avatars: bool = True,
+    ) -> dict[str, Any] | None:
+        if self.actor_library_service is None:
+            return None
+        source_records = records if records is not None else list(self._cache.values())
+        return await self.actor_library_service.sync_from_movie_records(
+            source_records,
+            download_missing_avatars=download_missing_avatars,
+        )
+
     async def get_all(self) -> list[dict[str, Any]]:
         records = await self.load_records()
         values = list(records.values())
@@ -196,6 +476,7 @@ class LocalMovieLibraryService:
         for record in records:
             metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
             record["cover_url"] = metadata.get("cover_url") or record.get("img") or ""
+            record["media_info"] = self._record_media_info(record)
             record.pop("poster_url", None)
             record.pop("thumbnail_url", None)
             if await self.get_poster_path(str(record.get("movie_id") or "")):
@@ -355,14 +636,54 @@ class LocalMovieLibraryService:
             record["scrape_error"] = scrape_error
             record["scraped_at"] = scraped_at
             self._refresh_record_totals(record, scraped_at)
+            actor_records = list(self._cache.values())
             await self._save_locked()
-            return True
+        await self._sync_actor_library(actor_records, download_missing_avatars=True)
+        return True
+
+    async def update_file_media_info(self, movie_id: str, media_by_path: dict[str, dict[str, Any]]) -> bool:
+        await self.load_records()
+        normalized = str(movie_id or "").strip().upper()
+        if not normalized or not media_by_path:
+            return False
+
+        normalized_media = {
+            os.path.abspath(str(path)): media
+            for path, media in media_by_path.items()
+            if isinstance(media, dict) and media
+        }
+        if not normalized_media:
+            return False
+
+        allowed_fields = {"width", "height", "resolution_pixels", "bitrate", "codec", "duration_seconds"}
+        async with self._lock:
+            record = self._cache.get(normalized)
+            if not record:
+                return False
+            changed = False
+            for file_record in record.get("files", []):
+                file_path = os.path.abspath(str(file_record.get("path") or ""))
+                media = normalized_media.get(file_path)
+                if not media:
+                    continue
+                for key in allowed_fields:
+                    value = media.get(key)
+                    if value in (None, "", 0):
+                        continue
+                    if file_record.get(key) != value:
+                        file_record[key] = value
+                        changed = True
+            if changed:
+                self._refresh_record_totals(record, datetime.datetime.now().isoformat())
+                await self._save_locked()
+            return changed
 
     async def clear(self) -> dict[str, Any]:
         await self.load_records()
         async with self._lock:
             self._cache.clear()
             await self._save_locked()
+        await self._sync_actor_library([], download_missing_avatars=False)
         return {"success": True, "message": "本地影片库已清空"}
 
     async def delete_movie(self, movie_id: str) -> dict[str, Any]:
@@ -387,8 +708,10 @@ class LocalMovieLibraryService:
                     "error": "movie_not_found",
                     "message": "影片不在影视库中",
                 }
+            actor_records = list(self._cache.values())
             await self._save_locked()
 
+        await self._sync_actor_library(actor_records, download_missing_avatars=False)
         return {
             "success": True,
             "deleted": True,
@@ -597,8 +920,10 @@ class LocalMovieLibraryService:
                 changed_movie_ids.add(movie_id)
 
             await self._save_locked()
+            actor_records = list(self._cache.values())
 
         new_movie_ids = changed_movie_ids - previous_movie_ids
+        actor_result = await self._sync_actor_library(actor_records, download_missing_avatars=True)
         return {
             "success": True,
             "scan_root": normalized_root,
@@ -612,6 +937,7 @@ class LocalMovieLibraryService:
             "total_movies": len(self._cache),
             "total_files": sum(int(record.get("file_count") or 0) for record in self._cache.values()),
             "unrecognized": unrecognized_files[:50],
+            "actor_count": actor_result.get("total_actors") if actor_result else 0,
         }
 
     def _refresh_record_totals(self, record: dict[str, Any], updated_at: str) -> None:
@@ -622,5 +948,21 @@ class LocalMovieLibraryService:
         roots = sorted({str(item.get("scan_root") or "") for item in files if item.get("scan_root")})
         record["scan_roots"] = roots
 
+    def _record_media_info(self, record: dict[str, Any]) -> dict[str, Any]:
+        files = [file_record for file_record in record.get("files", []) if isinstance(file_record, dict)]
+        best_file = max(
+            files,
+            key=lambda item: (int(item.get("resolution_pixels") or 0), int(item.get("bitrate") or 0)),
+            default=None,
+        )
+        if not best_file:
+            return {}
+        media_info = {
+            key: best_file.get(key)
+            for key in ("width", "height", "resolution_pixels", "bitrate", "codec", "duration_seconds")
+            if best_file.get(key) not in (None, "", 0)
+        }
+        return media_info
 
-local_movie_library_service = LocalMovieLibraryService()
+
+local_movie_library_service = LocalMovieLibraryService(actor_library_service=local_actor_library_service)

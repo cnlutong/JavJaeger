@@ -15,6 +15,7 @@ from .local_scrape import (
     _build_metadata,
     _file_size,
     _metadata_full_text,
+    _probe_video_metadata,
     _source_part_marker,
     _walk_video_files,
     _write_actor_images,
@@ -38,7 +39,7 @@ def _iso_mtime(path: Path) -> str:
 
 def _build_library_file_record(path: Path, root: Path) -> dict[str, Any]:
     code = recognize_designation(path.stem)
-    return {
+    record = {
         "movie_id": code,
         "path": str(path),
         "relative_path": str(path.relative_to(root)),
@@ -48,6 +49,8 @@ def _build_library_file_record(path: Path, root: Path) -> dict[str, Any]:
         "extension": path.suffix.lower(),
         "part": _source_part_marker(path.stem),
     }
+    record.update(_probe_video_metadata(path))
+    return record
 
 
 async def _scrape_metadata(movie_ids: list[str], concurrent: int) -> dict[str, dict[str, Any]]:
@@ -268,6 +271,8 @@ async def _write_local_library_information_assets(
         }
 
     primary_video_path = video_paths[0]
+    media_by_path = {str(video_path): _probe_video_metadata(video_path) for video_path in video_paths}
+    await local_movie_library_service.update_file_media_info(movie_id, media_by_path)
     poster_name = None
     sample_names: list[str] = []
     actor_image_names: list[str] = []

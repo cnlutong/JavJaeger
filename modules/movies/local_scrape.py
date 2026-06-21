@@ -470,7 +470,7 @@ def _int_or_none(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
-def _probe_video_metadata(path: Path) -> dict[str, int]:
+def _probe_video_metadata(path: Path) -> dict[str, Any]:
     try:
         completed = subprocess.run(
             [
@@ -480,7 +480,7 @@ def _probe_video_metadata(path: Path) -> dict[str, int]:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height,bit_rate:format=bit_rate",
+                "stream=width,height,bit_rate,codec_name,duration:format=bit_rate,duration",
                 "-of",
                 "json",
                 str(path),
@@ -505,7 +505,9 @@ def _probe_video_metadata(path: Path) -> dict[str, int]:
     width = _int_or_none(stream.get("width"))
     height = _int_or_none(stream.get("height"))
     bitrate = _int_or_none(stream.get("bit_rate")) or _int_or_none(file_format.get("bit_rate"))
-    metadata: dict[str, int] = {}
+    duration = _int_or_none(stream.get("duration")) or _int_or_none(file_format.get("duration"))
+    codec = str(stream.get("codec_name") or "").strip()
+    metadata: dict[str, Any] = {}
     if width:
         metadata["width"] = width
     if height:
@@ -514,6 +516,10 @@ def _probe_video_metadata(path: Path) -> dict[str, int]:
         metadata["resolution_pixels"] = width * height
     if bitrate:
         metadata["bitrate"] = bitrate
+    if codec:
+        metadata["codec"] = codec
+    if duration:
+        metadata["duration_seconds"] = duration
     return metadata
 
 
@@ -614,7 +620,7 @@ def _build_library_record_for_applied_video(
         return None
     raw = metadata.get("raw")
     scrape_status = "found" if isinstance(raw, dict) and raw.get("id") else "recognized"
-    return {
+    record = {
         "movie_id": movie_id,
         "path": str(current_video),
         "relative_path": _safe_relative_path(current_video, library_root),
@@ -629,6 +635,8 @@ def _build_library_record_for_applied_video(
         "scraped_at": scraped_at,
         "full_text": _metadata_full_text(movie_id, metadata),
     }
+    record.update(_probe_video_metadata(current_video))
+    return record
 
 
 async def preview_local_scrape(
@@ -811,6 +819,11 @@ def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | No
         text = "" if value is None else str(value).strip()
         ET.SubElement(root, tag).text = text
 
+    def add_to(parent: ET.Element, tag: str, value: Any) -> None:
+        text = "" if value is None else str(value).strip()
+        if text:
+            ET.SubElement(parent, tag).text = text
+
     add("title", metadata.get("title"))
     add("originaltitle", metadata.get("title"))
     add("sorttitle", metadata.get("title"))
@@ -847,6 +860,17 @@ def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | No
     for genre in metadata.get("genres") or []:
         ET.SubElement(root, "genre").text = genre
         ET.SubElement(root, "tag").text = genre
+
+    media_info = _probe_video_metadata(video_path)
+    if media_info:
+        file_info = ET.SubElement(root, "fileinfo")
+        stream_details = ET.SubElement(file_info, "streamdetails")
+        video = ET.SubElement(stream_details, "video")
+        add_to(video, "codec", media_info.get("codec"))
+        add_to(video, "width", media_info.get("width"))
+        add_to(video, "height", media_info.get("height"))
+        add_to(video, "bitrate", media_info.get("bitrate"))
+        add_to(video, "durationinseconds", media_info.get("duration_seconds"))
 
     xml = ET.tostring(root, encoding="utf-8")
     nfo_path = video_path.with_suffix(".nfo")

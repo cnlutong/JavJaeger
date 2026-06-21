@@ -9,6 +9,8 @@ from modules.automation.schemas import AutomationTaskCreate, AutomationTaskUpdat
 from modules.automation.service import AutomationService
 from modules.automation import service as automation_service_module
 from modules.history.service import local_movie_library_service
+from modules.history.service import local_actor_library_service
+from modules.history import service as history_service_module
 from modules.common import runtime
 from modules.movies import local_scrape
 from modules.movies import local_library as movies_local_library
@@ -38,6 +40,12 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
 def test_local_library_poster_route_is_before_status_route():
     api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
 
+    assert api_paths.index("/api/movies/local-library/actors") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+    assert api_paths.index("/api/movies/local-library/actors/{actor_key}/avatar") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
     assert api_paths.index("/api/movies/local-library/poster/{movie_id}") < api_paths.index(
         "/api/movies/local-library/{movie_id}"
     )
@@ -695,6 +703,160 @@ def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatc
     assert item["target_file"]["bitrate"] == 4_000_000
 
 
+def test_local_scrape_nfo_writes_video_stream_details(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+
+    def fake_probe_video_metadata(path):
+        assert path == video
+        return {
+            "width": 1920,
+            "height": 1080,
+            "resolution_pixels": 1920 * 1080,
+            "bitrate": 4_500_000,
+            "codec": "h264",
+            "duration_seconds": 3600,
+        }
+
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", fake_probe_video_metadata)
+
+    nfo_path = local_scrape._write_nfo(
+        video,
+        {
+            "id": "ABP-123",
+            "title": "ABP-123 Sample Title",
+            "date": "2024-01-02",
+            "stars": [],
+            "genres": [],
+        },
+        None,
+        [],
+    )
+
+    text = nfo_path.read_text(encoding="utf-8-sig")
+    assert "<fileinfo>" in text
+    assert "<streamdetails>" in text
+    assert "<video>" in text
+    assert "<width>1920</width>" in text
+    assert "<height>1080</height>" in text
+    assert "<bitrate>4500000</bitrate>" in text
+    assert "<codec>h264</codec>" in text
+    assert "<durationinseconds>3600</durationinseconds>" in text
+
+
+def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": "ABP-123 Remote Title",
+            "date": "2024-01-02",
+        }
+
+    def fake_probe_video_metadata(path):
+        assert path.resolve() == video.resolve()
+        return {
+            "width": 3840,
+            "height": 2160,
+            "resolution_pixels": 3840 * 2160,
+            "bitrate": 12_000_000,
+        }
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fake_probe_video_metadata)
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path), scrape=True)
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+
+    assert payload["success"] is True
+    record = summary["records"][0]
+    file_record = record["files"][0]
+    assert file_record["width"] == 3840
+    assert file_record["height"] == 2160
+    assert file_record["resolution_pixels"] == 3840 * 2160
+    assert file_record["bitrate"] == 12_000_000
+    assert record["media_info"]["width"] == 3840
+    assert record["media_info"]["height"] == 2160
+    assert record["media_info"]["bitrate"] == 12_000_000
+
+
+def test_local_library_information_download_refreshes_video_media_metadata(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    asyncio.run(
+        service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": video.stat().st_size,
+                    "modified_at": "2024-01-01T00:00:00",
+                    "extension": ".mp4",
+                    "metadata": {"id": "ABP-123", "title": "ABP-123", "raw": {}},
+                    "scrape_status": "skipped",
+                    "scrape_error": None,
+                    "scraped_at": "",
+                    "full_text": "ABP-123",
+                }
+            ],
+        )
+    )
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": "ABP-123 Remote Title",
+            "date": "2024-01-02",
+        }
+
+    def fake_probe_video_metadata(path):
+        assert path.resolve() == video.resolve()
+        return {
+            "width": 1920,
+            "height": 1080,
+            "resolution_pixels": 1920 * 1080,
+            "bitrate": 5_000_000,
+        }
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fake_probe_video_metadata)
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", fake_probe_video_metadata)
+
+    result = asyncio.run(
+        movies_local_library.download_missing_local_library_information(
+            movies_local_library.LocalLibraryInformationDownloadRequest(
+                movie_ids=["ABP-123"],
+                fields=["title", "nfo"],
+                write_nfo=True,
+                download_images=False,
+            )
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+
+    assert result["updated_count"] == 1
+    file_record = summary["records"][0]["files"][0]
+    assert file_record["width"] == 1920
+    assert file_record["height"] == 1080
+    assert file_record["bitrate"] == 5_000_000
+    assert summary["records"][0]["media_info"]["resolution_pixels"] == 1920 * 1080
+    assert "<width>1920</width>" in video.with_suffix(".nfo").read_text(encoding="utf-8-sig")
+
+
 def test_docker_image_installs_ffmpeg_for_local_scrape_media_comparison():
     dockerfile = Path(__file__).resolve().parents[1] / "Dockerfile"
     dockerfile_text = dockerfile.read_text(encoding="utf-8")
@@ -1324,6 +1486,130 @@ def test_local_library_actor_avatar_path_comes_from_movie_actor_directory(tmp_pa
         return await service.get_actor_avatar_path("ABP-123", "Actor/Two")
 
     assert asyncio.run(exercise()) == actor_avatar.resolve()
+
+
+def test_actor_library_indexes_movies_and_downloads_missing_avatar_once(tmp_path, monkeypatch):
+    downloaded = []
+    fetched_star_ids = []
+
+    async def fake_download(url, target, overwrite):
+        downloaded.append((url, target.relative_to(tmp_path), overwrite))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"avatar")
+        return target.name
+
+    async def fake_star_info(star_id):
+        fetched_star_ids.append(star_id)
+        return {
+            "id": star_id,
+            "avatar": f"https://www.javbus.com/pics/actress/{star_id}.jpg",
+        }
+
+    monkeypatch.setattr(history_service_module, "download_image", fake_download)
+    monkeypatch.setattr(history_service_module.javbus_api_service, "get_star_info", fake_star_info)
+
+    async def exercise():
+        service = local_actor_library_service.__class__(
+            str(tmp_path / "actors.json"),
+            str(tmp_path / "actor_images"),
+        )
+        await service.sync_from_movie_records(
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "title": "ABP-123 Sample",
+                    "date": "2024-01-02",
+                    "metadata": {
+                        "actor_refs": [{"id": "star-a", "name": "Actor One"}],
+                        "stars": ["Actor One"],
+                    },
+                }
+            ],
+            download_missing_avatars=True,
+        )
+        first = await service.get_summary()
+        await service.sync_from_movie_records(
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "title": "ABP-123 Sample",
+                    "date": "2024-01-02",
+                    "metadata": {
+                        "actor_refs": [{"id": "star-a", "name": "Actor One"}],
+                        "stars": ["Actor One"],
+                    },
+                },
+                {
+                    "movie_id": "ABP-124",
+                    "title": "ABP-124 Sample",
+                    "date": "2024-02-02",
+                    "metadata": {
+                        "actor_refs": [{"id": "star-a", "name": "Actor One"}],
+                        "stars": ["Actor One"],
+                    },
+                },
+            ],
+            download_missing_avatars=True,
+        )
+        second = await service.get_summary()
+        avatar_path = await service.get_avatar_path("star-a")
+        return first, second, avatar_path
+
+    first, second, avatar_path = asyncio.run(exercise())
+
+    assert first["total_actors"] == 1
+    assert first["actors"][0]["key"] == "star-a"
+    assert first["actors"][0]["movie_ids"] == ["ABP-123"]
+    assert first["actors"][0]["avatar_url"] == "/api/movies/local-library/actors/star-a/avatar"
+    assert second["actors"][0]["movie_ids"] == ["ABP-123", "ABP-124"]
+    assert second["actors"][0]["movie_count"] == 2
+    assert avatar_path == (tmp_path / "actor_images" / "star-a.jpg").resolve()
+    assert downloaded == [
+        ("https://www.javbus.com/pics/actress/star-a.jpg", Path("actor_images") / "star-a.jpg", False)
+    ]
+    assert fetched_star_ids == ["star-a"]
+
+
+def test_local_movie_library_syncs_actor_library_when_metadata_changes(tmp_path):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+
+    async def exercise():
+        actor_service = local_actor_library_service.__class__(
+            str(tmp_path / "actors.json"),
+            str(tmp_path / "actor_images"),
+        )
+        movie_service = local_movie_library_service.__class__(
+            str(tmp_path / "library.json"),
+            actor_library_service=actor_service,
+        )
+        await movie_service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Sample",
+                        "actor_refs": [{"id": "star-a", "name": "Actor One", "avatar": "data:image/jpeg;base64,YXZhdGFy"}],
+                        "stars": ["Actor One"],
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Actor One",
+                }
+            ],
+        )
+        return await actor_service.get_summary()
+
+    summary = asyncio.run(exercise())
+
+    assert summary["total_actors"] == 1
+    assert summary["actors"][0]["name"] == "Actor One"
+    assert summary["actors"][0]["movie_ids"] == ["ABP-123"]
 
 
 def test_local_library_information_check_reports_missing_metadata(tmp_path):

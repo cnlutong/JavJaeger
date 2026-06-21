@@ -1211,6 +1211,7 @@
     const [templateDesignerOpen, setTemplateDesignerOpen] = React3.useState(false);
     const [conflictCompareItem, setConflictCompareItem] = React3.useState(null);
     const [conflictResolutions, setConflictResolutions] = React3.useState({});
+    const [bulkConflictResolution, setBulkConflictResolution] = React3.useState("");
     const [templateDesignerTarget, setTemplateDesignerTarget] = React3.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React3.useState(() => parseTemplateToParts("{code} {title}"));
     const overwriteExisting = Form2.useWatch("overwriteExisting", form);
@@ -1245,6 +1246,7 @@
       { value: "keep_higher_resolution", label: "\u4FDD\u7559\u5206\u8FA8\u7387\u9AD8\u7684" },
       { value: "keep_higher_bitrate", label: "\u4FDD\u7559\u7801\u7387\u9AD8\u7684" }
     ];
+    const selectedConflictItems = selectedItems.filter((item) => item.target_exists && !item.target_duplicate);
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "\u6587\u4EF6\u5939\u6A21\u677F" : "\u6587\u4EF6\u547D\u540D\u6A21\u677F";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
     React3.useEffect(() => {
@@ -1516,9 +1518,24 @@
       return part.value;
     };
     const isResolvableConflict = (item) => Boolean(
-      item?.target_exists && !item?.target_duplicate && item?.source_file && item?.target_file
+      item?.target_exists && !item?.target_duplicate
     );
     const getConflictResolution = (item) => conflictResolutions[item?.source_path] || "";
+    const getConflictSourceFile = (item) => item?.source_file || {
+      path: item?.source_path || "",
+      file_name: item?.file_name || "",
+      size: item?.file_size || 0,
+      modified_at: "",
+      extension: ""
+    };
+    const getConflictTargetFile = (item) => item?.target_file || {
+      path: item?.target_video_path || "",
+      file_name: String(item?.target_video_path || "").split(/[\\/]/).filter(Boolean).pop() || "",
+      exists: true,
+      size: 0,
+      modified_at: "",
+      extension: ""
+    };
     const updateConflictResolution = (item, resolution) => {
       if (!item?.source_path) {
         return;
@@ -1545,6 +1562,26 @@
         setLoadingPreview(false);
       }
     };
+    const buildApplyItems = (sourceItems, overrideConflictResolution = null) => sourceItems.map((item) => ({
+      source_path: item.source_path,
+      code: item.code,
+      metadata: item.metadata,
+      conflict_resolution: overrideConflictResolution || getConflictResolution(item) || null
+    }));
+    const startApplyForItems = async (values, sourceItems, successMessage, overrideConflictResolution = null) => {
+      const payload = {
+        ...buildPayload(values),
+        items: buildApplyItems(sourceItems, overrideConflictResolution)
+      };
+      setLoadingApply(true);
+      try {
+        await startLocalScrapeTask("apply", payload);
+        message3.success(successMessage);
+      } catch (error) {
+        message3.error(`\u6267\u884C\u542F\u52A8\u5931\u8D25\uFF1A${error.message}`);
+        setLoadingApply(false);
+      }
+    };
     const handleApply = async () => {
       let values;
       try {
@@ -1559,23 +1596,37 @@
         setConflictCompareItem(unresolvedConflicts[0]);
         return;
       }
-      const payload = {
-        ...buildPayload(values),
-        items: selectedItems.map((item) => ({
-          source_path: item.source_path,
-          code: item.code,
-          metadata: item.metadata,
-          conflict_resolution: getConflictResolution(item) || null
-        }))
-      };
-      setLoadingApply(true);
-      try {
-        await startLocalScrapeTask("apply", payload);
-        message3.success("\u522E\u524A\u6267\u884C\u5DF2\u5728\u540E\u53F0\u542F\u52A8");
-      } catch (error) {
-        message3.error(`\u6267\u884C\u542F\u52A8\u5931\u8D25\uFF1A${error.message}`);
-        setLoadingApply(false);
+      await startApplyForItems(values, selectedItems, "\u522E\u524A\u6267\u884C\u5DF2\u5728\u540E\u53F0\u542F\u52A8");
+    };
+    const handleBulkConflictApply = async () => {
+      if (selectedConflictItems.length === 0) {
+        message3.warning("\u8BF7\u5148\u9009\u62E9\u9700\u8981\u6279\u91CF\u5904\u7406\u7684\u51B2\u7A81\u6587\u4EF6");
+        return;
       }
+      if (!bulkConflictResolution) {
+        message3.warning("\u8BF7\u5148\u9009\u62E9\u6279\u91CF\u51B2\u7A81\u7B56\u7565");
+        return;
+      }
+      let values;
+      try {
+        values = await form.validateFields();
+      } catch (error) {
+        message3.warning("\u8BF7\u5148\u8865\u5168\u522E\u524A\u8BBE\u7F6E");
+        return;
+      }
+      setConflictResolutions((current) => {
+        const next = { ...current };
+        selectedConflictItems.forEach((item) => {
+          next[item.source_path] = bulkConflictResolution;
+        });
+        return next;
+      });
+      await startApplyForItems(
+        values,
+        selectedConflictItems,
+        `\u5DF2\u6309\u300C${conflictResolutionLabels[bulkConflictResolution]}\u300D\u6279\u91CF\u5904\u7406 ${selectedConflictItems.length} \u4E2A\u51B2\u7A81\u6587\u4EF6`,
+        bulkConflictResolution
+      );
     };
     const handleSelectNonConforming = () => {
       const keys = getDeletableNonConformingLocalScrapeKeys(allItems);
@@ -1675,7 +1726,22 @@
         title: "\u76EE\u6807\u8DEF\u5F84",
         dataIndex: "target_video_path",
         key: "target_video_path",
-        render: (path, item) => /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 0 }, /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: path }, style: { maxWidth: 520 } }, path), item.already_scraped && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u5DF2\u6709 NFO \u548C\u5C01\u9762"), item.target_exists && /* @__PURE__ */ React3.createElement(Space3, { size: 6, wrap: true }, /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728"), isResolvableConflict(item) && /* @__PURE__ */ React3.createElement(Button3, { size: "small", onClick: () => setConflictCompareItem(item) }, "\u6BD4\u8F83\u6587\u4EF6"), getConflictResolution(item) && /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[getConflictResolution(item)])))
+        render: (path, item) => /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 0 }, /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: path }, style: { maxWidth: 520 } }, path), item.already_scraped && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u5DF2\u6709 NFO \u548C\u5C01\u9762"), item.target_exists && /* @__PURE__ */ React3.createElement(Space3, { size: 6, wrap: true }, /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728"), getConflictResolution(item) && /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[getConflictResolution(item)])))
+      },
+      {
+        title: "\u51B2\u7A81\u5904\u7406",
+        key: "conflict_action",
+        width: 150,
+        render: (_, item) => {
+          if (!item.target_exists) {
+            return /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "-");
+          }
+          if (item.target_duplicate) {
+            return /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u76EE\u6807\u91CD\u590D");
+          }
+          const resolution = getConflictResolution(item);
+          return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4 }, /* @__PURE__ */ React3.createElement(Button3, { type: "primary", size: "small", onClick: () => setConflictCompareItem(item) }, resolution ? "\u4FEE\u6539\u7B56\u7565" : "\u9009\u62E9\u7B56\u7565"), resolution ? /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[resolution]) : !overwriteExisting && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u672A\u9009\u62E9\u7B56\u7565"));
+        }
       }
     ];
     return /* @__PURE__ */ React3.createElement("div", { className: "jav-local-scrape" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-local-layout" }, /* @__PURE__ */ React3.createElement("section", { className: "jav-local-settings" }, /* @__PURE__ */ React3.createElement(
@@ -1896,7 +1962,37 @@
         },
         "\u6267\u884C\u9009\u4E2D\u9879"
       )
-    ))), renderActiveTaskPanel(), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
+    ), /* @__PURE__ */ React3.createElement(Space3.Compact, null, /* @__PURE__ */ React3.createElement(
+      Select,
+      {
+        value: bulkConflictResolution || void 0,
+        placeholder: "\u6279\u91CF\u51B2\u7A81\u7B56\u7565",
+        style: { width: 180 },
+        options: conflictResolutionOptions,
+        onChange: setBulkConflictResolution,
+        disabled: selectedConflictItems.length === 0 || loadingApply
+      }
+    ), /* @__PURE__ */ React3.createElement(
+      Popconfirm2,
+      {
+        title: `\u786E\u8BA4\u6309\u8BE5\u7B56\u7565\u6279\u91CF\u5904\u7406 ${selectedConflictItems.length} \u4E2A\u9009\u4E2D\u51B2\u7A81\u6587\u4EF6\uFF1F`,
+        description: "\u6B64\u64CD\u4F5C\u4F1A\u76F4\u63A5\u542F\u52A8\u540E\u53F0\u522E\u524A\u6267\u884C\u4EFB\u52A1\uFF0C\u53EA\u5904\u7406\u5F53\u524D\u9009\u4E2D\u7684\u51B2\u7A81\u6587\u4EF6\u3002",
+        okText: "\u786E\u8BA4\u6267\u884C",
+        cancelText: "\u53D6\u6D88",
+        disabled: selectedConflictItems.length === 0 || !bulkConflictResolution || loadingApply,
+        onConfirm: handleBulkConflictApply
+      },
+      /* @__PURE__ */ React3.createElement(
+        Button3,
+        {
+          type: "primary",
+          disabled: selectedConflictItems.length === 0 || !bulkConflictResolution,
+          loading: loadingApply,
+          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined2 })
+        },
+        "\u6279\u91CF\u5904\u7406\u51B2\u7A81"
+      )
+    )))), renderActiveTaskPanel(), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
       Table2,
       {
         rowKey: "source_path",
@@ -1914,7 +2010,7 @@
           selectedRowKeys,
           onChange: setSelectedRowKeys,
           getCheckboxProps: (item) => ({
-            disabled: isConformingLocalScrapeItem(item) ? item.target_duplicate || isResolvableConflict(item) && !overwriteExisting && !getConflictResolution(item) : false
+            disabled: isConformingLocalScrapeItem(item) ? item.target_duplicate : false
           })
         },
         locale: { emptyText: "\u8BF7\u8F93\u5165\u76EE\u5F55\u5E76\u751F\u6210\u9884\u89C8" }
@@ -1963,8 +2059,8 @@
             gap: 12
           }
         },
-        renderConflictFileDetail("\u6E90\u6587\u4EF6", conflictCompareItem.source_file),
-        renderConflictFileDetail("\u76EE\u6807\u6587\u4EF6", conflictCompareItem.target_file)
+        renderConflictFileDetail("\u6E90\u6587\u4EF6", getConflictSourceFile(conflictCompareItem)),
+        renderConflictFileDetail("\u76EE\u6807\u6587\u4EF6", getConflictTargetFile(conflictCompareItem))
       ), getConflictResolution(conflictCompareItem) && /* @__PURE__ */ React3.createElement(
         Alert,
         {
@@ -2054,8 +2150,10 @@
     Form: Form3,
     Input: Input4,
     InputNumber: InputNumber3,
+    Pagination,
     Popconfirm: Popconfirm3,
     Segmented,
+    Select: Select2,
     Slider,
     Space: Space4,
     Table: Table3,
@@ -2071,14 +2169,30 @@
     DeleteOutlined: DeleteOutlined3,
     DownloadOutlined: DownloadOutlined2,
     FilterOutlined,
-    FolderOpenOutlined: FolderOpenOutlined3,
     PlayCircleOutlined: PlayCircleOutlined3,
     ReloadOutlined: ReloadOutlined2,
     SearchOutlined,
-    UnorderedListOutlined
+    UnorderedListOutlined,
+    UserOutlined
   } = icons4;
   var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React4.createElement(Component, null) : null;
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
+  var LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
+  var LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
+  var LOCAL_LIBRARY_SORT_OPTIONS = [
+    { label: "\u53D1\u884C\u65E5\u671F \u65B0\u5230\u65E7", value: "date_desc" },
+    { label: "\u53D1\u884C\u65E5\u671F \u65E7\u5230\u65B0", value: "date_asc" },
+    { label: "\u6700\u8FD1\u66F4\u65B0", value: "updated_desc" },
+    { label: "\u6700\u8FD1\u5165\u5E93", value: "first_seen_desc" },
+    { label: "\u756A\u53F7 A-Z", value: "movie_id_asc" },
+    { label: "\u756A\u53F7 Z-A", value: "movie_id_desc" },
+    { label: "\u6807\u9898 A-Z", value: "title_asc" },
+    { label: "\u5BB9\u91CF \u5927\u5230\u5C0F", value: "size_desc" },
+    { label: "\u5BB9\u91CF \u5C0F\u5230\u5927", value: "size_asc" },
+    { label: "\u6587\u4EF6\u6570 \u591A\u5230\u5C11", value: "file_count_desc" },
+    { label: "\u5206\u8FA8\u7387 \u9AD8\u5230\u4F4E", value: "resolution_desc" },
+    { label: "\u7801\u7387 \u9AD8\u5230\u4F4E", value: "bitrate_desc" }
+  ];
   var INFORMATION_CHECK_FIELD_OPTIONS = [
     { label: "\u6807\u9898", value: "title" },
     { label: "\u53D1\u884C\u65E5\u671F", value: "date" },
@@ -2131,6 +2245,108 @@
       index += 1;
     }
     return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+  };
+  var formatBitrate2 = (bitrate) => {
+    if (!bitrate) return "-";
+    if (bitrate >= 1e3 * 1e3) {
+      return `${(bitrate / 1e3 / 1e3).toFixed(2)} Mbps`;
+    }
+    if (bitrate >= 1e3) {
+      return `${(bitrate / 1e3).toFixed(0)} Kbps`;
+    }
+    return `${bitrate} bps`;
+  };
+  var formatResolution2 = (mediaInfo) => {
+    if (!mediaInfo?.width || !mediaInfo?.height) {
+      return "-";
+    }
+    return `${mediaInfo.width}x${mediaInfo.height}`;
+  };
+  var primaryMediaInfo = (record) => {
+    if (record?.media_info?.width || record?.media_info?.height || record?.media_info?.bitrate) {
+      return record.media_info;
+    }
+    const files = Array.isArray(record?.files) ? record.files : [];
+    return files.reduce((best, file) => {
+      const bestScore = [Number(best?.resolution_pixels || 0), Number(best?.bitrate || 0)];
+      const fileScore = [Number(file?.resolution_pixels || 0), Number(file?.bitrate || 0)];
+      return fileScore[0] > bestScore[0] || fileScore[0] === bestScore[0] && fileScore[1] > bestScore[1] ? file : best;
+    }, {});
+  };
+  var sortableText = (value) => String(value || "").trim().toLowerCase();
+  var sortableTime = (value) => {
+    const time = Date.parse(String(value || ""));
+    return Number.isFinite(time) ? time : 0;
+  };
+  var compareText = (left, right, direction = "asc") => {
+    const result = sortableText(left).localeCompare(sortableText(right), "zh-CN", { numeric: true, sensitivity: "base" });
+    return direction === "desc" ? -result : result;
+  };
+  var compareNumber = (left, right, direction = "desc") => {
+    const leftNumber = Number(left) || 0;
+    const rightNumber = Number(right) || 0;
+    if (leftNumber === rightNumber) return 0;
+    if (leftNumber === 0) return 1;
+    if (rightNumber === 0) return -1;
+    return direction === "asc" ? leftNumber - rightNumber : rightNumber - leftNumber;
+  };
+  var recordResolutionPixels = (record) => {
+    const mediaInfo = primaryMediaInfo(record);
+    return Number(mediaInfo?.resolution_pixels || 0) || Number(mediaInfo?.width || 0) * Number(mediaInfo?.height || 0);
+  };
+  var sortLocalLibraryRecords = (records, sortRule) => {
+    const comparator = (left, right) => {
+      let result = 0;
+      switch (sortRule) {
+        case "date_asc":
+          result = compareNumber(sortableTime(left.date), sortableTime(right.date), "asc");
+          break;
+        case "updated_desc":
+          result = compareNumber(sortableTime(left.updated_at), sortableTime(right.updated_at), "desc");
+          break;
+        case "first_seen_desc":
+          result = compareNumber(sortableTime(left.first_seen_at), sortableTime(right.first_seen_at), "desc");
+          break;
+        case "movie_id_asc":
+          result = compareText(left.movie_id, right.movie_id, "asc");
+          break;
+        case "movie_id_desc":
+          result = compareText(left.movie_id, right.movie_id, "desc");
+          break;
+        case "title_asc":
+          result = compareText(left.title || left.movie_id, right.title || right.movie_id, "asc");
+          break;
+        case "size_desc":
+          result = compareNumber(left.total_size, right.total_size, "desc");
+          break;
+        case "size_asc":
+          result = compareNumber(left.total_size, right.total_size, "asc");
+          break;
+        case "file_count_desc":
+          result = compareNumber(left.file_count, right.file_count, "desc");
+          break;
+        case "resolution_desc":
+          result = compareNumber(recordResolutionPixels(left), recordResolutionPixels(right), "desc");
+          break;
+        case "bitrate_desc":
+          result = compareNumber(primaryMediaInfo(left)?.bitrate, primaryMediaInfo(right)?.bitrate, "desc");
+          break;
+        case "date_desc":
+        default:
+          result = compareNumber(sortableTime(left.date), sortableTime(right.date), "desc");
+          break;
+      }
+      return result || compareText(left.movie_id, right.movie_id, "asc");
+    };
+    return records.map((record, index) => ({ record, index })).sort((left, right) => comparator(left.record, right.record) || left.index - right.index).map((item) => item.record);
+  };
+  var renderMediaTags = (mediaInfo) => {
+    const resolution = formatResolution2(mediaInfo);
+    const bitrate = formatBitrate2(mediaInfo?.bitrate);
+    if (resolution === "-" && bitrate === "-") {
+      return null;
+    }
+    return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true, className: "jav-library-media-tags" }, resolution !== "-" && /* @__PURE__ */ React4.createElement(Tag3, { color: "geekblue" }, resolution), bitrate !== "-" && /* @__PURE__ */ React4.createElement(Tag3, { color: "gold" }, bitrate));
   };
   var countedOptions = (records, getter) => {
     const counts = /* @__PURE__ */ new Map();
@@ -2217,17 +2433,27 @@
     return sources;
   };
   var MoviePoster = ({ record, compact = false, width = null, variant = "poster", onRatio = null }) => {
-    const [failed, setFailed] = React4.useState(false);
     const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
+    const [failed, setFailed] = React4.useState(false);
+    const [imageLoading, setImageLoading] = React4.useState(!!src);
     const style = width ? { width, height: compact ? Math.round(width * 1.5) : void 0 } : void 0;
+    React4.useEffect(() => {
+      setFailed(false);
+      setImageLoading(!!src);
+    }, [src]);
     if (src && !failed) {
-      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React4.createElement(
+      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, imageLoading && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-loader", "aria-label": "\u5C01\u9762\u52A0\u8F7D\u4E2D" }, /* @__PURE__ */ React4.createElement("span", null, "\u52A0\u8F7D\u5C01\u9762")), /* @__PURE__ */ React4.createElement(
         "img",
         {
+          className: imageLoading ? "is-loading" : "",
           src,
           alt: record.title || record.movie_id,
-          onError: () => setFailed(true),
+          onError: () => {
+            setImageLoading(false);
+            setFailed(true);
+          },
           onLoad: (event) => {
+            setImageLoading(false);
             const { naturalWidth, naturalHeight } = event.currentTarget;
             if (onRatio && naturalWidth > 0 && naturalHeight > 0) {
               onRatio(naturalWidth / naturalHeight);
@@ -2252,18 +2478,30 @@
       }
     ) : /* @__PURE__ */ React4.createElement("span", null, initial)), /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-name" }, actor.name));
   };
+  var ActorLibraryAvatar = ({ actor }) => {
+    const sources = [];
+    if (actor?.key) {
+      sources.push(`/api/movies/local-library/actors/${encodeURIComponent(actor.key)}/avatar`);
+    }
+    const remoteAvatar = proxiedImageSource(actor?.remote_avatar_url || actor?.avatar || "");
+    if (remoteAvatar) {
+      sources.push(remoteAvatar);
+    }
+    const [sourceIndex, setSourceIndex] = React4.useState(0);
+    const src = sources[sourceIndex] || "";
+    const initial = (actor?.name || "?").slice(0, 1).toUpperCase();
+    return /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-card-avatar" }, src ? /* @__PURE__ */ React4.createElement("img", { src, alt: actor.name, onError: () => setSourceIndex((index) => index + 1) }) : /* @__PURE__ */ React4.createElement("span", null, initial));
+  };
   function LocalLibraryPage() {
-    const [form] = Form3.useForm();
     const [library, setLibrary] = React4.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
-    const [scanResult, setScanResult] = React4.useState(null);
+    const [actorLibrary, setActorLibrary] = React4.useState({ actors: [], total_actors: 0 });
     const [informationCheck, setInformationCheck] = React4.useState(null);
     const [loading, setLoading] = React4.useState(false);
-    const [scanning, setScanning] = React4.useState(false);
+    const [actorLibraryLoading, setActorLibraryLoading] = React4.useState(false);
     const [checkingInformation, setCheckingInformation] = React4.useState(false);
     const [downloadingInformation, setDownloadingInformation] = React4.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React4.useState("");
     const [filterOpen, setFilterOpen] = React4.useState(false);
-    const [scanOpen, setScanOpen] = React4.useState(false);
     const [informationCheckOpen, setInformationCheckOpen] = React4.useState(false);
     const [informationCheckFields, setInformationCheckFields] = React4.useState(() => loadInformationCheckSettings().fields);
     const [selectedRecord, setSelectedRecord] = React4.useState(null);
@@ -2271,8 +2509,14 @@
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React4.useState(0);
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React4.useState({});
     const [viewMode, setViewMode] = React4.useState("list");
+    const [sortRule, setSortRule] = React4.useState("date_desc");
+    const [gridPage, setGridPage] = React4.useState(1);
+    const [gridPageLoading, setGridPageLoading] = React4.useState(false);
+    const [listPage, setListPage] = React4.useState(1);
+    const [listPageSize, setListPageSize] = React4.useState(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
     const [listPosterSize, setListPosterSize] = React4.useState(56);
     const [gridPosterSize, setGridPosterSize] = React4.useState(156);
+    const [keywordDraft, setKeywordDraft] = React4.useState("");
     const [filters, setFilters] = React4.useState({
       keyword: "",
       genres: [],
@@ -2285,7 +2529,9 @@
     });
     const [informationCheckForm] = Form3.useForm();
     const [informationDownloadForm] = Form3.useForm();
+    const gridPageLoadingTimerRef = React4.useRef(null);
     const records = library.records || [];
+    const actors = actorLibrary.actors || [];
     const missingInformationByMovieId = React4.useMemo(() => {
       const entries = informationCheck?.records || [];
       return entries.reduce((map, record) => {
@@ -2324,16 +2570,66 @@ ${record.full_text || ""}`.toLowerCase();
         return matchesAny(record.genres, filters.genres) && matchesAny(record.stars, filters.stars) && matchesAny(record.studio, filters.studios) && matchesAny(record.publisher, filters.publishers) && matchesAny(record.series, filters.series) && matchesAny(String(record.date || "").slice(0, 4), filters.years) && matchesAny(record.scan_roots, filters.roots);
       });
     }, [records, filters]);
-    const clearFilters = () => setFilters({
-      keyword: "",
-      genres: [],
-      stars: [],
-      studios: [],
-      publishers: [],
-      series: [],
-      years: [],
-      roots: []
-    });
+    const sortedRecords = React4.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
+    const gridStartIndex = (gridPage - 1) * LOCAL_LIBRARY_GRID_PAGE_SIZE;
+    const visibleGridRecords = React4.useMemo(() => sortedRecords.slice(gridStartIndex, gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE), [sortedRecords, gridStartIndex]);
+    React4.useEffect(() => {
+      setGridPage(1);
+      setListPage(1);
+    }, [records, filters, sortRule]);
+    React4.useEffect(() => () => {
+      if (gridPageLoadingTimerRef.current) {
+        window.clearTimeout(gridPageLoadingTimerRef.current);
+      }
+    }, []);
+    const handleGridPageChange = (page) => {
+      setGridPage(page);
+      setGridPageLoading(true);
+      if (gridPageLoadingTimerRef.current) {
+        window.clearTimeout(gridPageLoadingTimerRef.current);
+      }
+      gridPageLoadingTimerRef.current = window.setTimeout(() => {
+        setGridPageLoading(false);
+      }, 220);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const handleKeywordSearch = () => {
+      setFilters((prev) => ({ ...prev, keyword: keywordDraft.trim() }));
+    };
+    const handleKeywordClear = () => {
+      setKeywordDraft("");
+      setFilters((prev) => ({ ...prev, keyword: "" }));
+    };
+    const clearFilters = () => {
+      setKeywordDraft("");
+      setFilters({
+        keyword: "",
+        genres: [],
+        stars: [],
+        studios: [],
+        publishers: [],
+        series: [],
+        years: [],
+        roots: []
+      });
+    };
+    const loadActorLibrary = async () => {
+      setActorLibraryLoading(true);
+      try {
+        const response = await fetch("/api/movies/local-library/actors");
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.message || "\u52A0\u8F7D\u5931\u8D25");
+        }
+        setActorLibrary(data);
+        return data;
+      } catch (error) {
+        message4.error(`\u6F14\u5458\u4FE1\u606F\u5E93\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
+        return null;
+      } finally {
+        setActorLibraryLoading(false);
+      }
+    };
     const loadLibrary = async () => {
       setLoading(true);
       try {
@@ -2343,6 +2639,7 @@ ${record.full_text || ""}`.toLowerCase();
           throw new Error(data.message || "\u52A0\u8F7D\u5931\u8D25");
         }
         setLibrary(data);
+        await loadActorLibrary();
       } catch (error) {
         message4.error(`\u5F71\u89C6\u5E93\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
       } finally {
@@ -2425,28 +2722,6 @@ ${record.full_text || ""}`.toLowerCase();
         [selectedRecord.movie_id]: ratio
       }));
     };
-    const handleScan = async (values) => {
-      setScanning(true);
-      setScanResult(null);
-      try {
-        const data = await postJson2("/api/movies/local-library/scan", {
-          directory: values.directory,
-          recursive: values.recursive !== false,
-          max_depth: values.maxDepth ?? null,
-          remove_missing: values.removeMissing !== false,
-          scrape: values.scrape !== false,
-          concurrent: values.concurrent || 3
-        });
-        setScanResult(data);
-        await loadLibrary();
-        setScanOpen(false);
-        message4.success(`\u5F71\u89C6\u5E93\u5DF2\u66F4\u65B0\uFF1A${data.recognized_files}/${data.scanned_files} \u4E2A\u6587\u4EF6\u8BC6\u522B\u6210\u529F`);
-      } catch (error) {
-        message4.error(`\u5F71\u89C6\u5E93\u66F4\u65B0\u5931\u8D25\uFF1A${error.message}`);
-      } finally {
-        setScanning(false);
-      }
-    };
     const handleClear = async () => {
       setLoading(true);
       try {
@@ -2455,7 +2730,6 @@ ${record.full_text || ""}`.toLowerCase();
         if (!data.success) {
           throw new Error(data.message || "\u6E05\u7A7A\u5931\u8D25");
         }
-        setScanResult(null);
         await loadLibrary();
         message4.success("\u5F71\u89C6\u5E93\u5DF2\u6E05\u7A7A");
       } catch (error) {
@@ -2593,6 +2867,27 @@ ${record.full_text || ""}`.toLowerCase();
         years: [],
         roots: []
       });
+      setKeywordDraft("");
+      setSelectedRecord(null);
+      setPlayingRecordKey("");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const handleActorLibrarySelect = (actor) => {
+      if (!actor?.name) {
+        return;
+      }
+      setFilters((prev) => ({
+        ...prev,
+        keyword: "",
+        genres: [],
+        stars: [actor.name],
+        studios: [],
+        publishers: [],
+        series: [],
+        years: [],
+        roots: []
+      }));
+      setViewMode("grid");
       setSelectedRecord(null);
       setPlayingRecordKey("");
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2615,12 +2910,12 @@ ${record.full_text || ""}`.toLowerCase();
       return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, values.map((value) => filterKey ? renderFilterTag(filterKey, value, color) : /* @__PURE__ */ React4.createElement(Tag3, { color, key: value }, value)));
     };
     const renderActorList = (record, variant = "compact") => {
-      const actors = normalizeActors(record);
-      if (!actors.length) {
+      const actors2 = normalizeActors(record);
+      if (!actors2.length) {
         return /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "-");
       }
       const className = variant === "cast" ? "jav-library-actor-list is-cast" : "jav-library-actor-list";
-      return /* @__PURE__ */ React4.createElement("div", { className }, actors.map((actor) => /* @__PURE__ */ React4.createElement(
+      return /* @__PURE__ */ React4.createElement("div", { className }, actors2.map((actor) => /* @__PURE__ */ React4.createElement(
         ActorPill,
         {
           key: actor.name,
@@ -2630,13 +2925,43 @@ ${record.full_text || ""}`.toLowerCase();
         }
       )));
     };
+    const renderActorLibraryView = () => {
+      const keyword = String(filters.keyword || "").trim().toLowerCase();
+      const visibleActors = actors.filter((actor) => {
+        if (!keyword) {
+          return true;
+        }
+        const text = `${actor.name || ""}
+${actor.key || ""}
+${(actor.movie_ids || []).join("\n")}`.toLowerCase();
+        return text.includes(keyword);
+      });
+      if (!visibleActors.length) {
+        return /* @__PURE__ */ React4.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, actorLibraryLoading ? "\u6F14\u5458\u4FE1\u606F\u5E93\u52A0\u8F7D\u4E2D" : "\u6682\u65E0\u6F14\u5458\u4FE1\u606F"));
+      }
+      return /* @__PURE__ */ React4.createElement("div", { className: "jav-library-actor-grid" }, visibleActors.map((actor) => /* @__PURE__ */ React4.createElement(
+        "button",
+        {
+          key: actor.key,
+          type: "button",
+          className: "jav-library-actor-card",
+          onClick: () => handleActorLibrarySelect(actor)
+        },
+        /* @__PURE__ */ React4.createElement(ActorLibraryAvatar, { actor }),
+        /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-card-body" }, /* @__PURE__ */ React4.createElement("strong", null, actor.name), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, actor.movie_count || 0, " movies"))
+      )));
+    };
     const renderRecordPreview = () => {
       if (!selectedRecord) {
         return null;
       }
+      const selectedMediaInfo = primaryMediaInfo(selectedRecord);
+      const mediaInfo = selectedMediaInfo;
       const detailRows = [
         ["\u756A\u53F7", selectedRecord.movie_id],
         ["\u53D1\u5E03\u65E5\u671F", selectedRecord.date],
+        ["\u5206\u8FA8\u7387", selectedMediaInfo.width && selectedMediaInfo.height ? formatResolution2(selectedMediaInfo) : ""],
+        ["\u7801\u7387", selectedMediaInfo.bitrate ? formatBitrate2(selectedMediaInfo.bitrate) : ""],
         ["\u5236\u4F5C\u5546", selectedRecord.studio],
         ["\u53D1\u884C\u5546", selectedRecord.publisher],
         ["\u5BFC\u6F14", selectedRecord.director],
@@ -2688,7 +3013,7 @@ ${record.full_text || ""}`.toLowerCase();
           message: "\u522E\u524A\u5F02\u5E38",
           description: selectedRecord.scrape_error
         }
-      )), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section jav-library-preview-cast" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458\u9635\u5BB9"), renderActorList(selectedRecord, "cast")), isPlayingSelectedRecord && /* @__PURE__ */ React4.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React4.createElement("span", null, label), /* @__PURE__ */ React4.createElement("strong", null, value)))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Text4, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React4.createElement(
+      )), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section jav-library-preview-cast" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458\u9635\u5BB9"), renderActorList(selectedRecord, "cast")), isPlayingSelectedRecord && /* @__PURE__ */ React4.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React4.createElement("span", null, label), /* @__PURE__ */ React4.createElement("strong", null, value)))), renderMediaTags(mediaInfo), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Text4, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React4.createElement(
         Button4,
         {
           size: "small",
@@ -2696,7 +3021,7 @@ ${record.full_text || ""}`.toLowerCase();
           onClick: () => handlePlaySelectedRecord(fileIndex)
         },
         "\u64AD\u653E"
-      )), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", ellipsis: { tooltip: file.path } }, formatBytes2(file.size), " \xB7 ", file.path)))))));
+      )), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", ellipsis: { tooltip: file.path } }, formatBytes2(file.size), " \xB7 ", file.path), renderMediaTags(file)))))));
     };
     const columns = [
       {
@@ -2715,13 +3040,13 @@ ${record.full_text || ""}`.toLowerCase();
       {
         title: "\u5F71\u7247\u4FE1\u606F",
         key: "info",
-        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 4 }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, style: { maxWidth: 620 } }, record.title || record.movie_id), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, record.date), record.studio && /* @__PURE__ */ React4.createElement(Tag3, null, record.studio), record.publisher && /* @__PURE__ */ React4.createElement(Tag3, null, record.publisher), record.series && /* @__PURE__ */ React4.createElement(Tag3, { color: "purple" }, record.series)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.genres || []).slice(0, 8).map((genre) => renderFilterTag("genres", genre, "cyan")), (record.genres || []).length > 8 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.genres.length - 8)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta")), (record.stars || []).length > 6 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.stars.length - 6)))
+        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 4 }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, style: { maxWidth: 620 } }, record.title || record.movie_id), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, record.date), record.studio && /* @__PURE__ */ React4.createElement(Tag3, null, record.studio), record.publisher && /* @__PURE__ */ React4.createElement(Tag3, null, record.publisher), record.series && /* @__PURE__ */ React4.createElement(Tag3, { color: "purple" }, record.series)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.genres || []).map((genre) => renderFilterTag("genres", genre, "cyan"))), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta")), (record.stars || []).length > 6 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.stars.length - 6)), renderMediaTags(primaryMediaInfo(record)))
       },
       {
         title: "\u6587\u4EF6",
         key: "files",
         width: 340,
-        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 2 }, /* @__PURE__ */ React4.createElement(Text4, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React4.createElement(Text4, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name)), (record.files || []).length > 3 && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
+        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 2 }, /* @__PURE__ */ React4.createElement(Text4, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React4.createElement(Text4, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name, renderMediaTags(file))), (record.files || []).length > 3 && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
       },
       {
         title: "\u64CD\u4F5C",
@@ -2776,26 +3101,36 @@ ${record.full_text || ""}`.toLowerCase();
         )
       ));
     }
-    return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React4.createElement(Icon3, { as: DatabaseOutlined })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React4.createElement(
+    return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React4.createElement(Icon3, { as: DatabaseOutlined })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React4.createElement(
       Input4,
       {
         allowClear: true,
         prefix: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }),
         placeholder: "\u641C\u7D22\u756A\u53F7\u3001\u6807\u9898\u3001\u6F14\u5458\u3001\u6807\u7B7E",
-        value: filters.keyword,
-        onChange: (event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))
+        value: keywordDraft,
+        onChange: (event) => setKeywordDraft(event.target.value),
+        onPressEnter: handleKeywordSearch
       }
-    ), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React4.createElement(Button4, { type: "primary", icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: handleKeywordSearch }, "\u641C\u7D22"), /* @__PURE__ */ React4.createElement(Button4, { onClick: handleKeywordClear }, "\u6E05\u7A7A")), /* @__PURE__ */ React4.createElement(
       Segmented,
       {
         value: viewMode,
         onChange: setViewMode,
         options: [
           { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: UnorderedListOutlined }), " \u5217\u8868"), value: "list" },
-          { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: AppstoreOutlined }), " \u5361\u7247"), value: "grid" }
+          { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: AppstoreOutlined }), " \u5361\u7247"), value: "grid" },
+          { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: UserOutlined }), " \u6F14\u5458"), value: "actors" }
         ]
       }
-    ), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-size-control" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u5927\u5C0F"), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React4.createElement(
+      Select2,
+      {
+        value: sortRule,
+        onChange: setSortRule,
+        options: LOCAL_LIBRARY_SORT_OPTIONS,
+        "aria-label": "\u5F71\u89C6\u5E93\u6392\u5E8F"
+      }
+    ), viewMode !== "actors" && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-size-control" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u5927\u5C0F"), /* @__PURE__ */ React4.createElement(
       Slider,
       {
         min: viewMode === "grid" ? 120 : 44,
@@ -2805,11 +3140,11 @@ ${record.full_text || ""}`.toLowerCase();
         onChange: viewMode === "grid" ? setGridPosterSize : setListPosterSize,
         tooltip: { formatter: (value) => `${value}px` }
       }
-    )), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FolderOpenOutlined3 }), onClick: () => setScanOpen(true) }, "\u626B\u63CF\u5165\u5E93"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ReloadOutlined2 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React4.createElement(Popconfirm3, { title: "\u786E\u8BA4\u6E05\u7A7A\u5F71\u89C6\u5E93\u6570\u636E\u5E93\uFF1F", onConfirm: handleClear, okText: "\u6E05\u7A7A", cancelText: "\u53D6\u6D88" }, /* @__PURE__ */ React4.createElement(Button4, { danger: true, loading }, "\u6E05\u7A7A"))), activeFilterCount > 0 && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-active-filters" }, filters.keyword.trim() && /* @__PURE__ */ React4.createElement(
+    )), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ReloadOutlined2 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React4.createElement(Popconfirm3, { title: "\u786E\u8BA4\u6E05\u7A7A\u5F71\u89C6\u5E93\u6570\u636E\u5E93\uFF1F", onConfirm: handleClear, okText: "\u6E05\u7A7A", cancelText: "\u53D6\u6D88" }, /* @__PURE__ */ React4.createElement(Button4, { danger: true, loading }, "\u6E05\u7A7A"))), activeFilterCount > 0 && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-active-filters" }, filters.keyword.trim() && /* @__PURE__ */ React4.createElement(
       Tag3,
       {
         closable: true,
-        onClose: () => setFilters((prev) => ({ ...prev, keyword: "" }))
+        onClose: handleKeywordClear
       },
       "\u641C\u7D22: ",
       filters.keyword.trim()
@@ -2822,22 +3157,22 @@ ${record.full_text || ""}`.toLowerCase();
         message: `\u4FE1\u606F\u68C0\u67E5\uFF1A\u5B8C\u6574 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`,
         description: informationCheck.incomplete_count > 0 ? `\u7F3A\u5931 ${informationCheck.incomplete_count} \u90E8\uFF0C\u53EF\u5728\u201C\u68C0\u67E5\u4FE1\u606F\u201D\u7A97\u53E3\u4E2D\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u3002` : "\u5F53\u524D\u5DF2\u5165\u5E93\u5F71\u7247\u4FE1\u606F\u548C\u672C\u5730\u8D44\u6599\u5B8C\u6574\u3002"
       }
-    ), scanResult && /* @__PURE__ */ React4.createElement(
-      Alert2,
+    ), /* @__PURE__ */ React4.createElement(Divider2, { className: "jav-section-divider" }), viewMode === "actors" ? renderActorLibraryView() : viewMode === "grid" ? sortedRecords.length ? /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-grid-toolbar" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, gridStartIndex + 1, "-", Math.min(gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length), " / ", sortedRecords.length), /* @__PURE__ */ React4.createElement(
+      Pagination,
       {
-        style: { marginTop: 14 },
-        type: scanResult.success ? "success" : "warning",
-        showIcon: true,
-        message: `\u626B\u63CF\u5B8C\u6210\uFF1A\u8BC6\u522B ${scanResult.recognized_files || 0}/${scanResult.scanned_files || 0} \u4E2A\u6587\u4EF6`,
-        description: `\u65B0\u589E ${scanResult.new_movie_count || 0}\uFF0C\u66F4\u65B0 ${scanResult.updated_movie_count || 0}\uFF0C\u522E\u524A ${scanResult.scraped_movie_count || 0} \u4E2A\u756A\u53F7\u3002`
+        current: gridPage,
+        pageSize: LOCAL_LIBRARY_GRID_PAGE_SIZE,
+        total: sortedRecords.length,
+        showSizeChanger: false,
+        onChange: handleGridPageChange
       }
-    ), /* @__PURE__ */ React4.createElement(Divider2, { className: "jav-section-divider" }), viewMode === "grid" ? filteredRecords.length ? /* @__PURE__ */ React4.createElement(
+    )), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-grid-wrap" }, gridPageLoading && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-grid-loading", "aria-live": "polite" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-library-grid-loading-icon" }), /* @__PURE__ */ React4.createElement("span", null, "\u6B63\u5728\u52A0\u8F7D\u672C\u5730\u5C01\u9762")), /* @__PURE__ */ React4.createElement(
       "div",
       {
         className: "jav-library-poster-grid",
         style: { "--jav-library-card-min": `${gridPosterSize}px` }
       },
-      filteredRecords.map((record) => /* @__PURE__ */ React4.createElement(
+      visibleGridRecords.map((record) => /* @__PURE__ */ React4.createElement(
         Card3,
         {
           key: record.movie_id,
@@ -2848,6 +3183,7 @@ ${record.full_text || ""}`.toLowerCase();
         },
         /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
         /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, String(record.date).slice(0, 4))),
+        renderMediaTags(primaryMediaInfo(record)),
         /* @__PURE__ */ React4.createElement(
           Popconfirm3,
           {
@@ -2875,48 +3211,44 @@ ${record.full_text || ""}`.toLowerCase();
         ),
         /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-tags" }, (record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta")), (record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan")))
       ))
-    ) : /* @__PURE__ */ React4.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React4.createElement(
+    )), /* @__PURE__ */ React4.createElement(
+      Pagination,
+      {
+        className: "jav-library-grid-pagination-bottom",
+        current: gridPage,
+        pageSize: LOCAL_LIBRARY_GRID_PAGE_SIZE,
+        total: sortedRecords.length,
+        showSizeChanger: false,
+        onChange: handleGridPageChange
+      }
+    )) : /* @__PURE__ */ React4.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React4.createElement(
       Table3,
       {
         rowKey: "movie_id",
         size: "small",
-        dataSource: filteredRecords,
+        dataSource: sortedRecords,
         columns,
         loading,
-        pagination: { pageSize: 12, showSizeChanger: true },
+        pagination: {
+          current: listPage,
+          pageSize: listPageSize,
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 30, 50, 100],
+          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
+          onShowSizeChange: (_, size) => {
+            setListPage(1);
+            setListPageSize(size);
+          },
+          onChange: (page, size) => {
+            setListPage(page);
+            setListPageSize(size);
+          }
+        },
         onRow: (record) => ({
           onClick: () => openRecordPreview(record)
         }),
         locale: { emptyText: "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55" }
       }
-    ), /* @__PURE__ */ React4.createElement(
-      Drawer2,
-      {
-        title: "\u626B\u63CF\u5165\u5E93",
-        placement: "right",
-        width: 420,
-        open: scanOpen,
-        onClose: () => setScanOpen(false)
-      },
-      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u626B\u63CF\u662F\u4F4E\u9891\u7EF4\u62A4\u64CD\u4F5C\u3002\u9009\u62E9\u672C\u5730\u76EE\u5F55\u540E\uFF0C\u7CFB\u7EDF\u4F1A\u8BC6\u522B\u756A\u53F7\u3001\u53EF\u9009\u8054\u7F51\u522E\u524A\uFF0C\u5E76\u66F4\u65B0\u5F71\u89C6\u5E93\u6570\u636E\u5E93\u3002")),
-      /* @__PURE__ */ React4.createElement(
-        Form3,
-        {
-          form,
-          layout: "vertical",
-          initialValues: {
-            recursive: true,
-            removeMissing: true,
-            scrape: true,
-            concurrent: 3
-          },
-          onFinish: handleScan
-        },
-        /* @__PURE__ */ React4.createElement(Form3.Item, { name: "directory", label: "\u626B\u63CF\u76EE\u5F55", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u5F71\u89C6\u5E93\u76EE\u5F55" }] }, /* @__PURE__ */ React4.createElement(DirectoryInput, { placeholder: "Windows: D:\\\\Media\\\\JAV  /  Linux: /media/JAV \u6216 ~/Videos/JAV" })),
-        /* @__PURE__ */ React4.createElement("div", { className: "jav-library-scan-options" }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "removeMissing", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u540C\u6B65\u79FB\u9664\u5931\u6548\u6587\u4EF6")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "scrape", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u8054\u7F51\u522E\u524A"))),
-        /* @__PURE__ */ React4.createElement(Space4, { align: "center", wrap: true }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "maxDepth", label: "\u6700\u5927\u6DF1\u5EA6" }, /* @__PURE__ */ React4.createElement(InputNumber3, { min: 0, placeholder: "\u4E0D\u9650" })), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "concurrent", label: "\u522E\u524A\u5E76\u53D1" }, /* @__PURE__ */ React4.createElement(InputNumber3, { min: 1, max: 5 }))),
-        /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", block: true, loading: scanning, icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FolderOpenOutlined3 }) }, "\u626B\u63CF\u5E76\u5347\u7EA7\u6570\u636E\u5E93")
-      )
     ), /* @__PURE__ */ React4.createElement(
       Drawer2,
       {
@@ -3206,7 +3538,7 @@ ${record.full_text || ""}`.toLowerCase();
     InputNumber: InputNumber5,
     List: List2,
     Popconfirm: Popconfirm4,
-    Select: Select2,
+    Select: Select3,
     Space: Space6,
     Switch: Switch4,
     Table: Table4,
@@ -3578,7 +3910,7 @@ ${record.full_text || ""}`.toLowerCase();
       if (!selectedNode) return /* @__PURE__ */ React6.createElement(Empty2, { image: Empty2.PRESENTED_IMAGE_SIMPLE });
       const config = selectedNode.config || {};
       if (selectedNode.type === "trigger") {
-        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u89E6\u53D1\u6761\u4EF6" }, /* @__PURE__ */ React6.createElement(Select2, { value: currentTask.trigger?.type || "auto", onChange: (type) => updateTrigger({ type }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: "auto" }, "\u81EA\u52A8\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "scheduled" }, "\u5B9A\u65F6\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "interval" }, "\u95F4\u9694\u8FD0\u884C"))), currentTask.trigger?.type === "scheduled" && /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6BCF\u5929\u65F6\u95F4" }, /* @__PURE__ */ React6.createElement(
+        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u89E6\u53D1\u6761\u4EF6" }, /* @__PURE__ */ React6.createElement(Select3, { value: currentTask.trigger?.type || "auto", onChange: (type) => updateTrigger({ type }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "auto" }, "\u81EA\u52A8\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "scheduled" }, "\u5B9A\u65F6\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "interval" }, "\u95F4\u9694\u8FD0\u884C"))), currentTask.trigger?.type === "scheduled" && /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6BCF\u5929\u65F6\u95F4" }, /* @__PURE__ */ React6.createElement(
           Input6,
           {
             value: currentTask.trigger?.scheduled_time || "00:00",
@@ -3597,7 +3929,7 @@ ${record.full_text || ""}`.toLowerCase();
         )));
       }
       if (selectedNode.type === "search") {
-        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u68C0\u7D22\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select2, { value: config.mode || "keyword", onChange: (mode) => updateNodeConfig(selectedNode.id, { mode }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: "keyword" }, "\u5173\u952E\u8BCD"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "codes" }, "\u756A\u53F7\u5217\u8868"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "filter" }, "\u6807\u7B7E\u7B5B\u9009"))), config.mode === "codes" ? /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u756A\u53F7" }, /* @__PURE__ */ React6.createElement(
+        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u68C0\u7D22\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.mode || "keyword", onChange: (mode) => updateNodeConfig(selectedNode.id, { mode }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "keyword" }, "\u5173\u952E\u8BCD"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "codes" }, "\u756A\u53F7\u5217\u8868"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "filter" }, "\u6807\u7B7E\u7B5B\u9009"))), config.mode === "codes" ? /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u756A\u53F7" }, /* @__PURE__ */ React6.createElement(
           Input6.TextArea,
           {
             rows: 5,
@@ -3606,7 +3938,7 @@ ${record.full_text || ""}`.toLowerCase();
             onChange: (event) => updateNodeConfig(selectedNode.id, { codes: event.target.value })
           }
         )) : config.mode === "filter" ? /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement("div", { className: "automation-filter-builder" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u7C7B\u522B\u9884\u89C8\u4E0E\u9009\u62E9" }, /* @__PURE__ */ React6.createElement(
-          Select2,
+          Select3,
           {
             mode: "multiple",
             allowClear: true,
@@ -3618,7 +3950,7 @@ ${record.full_text || ""}`.toLowerCase();
             onChange: (values) => setSelectedFilterValues("genre", values)
           }
         )), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6F14\u5458\u9884\u89C8\u4E0E\u9009\u62E9" }, /* @__PURE__ */ React6.createElement(
-          Select2,
+          Select3,
           {
             mode: "multiple",
             allowClear: true,
@@ -3629,12 +3961,12 @@ ${record.full_text || ""}`.toLowerCase();
             options: actorSelectOptions,
             onChange: (values) => setSelectedFilterValues("star", values)
           }
-        )), /* @__PURE__ */ React6.createElement("div", { className: "automation-filter-summary" }, getSearchFilters(config).length > 0 ? getSearchFilters(config).map((filter) => /* @__PURE__ */ React6.createElement(Tag5, { key: `${filter.type}:${filter.value}`, color: filter.type === "star" ? "magenta" : "cyan" }, FILTER_TYPE_LABELS[filter.type] || filter.type, ": ", filter.label || filter.value)) : /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5C1A\u672A\u9009\u62E9\u7B5B\u9009\u6761\u4EF6")))) : /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5173\u952E\u8BCD" }, /* @__PURE__ */ React6.createElement(Input6, { value: config.keyword || "", onChange: (event) => updateNodeConfig(selectedNode.id, { keyword: event.target.value }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6700\u5927\u7B5B\u9009\u7ED3\u679C" }, /* @__PURE__ */ React6.createElement(Select2, { value: config.max_results || 10, onChange: (max_results) => updateNodeConfig(selectedNode.id, { max_results }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: 10 }, "10"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: 20 }, "20"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: 50 }, "50"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: 100 }, "100"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: 200 }, "200"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "all" }, "\u5168\u90E8"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u78C1\u529B\u6761\u4EF6" }, /* @__PURE__ */ React6.createElement(Select2, { value: config.magnet || "exist", onChange: (magnet) => updateNodeConfig(selectedNode.id, { magnet }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: "exist" }, "\u4EC5\u6709\u78C1\u529B"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u8DF3\u8FC7\u5DF2\u5B58\u5728" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.skip_existing !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { skip_existing: checked }) })));
+        )), /* @__PURE__ */ React6.createElement("div", { className: "automation-filter-summary" }, getSearchFilters(config).length > 0 ? getSearchFilters(config).map((filter) => /* @__PURE__ */ React6.createElement(Tag5, { key: `${filter.type}:${filter.value}`, color: filter.type === "star" ? "magenta" : "cyan" }, FILTER_TYPE_LABELS[filter.type] || filter.type, ": ", filter.label || filter.value)) : /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5C1A\u672A\u9009\u62E9\u7B5B\u9009\u6761\u4EF6")))) : /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5173\u952E\u8BCD" }, /* @__PURE__ */ React6.createElement(Input6, { value: config.keyword || "", onChange: (event) => updateNodeConfig(selectedNode.id, { keyword: event.target.value }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6700\u5927\u7B5B\u9009\u7ED3\u679C" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.max_results || 10, onChange: (max_results) => updateNodeConfig(selectedNode.id, { max_results }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: 10 }, "10"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 20 }, "20"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 50 }, "50"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 100 }, "100"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 200 }, "200"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "all" }, "\u5168\u90E8"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u78C1\u529B\u6761\u4EF6" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.magnet || "exist", onChange: (magnet) => updateNodeConfig(selectedNode.id, { magnet }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "exist" }, "\u4EC5\u6709\u78C1\u529B"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u8DF3\u8FC7\u5DF2\u5B58\u5728" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.skip_existing !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { skip_existing: checked }) })));
       }
       if (selectedNode.type === "magnet") {
-        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6765\u6E90" }, /* @__PURE__ */ React6.createElement(Select2, { value: config.source || "javbus", onChange: (source) => updateNodeConfig(selectedNode.id, { source }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: "javbus" }, "JavBus"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "cilisousuo" }, "Cilisousuo"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5B57\u5E55\u8FC7\u6EE4" }, /* @__PURE__ */ React6.createElement(Select2, { allowClear: true, value: config.has_subtitle, onChange: (has_subtitle) => updateNodeConfig(selectedNode.id, { has_subtitle }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: "true" }, "\u53EA\u8981\u5B57\u5E55"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "false" }, "\u4E0D\u8981\u5B57\u5E55"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6392\u9664 4K" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: !!config.exclude_4k, onChange: (checked) => updateNodeConfig(selectedNode.id, { exclude_4k: checked }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5141\u8BB8\u4E2D\u6587\u5B57\u5E55" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.allow_chinese_subtitles !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { allow_chinese_subtitles: checked }) })));
+        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6765\u6E90" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.source || "javbus", onChange: (source) => updateNodeConfig(selectedNode.id, { source }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "javbus" }, "JavBus"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "cilisousuo" }, "Cilisousuo"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5B57\u5E55\u8FC7\u6EE4" }, /* @__PURE__ */ React6.createElement(Select3, { allowClear: true, value: config.has_subtitle, onChange: (has_subtitle) => updateNodeConfig(selectedNode.id, { has_subtitle }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "true" }, "\u53EA\u8981\u5B57\u5E55"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "false" }, "\u4E0D\u8981\u5B57\u5E55"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6392\u9664 4K" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: !!config.exclude_4k, onChange: (checked) => updateNodeConfig(selectedNode.id, { exclude_4k: checked }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5141\u8BB8\u4E2D\u6587\u5B57\u5E55" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.allow_chinese_subtitles !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { allow_chinese_subtitles: checked }) })));
       }
-      return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u4E0B\u8F7D\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select2, { value: config.tool || "pikpak", onChange: (tool) => updateNodeConfig(selectedNode.id, { tool }) }, /* @__PURE__ */ React6.createElement(Select2.Option, { value: "pikpak" }, "PikPak"), /* @__PURE__ */ React6.createElement(Select2.Option, { value: "aria2" }, "Aria2"))));
+      return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u4E0B\u8F7D\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.tool || "pikpak", onChange: (tool) => updateNodeConfig(selectedNode.id, { tool }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "pikpak" }, "PikPak"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "aria2" }, "Aria2"))));
     };
     const runColumns = [
       { title: "\u65F6\u95F4", dataIndex: "started_at", width: 170 },
@@ -3722,7 +4054,7 @@ ${record.full_text || ""}`.toLowerCase();
     Drawer: Drawer3,
     Input: Input7,
     Form: Form6,
-    Select: Select3,
+    Select: Select4,
     Card: Card6,
     Spin: Spin2,
     message: message7,
@@ -3737,7 +4069,7 @@ ${record.full_text || ""}`.toLowerCase();
   } = antd7;
   var { Header, Content: Content2, Sider } = Layout2;
   var { Title: Title6, Text: Text7 } = Typography7;
-  var { Option } = Select3;
+  var { Option } = Select4;
   var {
     ArrowLeftOutlined: ArrowLeftOutlined2,
     ArrowRightOutlined,
@@ -5001,7 +5333,7 @@ ${record.full_text || ""}`.toLowerCase();
           onCollapse: (value) => setCollapsedLeft(value),
           className: "jav-sidebar jav-sidebar-left"
         },
-        /* @__PURE__ */ React7.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5, className: "jav-sidebar-title" }, "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page" } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React7.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React7.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React7.createElement("a", { onClick: (e) => {
+        /* @__PURE__ */ React7.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5, className: "jav-sidebar-title" }, "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page" } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React7.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React7.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React7.createElement("a", { onClick: (e) => {
           e.stopPropagation();
           filterForm.setFieldsValue({ filterType: "star" });
           setViewMode("browseActor");
@@ -5052,7 +5384,7 @@ ${record.full_text || ""}`.toLowerCase();
           FILTER_TYPE_LABELS2[filter.type] || filter.type,
           ": ",
           filter.label || filter.value
-        )), /* @__PURE__ */ React7.createElement(Button7, { type: "link", size: "small", htmlType: "button", onClick: () => setSelectedFilters([]) }, "\u6E05\u7A7A"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "magnet", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u78C1\u529B\u94FE\u63A5\u72B6\u6001" }, /* @__PURE__ */ React7.createElement(Option, { value: "exist" }, "\u6709\u78C1\u529B\u94FE\u63A5"), /* @__PURE__ */ React7.createElement(Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "type", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u5F71\u7247\u7C7B\u578B" }, /* @__PURE__ */ React7.createElement(Option, { value: "normal" }, "\u6709\u7801\u5F71\u7247"), /* @__PURE__ */ React7.createElement(Option, { value: "uncensored" }, "\u65E0\u7801\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "actorCountFilter", label: "\u6F14\u5458\u4EBA\u6570", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "1" }, "\u5355\u4EBA\u4F5C\u54C1 (=1)"), /* @__PURE__ */ React7.createElement(Option, { value: "2" }, "\u53CC\u4EBA\u4F5C\u54C1 (=2)"), /* @__PURE__ */ React7.createElement(Option, { value: "3" }, "\u4E09\u4EBA\u4F5C\u54C1 (=3)"), /* @__PURE__ */ React7.createElement(Option, { value: "<=2" }, "\u5C11\u4E8E\u7B49\u4E8E2\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: "<=3" }, "\u5C11\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: ">=3" }, "\u5927\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: ">=4" }, "\u5927\u4E8E\u7B49\u4E8E4\u4EBA"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", label: "\u5B57\u5E55\u8981\u6C42", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "" }, "\u5305\u542B\u6216\u4E0D\u5305\u542B\u90FD\u53EF\u4EE5"), /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u5305\u542B\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u4E0D\u542B\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "fetchMode", label: "\u83B7\u53D6\u65B9\u5F0F", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, null, /* @__PURE__ */ React7.createElement(Option, { value: "page" }, "\u9010\u9875\u83B7\u53D6 (\u6BCF\u987530\u4E2A)"), /* @__PURE__ */ React7.createElement(Option, { value: "all" }, "\u83B7\u53D6\u5168\u90E8 (\u6240\u6709\u9875)"))), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: FilterOutlined2 }) }, "\u7B5B\u9009"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }), " \u5F71\u7247\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: searchMovie, layout: "vertical" }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "keyword", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }) }, "\u641C\u7D22"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: searchMagnet, layout: "vertical" }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "movieId", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "sortBy", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u6392\u5E8F\u65B9\u5F0F", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "date" }, "\u65E5\u671F"), /* @__PURE__ */ React7.createElement(Option, { value: "size" }, "\u5927\u5C0F"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "sortOrder", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u6392\u5E8F\u987A\u5E8F", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "asc" }, "\u5347\u5E8F"), /* @__PURE__ */ React7.createElement(Option, { value: "desc" }, "\u964D\u5E8F"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }) }, "\u67E5\u8BE2\u78C1\u529B\u94FE\u63A5"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: DatabaseOutlined2 }), " \u5F71\u7247\u8BC6\u522B"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: handleRecognizeMovie, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "htmlContent", rules: [{ required: true, message: "\u8BF7\u7C98\u8D34HTML\u6E90\u4EE3\u7801" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Input7.TextArea, { placeholder: "\u8BF7\u7C98\u8D34JAVLibrary\u7F51\u9875\u6E90\u4EE3\u7801...", rows: 4 })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React7.createElement(Button7, { type: "link", size: "small", htmlType: "button", onClick: () => setSelectedFilters([]) }, "\u6E05\u7A7A"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "magnet", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u78C1\u529B\u94FE\u63A5\u72B6\u6001" }, /* @__PURE__ */ React7.createElement(Option, { value: "exist" }, "\u6709\u78C1\u529B\u94FE\u63A5"), /* @__PURE__ */ React7.createElement(Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "type", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5F71\u7247\u7C7B\u578B" }, /* @__PURE__ */ React7.createElement(Option, { value: "normal" }, "\u6709\u7801\u5F71\u7247"), /* @__PURE__ */ React7.createElement(Option, { value: "uncensored" }, "\u65E0\u7801\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "actorCountFilter", label: "\u6F14\u5458\u4EBA\u6570", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "1" }, "\u5355\u4EBA\u4F5C\u54C1 (=1)"), /* @__PURE__ */ React7.createElement(Option, { value: "2" }, "\u53CC\u4EBA\u4F5C\u54C1 (=2)"), /* @__PURE__ */ React7.createElement(Option, { value: "3" }, "\u4E09\u4EBA\u4F5C\u54C1 (=3)"), /* @__PURE__ */ React7.createElement(Option, { value: "<=2" }, "\u5C11\u4E8E\u7B49\u4E8E2\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: "<=3" }, "\u5C11\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: ">=3" }, "\u5927\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: ">=4" }, "\u5927\u4E8E\u7B49\u4E8E4\u4EBA"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", label: "\u5B57\u5E55\u8981\u6C42", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "" }, "\u5305\u542B\u6216\u4E0D\u5305\u542B\u90FD\u53EF\u4EE5"), /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u5305\u542B\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u4E0D\u542B\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "fetchMode", label: "\u83B7\u53D6\u65B9\u5F0F", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, null, /* @__PURE__ */ React7.createElement(Option, { value: "page" }, "\u9010\u9875\u83B7\u53D6 (\u6BCF\u987530\u4E2A)"), /* @__PURE__ */ React7.createElement(Option, { value: "all" }, "\u83B7\u53D6\u5168\u90E8 (\u6240\u6709\u9875)"))), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: FilterOutlined2 }) }, "\u7B5B\u9009"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }), " \u5F71\u7247\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: searchMovie, layout: "vertical" }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "keyword", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }) }, "\u641C\u7D22"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: searchMagnet, layout: "vertical" }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "movieId", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "sortBy", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u6392\u5E8F\u65B9\u5F0F", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "date" }, "\u65E5\u671F"), /* @__PURE__ */ React7.createElement(Option, { value: "size" }, "\u5927\u5C0F"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "sortOrder", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u6392\u5E8F\u987A\u5E8F", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "asc" }, "\u5347\u5E8F"), /* @__PURE__ */ React7.createElement(Option, { value: "desc" }, "\u964D\u5E8F"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }) }, "\u67E5\u8BE2\u78C1\u529B\u94FE\u63A5"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: DatabaseOutlined2 }), " \u5F71\u7247\u8BC6\u522B"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: handleRecognizeMovie, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "htmlContent", rules: [{ required: true, message: "\u8BF7\u7C98\u8D34HTML\u6E90\u4EE3\u7801" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Input7.TextArea, { placeholder: "\u8BF7\u7C98\u8D34JAVLibrary\u7F51\u9875\u6E90\u4EE3\u7801...", rows: 4 })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React7.createElement(
           Segmented2,
           {
             block: true,
@@ -5061,7 +5393,7 @@ ${record.full_text || ""}`.toLowerCase();
               { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
             ]
           }
-        )), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React7.createElement(
           Segmented2,
           {
             block: true,
@@ -5079,7 +5411,7 @@ ${record.full_text || ""}`.toLowerCase();
               { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
             ]
           }
-        )), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select3, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React7.createElement(
           Segmented2,
           {
             block: true,
@@ -5170,7 +5502,7 @@ ${record.full_text || ""}`.toLowerCase();
             initialValues: { magnetSource: "javbus", globalExclude4k: false },
             onValuesChange: handleMagnetSettingsChange
           },
-          /* @__PURE__ */ React7.createElement(Form6.Item, { name: "magnetSource", label: "\u9009\u62E9\u6765\u6E90", style: { marginBottom: "12px" } }, /* @__PURE__ */ React7.createElement(Select3, null, /* @__PURE__ */ React7.createElement(Option, { value: "javbus" }, "JavBus API (\u9ED8\u8BA4)"), /* @__PURE__ */ React7.createElement(Option, { value: "cilisousuo" }, "Cilisousuo"))),
+          /* @__PURE__ */ React7.createElement(Form6.Item, { name: "magnetSource", label: "\u9009\u62E9\u6765\u6E90", style: { marginBottom: "12px" } }, /* @__PURE__ */ React7.createElement(Select4, null, /* @__PURE__ */ React7.createElement(Option, { value: "javbus" }, "JavBus API (\u9ED8\u8BA4)"), /* @__PURE__ */ React7.createElement(Option, { value: "cilisousuo" }, "Cilisousuo"))),
           /* @__PURE__ */ React7.createElement(Form6.Item, { name: "globalExclude4k", style: { marginBottom: 0 } }, /* @__PURE__ */ React7.createElement(
             Segmented2,
             {

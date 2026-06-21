@@ -78,6 +78,7 @@ Use this as the source-of-truth ownership map.
 - `modules/history/`
   - download history persistence and APIs
   - local movie library persistence used to avoid duplicate downloads
+  - actor information library persistence and local actor avatar index
   - scraped local movie metadata and full-text persistence
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
