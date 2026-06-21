@@ -10,6 +10,7 @@ test("settings page exposes categorized user configuration sections", () => {
     assert.match(settingsPage, /WebDAV/);
     assert.match(settingsPage, /Aria2/);
     assert.match(settingsPage, /PikPak/);
+    assert.match(settingsPage, /115网盘/);
     assert.match(settingsPage, /session_secret/);
 });
 
@@ -25,6 +26,8 @@ test("settings page strips blank sensitive fields before saving", () => {
     assert.match(settingsPage, /delete payload\.webdav\.password/);
     assert.match(settingsPage, /delete payload\.aria2\.secret/);
     assert.match(settingsPage, /delete payload\.pikpak\.password/);
+    assert.match(settingsPage, /delete payload\.pan115\.access_token/);
+    assert.match(settingsPage, /delete payload\.pan115\.refresh_token/);
 });
 
 test("settings API has a grouped update helper", () => {

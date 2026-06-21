@@ -39,6 +39,7 @@ const withSecretPlaceholders = (payload = {}) => ({
     webdav: { ...(payload.webdav || {}), password: "" },
     aria2: { ...(payload.aria2 || {}), secret: "" },
     pikpak: { ...(payload.pikpak || {}), password: "" },
+    pan115: { ...(payload.pan115 || {}), access_token: "", refresh_token: "" },
 });
 
 const buildSettingsPayload = (values = {}) => {
@@ -47,6 +48,7 @@ const buildSettingsPayload = (values = {}) => {
         webdav: { ...(values.webdav || {}) },
         aria2: { ...(values.aria2 || {}) },
         pikpak: { ...(values.pikpak || {}) },
+        pan115: { ...(values.pan115 || {}) },
     };
 
     if (!payload.webdav.password) {
@@ -57,6 +59,12 @@ const buildSettingsPayload = (values = {}) => {
     }
     if (!payload.pikpak.password) {
         delete payload.pikpak.password;
+    }
+    if (!payload.pan115.access_token) {
+        delete payload.pan115.access_token;
+    }
+    if (!payload.pan115.refresh_token) {
+        delete payload.pan115.refresh_token;
     }
 
     return payload;
@@ -343,6 +351,37 @@ export default function SettingsPage() {
                                         </Form.Item>
                                     </Col>
                                 </Row>
+                            </Card>
+                        </Col>
+
+                        <Col xs={24} lg={12}>
+                            <Card className="webdav-connection-card" title={<><Icon as={CloudServerOutlined} /> 115网盘</>}>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["pan115", "enabled"]} label="启用配置下发" valuePropName="checked">
+                                            <Switch />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item name={["pan115", "save_dir_id"]} label="保存目录 ID">
+                                            <Input placeholder="0" autoComplete="off" />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                                <Form.Item
+                                    name={["pan115", "access_token"]}
+                                    label="Access Token"
+                                    extra={settings?.pan115?.has_access_token ? "已保存 access token；留空表示保留原值" : "仅在填写时写入 config.json"}
+                                >
+                                    <Input.Password autoComplete="new-password" />
+                                </Form.Item>
+                                <Form.Item
+                                    name={["pan115", "refresh_token"]}
+                                    label="Refresh Token"
+                                    extra={settings?.pan115?.has_refresh_token ? "已保存 refresh token；留空表示保留原值" : "可选；用于 access token 过期后自动刷新"}
+                                >
+                                    <Input.Password autoComplete="new-password" />
+                                </Form.Item>
                             </Card>
                         </Col>
 

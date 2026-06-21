@@ -438,7 +438,9 @@ export default function AutomationPage() {
             return node.config?.keyword || "关键词";
         }
         if (node.type === "magnet") return node.config?.source === "cilisousuo" ? "Cilisousuo" : "JavBus";
-        return node.config?.tool === "aria2" ? "Aria2" : "PikPak";
+        if (node.config?.tool === "aria2") return "Aria2";
+        if (node.config?.tool === "115") return "115网盘";
+        return "PikPak";
     };
 
     const renderInspector = () => {
@@ -588,6 +590,7 @@ export default function AutomationPage() {
                 <Form.Item label="下载方式">
                     <Select value={config.tool || "pikpak"} onChange={(tool) => updateNodeConfig(selectedNode.id, { tool })}>
                         <Select.Option value="pikpak">PikPak</Select.Option>
+                        <Select.Option value="115">115网盘</Select.Option>
                         <Select.Option value="aria2">Aria2</Select.Option>
                     </Select>
                 </Form.Item>

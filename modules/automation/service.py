@@ -13,6 +13,8 @@ from modules.magnets.service import get_best_magnet_payload
 from modules.movies.service import filter_movies_by_detail_conditions
 from modules.pikpak.schemas import DownloadRequest
 from modules.pikpak.service import download as pikpak_download
+from modules.pan115.schemas import DownloadRequest as Pan115DownloadRequest
+from modules.pan115.service import download as pan115_download
 from modules.webdav.clients import Aria2Client
 
 from .schemas import (
@@ -337,6 +339,10 @@ class AutomationService:
         movie_ids = [item["movie_id"] for item in prepared]
         if tool == "aria2":
             return await self._dispatch_to_aria2(magnet_links, movie_ids)
+        if tool in {"115", "pan115"}:
+            payload = await pan115_download(Pan115DownloadRequest(magnet_links=magnet_links, movie_ids=movie_ids))
+            results = payload.get("results") if isinstance(payload, dict) else []
+            return list(results or [])
 
         payload = await pikpak_download(DownloadRequest(magnet_links=magnet_links, movie_ids=movie_ids))
         results = payload.get("results") if isinstance(payload, dict) else []

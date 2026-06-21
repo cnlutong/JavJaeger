@@ -42,6 +42,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "password": "",
         "auto_login": False,
     },
+    "pan115": {
+        "enabled": False,
+        "access_token": "",
+        "refresh_token": "",
+        "save_dir_id": "0",
+    },
 }
 
 CONFIG_PATH = os.getenv("JAVJAEGER_CONFIG_PATH", "config.json")
@@ -185,6 +191,10 @@ def get_pikpak_config() -> dict[str, Any]:
     return copy.deepcopy(config.get("pikpak", DEFAULT_CONFIG["pikpak"]))
 
 
+def get_pan115_config() -> dict[str, Any]:
+    return copy.deepcopy(config.get("pan115", DEFAULT_CONFIG["pan115"]))
+
+
 def get_javbus_config() -> dict[str, Any]:
     javbus_config = copy.deepcopy(config.get("javbus", DEFAULT_CONFIG["javbus"]))
     env_base_url = os.getenv("JAVBUS_BASE_URL")
@@ -203,9 +213,11 @@ def build_client_config() -> dict[str, Any]:
     webdav_config = get_webdav_config()
     aria2_config = get_aria2_config()
     pikpak_config = get_pikpak_config()
+    pan115_config = get_pan115_config()
     webdav_enabled = bool(webdav_config.get("enabled"))
     aria2_enabled = bool(aria2_config.get("enabled"))
     pikpak_enabled = bool(pikpak_config.get("enabled"))
+    pan115_enabled = bool(pan115_config.get("enabled"))
     return {
         "webdav": {
             "configured": bool(webdav_enabled and webdav_config.get("url")),
@@ -227,6 +239,13 @@ def build_client_config() -> dict[str, Any]:
             "username": pikpak_config.get("username") or "",
             "auto_login": bool(pikpak_config.get("auto_login")),
         },
+        "pan115": {
+            "configured": bool(pan115_enabled and pan115_config.get("access_token")),
+            "enabled": pan115_enabled,
+            "save_dir_id": pan115_config.get("save_dir_id") or "0",
+            "has_access_token": bool(pan115_config.get("access_token")),
+            "has_refresh_token": bool(pan115_config.get("refresh_token")),
+        },
     }
 
 
@@ -246,6 +265,7 @@ def build_system_config_summary() -> dict[str, Any]:
             "webdav_configured": client_config["webdav"]["configured"],
             "aria2_configured": client_config["aria2"]["configured"],
             "pikpak_configured": client_config["pikpak"]["configured"],
+            "pan115_configured": client_config["pan115"]["configured"],
         },
     }
 

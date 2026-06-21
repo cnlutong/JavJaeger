@@ -13,6 +13,7 @@ from modules.javbus_api import javbus_api_service
 from modules.javbus_api.router import router as javbus_api_router
 from modules.magnets.router import router as magnets_router
 from modules.movies.router import router as movies_router
+from modules.pan115.router import router as pan115_router
 from modules.pikpak.router import router as pikpak_router
 from modules.proxy.router import router as proxy_router
 from modules.system.router import router as system_router
@@ -52,6 +53,7 @@ app.include_router(movies_router)
 app.include_router(magnets_router)
 app.include_router(javbus_api_router)
 app.include_router(pikpak_router)
+app.include_router(pan115_router)
 app.include_router(webdav_router)
 app.include_router(automation_router)
 app.include_router(proxy_router)

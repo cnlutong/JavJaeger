@@ -14,6 +14,8 @@ import {
 } from "../utils/localScrapeNamingTemplates.mjs";
 import {
     getDeletableNonConformingLocalScrapeKeys,
+    getLocalScrapeDiagnosticLogs,
+    getLocalScrapeIssueReason,
     getNonConformingLocalScrapeItems,
     getVisibleLocalScrapeItems,
     isConformingLocalScrapeItem,
@@ -104,26 +106,36 @@ const formatResolution = (file) => {
     return `${file.width}x${file.height}`;
 };
 
-const statusTag = (item) => {
+const statusTag = (item, onInspect = null) => {
+    let tag;
     if (item.target_exists) {
-        return <Tag color="red" icon={<Icon as={WarningOutlined} />}>冲突</Tag>;
+        tag = <Tag color="red" icon={<Icon as={WarningOutlined} />}>冲突</Tag>;
+    } else if (item.scrape_status === "found") {
+        tag = <Tag color="green" icon={<Icon as={CheckCircleOutlined} />}>已匹配</Tag>;
+    } else if (item.scrape_status === "recognized") {
+        tag = <Tag color="blue">已识别</Tag>;
+    } else if (item.scrape_status === "unrecognized") {
+        tag = <Tag color="orange">未识别</Tag>;
+    } else if (item.scrape_status === "not_found") {
+        tag = <Tag color="volcano">未找到</Tag>;
+    } else if (item.scrape_status === "failed") {
+        tag = <Tag color="red">失败</Tag>;
+    } else {
+        tag = <Tag>待处理</Tag>;
     }
-    if (item.scrape_status === "found") {
-        return <Tag color="green" icon={<Icon as={CheckCircleOutlined} />}>已匹配</Tag>;
+
+    if (!onInspect || !getLocalScrapeIssueReason(item)) {
+        return tag;
     }
-    if (item.scrape_status === "recognized") {
-        return <Tag color="blue">已识别</Tag>;
-    }
-    if (item.scrape_status === "unrecognized") {
-        return <Tag color="orange">未识别</Tag>;
-    }
-    if (item.scrape_status === "not_found") {
-        return <Tag color="volcano">未找到</Tag>;
-    }
-    if (item.scrape_status === "failed") {
-        return <Tag color="red">失败</Tag>;
-    }
-    return <Tag>待处理</Tag>;
+
+    return (
+        <Space direction="vertical" size={2}>
+            {tag}
+            <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => onInspect(item)}>
+                查看原因
+            </Button>
+        </Space>
+    );
 };
 
 const genreTags = (genres) => {
@@ -163,6 +175,7 @@ export default function LocalScrapePage() {
     const [bulkConflictResolution, setBulkConflictResolution] = React.useState("");
     const [templateDesignerTarget, setTemplateDesignerTarget] = React.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React.useState(() => parseTemplateToParts("{code} {title}"));
+    const [scrapeDetailItem, setScrapeDetailItem] = React.useState(null);
     const overwriteExisting = Form.useWatch("overwriteExisting", form);
 
     const allItems = preview?.items || [];
@@ -748,12 +761,60 @@ export default function LocalScrapePage() {
         );
     };
 
+    const renderScrapeDetailDrawer = () => {
+        const logs = getLocalScrapeDiagnosticLogs(scrapeDetailItem);
+        return (
+            <Drawer
+                title="刮削异常详情"
+                open={Boolean(scrapeDetailItem)}
+                onClose={() => setScrapeDetailItem(null)}
+                width={640}
+                placement="right"
+            >
+                {scrapeDetailItem && (
+                    <Space direction="vertical" size={14} style={{ width: "100%" }}>
+                        <Space wrap>
+                            {statusTag(scrapeDetailItem)}
+                            {scrapeDetailItem.code && <Tag color="blue">{scrapeDetailItem.code}</Tag>}
+                        </Space>
+                        <Space direction="vertical" size={2} style={{ width: "100%" }}>
+                            <Text type="secondary">文件</Text>
+                            <Text strong>{scrapeDetailItem.file_name || "-"}</Text>
+                            <Text copyable ellipsis={{ tooltip: scrapeDetailItem.source_path || "-" }}>
+                                {scrapeDetailItem.source_path || "-"}
+                            </Text>
+                        </Space>
+                        <Alert
+                            type={scrapeDetailItem.scrape_status === "failed" ? "error" : "warning"}
+                            showIcon
+                            message="具体原因"
+                            description={getLocalScrapeIssueReason(scrapeDetailItem) || "暂无详细原因"}
+                        />
+                        {logs.length > 0 && (
+                            <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                                <Text strong>保留日志</Text>
+                                <div className="jav-local-task-log">
+                                    {logs.map((entry, index) => (
+                                        <div key={`${entry.time || "scrape-log"}-${index}`}>
+                                            <Text type="secondary">{entry.time ? entry.time.slice(11, 19) : "--:--:--"}</Text>
+                                            <Text>{entry.message}</Text>
+                                        </div>
+                                    ))}
+                                </div>
+                            </Space>
+                        )}
+                    </Space>
+                )}
+            </Drawer>
+        );
+    };
+
     const columns = [
         {
             title: "状态",
             key: "status",
             width: 104,
-            render: (_, item) => statusTag(item),
+            render: (_, item) => statusTag(item, setScrapeDetailItem),
         },
         {
             title: "文件",
@@ -1197,6 +1258,7 @@ export default function LocalScrapePage() {
                     )}
                 </section>
             </div>
+            {renderScrapeDetailDrawer()}
             <Drawer
                 title="冲突文件比较"
                 open={Boolean(conflictCompareItem)}

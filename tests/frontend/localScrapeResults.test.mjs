@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
     getDeletableNonConformingLocalScrapeKeys,
+    getLocalScrapeDiagnosticLogs,
+    getLocalScrapeIssueReason,
     getVisibleLocalScrapeItems,
     isConformingLocalScrapeItem,
 } from "../../frontend/src/utils/localScrapeResults.mjs";
@@ -100,4 +102,28 @@ test("local scrape page can delete all non-conforming rows without a manual sele
     assert.match(localScrapePage, /const handleDeleteAllNonConforming = async \(\) =>/);
     assert.match(localScrapePage, /handleDeleteAllNonConforming/);
     assert.match(localScrapePage, /getDeletableNonConformingLocalScrapeKeys\(allItems\)/);
+});
+
+test("local scrape abnormal rows expose clickable diagnostic details", () => {
+    const failed = {
+        scrape_status: "failed",
+        error: "metadata_fetch_failed",
+        scrape_reason: "JavBus request timed out",
+        scrape_logs: [{ time: "2026-06-21T10:00:00", message: "metadata request failed" }],
+    };
+
+    assert.equal(getLocalScrapeIssueReason(failed), "JavBus request timed out");
+    assert.deepEqual(getLocalScrapeDiagnosticLogs(failed), [
+        { time: "2026-06-21T10:00:00", message: "metadata request failed" },
+    ]);
+    assert.deepEqual(getLocalScrapeDiagnosticLogs({ scrape_logs: [{ level: "error", message: "failed" }] }), [
+        { time: "", level: "error", message: "failed" },
+    ]);
+    assert.match(localScrapePage, /const \[scrapeDetailItem, setScrapeDetailItem\] = React\.useState\(null\)/);
+    assert.match(localScrapePage, /getLocalScrapeIssueReason\(item\)/);
+    assert.match(localScrapePage, /onClick=\{\(\) => onInspect\(item\)\}/);
+    assert.match(localScrapePage, /statusTag\(item, setScrapeDetailItem\)/);
+    assert.match(localScrapePage, /查看原因/);
+    assert.match(localScrapePage, /title="刮削异常详情"/);
+    assert.match(localScrapePage, /getLocalScrapeDiagnosticLogs\(scrapeDetailItem\)/);
 });

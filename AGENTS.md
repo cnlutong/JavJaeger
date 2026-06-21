@@ -86,6 +86,9 @@ Use this as the source-of-truth ownership map.
   - magnet lookup and selection policy
 - `modules/pikpak/`
   - PikPak login and download dispatch
+- `modules/pan115/`
+  - 115 Open API token-based offline download dispatch
+  - 115 token refresh and refreshed-token persistence
 - `modules/webdav/`
   - WebDAV browsing
   - Aria2 dispatch
@@ -292,7 +295,9 @@ Current approved backend cross-module dependencies:
 - `history` -> `javbus_api`
 - `system` -> `javbus_api`
 - `pikpak` -> `history`
-- `automation` -> `javbus_api`, `movies`, `magnets`, `pikpak`, `webdav`, `history`
+- `pan115` -> `history`
+- `pan115` -> `common`
+- `automation` -> `javbus_api`, `movies`, `magnets`, `pikpak`, `pan115`, `webdav`, `history`
 
 If a new module is needed, define its ownership and allowed imports before writing code.
 

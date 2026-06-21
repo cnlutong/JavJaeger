@@ -167,6 +167,14 @@ def _emit_progress(progress_callback: ProgressCallback | None, event: dict[str, 
         logger.warning("Local scrape progress callback failed: %s", exc)
 
 
+def _scrape_diagnostic_log(message: str, level: str = "info") -> dict[str, str]:
+    return {
+        "time": datetime.datetime.now().isoformat(),
+        "level": level,
+        "message": message,
+    }
+
+
 def _walk_video_files(root: Path, recursive: bool, max_depth: int | None) -> list[Path]:
     files: list[Path] = []
     root = root.resolve()
@@ -687,6 +695,10 @@ async def preview_local_scrape(
         movie_detail = None
         scrape_status = "skipped"
         error = None
+        scrape_reason = ""
+        scrape_logs = [
+            _scrape_diagnostic_log(f"开始处理文件：{candidate.path.name}"),
+        ]
         _emit_progress(
             progress_callback,
             {
@@ -698,18 +710,31 @@ async def preview_local_scrape(
             },
         )
         if candidate.code and request.scrape:
+            scrape_logs.append(_scrape_diagnostic_log(f"识别到番号：{candidate.code}"))
             async with semaphore:
                 try:
                     movie_detail = await javbus_api_service.get_movie_detail(candidate.code)
                     scrape_status = "found" if movie_detail and movie_detail.get("id") else "not_found"
+                    if scrape_status == "found":
+                        scrape_reason = f"已通过 JavBus 获取番号 {candidate.code} 的元数据"
+                        scrape_logs.append(_scrape_diagnostic_log(scrape_reason))
+                    else:
+                        scrape_reason = f"已识别番号 {candidate.code}，但 JavBus 未返回元数据"
+                        scrape_logs.append(_scrape_diagnostic_log(scrape_reason, "warning"))
                 except Exception as exc:
                     logger.warning("Local scrape metadata fetch failed for %s: %s", candidate.code, exc)
                     scrape_status = "failed"
                     error = "metadata_fetch_failed"
+                    scrape_reason = f"获取番号 {candidate.code} 元数据失败：{exc}"
+                    scrape_logs.append(_scrape_diagnostic_log(scrape_reason, "error"))
         elif candidate.code:
             scrape_status = "recognized"
+            scrape_reason = f"已识别番号 {candidate.code}，但当前预览未启用元数据刮削"
+            scrape_logs.append(_scrape_diagnostic_log(scrape_reason))
         else:
             scrape_status = "unrecognized"
+            scrape_reason = "文件名未匹配到支持的番号格式"
+            scrape_logs.append(_scrape_diagnostic_log(scrape_reason, "warning"))
 
         metadata = _build_metadata(movie_detail, candidate.code, candidate.path.stem)
         target_dir, target_video, target_stem = _build_target_paths(
@@ -738,6 +763,8 @@ async def preview_local_scrape(
             "recognition_message": candidate.recognition_message,
             "scrape_status": scrape_status,
             "error": error,
+            "scrape_reason": scrape_reason,
+            "scrape_logs": scrape_logs,
             "already_scraped": already_scraped,
             "metadata": metadata,
             "target_stem": target_stem,

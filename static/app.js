@@ -944,6 +944,12 @@
 
   // frontend/src/utils/localScrapeResults.mjs
   var isConformingLocalScrapeItem = (item) => item?.scrape_status === "found";
+  var FALLBACK_SCRAPE_REASONS = {
+    recognized: "\u5DF2\u8BC6\u522B\u756A\u53F7\uFF0C\u4F46\u5F53\u524D\u9884\u89C8\u672A\u542F\u7528\u5143\u6570\u636E\u522E\u524A",
+    unrecognized: "\u6587\u4EF6\u540D\u672A\u5339\u914D\u5230\u652F\u6301\u7684\u756A\u53F7\u683C\u5F0F",
+    not_found: "\u5DF2\u8BC6\u522B\u756A\u53F7\uFF0C\u4F46\u5143\u6570\u636E\u6E90\u672A\u8FD4\u56DE\u5F71\u7247\u4FE1\u606F",
+    failed: "\u522E\u524A\u8FC7\u7A0B\u4E2D\u53D1\u751F\u5F02\u5E38"
+  };
   var getNonConformingLocalScrapeItems = (items = []) => {
     const source = Array.isArray(items) ? items : [];
     return source.filter((item) => !isConformingLocalScrapeItem(item));
@@ -957,6 +963,39 @@
   };
   var getDeletableNonConformingLocalScrapeKeys = (items = []) => {
     return getNonConformingLocalScrapeItems(items).filter((item) => item?.source_path).map((item) => item.source_path);
+  };
+  var getLocalScrapeIssueReason = (item) => {
+    if (!item || isConformingLocalScrapeItem(item)) {
+      return "";
+    }
+    const explicitReason = String(item.scrape_reason || item.scrape_error || item.error || "").trim();
+    if (explicitReason) {
+      return explicitReason;
+    }
+    return FALLBACK_SCRAPE_REASONS[item.scrape_status] || "\u8BE5\u6587\u4EF6\u672A\u6EE1\u8DB3\u53EF\u522E\u524A\u6761\u4EF6";
+  };
+  var getLocalScrapeDiagnosticLogs = (item) => {
+    const logs = Array.isArray(item?.scrape_logs) ? item.scrape_logs : [];
+    return logs.map((entry) => {
+      if (typeof entry === "string") {
+        return { time: "", level: "info", message: entry };
+      }
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const message8 = String(entry.message || "").trim();
+      if (!message8) {
+        return null;
+      }
+      const normalized = {
+        time: String(entry.time || ""),
+        message: message8
+      };
+      if (entry.level) {
+        normalized.level = String(entry.level);
+      }
+      return normalized;
+    }).filter(Boolean);
   };
 
   // frontend/src/components/DirectoryInput.jsx
@@ -1164,26 +1203,27 @@
     }
     return `${file.width}x${file.height}`;
   };
-  var statusTag = (item) => {
+  var statusTag = (item, onInspect = null) => {
+    let tag;
     if (item.target_exists) {
-      return /* @__PURE__ */ React3.createElement(Tag2, { color: "red", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: WarningOutlined }) }, "\u51B2\u7A81");
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "red", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: WarningOutlined }) }, "\u51B2\u7A81");
+    } else if (item.scrape_status === "found") {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "green", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: CheckCircleOutlined }) }, "\u5DF2\u5339\u914D");
+    } else if (item.scrape_status === "recognized") {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "blue" }, "\u5DF2\u8BC6\u522B");
+    } else if (item.scrape_status === "unrecognized") {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "orange" }, "\u672A\u8BC6\u522B");
+    } else if (item.scrape_status === "not_found") {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "volcano" }, "\u672A\u627E\u5230");
+    } else if (item.scrape_status === "failed") {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u5931\u8D25");
+    } else {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, null, "\u5F85\u5904\u7406");
     }
-    if (item.scrape_status === "found") {
-      return /* @__PURE__ */ React3.createElement(Tag2, { color: "green", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: CheckCircleOutlined }) }, "\u5DF2\u5339\u914D");
+    if (!onInspect || !getLocalScrapeIssueReason(item)) {
+      return tag;
     }
-    if (item.scrape_status === "recognized") {
-      return /* @__PURE__ */ React3.createElement(Tag2, { color: "blue" }, "\u5DF2\u8BC6\u522B");
-    }
-    if (item.scrape_status === "unrecognized") {
-      return /* @__PURE__ */ React3.createElement(Tag2, { color: "orange" }, "\u672A\u8BC6\u522B");
-    }
-    if (item.scrape_status === "not_found") {
-      return /* @__PURE__ */ React3.createElement(Tag2, { color: "volcano" }, "\u672A\u627E\u5230");
-    }
-    if (item.scrape_status === "failed") {
-      return /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u5931\u8D25");
-    }
-    return /* @__PURE__ */ React3.createElement(Tag2, null, "\u5F85\u5904\u7406");
+    return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 2 }, tag, /* @__PURE__ */ React3.createElement(Button3, { type: "link", size: "small", style: { padding: 0, height: "auto" }, onClick: () => onInspect(item) }, "\u67E5\u770B\u539F\u56E0"));
   };
   var genreTags = (genres) => {
     const values = Array.isArray(genres) ? genres.filter(Boolean) : [];
@@ -1214,6 +1254,7 @@
     const [bulkConflictResolution, setBulkConflictResolution] = React3.useState("");
     const [templateDesignerTarget, setTemplateDesignerTarget] = React3.useState("folderTemplate");
     const [templateDesignerParts, setTemplateDesignerParts] = React3.useState(() => parseTemplateToParts("{code} {title}"));
+    const [scrapeDetailItem, setScrapeDetailItem] = React3.useState(null);
     const overwriteExisting = Form2.useWatch("overwriteExisting", form);
     const allItems = preview?.items || [];
     const items = getVisibleLocalScrapeItems(allItems, showNonConforming);
@@ -1697,12 +1738,34 @@
         }
       ), /* @__PURE__ */ React3.createElement(Text3, null, activeTask.message || "\u4EFB\u52A1\u6B63\u5728\u540E\u53F0\u8FD0\u884C"), logs.length > 0 && /* @__PURE__ */ React3.createElement("div", { className: "jav-local-task-log" }, logs.map((entry, index) => /* @__PURE__ */ React3.createElement("div", { key: `${entry.time || "log"}-${index}` }, /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, entry.time ? entry.time.slice(11, 19) : "--:--:--"), /* @__PURE__ */ React3.createElement(Text3, null, entry.message))))));
     };
+    const renderScrapeDetailDrawer = () => {
+      const logs = getLocalScrapeDiagnosticLogs(scrapeDetailItem);
+      return /* @__PURE__ */ React3.createElement(
+        Drawer,
+        {
+          title: "\u522E\u524A\u5F02\u5E38\u8BE6\u60C5",
+          open: Boolean(scrapeDetailItem),
+          onClose: () => setScrapeDetailItem(null),
+          width: 640,
+          placement: "right"
+        },
+        scrapeDetailItem && /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 14, style: { width: "100%" } }, /* @__PURE__ */ React3.createElement(Space3, { wrap: true }, statusTag(scrapeDetailItem), scrapeDetailItem.code && /* @__PURE__ */ React3.createElement(Tag2, { color: "blue" }, scrapeDetailItem.code)), /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 2, style: { width: "100%" } }, /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "\u6587\u4EF6"), /* @__PURE__ */ React3.createElement(Text3, { strong: true }, scrapeDetailItem.file_name || "-"), /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: scrapeDetailItem.source_path || "-" } }, scrapeDetailItem.source_path || "-")), /* @__PURE__ */ React3.createElement(
+          Alert,
+          {
+            type: scrapeDetailItem.scrape_status === "failed" ? "error" : "warning",
+            showIcon: true,
+            message: "\u5177\u4F53\u539F\u56E0",
+            description: getLocalScrapeIssueReason(scrapeDetailItem) || "\u6682\u65E0\u8BE6\u7EC6\u539F\u56E0"
+          }
+        ), logs.length > 0 && /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 6, style: { width: "100%" } }, /* @__PURE__ */ React3.createElement(Text3, { strong: true }, "\u4FDD\u7559\u65E5\u5FD7"), /* @__PURE__ */ React3.createElement("div", { className: "jav-local-task-log" }, logs.map((entry, index) => /* @__PURE__ */ React3.createElement("div", { key: `${entry.time || "scrape-log"}-${index}` }, /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, entry.time ? entry.time.slice(11, 19) : "--:--:--"), /* @__PURE__ */ React3.createElement(Text3, null, entry.message))))))
+      );
+    };
     const columns = [
       {
         title: "\u72B6\u6001",
         key: "status",
         width: 104,
-        render: (_, item) => statusTag(item)
+        render: (_, item) => statusTag(item, setScrapeDetailItem)
       },
       {
         title: "\u6587\u4EF6",
@@ -2019,7 +2082,7 @@
         message: `\u6267\u884C\u7ED3\u679C\uFF1A\u6210\u529F ${applyResult.success_count}\uFF0C\u5931\u8D25 ${applyResult.failed_count}\uFF0C\u81EA\u52A8\u5165\u5E93 ${applyResult.library_recorded_count || 0}`,
         description: /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 2 }, (applyResult.results || []).slice(0, 5).map((result) => /* @__PURE__ */ React3.createElement(Text3, { key: result.source_path, type: result.success ? "secondary" : "danger" }, result.success ? result.skipped ? result.message === "skipped_conflict" ? `\u5DF2\u8DF3\u8FC7\u51B2\u7A81\uFF1A${result.target_video_path}` : `\u5DF2\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\uFF1A${result.target_video_path}` : result.target_video_path : `${result.source_path}: ${result.error}`)))
       }
-    ))), /* @__PURE__ */ React3.createElement(
+    ))), renderScrapeDetailDrawer(), /* @__PURE__ */ React3.createElement(
       Drawer,
       {
         title: "\u51B2\u7A81\u6587\u4EF6\u6BD4\u8F83",
@@ -3375,14 +3438,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     javbus: payload.javbus || {},
     webdav: { ...payload.webdav || {}, password: "" },
     aria2: { ...payload.aria2 || {}, secret: "" },
-    pikpak: { ...payload.pikpak || {}, password: "" }
+    pikpak: { ...payload.pikpak || {}, password: "" },
+    pan115: { ...payload.pan115 || {}, access_token: "", refresh_token: "" }
   });
   var buildSettingsPayload = (values = {}) => {
     const payload = {
       javbus: { ...values.javbus || {} },
       webdav: { ...values.webdav || {} },
       aria2: { ...values.aria2 || {} },
-      pikpak: { ...values.pikpak || {} }
+      pikpak: { ...values.pikpak || {} },
+      pan115: { ...values.pan115 || {} }
     };
     if (!payload.webdav.password) {
       delete payload.webdav.password;
@@ -3392,6 +3457,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     }
     if (!payload.pikpak.password) {
       delete payload.pikpak.password;
+    }
+    if (!payload.pan115.access_token) {
+      delete payload.pan115.access_token;
+    }
+    if (!payload.pan115.refresh_token) {
+      delete payload.pan115.refresh_token;
     }
     return payload;
   };
@@ -3509,7 +3580,23 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         extra: settings?.pikpak?.has_password ? "\u5DF2\u4FDD\u5B58\u5BC6\u7801\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u4EC5\u5728\u586B\u5199\u65F6\u5199\u5165 config.json"
       },
       /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
-    ))))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: SafetyCertificateOutlined }), " \u4FDD\u5B58\u7B56\u7565") }, /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React5.createElement(
+    ))))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: CloudServerOutlined2 }), " 115\u7F51\u76D8") }, /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pan115", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u4E0B\u53D1", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pan115", "save_dir_id"], label: "\u4FDD\u5B58\u76EE\u5F55 ID" }, /* @__PURE__ */ React5.createElement(Input5, { placeholder: "0", autoComplete: "off" })))), /* @__PURE__ */ React5.createElement(
+      Form4.Item,
+      {
+        name: ["pan115", "access_token"],
+        label: "Access Token",
+        extra: settings?.pan115?.has_access_token ? "\u5DF2\u4FDD\u5B58 access token\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u4EC5\u5728\u586B\u5199\u65F6\u5199\u5165 config.json"
+      },
+      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
+    ), /* @__PURE__ */ React5.createElement(
+      Form4.Item,
+      {
+        name: ["pan115", "refresh_token"],
+        label: "Refresh Token",
+        extra: settings?.pan115?.has_refresh_token ? "\u5DF2\u4FDD\u5B58 refresh token\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u53EF\u9009\uFF1B\u7528\u4E8E access token \u8FC7\u671F\u540E\u81EA\u52A8\u5237\u65B0"
+      },
+      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
+    ))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: SafetyCertificateOutlined }), " \u4FDD\u5B58\u7B56\u7565") }, /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React5.createElement(
       Alert3,
       {
         showIcon: true,
@@ -3899,7 +3986,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         return node.config?.keyword || "\u5173\u952E\u8BCD";
       }
       if (node.type === "magnet") return node.config?.source === "cilisousuo" ? "Cilisousuo" : "JavBus";
-      return node.config?.tool === "aria2" ? "Aria2" : "PikPak";
+      if (node.config?.tool === "aria2") return "Aria2";
+      if (node.config?.tool === "115") return "115\u7F51\u76D8";
+      return "PikPak";
     };
     const renderInspector = () => {
       if (!selectedNode) return /* @__PURE__ */ React6.createElement(Empty2, { image: Empty2.PRESENTED_IMAGE_SIMPLE });
@@ -3961,7 +4050,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       if (selectedNode.type === "magnet") {
         return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6765\u6E90" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.source || "javbus", onChange: (source) => updateNodeConfig(selectedNode.id, { source }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "javbus" }, "JavBus"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "cilisousuo" }, "Cilisousuo"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5B57\u5E55\u8FC7\u6EE4" }, /* @__PURE__ */ React6.createElement(Select3, { allowClear: true, value: config.has_subtitle, onChange: (has_subtitle) => updateNodeConfig(selectedNode.id, { has_subtitle }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "true" }, "\u53EA\u8981\u5B57\u5E55"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "false" }, "\u4E0D\u8981\u5B57\u5E55"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6392\u9664 4K" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: !!config.exclude_4k, onChange: (checked) => updateNodeConfig(selectedNode.id, { exclude_4k: checked }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5141\u8BB8\u4E2D\u6587\u5B57\u5E55" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.allow_chinese_subtitles !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { allow_chinese_subtitles: checked }) })));
       }
-      return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u4E0B\u8F7D\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.tool || "pikpak", onChange: (tool) => updateNodeConfig(selectedNode.id, { tool }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "pikpak" }, "PikPak"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "aria2" }, "Aria2"))));
+      return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u4E0B\u8F7D\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.tool || "pikpak", onChange: (tool) => updateNodeConfig(selectedNode.id, { tool }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "pikpak" }, "PikPak"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "115" }, "115\u7F51\u76D8"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "aria2" }, "Aria2"))));
     };
     const runColumns = [
       { title: "\u65F6\u95F4", dataIndex: "started_at", width: 170 },
@@ -4155,7 +4244,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const [aria2Loading, setAria2Loading] = React7.useState(false);
     const [webdavLoading, setWebdavLoading] = React7.useState(false);
     const [clientConfig, setClientConfig] = React7.useState({
-      pikpak: { configured: false, enabled: false, username: "", auto_login: false }
+      pikpak: { configured: false, enabled: false, username: "", auto_login: false },
+      pan115: { configured: false, enabled: false, save_dir_id: "0", has_access_token: false, has_refresh_token: false }
     });
     const autoLoginTriggeredRef = React7.useRef(false);
     React7.useEffect(() => {
@@ -4238,7 +4328,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       return Array.isArray(magnets) && magnets.length > 0;
     }).length;
     const currentMagnetSource = magnetSettingsForm.getFieldValue("magnetSource") || "javbus";
-    const isCurrentDownloadToolReady = downloadTool === "aria2" ? aria2Connected : isLoggedIn || clientConfig.pikpak.configured;
+    const isDownloadToolCurrentlyReady = (tool = downloadTool) => {
+      if (tool === "aria2") {
+        return aria2Connected;
+      }
+      if (tool === "115") {
+        return !!clientConfig.pan115?.configured;
+      }
+      return isLoggedIn || clientConfig.pikpak.configured;
+    };
+    const isCurrentDownloadToolReady = isDownloadToolCurrentlyReady(downloadTool);
     const handleLogoPreviewOpen = () => {
       setLogoPreviewOpen(true);
     };
@@ -4342,12 +4441,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       return payload;
     };
     const getDownloadToolConfig = (tool = downloadTool) => {
-      const normalizedTool = tool === "aria2" ? "aria2" : "pikpak";
+      const normalizedTool = tool === "aria2" ? "aria2" : tool === "115" ? "115" : "pikpak";
       return {
         tool: normalizedTool,
-        label: normalizedTool === "aria2" ? "Aria2" : "PikPak",
+        label: normalizedTool === "aria2" ? "Aria2" : normalizedTool === "115" ? "115\u7F51\u76D8" : "PikPak",
         requiresLogin: normalizedTool === "pikpak",
-        requiresConnection: normalizedTool === "aria2"
+        requiresConnection: normalizedTool === "aria2",
+        requiresConfig: normalizedTool === "115"
       };
     };
     const isDownloadToolReady = async (tool = downloadTool) => {
@@ -4367,6 +4467,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         }
         return true;
       }
+      if (config.requiresConfig) {
+        if (!clientConfig.pan115?.configured) {
+          message7.warning("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E 115 Open API access token");
+          return false;
+        }
+        return true;
+      }
       return true;
     };
     const dispatchMagnetDownloads = async (payload, tool = downloadTool) => {
@@ -4382,15 +4489,23 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           message7.warning("\u8BF7\u5148\u767B\u5F55 PikPak \u6216\u5728 config.json \u4E2D\u914D\u7F6E\u8D26\u53F7");
           return { success: false };
         }
-      } else if (!aria2Connected) {
+      } else if (config.requiresConnection && !aria2Connected) {
         const connected = await loadDownloadToolStatus();
         if (!connected) {
           message7.warning("\u8BF7\u5148\u5728 WebDAV \u4E0B\u8F7D\u9875\u9762\u8FDE\u63A5 Aria2");
           return { success: false };
         }
+      } else if (config.requiresConfig && !clientConfig.pan115?.configured) {
+        message7.warning("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E 115 Open API access token");
+        return { success: false };
       }
+      const endpointMap = {
+        aria2: "/api/aria2/download-magnets",
+        "115": "/api/115/download",
+        pikpak: "/api/pikpak/download"
+      };
       const response = await fetch(
-        config.tool === "aria2" ? "/api/aria2/download-magnets" : "/api/pikpak/download",
+        endpointMap[config.tool] || endpointMap.pikpak,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4404,7 +4519,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       return await response.json();
     };
     const handleDownloadToolChange = (toolValue) => {
-      const nextTool = toolValue === "aria2" ? "aria2" : "pikpak";
+      const nextTool = toolValue === "aria2" ? "aria2" : toolValue === "115" ? "115" : "pikpak";
       setDownloadTool(nextTool);
       try {
         window.localStorage.setItem("downloadTool", nextTool);
@@ -4647,14 +4762,15 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       try {
         const { magnetSource } = getMagnetSettings();
         const shouldAutoDownload = values.autoDownload || false;
+        const usePikPakWorkflowAutoDownload = shouldAutoDownload && downloadTool === "pikpak";
         const requestBody = {
           html_content: values.htmlContent,
-          auto_download: shouldAutoDownload && downloadTool !== "aria2",
+          auto_download: usePikPakWorkflowAutoDownload,
           magnet_source: magnetSource,
           has_subtitle_filter: values.hasSubtitle || null,
           exclude_4k: values.exclude4k || false
         };
-        if (shouldAutoDownload && isLoggedIn && pikpakCredentials && downloadTool !== "aria2") {
+        if (usePikPakWorkflowAutoDownload && isLoggedIn && pikpakCredentials) {
           Object.assign(requestBody, buildPikPakAuthPayload());
         }
         const response = await fetch("/api/movies/recognize", {
@@ -4671,10 +4787,10 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
           }
           message7.success("\u8BC6\u522B\u5B8C\u6210");
-          if (shouldAutoDownload && downloadTool === "aria2" && data.magnet_results?.length > 0) {
+          if (shouldAutoDownload && downloadTool !== "pikpak" && data.magnet_results?.length > 0) {
             const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
             if (dispatchResult && dispatchResult.success) {
-              message7.success(dispatchResult.message || "\u5DF2\u63D0\u4EA4 Aria2 \u4E0B\u8F7D\u4EFB\u52A1");
+              message7.success(dispatchResult.message || `\u5DF2\u63D0\u4EA4 ${getDownloadToolConfig().label} \u4E0B\u8F7D\u4EFB\u52A1`);
             } else {
               message7.error(`\u4E0B\u8F7D\u5931\u8D25: ${dispatchResult?.message || "\u672A\u77E5\u9519\u8BEF"}`);
             }
@@ -4693,14 +4809,15 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       try {
         const { magnetSource } = getMagnetSettings();
         const shouldAutoDownload = values.autoDownload || false;
+        const usePikPakWorkflowAutoDownload = shouldAutoDownload && downloadTool === "pikpak";
         const requestBody = {
           movie_codes: values.movieCodes,
-          auto_download: shouldAutoDownload && downloadTool !== "aria2",
+          auto_download: usePikPakWorkflowAutoDownload,
           magnet_source: magnetSource,
           has_subtitle_filter: values.hasSubtitle || null,
           exclude_4k: values.exclude4k || false
         };
-        if (shouldAutoDownload && isLoggedIn && pikpakCredentials && downloadTool !== "aria2") {
+        if (usePikPakWorkflowAutoDownload && isLoggedIn && pikpakCredentials) {
           Object.assign(requestBody, buildPikPakAuthPayload());
         }
         const response = await fetch("/api/movies/download-by-codes", {
@@ -4725,10 +4842,10 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
         }
         message7.success(data.message || "\u5904\u7406\u5B8C\u6210");
-        if (shouldAutoDownload && downloadTool === "aria2" && data.magnet_results?.length > 0) {
+        if (shouldAutoDownload && downloadTool !== "pikpak" && data.magnet_results?.length > 0) {
           const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
           if (dispatchResult && dispatchResult.success) {
-            message7.success(dispatchResult.message || "\u5DF2\u63D0\u4EA4 Aria2 \u4E0B\u8F7D\u4EFB\u52A1");
+            message7.success(dispatchResult.message || `\u5DF2\u63D0\u4EA4 ${getDownloadToolConfig().label} \u4E0B\u8F7D\u4EFB\u52A1`);
           } else {
             message7.error(`\u4E0B\u8F7D\u5931\u8D25: ${dispatchResult?.message || "\u672A\u77E5\u9519\u8BEF"}`);
           }
@@ -5240,7 +5357,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             size: "small",
             icon: /* @__PURE__ */ React7.createElement(Icon6, { as: DownloadOutlined4 }),
             loading: isDownloadingMovie,
-            disabled: magnetLoading || !bestMagnet || isMovieDownloaded || (downloadTool === "aria2" ? !aria2Connected : !isCurrentDownloadToolReady),
+            disabled: magnetLoading || !bestMagnet || isMovieDownloaded || !isCurrentDownloadToolReady,
             onClick: () => handleDownloadMovie(movie)
           },
           "\u7ACB\u5373\u4E0B\u8F7D"
@@ -5420,13 +5537,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         Button7,
         {
           type: "primary",
-          disabled: !(downloadTool === "aria2" ? aria2Connected : isLoggedIn || clientConfig.pikpak.configured) || !moviesData || !moviesData.movies || moviesData.movies.length === 0,
+          disabled: !isCurrentDownloadToolReady || !moviesData || !moviesData.movies || moviesData.movies.length === 0,
           loading,
           icon: /* @__PURE__ */ React7.createElement(Icon6, { as: DownloadOutlined4 }),
           onClick: handleDownloadAllMovies
         },
         "\u4E0B\u8F7D\u672C\u9875\u5168\u90E8\u5F71\u7247"
-      )), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React7.createElement("strong", null, resultCount), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React7.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "PikPak"), /* @__PURE__ */ React7.createElement("strong", null, isLoggedIn ? "\u5728\u7EBF" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u79BB\u7EBF"), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React7.createElement("strong", null, currentMagnetSource === "cilisousuo" ? "Cilisousuo" : "JavBus"), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", magnetSettingsForm.getFieldValue("globalExclude4k") ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React7.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React7.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React7.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React7.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React7.createElement(
+      )), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React7.createElement("strong", null, resultCount), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React7.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React7.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React7.createElement("strong", null, currentMagnetSource === "cilisousuo" ? "Cilisousuo" : "JavBus"), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", magnetSettingsForm.getFieldValue("globalExclude4k") ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React7.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React7.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React7.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React7.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React7.createElement(
         Sider,
         {
           width: 300,
@@ -5454,8 +5571,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             size: "small",
             className: "jav-tool-card"
           },
-          /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u5F53\u524D\u9009\u62E9\uFF1A", /* @__PURE__ */ React7.createElement(Text7, { strong: true, style: { marginLeft: 6, color: "#262626" } }, downloadTool === "aria2" ? "\u76F4\u63A5\u4E0B\u8F7D" : "\u7F51\u76D8"))),
-          /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 10 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, "WebDAV\uFF08\u7F51\u76D8\uFF09\uFF1A", webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React7.createElement("br", null), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, "Aria2\uFF1A", aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5")),
+          /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u5F53\u524D\u9009\u62E9\uFF1A", /* @__PURE__ */ React7.createElement(Text7, { strong: true, style: { marginLeft: 6, color: "#262626" } }, getDownloadToolConfig().label))),
+          /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 10 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, "WebDAV\uFF08\u7F51\u76D8\uFF09\uFF1A", webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React7.createElement("br", null), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, "Aria2\uFF1A", aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React7.createElement("br", null), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, "115\u7F51\u76D8\uFF1A", clientConfig.pan115?.configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E")),
           /* @__PURE__ */ React7.createElement(
             Segmented2,
             {
@@ -5463,7 +5580,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               block: true,
               onChange: handleDownloadToolChange,
               options: [
-                { label: "\u7F51\u76D8", value: "pikpak" },
+                { label: "PikPak", value: "pikpak" },
+                { label: "115", value: "115" },
                 { label: "\u76F4\u63A5\u4E0B\u8F7D", value: "aria2" }
               ]
             }
@@ -5471,14 +5589,17 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         ), /* @__PURE__ */ React7.createElement(
           Drawer3,
           {
-            title: downloadTool === "aria2" ? "\u914D\u7F6E Aria2\uFF08\u76F4\u63A5\u4E0B\u8F7D\uFF09" : "\u914D\u7F6E \u7F51\u76D8\uFF08PikPak\uFF09",
+            title: downloadTool === "aria2" ? "\u914D\u7F6E Aria2\uFF08\u76F4\u63A5\u4E0B\u8F7D\uFF09" : downloadTool === "115" ? "\u914D\u7F6E 115\u7F51\u76D8" : "\u914D\u7F6E \u7F51\u76D8\uFF08PikPak\uFF09",
             open: downloadToolConfigOpen,
             onClose: closeDownloadToolConfig,
             width: 360,
             placement: "right",
             destroyOnClose: true
           },
-          downloadTool === "aria2" ? /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " Aria2 \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, aria2Connected ? "Aria2 \u5DF2\u8FDE\u63A5" : "Aria2 \u672A\u8FDE\u63A5")), /* @__PURE__ */ React7.createElement(Form6, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "url", label: "Aria2 RPC \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 RPC \u5730\u5740" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "http://127.0.0.1:6800/jsonrpc" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "secret", label: "RPC Secret" }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2?.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))) : /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " WebDAV \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, webdavConnected ? "WebDAV \u5DF2\u8FDE\u63A5" : "WebDAV \u672A\u8FDE\u63A5")), /* @__PURE__ */ React7.createElement(Form6, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "url", label: "WebDAV \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV \u5730\u5740" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "https://dav.example.com/" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "username", label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "password", label: "\u5BC6\u7801" }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav?.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))
+          downloadTool === "aria2" ? /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " Aria2 \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, aria2Connected ? "Aria2 \u5DF2\u8FDE\u63A5" : "Aria2 \u672A\u8FDE\u63A5")), /* @__PURE__ */ React7.createElement(Form6, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "url", label: "Aria2 RPC \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 RPC \u5730\u5740" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "http://127.0.0.1:6800/jsonrpc" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "secret", label: "RPC Secret" }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2?.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))) : downloadTool === "115" ? /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " 115\u7F51\u76D8\u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, clientConfig.pan115?.configured ? "115 Open API \u5DF2\u914D\u7F6E" : "115 Open API \u672A\u914D\u7F6E"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u4FDD\u5B58\u76EE\u5F55 ID\uFF1A", clientConfig.pan115?.save_dir_id || "0"), /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => {
+            closeDownloadToolConfig();
+            setActivePage("settings");
+          } }, "\u6253\u5F00\u8BBE\u7F6E"))) : /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " WebDAV \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, webdavConnected ? "WebDAV \u5DF2\u8FDE\u63A5" : "WebDAV \u672A\u8FDE\u63A5")), /* @__PURE__ */ React7.createElement(Form6, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "url", label: "WebDAV \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV \u5730\u5740" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "https://dav.example.com/" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "username", label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "password", label: "\u5BC6\u7801" }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav?.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))
         ), /* @__PURE__ */ React7.createElement(
           Button7,
           {

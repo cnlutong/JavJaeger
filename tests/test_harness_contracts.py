@@ -8,6 +8,8 @@ import main
 from modules.automation.schemas import AutomationTaskCreate, AutomationTaskUpdate
 from modules.automation.service import AutomationService
 from modules.automation import service as automation_service_module
+from modules.pan115 import service as pan115_service_module
+from modules.pan115.schemas import DownloadRequest as Pan115DownloadRequest
 from modules.history.service import local_movie_library_service
 from modules.history.service import local_actor_library_service
 from modules.history import service as history_service_module
@@ -33,6 +35,8 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
     assert "/api/system/info" in api_paths
     assert "/api/movies" in api_paths
     assert "/api/automation/tasks" in api_paths
+    assert "/api/115/download" in api_paths
+    assert api_paths.index("/api/115/download") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/automation/tasks") < api_paths.index("/api/{path:path}")
     assert "/api/{path:path}" == api_paths[-1]
 
@@ -109,6 +113,12 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
                 "password": "pikpak-password",
                 "auto_login": True,
             },
+            "pan115": {
+                "enabled": True,
+                "access_token": "pan115-access-token",
+                "refresh_token": "pan115-refresh-token",
+                "save_dir_id": "12345",
+            },
         },
     )
     monkeypatch.setattr(runtime, "config", test_config)
@@ -122,6 +132,12 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
     assert "secret" not in client_config["aria2"]
     assert client_config["pikpak"]["username"] == "pikpak-user"
     assert "password" not in client_config["pikpak"]
+    assert client_config["pan115"]["configured"] is True
+    assert client_config["pan115"]["save_dir_id"] == "12345"
+    assert client_config["pan115"]["has_access_token"] is True
+    assert client_config["pan115"]["has_refresh_token"] is True
+    assert "access_token" not in client_config["pan115"]
+    assert "refresh_token" not in client_config["pan115"]
 
 
 def test_javbus_default_request_interval_is_conservative():
@@ -206,13 +222,19 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
                 "password": "pikpak-password",
                 "auto_login": True,
             },
+            "pan115": {
+                "enabled": True,
+                "access_token": "pan115-access-token",
+                "refresh_token": "pan115-refresh-token",
+                "save_dir_id": "12345",
+            },
         },
     )
     monkeypatch.setattr(runtime, "config", test_config)
 
     payload = system_settings.build_settings_payload()
 
-    assert set(["javbus", "webdav", "aria2", "pikpak", "security"]).issubset(payload)
+    assert set(["javbus", "webdav", "aria2", "pikpak", "pan115", "security"]).issubset(payload)
     assert payload["webdav"]["url"] == "https://dav.example.test/"
     assert payload["webdav"]["has_password"] is True
     assert "password" not in payload["webdav"]
@@ -221,6 +243,12 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
     assert payload["pikpak"]["username"] == "pikpak-user"
     assert payload["pikpak"]["has_password"] is True
     assert "password" not in payload["pikpak"]
+    assert payload["pan115"]["enabled"] is True
+    assert payload["pan115"]["save_dir_id"] == "12345"
+    assert payload["pan115"]["has_access_token"] is True
+    assert payload["pan115"]["has_refresh_token"] is True
+    assert "access_token" not in payload["pan115"]
+    assert "refresh_token" not in payload["pan115"]
 
 
 def test_system_settings_update_persists_connector_sections_without_echoing_secrets(tmp_path, monkeypatch):
@@ -252,6 +280,12 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
                 "password": "pikpak-password",
                 "auto_login": True,
             },
+            "pan115": {
+                "enabled": True,
+                "access_token": "pan115-access-token",
+                "refresh_token": "pan115-refresh-token",
+                "save_dir_id": "67890",
+            },
         },
     )
 
@@ -263,11 +297,18 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
     assert "secret" not in payload["aria2"]
     assert payload["pikpak"]["has_password"] is True
     assert "password" not in payload["pikpak"]
+    assert payload["pan115"]["has_access_token"] is True
+    assert payload["pan115"]["has_refresh_token"] is True
+    assert "access_token" not in payload["pan115"]
+    assert "refresh_token" not in payload["pan115"]
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["webdav"]["password"] == "webdav-password"
     assert saved["aria2"]["secret"] == "aria2-secret"
     assert saved["pikpak"]["password"] == "pikpak-password"
+    assert saved["pan115"]["access_token"] == "pan115-access-token"
+    assert saved["pan115"]["refresh_token"] == "pan115-refresh-token"
+    assert saved["pan115"]["save_dir_id"] == "67890"
 
 
 def test_system_settings_rejects_invalid_javbus_values():
@@ -585,6 +626,148 @@ def test_download_magnets_to_aria2_requires_connection(monkeypatch):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "请先连接 Aria2"
+
+
+def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
+    class FakePan115Client:
+        def __init__(self, access_token, refresh_token="", on_token_refresh=None):
+            self.access_token = access_token
+            self.refresh_token = refresh_token
+            self.on_token_refresh = on_token_refresh
+            self.calls = []
+
+        async def add_offline_tasks(self, urls, save_dir_id="0"):
+            self.calls.append((urls, save_dir_id))
+            return [
+                {"url": "magnet:ok", "success": True, "info_hash": "hash-ok"},
+                {"url": "magnet:fail", "success": False, "error": "pan115_add_failed", "message": "failed"},
+            ]
+
+    clients = []
+
+    def fake_client(*args, **kwargs):
+        client = FakePan115Client(*args, **kwargs)
+        clients.append(client)
+        return client
+
+    saved_ids = []
+
+    async def fake_is_movie_downloaded(movie_id):
+        return movie_id == "M-SKIP"
+
+    async def fake_is_movie_present(movie_id):
+        return False
+
+    async def fake_save_movies(movie_ids):
+        saved_ids.extend(movie_ids)
+
+    monkeypatch.setattr(pan115_service_module, "Pan115Client", fake_client)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_is_movie_downloaded)
+    monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_is_movie_present)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(
+        pan115_service_module,
+        "get_pan115_config",
+        lambda: {
+            "enabled": True,
+            "access_token": "access-token",
+            "refresh_token": "refresh-token",
+            "save_dir_id": "555",
+        },
+    )
+
+    result = asyncio.run(
+        pan115_service_module.download(
+            Pan115DownloadRequest(
+                magnet_links=["magnet:ok", "magnet:skip", "magnet:fail"],
+                movie_ids=["M-OK", "M-SKIP", "M-FAIL"],
+            )
+        )
+    )
+
+    assert clients[0].access_token == "access-token"
+    assert clients[0].refresh_token == "refresh-token"
+    assert clients[0].calls == [(["magnet:ok", "magnet:fail"], "555")]
+    assert result["success"] is True
+    assert result["success_count"] == 1
+    assert result["skipped_count"] == 1
+    assert result["results"][0]["movie_id"] == "M-SKIP"
+    assert result["results"][0]["skipped"] is True
+    assert saved_ids == ["M-OK"]
+
+
+def test_pan115_download_does_not_persist_request_tokens(monkeypatch):
+    clients = []
+
+    class FakePan115Client:
+        def __init__(self, access_token, refresh_token="", on_token_refresh=None):
+            self.access_token = access_token
+            self.refresh_token = refresh_token
+            self.on_token_refresh = on_token_refresh
+            clients.append(self)
+
+        async def add_offline_tasks(self, urls, save_dir_id="0"):
+            return [{"url": urls[0], "success": True, "info_hash": "hash-ok"}]
+
+    async def fake_not_exists(_movie_id):
+        return False
+
+    async def fake_save_movies(_movie_ids):
+        return None
+
+    monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(
+        pan115_service_module,
+        "get_pan115_config",
+        lambda: {
+            "enabled": True,
+            "access_token": "config-access-token",
+            "refresh_token": "config-refresh-token",
+            "save_dir_id": "0",
+        },
+    )
+    monkeypatch.setattr(pan115_service_module.runtime, "update_config_section", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("manual tokens must not persist")))
+
+    result = asyncio.run(
+        pan115_service_module.download(
+            Pan115DownloadRequest(
+                magnet_links=["magnet:ok"],
+                movie_ids=["M-OK"],
+                access_token="manual-access-token",
+                refresh_token="manual-refresh-token",
+            )
+        )
+    )
+
+    assert result["success"] is True
+    assert clients[0].access_token == "manual-access-token"
+    assert clients[0].refresh_token == "manual-refresh-token"
+    assert clients[0].on_token_refresh is None
+
+
+def test_automation_service_dispatches_to_pan115(tmp_path, monkeypatch):
+    dispatched = []
+
+    async def fake_pan115_download(request):
+        dispatched.extend(request.magnet_links)
+        return {"success": True, "success_count": len(request.magnet_links), "results": [{"success": True}]}
+
+    monkeypatch.setattr(automation_service_module, "pan115_download", fake_pan115_download)
+
+    async def exercise():
+        service = AutomationService(str(tmp_path / "automation_tasks.json"), scheduler_enabled=False)
+        return await service._dispatch_downloads(
+            {"tool": "115"},
+            [{"movie_id": "ABP-123", "magnet": {"link": "magnet:?xt=urn:btih:abc"}}],
+        )
+
+    results = asyncio.run(exercise())
+
+    assert dispatched == ["magnet:?xt=urn:btih:abc"]
+    assert results == [{"success": True}]
 
 
 def test_local_scrape_target_paths_support_custom_folder_templates():
@@ -1290,6 +1473,43 @@ def test_local_scrape_preview_reports_progress(tmp_path):
     assert events[-1]["phase"] == "complete"
     assert events[-1]["completed"] == 2
     assert any("ABP-123.mp4" in event.get("message", "") for event in events)
+
+
+def test_local_scrape_preview_keeps_diagnostic_reasons_for_abnormal_rows(tmp_path, monkeypatch):
+    unrecognized = tmp_path / "movie-without-code.mp4"
+    missing = tmp_path / "ABP-123.mp4"
+    failed = tmp_path / "IPX-456.mp4"
+    unrecognized.write_bytes(b"video")
+    missing.write_bytes(b"video")
+    failed.write_bytes(b"video")
+
+    async def fake_get_movie_detail(movie_id):
+        if movie_id == "IPX-456":
+            raise RuntimeError("upstream timeout")
+        return None
+
+    monkeypatch.setattr(local_scrape.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+
+    payload = asyncio.run(
+        local_scrape.preview_local_scrape(
+            local_scrape.LocalScrapePreviewRequest(directory=str(tmp_path), scrape=True),
+        )
+    )
+
+    by_name = {item["file_name"]: item for item in payload["items"]}
+
+    assert by_name["movie-without-code.mp4"]["scrape_status"] == "unrecognized"
+    assert by_name["movie-without-code.mp4"]["scrape_reason"]
+    assert by_name["movie-without-code.mp4"]["scrape_logs"]
+
+    assert by_name["ABP-123.mp4"]["scrape_status"] == "not_found"
+    assert "ABP-123" in by_name["ABP-123.mp4"]["scrape_reason"]
+    assert by_name["ABP-123.mp4"]["scrape_logs"]
+
+    assert by_name["IPX-456.mp4"]["scrape_status"] == "failed"
+    assert by_name["IPX-456.mp4"]["error"] == "metadata_fetch_failed"
+    assert "upstream timeout" in by_name["IPX-456.mp4"]["scrape_reason"]
+    assert any("upstream timeout" in entry["message"] for entry in by_name["IPX-456.mp4"]["scrape_logs"])
 
 
 def test_local_scrape_background_task_manager_tracks_status_and_logs(tmp_path):

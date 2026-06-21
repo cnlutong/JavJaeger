@@ -28,5 +28,11 @@
     "username": "",
     "password": "",
     "auto_login": false
+  },
+  "pan115": {
+    "enabled": false,
+    "access_token": "",
+    "refresh_token": "",
+    "save_dir_id": "0"
   }
 }

@@ -22,6 +22,7 @@ def build_settings_payload() -> dict[str, Any]:
     webdav_config = runtime.get_webdav_config()
     aria2_config = runtime.get_aria2_config()
     pikpak_config = runtime.get_pikpak_config()
+    pan115_config = runtime.get_pan115_config()
     return {
         "javbus": {
             "base_url": javbus_config.get("base_url") or "",
@@ -51,6 +52,12 @@ def build_settings_payload() -> dict[str, Any]:
             "username": pikpak_config.get("username") or "",
             "has_password": bool(pikpak_config.get("password")),
             "auto_login": bool(pikpak_config.get("auto_login")),
+        },
+        "pan115": {
+            "enabled": bool(pan115_config.get("enabled")),
+            "has_access_token": bool(pan115_config.get("access_token")),
+            "has_refresh_token": bool(pan115_config.get("refresh_token")),
+            "save_dir_id": pan115_config.get("save_dir_id") or "0",
         },
         "security": {
             "session_secret_configured": bool(os.getenv("APP_SESSION_SECRET") or runtime.config.get("session_secret")),
@@ -195,6 +202,23 @@ def validate_pikpak_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def validate_pan115_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="pan115_settings_required")
+
+    normalized: dict[str, Any] = {}
+    enabled = _normalize_bool(payload, "enabled")
+    if enabled is not None:
+        normalized["enabled"] = enabled
+
+    for key in ("access_token", "refresh_token", "save_dir_id"):
+        value = _normalize_string(payload, key)
+        if value is not None:
+            normalized[key] = value or ("0" if key == "save_dir_id" else "")
+
+    return normalized
+
+
 async def update_javbus_settings(payload: dict[str, Any]) -> dict[str, Any]:
     updates = validate_javbus_settings(payload)
     if not updates:
@@ -214,6 +238,7 @@ async def update_system_settings(payload: dict[str, Any]) -> dict[str, Any]:
         "webdav": validate_webdav_settings,
         "aria2": validate_aria2_settings,
         "pikpak": validate_pikpak_settings,
+        "pan115": validate_pan115_settings,
     }
     updates_by_section: dict[str, dict[str, Any]] = {}
     for section, validator in validators.items():

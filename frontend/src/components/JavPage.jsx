@@ -146,7 +146,8 @@ export default function JavPage() {
     const [aria2Loading, setAria2Loading] = React.useState(false);
     const [webdavLoading, setWebdavLoading] = React.useState(false);
     const [clientConfig, setClientConfig] = React.useState({
-        pikpak: { configured: false, enabled: false, username: "", auto_login: false }
+        pikpak: { configured: false, enabled: false, username: "", auto_login: false },
+        pan115: { configured: false, enabled: false, save_dir_id: "0", has_access_token: false, has_refresh_token: false },
     });
     const autoLoginTriggeredRef = React.useRef(false);
 
@@ -252,9 +253,16 @@ export default function JavPage() {
         return Array.isArray(magnets) && magnets.length > 0;
     }).length;
     const currentMagnetSource = magnetSettingsForm.getFieldValue('magnetSource') || 'javbus';
-    const isCurrentDownloadToolReady = downloadTool === 'aria2'
-        ? aria2Connected
-        : isLoggedIn || clientConfig.pikpak.configured;
+    const isDownloadToolCurrentlyReady = (tool = downloadTool) => {
+        if (tool === 'aria2') {
+            return aria2Connected;
+        }
+        if (tool === '115') {
+            return !!clientConfig.pan115?.configured;
+        }
+        return isLoggedIn || clientConfig.pikpak.configured;
+    };
+    const isCurrentDownloadToolReady = isDownloadToolCurrentlyReady(downloadTool);
 
     const handleLogoPreviewOpen = () => {
         setLogoPreviewOpen(true);
@@ -372,12 +380,13 @@ export default function JavPage() {
     };
 
     const getDownloadToolConfig = (tool = downloadTool) => {
-        const normalizedTool = tool === 'aria2' ? 'aria2' : 'pikpak';
+        const normalizedTool = tool === 'aria2' ? 'aria2' : tool === '115' ? '115' : 'pikpak';
         return {
             tool: normalizedTool,
-            label: normalizedTool === 'aria2' ? 'Aria2' : 'PikPak',
+            label: normalizedTool === 'aria2' ? 'Aria2' : normalizedTool === '115' ? '115网盘' : 'PikPak',
             requiresLogin: normalizedTool === 'pikpak',
             requiresConnection: normalizedTool === 'aria2',
+            requiresConfig: normalizedTool === '115',
         };
     };
 
@@ -394,6 +403,13 @@ export default function JavPage() {
             const connected = await loadDownloadToolStatus();
             if (!connected) {
                 message.warning('请先连接 Aria2 或检查配置');
+                return false;
+            }
+            return true;
+        }
+        if (config.requiresConfig) {
+            if (!clientConfig.pan115?.configured) {
+                message.warning('请先在设置中配置 115 Open API access token');
                 return false;
             }
             return true;
@@ -417,16 +433,24 @@ export default function JavPage() {
                 message.warning('请先登录 PikPak 或在 config.json 中配置账号');
                 return { success: false };
             }
-        } else if (!aria2Connected) {
+        } else if (config.requiresConnection && !aria2Connected) {
             const connected = await loadDownloadToolStatus();
             if (!connected) {
                 message.warning('请先在 WebDAV 下载页面连接 Aria2');
                 return { success: false };
             }
+        } else if (config.requiresConfig && !clientConfig.pan115?.configured) {
+            message.warning('请先在设置中配置 115 Open API access token');
+            return { success: false };
         }
 
+        const endpointMap = {
+            aria2: '/api/aria2/download-magnets',
+            '115': '/api/115/download',
+            pikpak: '/api/pikpak/download',
+        };
         const response = await fetch(
-            config.tool === 'aria2' ? '/api/aria2/download-magnets' : '/api/pikpak/download',
+            endpointMap[config.tool] || endpointMap.pikpak,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -441,7 +465,7 @@ export default function JavPage() {
     };
 
     const handleDownloadToolChange = (toolValue) => {
-        const nextTool = toolValue === 'aria2' ? 'aria2' : 'pikpak';
+        const nextTool = toolValue === 'aria2' ? 'aria2' : toolValue === '115' ? '115' : 'pikpak';
         setDownloadTool(nextTool);
         try {
             window.localStorage.setItem("downloadTool", nextTool);
@@ -716,14 +740,15 @@ export default function JavPage() {
         try {
             const { magnetSource } = getMagnetSettings();
             const shouldAutoDownload = values.autoDownload || false;
+            const usePikPakWorkflowAutoDownload = shouldAutoDownload && downloadTool === 'pikpak';
             const requestBody = {
                 html_content: values.htmlContent,
-                auto_download: shouldAutoDownload && downloadTool !== 'aria2',
+                auto_download: usePikPakWorkflowAutoDownload,
                 magnet_source: magnetSource,
                 has_subtitle_filter: values.hasSubtitle || null,
                 exclude_4k: values.exclude4k || false
             };
-            if (shouldAutoDownload && isLoggedIn && pikpakCredentials && downloadTool !== 'aria2') {
+            if (usePikPakWorkflowAutoDownload && isLoggedIn && pikpakCredentials) {
                 Object.assign(requestBody, buildPikPakAuthPayload());
             }
 
@@ -742,10 +767,10 @@ export default function JavPage() {
                     setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
                 }
                 message.success('识别完成');
-                if (shouldAutoDownload && downloadTool === 'aria2' && data.magnet_results?.length > 0) {
+                if (shouldAutoDownload && downloadTool !== 'pikpak' && data.magnet_results?.length > 0) {
                     const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
                     if (dispatchResult && dispatchResult.success) {
-                        message.success(dispatchResult.message || '已提交 Aria2 下载任务');
+                        message.success(dispatchResult.message || `已提交 ${getDownloadToolConfig().label} 下载任务`);
                     } else {
                         message.error(`下载失败: ${dispatchResult?.message || '未知错误'}`);
                     }
@@ -765,14 +790,15 @@ export default function JavPage() {
         try {
             const { magnetSource } = getMagnetSettings();
             const shouldAutoDownload = values.autoDownload || false;
+            const usePikPakWorkflowAutoDownload = shouldAutoDownload && downloadTool === 'pikpak';
             const requestBody = {
                 movie_codes: values.movieCodes,
-                auto_download: shouldAutoDownload && downloadTool !== 'aria2',
+                auto_download: usePikPakWorkflowAutoDownload,
                 magnet_source: magnetSource,
                 has_subtitle_filter: values.hasSubtitle || null,
                 exclude_4k: values.exclude4k || false
             };
-            if (shouldAutoDownload && isLoggedIn && pikpakCredentials && downloadTool !== 'aria2') {
+            if (usePikPakWorkflowAutoDownload && isLoggedIn && pikpakCredentials) {
                 Object.assign(requestBody, buildPikPakAuthPayload());
             }
 
@@ -800,10 +826,10 @@ export default function JavPage() {
                 setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
             }
             message.success(data.message || '处理完成');
-            if (shouldAutoDownload && downloadTool === 'aria2' && data.magnet_results?.length > 0) {
+            if (shouldAutoDownload && downloadTool !== 'pikpak' && data.magnet_results?.length > 0) {
                 const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
                 if (dispatchResult && dispatchResult.success) {
-                    message.success(dispatchResult.message || '已提交 Aria2 下载任务');
+                    message.success(dispatchResult.message || `已提交 ${getDownloadToolConfig().label} 下载任务`);
                 } else {
                     message.error(`下载失败: ${dispatchResult?.message || '未知错误'}`);
                 }
@@ -1466,7 +1492,7 @@ export default function JavPage() {
                                     size="small"
                                     icon={<Icon as={DownloadOutlined} />}
                                     loading={isDownloadingMovie}
-                                    disabled={magnetLoading || !bestMagnet || isMovieDownloaded || (downloadTool === 'aria2' ? !aria2Connected : !isCurrentDownloadToolReady)}
+                                    disabled={magnetLoading || !bestMagnet || isMovieDownloaded || !isCurrentDownloadToolReady}
                                     onClick={() => handleDownloadMovie(movie)}
                                 >
                                     立即下载
@@ -1841,7 +1867,7 @@ export default function JavPage() {
                                             </div>
                                         <Button
                                             type="primary"
-                                            disabled={!(downloadTool === 'aria2' ? aria2Connected : (isLoggedIn || clientConfig.pikpak.configured)) || !moviesData || !moviesData.movies || moviesData.movies.length === 0}
+                                            disabled={!isCurrentDownloadToolReady || !moviesData || !moviesData.movies || moviesData.movies.length === 0}
                                             loading={loading}
                                             icon={<Icon as={DownloadOutlined} />}
                                             onClick={handleDownloadAllMovies}
@@ -1859,9 +1885,15 @@ export default function JavPage() {
                                                 <span className="jav-kpi-note">{magnetsLoadedCount}/{resultCount || 0} 已检索</span>
                                             </div>
                                             <div className="jav-kpi-card">
-                                                <span className="jav-kpi-label">PikPak</span>
-                                                <strong>{isLoggedIn ? '在线' : clientConfig.pikpak.configured ? '可配置' : '离线'}</strong>
-                                                <span className="jav-kpi-note">{pikpakCredentials?.username || clientConfig.pikpak.username || '未登录'}</span>
+                                                <span className="jav-kpi-label">{getDownloadToolConfig().label}</span>
+                                                <strong>{isCurrentDownloadToolReady ? '就绪' : '未就绪'}</strong>
+                                                <span className="jav-kpi-note">
+                                                    {downloadTool === '115'
+                                                        ? `目录 ${clientConfig.pan115?.save_dir_id || '0'}`
+                                                        : downloadTool === 'aria2'
+                                                            ? (aria2Connected ? '已连接' : '未连接')
+                                                            : (pikpakCredentials?.username || clientConfig.pikpak.username || '未登录')}
+                                                </span>
                                             </div>
                                             <div className="jav-kpi-card">
                                                 <span className="jav-kpi-label">来源</span>
@@ -1893,7 +1925,9 @@ export default function JavPage() {
                                                             ? '已就绪'
                                                             : downloadTool === 'aria2'
                                                                 ? '未连接Aria2'
-                                                                : clientConfig.pikpak.configured ? '可配置' : '未登录'}
+                                                                : downloadTool === '115'
+                                                                    ? '未配置115'
+                                                                    : clientConfig.pikpak.configured ? '可配置' : '未登录'}
                                                     </em>
                                                 </span>
                                             </div>
@@ -1937,7 +1971,7 @@ export default function JavPage() {
                                         <Text type="secondary" style={{ fontSize: 12 }}>
                                             当前选择：
                                             <Text strong style={{ marginLeft: 6, color: '#262626' }}>
-                                                {downloadTool === 'aria2' ? '直接下载' : '网盘'}
+                                                {getDownloadToolConfig().label}
                                             </Text>
                                         </Text>
                                     </div>
@@ -1949,20 +1983,25 @@ export default function JavPage() {
                                         <Text type="secondary" style={{ fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" }}>
                                             Aria2：{aria2Connected ? '已连接' : '未连接'}
                                         </Text>
+                                        <br />
+                                        <Text type="secondary" style={{ fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" }}>
+                                            115网盘：{clientConfig.pan115?.configured ? '已配置' : '未配置'}
+                                        </Text>
                                     </div>
                                     <Segmented
                                         value={downloadTool}
                                         block
                                         onChange={handleDownloadToolChange}
                                         options={[
-                                            { label: '网盘', value: 'pikpak' },
+                                            { label: 'PikPak', value: 'pikpak' },
+                                            { label: '115', value: '115' },
                                             { label: '直接下载', value: 'aria2' },
                                         ]}
                                     />
                                 </Card>
 
                                 <Drawer
-                                    title={downloadTool === 'aria2' ? '配置 Aria2（直接下载）' : '配置 网盘（PikPak）'}
+                                    title={downloadTool === 'aria2' ? '配置 Aria2（直接下载）' : downloadTool === '115' ? '配置 115网盘' : '配置 网盘（PikPak）'}
                                     open={downloadToolConfigOpen}
                                     onClose={closeDownloadToolConfig}
                                     width={360}
@@ -1992,6 +2031,20 @@ export default function JavPage() {
                                                     )}
                                                 </Space>
                                             </Form>
+                                        </Card>
+                                    ) : downloadTool === '115' ? (
+                                        <Card size="small" title={<><Icon as={ThunderboltOutlined} /> 115网盘配置</>} className="jav-tool-card">
+                                            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                                                <Text type="secondary" style={{ fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" }}>
+                                                    {clientConfig.pan115?.configured ? "115 Open API 已配置" : "115 Open API 未配置"}
+                                                </Text>
+                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                    保存目录 ID：{clientConfig.pan115?.save_dir_id || '0'}
+                                                </Text>
+                                                <Button block onClick={() => { closeDownloadToolConfig(); setActivePage('settings'); }}>
+                                                    打开设置
+                                                </Button>
+                                            </Space>
                                         </Card>
                                     ) : (
                                         <Card size="small" title={<><Icon as={ThunderboltOutlined} /> WebDAV 配置</>} className="jav-tool-card">
