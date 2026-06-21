@@ -196,7 +196,7 @@ export default function LocalScrapePage() {
         { value: "keep_higher_resolution", label: "保留分辨率高的" },
         { value: "keep_higher_bitrate", label: "保留码率高的" },
     ];
-    const selectedConflictItems = selectedItems.filter((item) => item.target_exists && !item.target_duplicate);
+    const selectedConflictItems = selectedVisibleItems.filter((item) => item.source_path && item.target_exists);
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "文件夹模板" : "文件命名模板";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
 
@@ -506,8 +506,7 @@ export default function LocalScrapePage() {
     };
 
     const isResolvableConflict = (item) => Boolean(
-        item?.target_exists
-        && !item?.target_duplicate,
+        item?.target_exists,
     );
 
     const getConflictResolution = (item) => conflictResolutions[item?.source_path] || "";
@@ -814,12 +813,10 @@ export default function LocalScrapePage() {
                 if (!item.target_exists) {
                     return <Text type="secondary">-</Text>;
                 }
-                if (item.target_duplicate) {
-                    return <Tag color="red">目标重复</Tag>;
-                }
                 const resolution = getConflictResolution(item);
                 return (
                     <Space direction="vertical" size={4}>
+                        {item.target_duplicate && <Tag color="red">目标重复</Tag>}
                         <Button type="primary" size="small" onClick={() => setConflictCompareItem(item)}>
                             {resolution ? "修改策略" : "选择策略"}
                         </Button>
@@ -1170,11 +1167,7 @@ export default function LocalScrapePage() {
                         rowSelection={{
                             selectedRowKeys,
                             onChange: setSelectedRowKeys,
-                            getCheckboxProps: (item) => ({
-                                disabled: isConformingLocalScrapeItem(item)
-                                    ? item.target_duplicate
-                                    : false,
-                            }),
+                            getCheckboxProps: () => ({ disabled: false }),
                         }}
                         locale={{ emptyText: "请输入目录并生成预览" }}
                     />

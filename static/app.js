@@ -1246,7 +1246,7 @@
       { value: "keep_higher_resolution", label: "\u4FDD\u7559\u5206\u8FA8\u7387\u9AD8\u7684" },
       { value: "keep_higher_bitrate", label: "\u4FDD\u7559\u7801\u7387\u9AD8\u7684" }
     ];
-    const selectedConflictItems = selectedItems.filter((item) => item.target_exists && !item.target_duplicate);
+    const selectedConflictItems = selectedVisibleItems.filter((item) => item.source_path && item.target_exists);
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "\u6587\u4EF6\u5939\u6A21\u677F" : "\u6587\u4EF6\u547D\u540D\u6A21\u677F";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
     React3.useEffect(() => {
@@ -1518,7 +1518,7 @@
       return part.value;
     };
     const isResolvableConflict = (item) => Boolean(
-      item?.target_exists && !item?.target_duplicate
+      item?.target_exists
     );
     const getConflictResolution = (item) => conflictResolutions[item?.source_path] || "";
     const getConflictSourceFile = (item) => item?.source_file || {
@@ -1736,11 +1736,8 @@
           if (!item.target_exists) {
             return /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "-");
           }
-          if (item.target_duplicate) {
-            return /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u76EE\u6807\u91CD\u590D");
-          }
           const resolution = getConflictResolution(item);
-          return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4 }, /* @__PURE__ */ React3.createElement(Button3, { type: "primary", size: "small", onClick: () => setConflictCompareItem(item) }, resolution ? "\u4FEE\u6539\u7B56\u7565" : "\u9009\u62E9\u7B56\u7565"), resolution ? /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[resolution]) : !overwriteExisting && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u672A\u9009\u62E9\u7B56\u7565"));
+          return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4 }, item.target_duplicate && /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u76EE\u6807\u91CD\u590D"), /* @__PURE__ */ React3.createElement(Button3, { type: "primary", size: "small", onClick: () => setConflictCompareItem(item) }, resolution ? "\u4FEE\u6539\u7B56\u7565" : "\u9009\u62E9\u7B56\u7565"), resolution ? /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[resolution]) : !overwriteExisting && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u672A\u9009\u62E9\u7B56\u7565"));
         }
       }
     ];
@@ -2009,9 +2006,7 @@
         rowSelection: {
           selectedRowKeys,
           onChange: setSelectedRowKeys,
-          getCheckboxProps: (item) => ({
-            disabled: isConformingLocalScrapeItem(item) ? item.target_duplicate : false
-          })
+          getCheckboxProps: () => ({ disabled: false })
         },
         locale: { emptyText: "\u8BF7\u8F93\u5165\u76EE\u5F55\u5E76\u751F\u6210\u9884\u89C8" }
       }

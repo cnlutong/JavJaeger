@@ -72,7 +72,7 @@ test("local scrape conflict compare sends per-item resolution", () => {
     assert.match(localScrapePage, /value: "keep_higher_bitrate", label: "保留码率高的"/);
     assert.match(localScrapePage, /updateConflictResolution\(conflictCompareItem, option\.value\)/);
     assert.match(localScrapePage, /conflict_resolution: overrideConflictResolution \|\| getConflictResolution\(item\) \|\| null/);
-    assert.match(localScrapePage, /item\?\.target_exists[\s\S]*&& !item\?\.target_duplicate/);
+    assert.match(localScrapePage, /item\?\.target_exists/);
     assert.match(localScrapePage, /isResolvableConflict\(item\)[\s\S]*&& !overwriteExisting[\s\S]*&& !getConflictResolution\(item\)/);
     assert.match(localScrapePage, /分辨率：\{formatResolution\(file\)\}/);
     assert.match(localScrapePage, /码率：\{formatBitrate\(file\?\.bitrate\)\}/);
@@ -87,12 +87,12 @@ test("local scrape conflict actions are visible in their own table column", () =
 
 test("local scrape supports batch conflict execution for selected rows", () => {
     assert.match(localScrapePage, /const \[bulkConflictResolution, setBulkConflictResolution\] = React\.useState\(""\)/);
-    assert.match(localScrapePage, /const selectedConflictItems = selectedItems\.filter/);
+    assert.match(localScrapePage, /const selectedConflictItems = selectedVisibleItems\.filter/);
     assert.match(localScrapePage, /const handleBulkConflictApply = async \(\) =>/);
     assert.match(localScrapePage, /placeholder="批量冲突策略"/);
     assert.match(localScrapePage, /批量处理冲突/);
     assert.match(localScrapePage, /startApplyForItems\([\s\S]*selectedConflictItems[\s\S]*bulkConflictResolution/);
-    assert.match(localScrapePage, /disabled: isConformingLocalScrapeItem\(item\)[\s\S]*\? item\.target_duplicate[\s\S]*: false/);
+    assert.match(localScrapePage, /getCheckboxProps: \(\) => \(\{ disabled: false \}\)/);
 });
 
 test("local scrape page can delete all non-conforming rows without a manual selection step", () => {

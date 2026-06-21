@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "updated_at": "2026-06-21T21:32:35.742438",
+  "actors": {
+    "mbp": {
+      "key": "mbp",
+      "id": "mbp",
+      "name": "酒井ももか",
+      "remote_avatar_url": "https://www.javbus.com/pics/actress/mbp_a.jpg",
+      "avatar_file": "mbp.jpg",
+      "first_seen_at": "2026-06-21T21:32:34.923773",
+      "movies": {
+        "ABP-123": {
+          "movie_id": "ABP-123",
+          "title": "ABP-123 酒井ももか、満足度満点新人ソープ DX",
+          "date": "2014-04-01",
+          "cover_url": "https://www.javbus.com/pics/cover/475i_b.jpg"
+        }
+      },
+      "updated_at": "2026-06-21T21:32:35.742168",
+      "movie_ids": [
+        "ABP-123"
+      ],
+      "movie_count": 1
+    }
+  }
+}
