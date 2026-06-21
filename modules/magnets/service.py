@@ -1,7 +1,16 @@
 import logging
+import re
 from typing import Any
+from urllib.parse import urljoin
 
-from cilisousuo_cli import _has_chinese_subtitle, get_best_result as cilisousuo_get_best_result, is_4k_resource
+import httpx
+from bs4 import BeautifulSoup
+from cilisousuo_cli import (
+    _has_chinese_subtitle,
+    get_best_result as cilisousuo_get_best_result,
+    is_4k_resource,
+    parse_size_to_bytes,
+)
 
 from modules.history.service import download_history_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
@@ -9,6 +18,9 @@ from modules.movies.service import get_movie_detail
 
 
 logger = logging.getLogger(__name__)
+
+YHG007_BASE_URL = "https://yhg007.com"
+DIRECT_SEARCH_MAGNET_SOURCES = {"cilisousuo", "yhg007"}
 
 
 def select_best_magnet_with_subtitle_filter(
@@ -76,6 +88,10 @@ def normalize_subtitle_filter_for_source(
     return None
 
 
+def _magnet_source_requires_javbus_movie_params(magnet_source: str) -> bool:
+    return magnet_source not in DIRECT_SEARCH_MAGNET_SOURCES
+
+
 def has_valid_javbus_movie_params(movie_data: dict[str, Any] | None) -> bool:
     return bool(movie_data and movie_data.get("gid") and movie_data.get("uc") is not None)
 
@@ -117,6 +133,183 @@ async def get_cilisousuo_best_magnet_payload(
     }
 
 
+def _build_yhg007_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
+
+
+def _normalize_yhg007_text(value: str | None) -> str:
+    return re.sub(r"\s+", " ", value or "").strip()
+
+
+def _parse_yhg007_sbar(item: Any) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    sbar = item.find("div", class_="sbar")
+    if not sbar:
+        return fields
+
+    for span in sbar.find_all("span"):
+        text = _normalize_yhg007_text(span.get_text(" ", strip=True))
+        if text.startswith("添加时间:"):
+            fields["date"] = text.split(":", 1)[1].strip()
+        elif text.startswith("大小:"):
+            fields["size"] = text.split(":", 1)[1].strip()
+        elif text.startswith("热度:"):
+            fields["hot"] = text.split(":", 1)[1].strip()
+    return fields
+
+
+def parse_yhg007_search_results(html: str) -> list[dict[str, Any]]:
+    soup = BeautifulSoup(html, "html.parser")
+    results: list[dict[str, Any]] = []
+    for item in soup.select(".ssbox"):
+        magnet_anchor = item.find("a", href=lambda href: isinstance(href, str) and href.startswith("magnet:"))
+        if not magnet_anchor:
+            continue
+
+        title_node = item.select_one(".title h3")
+        title = _normalize_yhg007_text(title_node.get_text(" ", strip=True) if title_node else "")
+        file_names = [
+            _normalize_yhg007_text(li.get_text(" ", strip=True))
+            for li in item.select(".slist li")
+            if _normalize_yhg007_text(li.get_text(" ", strip=True))
+        ]
+        filename_text = " ".join(file_names)
+        sbar_fields = _parse_yhg007_sbar(item)
+        size = sbar_fields.get("size") or ""
+        date = sbar_fields.get("date") or ""
+        combined_text = f"{title} {filename_text}"
+
+        results.append(
+            {
+                "link": magnet_anchor.get("href"),
+                "title": title or filename_text,
+                "filename": filename_text,
+                "size": size or "未知",
+                "date": date or "未知",
+                "shareDate": date or "",
+                "hasSubtitle": _has_chinese_subtitle(combined_text),
+                "source": "yhg007",
+                "hot": sbar_fields.get("hot") or "",
+            }
+        )
+    return results
+
+
+def _filter_yhg007_results(
+    results: list[dict[str, Any]],
+    has_subtitle_filter: str | None = None,
+    exclude_4k: bool = False,
+) -> list[dict[str, Any]]:
+    filtered = results
+    if exclude_4k:
+        filtered = [
+            result
+            for result in filtered
+            if not is_4k_resource(result.get("title", ""), result.get("filename", ""))
+        ]
+
+    if has_subtitle_filter in ("true", "false"):
+        expected = has_subtitle_filter == "true"
+        filtered = [result for result in filtered if bool(result.get("hasSubtitle")) == expected]
+
+    return filtered
+
+
+def _sort_yhg007_results(
+    results: list[dict[str, Any]],
+    sort_by: str | None = "size",
+    sort_order: str | None = "desc",
+) -> list[dict[str, Any]]:
+    reverse = sort_order != "asc"
+    if sort_by == "date":
+        return sorted(results, key=lambda result: result.get("date") or "", reverse=reverse)
+    if sort_by == "size":
+        return sorted(results, key=lambda result: parse_size_to_bytes(result.get("size", "")) or -1, reverse=reverse)
+    return results
+
+
+def _parse_yhg007_hot(value: Any) -> int:
+    try:
+        return int(str(value or "").replace(",", "").strip() or "0")
+    except ValueError:
+        return 0
+
+
+def select_yhg007_best_magnet(results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    sized_results: list[tuple[dict[str, Any], float]] = []
+    for result in results:
+        if not result.get("link"):
+            continue
+        size_bytes = parse_size_to_bytes(result.get("size", ""))
+        if size_bytes is None:
+            continue
+        sized_results.append((result, size_bytes))
+
+    if not sized_results:
+        return next((result for result in results if result.get("link")), None)
+
+    largest_size = max(size_bytes for _result, size_bytes in sized_results)
+    minimum_size = largest_size * 0.8
+    candidates = [
+        (result, size_bytes)
+        for result, size_bytes in sized_results
+        if size_bytes >= minimum_size
+    ]
+    if not candidates:
+        candidates = sized_results
+
+    best_result, _best_size = max(
+        candidates,
+        key=lambda item: (_parse_yhg007_hot(item[0].get("hot")), item[1]),
+    )
+    return best_result
+
+
+async def fetch_yhg007_magnet_data(
+    movie_id: str,
+    has_subtitle_filter: str | None = None,
+    exclude_4k: bool = False,
+    sort_by: str | None = "size",
+    sort_order: str | None = "desc",
+) -> list[dict[str, Any]]:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=_build_yhg007_headers()) as client:
+        index_response = await client.get(YHG007_BASE_URL)
+        index_response.raise_for_status()
+        soup = BeautifulSoup(index_response.text, "html.parser")
+        token_node = soup.find("input", {"name": "csrf_token"})
+        form_payload = {"search": movie_id}
+        if token_node and token_node.get("value"):
+            form_payload["csrf_token"] = token_node["value"]
+
+        search_response = await client.post(urljoin(YHG007_BASE_URL, "/search"), data=form_payload)
+        search_response.raise_for_status()
+
+    results = parse_yhg007_search_results(search_response.text)
+    results = _filter_yhg007_results(results, has_subtitle_filter=has_subtitle_filter, exclude_4k=exclude_4k)
+    return _sort_yhg007_results(results, sort_by=sort_by, sort_order=sort_order)
+
+
+async def get_yhg007_best_magnet_payload(
+    movie_id: str,
+    has_subtitle_filter: str | None = None,
+    exclude_4k: bool = False,
+) -> dict[str, Any] | None:
+    results = await fetch_yhg007_magnet_data(
+        movie_id,
+        has_subtitle_filter=has_subtitle_filter,
+        exclude_4k=exclude_4k,
+        sort_by="size",
+        sort_order="desc",
+    )
+    return select_yhg007_best_magnet(results)
+
+
 async def get_best_magnet_payload(
     movie_id: str,
     magnet_source: str = "javbus",
@@ -135,6 +328,12 @@ async def get_best_magnet_payload(
 
     if magnet_source == "cilisousuo":
         return await get_cilisousuo_best_magnet_payload(
+            movie_id,
+            has_subtitle_filter=effective_has_subtitle_filter,
+            exclude_4k=exclude_4k,
+        )
+    if magnet_source == "yhg007":
+        return await get_yhg007_best_magnet_payload(
             movie_id,
             has_subtitle_filter=effective_has_subtitle_filter,
             exclude_4k=exclude_4k,
@@ -158,7 +357,7 @@ async def build_movie_with_best_magnet_result(
     allow_param_present: bool = False,
 ) -> dict[str, Any]:
     movie_data = await get_movie_detail(movie_id)
-    if magnet_source != "cilisousuo" and not has_valid_javbus_movie_params(movie_data):
+    if _magnet_source_requires_javbus_movie_params(magnet_source) and not has_valid_javbus_movie_params(movie_data):
         return {"movie_id": movie_id, "success": False, "error": "影片不存在或无法获取参数"}
 
     best_magnet = await get_best_magnet_payload(
@@ -199,6 +398,14 @@ async def get_magnets_payload(movie_id: str, request_query: dict[str, str]) -> A
             allow_param_present="allowChineseSubtitles" in request_query,
         )
         return [best_magnet] if best_magnet else []
+    if magnet_source == "yhg007":
+        return await fetch_yhg007_magnet_data(
+            movie_id,
+            has_subtitle_filter=has_subtitle_filter,
+            exclude_4k=exclude_4k,
+            sort_by=request_query.get("sortBy") or "size",
+            sort_order=request_query.get("sortOrder") or "desc",
+        )
 
     query_params = dict(request_query)
     query_params.pop("hasSubtitle", None)

@@ -13,6 +13,7 @@ const {
     Input,
     InputNumber,
     Row,
+    Select,
     Space,
     Spin,
     Switch,
@@ -34,17 +35,47 @@ const {
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
 
+const SCRAPER_OPTIONS = [
+    { value: "javbus", label: "JavBus" },
+    { value: "r18dev", label: "r18dev" },
+    { value: "dmm", label: "DMM" },
+    { value: "libredmm", label: "LibreDMM" },
+    { value: "javlibrary", label: "JavLibrary" },
+    { value: "javdb", label: "JavDB" },
+    { value: "jav321", label: "Jav321" },
+    { value: "mgstage", label: "MGStage" },
+    { value: "tokyohot", label: "TokyoHot" },
+    { value: "aventertainment", label: "AVEntertainment" },
+    { value: "dlgetchu", label: "DL.Getchu" },
+    { value: "caribbeancom", label: "Caribbeancom" },
+    { value: "fc2", label: "FC2" },
+    { value: "javstash", label: "JavStash" },
+];
+
+const SCRAPER_LANGUAGE_OPTIONS = [
+    { value: "zh", label: "zh" },
+    { value: "cn", label: "cn" },
+    { value: "tw", label: "tw" },
+    { value: "ja", label: "ja" },
+    { value: "en", label: "en" },
+];
+
 const withSecretPlaceholders = (payload = {}) => ({
     javbus: payload.javbus || {},
+    scrapers: {
+        ...(payload.scrapers || {}),
+        javstash: { ...(payload.scrapers?.javstash || {}), api_key: "" },
+    },
     webdav: { ...(payload.webdav || {}), password: "" },
     aria2: { ...(payload.aria2 || {}), secret: "" },
     pikpak: { ...(payload.pikpak || {}), password: "" },
-    pan115: { ...(payload.pan115 || {}), access_token: "", refresh_token: "" },
+    pan115: { ...(payload.pan115 || {}), cookie: "" },
 });
 
 const buildSettingsPayload = (values = {}) => {
     const payload = {
         javbus: { ...(values.javbus || {}) },
+        scrapers: { ...(values.scrapers || {}) },
         webdav: { ...(values.webdav || {}) },
         aria2: { ...(values.aria2 || {}) },
         pikpak: { ...(values.pikpak || {}) },
@@ -60,11 +91,12 @@ const buildSettingsPayload = (values = {}) => {
     if (!payload.pikpak.password) {
         delete payload.pikpak.password;
     }
-    if (!payload.pan115.access_token) {
-        delete payload.pan115.access_token;
+    if (!payload.pan115.cookie) {
+        delete payload.pan115.cookie;
     }
-    if (!payload.pan115.refresh_token) {
-        delete payload.pan115.refresh_token;
+    payload.scrapers.javstash = { ...(payload.scrapers.javstash || {}) };
+    if (!payload.scrapers.javstash.api_key) {
+        delete payload.scrapers.javstash.api_key;
     }
 
     return payload;
@@ -212,6 +244,69 @@ export default function SettingsPage() {
                                         </Form.Item>
                                     </Col>
                                 </Row>
+                            </Card>
+                        </Col>
+
+                        <Col xs={24} xl={14}>
+                            <Card className="webdav-connection-card" title={<><Icon as={SettingOutlined} /> 刮削员</>}>
+                                <Form.Item
+                                    name={["scrapers", "priority"]}
+                                    label="Priority"
+                                    extra="Inspired by javinizer-go: enabled providers are tried in this order."
+                                >
+                                    <Select mode="multiple" options={SCRAPER_OPTIONS} optionFilterProp="label" />
+                                </Form.Item>
+
+                                <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+                                    {SCRAPER_OPTIONS.map((provider) => (
+                                        <div
+                                            key={provider.value}
+                                            style={{
+                                                border: "1px solid #f0f0f0",
+                                                borderRadius: 8,
+                                                padding: 12,
+                                            }}
+                                        >
+                                            <Space direction="vertical" size="small" style={{ width: "100%" }}>
+                                                <Space wrap>
+                                                    <Text strong>{provider.label}</Text>
+                                                    <Tag color={settings?.scrapers?.[provider.value]?.implemented ? "success" : "default"}>
+                                                        {settings?.scrapers?.[provider.value]?.implemented ? "active" : "configured"}
+                                                    </Tag>
+                                                </Space>
+                                                <Row gutter={16}>
+                                                    <Col xs={24} md={8}>
+                                                        <Form.Item name={["scrapers", provider.value, "enabled"]} label="Enabled" valuePropName="checked">
+                                                            <Switch />
+                                                        </Form.Item>
+                                                    </Col>
+                                                    <Col xs={24} md={8}>
+                                                        <Form.Item name={["scrapers", provider.value, "language"]} label="Language">
+                                                            <Select options={SCRAPER_LANGUAGE_OPTIONS} />
+                                                        </Form.Item>
+                                                    </Col>
+                                                    <Col xs={24} md={8}>
+                                                        <Form.Item name={["scrapers", provider.value, "request_delay"]} label="Delay ms">
+                                                            <InputNumber min={0} max={60000} step={100} precision={0} style={{ width: "100%" }} />
+                                                        </Form.Item>
+                                                    </Col>
+                                                </Row>
+                                                <Form.Item name={["scrapers", provider.value, "base_url"]} label="Base URL">
+                                                    <Input autoComplete="url" />
+                                                </Form.Item>
+                                                {provider.value === "javstash" && (
+                                                    <Form.Item
+                                                        name={["scrapers", "javstash", "api_key"]}
+                                                        label="JavStash API Key"
+                                                        extra={settings?.scrapers?.javstash?.has_api_key ? "has_api_key: true; leave blank to keep the saved key" : "GraphQL API key is optional unless JavStash is enabled."}
+                                                    >
+                                                        <Input.Password autoComplete="new-password" />
+                                                    </Form.Item>
+                                                )}
+                                            </Space>
+                                        </div>
+                                    ))}
+                                </Space>
                             </Card>
                         </Col>
 
@@ -368,19 +463,54 @@ export default function SettingsPage() {
                                         </Form.Item>
                                     </Col>
                                 </Row>
-                                <Form.Item
-                                    name={["pan115", "access_token"]}
-                                    label="Access Token"
-                                    extra={settings?.pan115?.has_access_token ? "已保存 access token；留空表示保留原值" : "仅在填写时写入 config.json"}
-                                >
-                                    <Input.Password autoComplete="new-password" />
+                                <Form.Item name={["pan115", "login_app"]} label="扫码登录端">
+                                    <Select
+                                        options={[
+                                            { value: "wechatmini", label: "微信小程序" },
+                                            { value: "tv", label: "TV" },
+                                            { value: "web", label: "Web" },
+                                            { value: "android", label: "Android" },
+                                            { value: "ios", label: "iOS" },
+                                            { value: "alipaymini", label: "支付宝小程序" },
+                                            { value: "qandroid", label: "Android Q" },
+                                        ]}
+                                    />
                                 </Form.Item>
+                                <Row gutter={16}>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["pan115", "batch_size"]}
+                                            label="每批链接数"
+                                            extra="默认 20；一次请求会提交这一批里的多个链接"
+                                        >
+                                            <InputNumber min={1} max={50} precision={0} style={{ width: "100%" }} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["pan115", "batch_interval_seconds"]}
+                                            label="批次间隔（秒）"
+                                            extra="默认 25；仅在超过一批时生效"
+                                        >
+                                            <InputNumber min={0} max={300} step={5} precision={1} style={{ width: "100%" }} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                        <Form.Item
+                                            name={["pan115", "jitter_seconds"]}
+                                            label="随机抖动（秒）"
+                                            extra="默认 5；批次间隔会在该范围内轻微浮动"
+                                        >
+                                            <InputNumber min={0} max={60} step={1} precision={1} style={{ width: "100%" }} />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
                                 <Form.Item
-                                    name={["pan115", "refresh_token"]}
-                                    label="Refresh Token"
-                                    extra={settings?.pan115?.has_refresh_token ? "已保存 refresh token；留空表示保留原值" : "可选；用于 access token 过期后自动刷新"}
+                                    name={["pan115", "cookie"]}
+                                    label="Cookie"
+                                    extra={settings?.pan115?.has_cookie ? "已保存 Cookie；留空表示保留原值" : "可通过下载工具抽屉扫码登录自动写入"}
                                 >
-                                    <Input.Password autoComplete="new-password" />
+                                    <Input.Password autoComplete="new-password" placeholder="UID=...;CID=...;SEID=...;KID=..." />
                                 </Form.Item>
                             </Card>
                         </Col>

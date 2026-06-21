@@ -48,6 +48,11 @@ const NODE_GAP = 52;
 const NODE_MIN_X = 48;
 const NODE_MIN_Y = 92;
 const NODE_TYPE_ORDER = ["trigger", "search", "magnet", "download"];
+const MAGNET_SOURCE_LABELS = {
+    javbus: "JavBus",
+    cilisousuo: "Cilisousuo",
+    yhg007: "YHG007",
+};
 const FILTER_TYPE_LABELS = { genre: "类别", star: "演员" };
 
 const NODE_META = {
@@ -437,7 +442,7 @@ export default function AutomationPage() {
             if (mode === "filter") return `${node.config?.filter_type || "筛选"}:${node.config?.filter_value || "-"}`;
             return node.config?.keyword || "关键词";
         }
-        if (node.type === "magnet") return node.config?.source === "cilisousuo" ? "Cilisousuo" : "JavBus";
+        if (node.type === "magnet") return MAGNET_SOURCE_LABELS[node.config?.source || "javbus"] || node.config?.source || "JavBus";
         if (node.config?.tool === "aria2") return "Aria2";
         if (node.config?.tool === "115") return "115网盘";
         return "PikPak";
@@ -568,6 +573,7 @@ export default function AutomationPage() {
                         <Select value={config.source || "javbus"} onChange={(source) => updateNodeConfig(selectedNode.id, { source })}>
                             <Select.Option value="javbus">JavBus</Select.Option>
                             <Select.Option value="cilisousuo">Cilisousuo</Select.Option>
+                            <Select.Option value="yhg007">YHG007</Select.Option>
                         </Select>
                     </Form.Item>
                     <Form.Item label="字幕过滤">

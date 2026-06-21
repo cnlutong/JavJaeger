@@ -11,6 +11,23 @@ from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 
+SCRAPER_PROVIDER_NAMES = [
+    "javbus",
+    "r18dev",
+    "dmm",
+    "libredmm",
+    "javlibrary",
+    "javdb",
+    "jav321",
+    "mgstage",
+    "tokyohot",
+    "aventertainment",
+    "dlgetchu",
+    "caribbeancom",
+    "fc2",
+    "javstash",
+]
+
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "javbus": {
@@ -22,6 +39,34 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cache_max_size": 1000,
         "image_retry_attempts": 3,
         "image_retry_backoff_seconds": 0.25,
+    },
+    "scrapers": {
+        "priority": SCRAPER_PROVIDER_NAMES,
+        "javbus": {
+            "enabled": True,
+            "language": "zh",
+            "request_delay": 500,
+            "base_url": "https://www.javbus.com",
+        },
+        "r18dev": {"enabled": False, "language": "en", "request_delay": 1500},
+        "dmm": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "libredmm": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "javlibrary": {"enabled": False, "language": "cn", "request_delay": 1500},
+        "javdb": {"enabled": False, "language": "zh", "request_delay": 1500},
+        "jav321": {"enabled": False, "language": "zh", "request_delay": 1500},
+        "mgstage": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "tokyohot": {"enabled": False, "language": "zh", "request_delay": 1500},
+        "aventertainment": {"enabled": False, "language": "en", "request_delay": 1500},
+        "dlgetchu": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "caribbeancom": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "fc2": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "javstash": {
+            "enabled": False,
+            "language": "en",
+            "request_delay": 1500,
+            "base_url": "https://javstash.org/graphql",
+            "api_key": "",
+        },
     },
     "webdav": {
         "enabled": False,
@@ -44,9 +89,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "pan115": {
         "enabled": False,
-        "access_token": "",
-        "refresh_token": "",
+        "cookie": "",
         "save_dir_id": "0",
+        "login_app": "wechatmini",
+        "batch_size": 20,
+        "batch_interval_seconds": 25.0,
+        "jitter_seconds": 5.0,
+        "failure_backoff_seconds": [120.0, 600.0],
     },
 }
 
@@ -209,6 +258,10 @@ def get_javbus_config() -> dict[str, Any]:
     return javbus_config
 
 
+def get_scrapers_config() -> dict[str, Any]:
+    return copy.deepcopy(config.get("scrapers", DEFAULT_CONFIG["scrapers"]))
+
+
 def build_client_config() -> dict[str, Any]:
     webdav_config = get_webdav_config()
     aria2_config = get_aria2_config()
@@ -240,11 +293,14 @@ def build_client_config() -> dict[str, Any]:
             "auto_login": bool(pikpak_config.get("auto_login")),
         },
         "pan115": {
-            "configured": bool(pan115_enabled and pan115_config.get("access_token")),
+            "configured": bool(pan115_enabled and pan115_config.get("cookie")),
             "enabled": pan115_enabled,
             "save_dir_id": pan115_config.get("save_dir_id") or "0",
-            "has_access_token": bool(pan115_config.get("access_token")),
-            "has_refresh_token": bool(pan115_config.get("refresh_token")),
+            "login_app": pan115_config.get("login_app") or "wechatmini",
+            "batch_size": pan115_config.get("batch_size") or 20,
+            "batch_interval_seconds": pan115_config.get("batch_interval_seconds") if pan115_config.get("batch_interval_seconds") is not None else 25.0,
+            "jitter_seconds": pan115_config.get("jitter_seconds") if pan115_config.get("jitter_seconds") is not None else 5.0,
+            "has_cookie": bool(pan115_config.get("cookie")),
         },
     }
 

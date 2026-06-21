@@ -12,7 +12,7 @@ from modules.common.runtime import (
 )
 from modules.history.service import download_history_service
 from modules.javbus_api import javbus_api_service
-from .path_browser import list_directory_payload
+from .path_browser import list_directory_payload, list_file_entries_payload
 from .settings import build_settings_payload, update_javbus_settings, update_system_settings
 
 
@@ -49,6 +49,11 @@ async def get_client_config():
 @router.get("/api/system/directories")
 async def list_system_directories(path: str | None = None):
     return list_directory_payload(path)
+
+
+@router.get("/api/system/files")
+async def list_system_files(path: str | None = None):
+    return list_file_entries_payload(path)
 
 
 @router.get("/api/system/settings")

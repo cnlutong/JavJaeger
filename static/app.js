@@ -124,95 +124,281 @@
     );
   };
 
-  // frontend/src/components/WebDavPage.jsx
+  // frontend/src/components/DirectoryInput.jsx
   var React = window.React;
   var antd = window.antd;
-  var icons = window.icons;
+  var icons = window.icons || {};
+  var { Button, Empty, Input, List, Modal, Space, Typography, message } = antd;
+  var { Text } = Typography;
+  var { ArrowUpOutlined, FolderOpenOutlined, HomeOutlined } = icons;
+  var Icon = ({ as: Component }) => Component ? /* @__PURE__ */ React.createElement(Component, null) : null;
+  var fetchDirectories = async (path) => {
+    const query = path ? `?path=${encodeURIComponent(path)}` : "";
+    const response = await fetch(`/api/system/directories${query}`);
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || `HTTP ${response.status}`);
+    }
+    return data;
+  };
+  function DirectoryInput({ value, onChange, placeholder, disabled }) {
+    const [open, setOpen] = React.useState(false);
+    const [loading, setLoading] = React.useState(false);
+    const [browser, setBrowser] = React.useState({ current_path: "", parent_path: null, entries: [] });
+    const loadPath = async (path) => {
+      setLoading(true);
+      try {
+        const data = await fetchDirectories(path);
+        setBrowser(data);
+      } catch (error) {
+        message.error(`\u52A0\u8F7D\u76EE\u5F55\u5931\u8D25\uFF1A${error.message}`);
+      } finally {
+        setLoading(false);
+      }
+    };
+    const openBrowser = () => {
+      setOpen(true);
+      void loadPath(value);
+    };
+    const chooseCurrentPath = () => {
+      if (!browser.current_path) {
+        return;
+      }
+      onChange?.(browser.current_path);
+      setOpen(false);
+    };
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Space.Compact, { block: true }, /* @__PURE__ */ React.createElement(
+      Input,
+      {
+        value,
+        disabled,
+        placeholder,
+        onChange: (event) => onChange?.(event.target.value)
+      }
+    ), /* @__PURE__ */ React.createElement(
+      Button,
+      {
+        htmlType: "button",
+        disabled,
+        icon: /* @__PURE__ */ React.createElement(Icon, { as: FolderOpenOutlined }),
+        onClick: openBrowser
+      },
+      "\u6D4F\u89C8"
+    )), /* @__PURE__ */ React.createElement(
+      Modal,
+      {
+        title: "\u9009\u62E9\u670D\u52A1\u7AEF\u76EE\u5F55",
+        open,
+        onCancel: () => setOpen(false),
+        onOk: chooseCurrentPath,
+        okText: "\u9009\u62E9\u5F53\u524D\u76EE\u5F55",
+        cancelText: "\u53D6\u6D88",
+        okButtonProps: { disabled: !browser.current_path },
+        width: 720
+      },
+      /* @__PURE__ */ React.createElement(Space, { style: { width: "100%", marginBottom: 12 }, wrap: true }, /* @__PURE__ */ React.createElement(
+        Button,
+        {
+          htmlType: "button",
+          icon: /* @__PURE__ */ React.createElement(Icon, { as: HomeOutlined }),
+          onClick: () => loadPath("")
+        },
+        "\u6839\u76EE\u5F55"
+      ), /* @__PURE__ */ React.createElement(
+        Button,
+        {
+          htmlType: "button",
+          icon: /* @__PURE__ */ React.createElement(Icon, { as: ArrowUpOutlined }),
+          disabled: !browser.parent_path,
+          onClick: () => loadPath(browser.parent_path)
+        },
+        "\u4E0A\u4E00\u7EA7"
+      ), /* @__PURE__ */ React.createElement(Text, { copyable: !!browser.current_path, ellipsis: true, style: { maxWidth: 470 } }, browser.current_path || "\u9009\u62E9\u4E00\u4E2A\u8D77\u59CB\u4F4D\u7F6E")),
+      /* @__PURE__ */ React.createElement(
+        List,
+        {
+          bordered: true,
+          loading,
+          dataSource: browser.entries || [],
+          locale: { emptyText: /* @__PURE__ */ React.createElement(Empty, { description: "\u6CA1\u6709\u53EF\u8FDB\u5165\u7684\u76EE\u5F55" }) },
+          renderItem: (entry) => /* @__PURE__ */ React.createElement(
+            List.Item,
+            {
+              actions: [
+                /* @__PURE__ */ React.createElement(
+                  Button,
+                  {
+                    key: "open",
+                    htmlType: "button",
+                    size: "small",
+                    onClick: () => loadPath(entry.path)
+                  },
+                  "\u6253\u5F00"
+                )
+              ]
+            },
+            /* @__PURE__ */ React.createElement(
+              List.Item.Meta,
+              {
+                avatar: /* @__PURE__ */ React.createElement(Icon, { as: FolderOpenOutlined }),
+                title: /* @__PURE__ */ React.createElement("a", { onClick: () => loadPath(entry.path) }, entry.name),
+                description: entry.path
+              }
+            )
+          )
+        }
+      )
+    ));
+  }
+
+  // frontend/src/components/WebDavPage.jsx
+  var React2 = window.React;
+  var antd2 = window.antd;
+  var icons2 = window.icons;
   var {
     Layout,
-    Typography,
+    Typography: Typography2,
     Badge,
     Card,
     Form,
-    Input,
-    Button,
+    Input: Input2,
+    Button: Button2,
     Table,
     Breadcrumb,
     Switch,
     InputNumber,
-    Space,
-    message,
+    Space: Space2,
+    message: message2,
     Row,
     Col,
-    Popconfirm,
-    Progress,
-    Tag
-  } = antd;
+    Tag,
+    Empty: Empty2,
+    List: List2,
+    Modal: Modal2,
+    Popconfirm
+  } = antd2;
   var {
-    CloudDownloadOutlined,
     CloudOutlined,
     DownloadOutlined,
     FolderFilled,
     PlayCircleFilled,
     FileOutlined,
     ReloadOutlined,
-    PauseCircleOutlined,
-    PlayCircleOutlined,
-    DeleteOutlined,
     ApiOutlined,
-    CloudServerOutlined
-  } = icons;
+    PlusOutlined,
+    DatabaseOutlined,
+    HddOutlined,
+    DeleteOutlined,
+    SearchOutlined,
+    FolderOpenOutlined: FolderOpenOutlined2
+  } = icons2;
   var { Content } = Layout;
-  var { Title, Text } = Typography;
-  function WebDavPage() {
-    const [clientConfig, setClientConfig] = React.useState({
-      webdav: { configured: false, enabled: false, url: "", username: "", auto_connect: false },
-      aria2: { configured: false, enabled: false, url: "", auto_connect: false, has_secret: false }
+  var { Title, Text: Text2 } = Typography2;
+  var NET_DISK_PUBLIC_KEY = "webdavNetDisksPublic";
+  var NET_DISK_SECRET_KEY = "webdavNetDisksSecret";
+  var parseJson2 = (value, fallback) => {
+    if (!value) return fallback;
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      return fallback;
+    }
+  };
+  var loadNetDiskProfiles = () => parseJson2(window.localStorage.getItem(NET_DISK_PUBLIC_KEY), []);
+  var loadNetDiskSecrets = () => parseJson2(window.sessionStorage.getItem(NET_DISK_SECRET_KEY), {});
+  var saveNetDiskProfiles = (profiles) => {
+    window.localStorage.setItem(
+      NET_DISK_PUBLIC_KEY,
+      JSON.stringify(profiles.map(({ id, type, name, url, username, path }) => ({ id, type, name, url, username, path })))
+    );
+  };
+  var saveNetDiskSecret = (profileId, password) => {
+    const secrets = loadNetDiskSecrets();
+    secrets[profileId] = password || "";
+    window.sessionStorage.setItem(NET_DISK_SECRET_KEY, JSON.stringify(secrets));
+  };
+  var buildProfileId = (url, username) => `webdav::${url || ""}::${username || ""}`;
+  var buildLocalFolderId = (path) => `localFolder::${path || ""}`;
+  var upsertNetDiskProfile = (profiles, values) => {
+    const url = values.url || "";
+    const username = values.username || "";
+    const id = buildProfileId(url, username);
+    const name = values.name || values.label || url || "WebDAV";
+    const profile = { id, type: "webdav", name, url, username };
+    const nextProfiles = [profile, ...profiles.filter((item) => item.id !== id)];
+    saveNetDiskProfiles(nextProfiles);
+    saveNetDiskSecret(id, values.password || "");
+    return { profile, profiles: nextProfiles };
+  };
+  var upsertLocalFolderProfile = (profiles, values) => {
+    const path = values.path || "";
+    const id = buildLocalFolderId(path);
+    const name = values.name || path || "\u672C\u5730\u6587\u4EF6\u5939";
+    const profile = { id, type: "localFolder", name, path };
+    const nextProfiles = [profile, ...profiles.filter((item) => item.id !== id)];
+    saveNetDiskProfiles(nextProfiles);
+    return { profile, profiles: nextProfiles };
+  };
+  var formatFileSize = (bytes) => {
+    if (!bytes || bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+  var isVideoFile = (filename) => {
+    if (!filename) return false;
+    const ext = filename.split(".").pop().toLowerCase();
+    return ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "ts", "mts", "mpeg", "mpg"].includes(ext);
+  };
+  function WebDavPage({ onOpenDownloadManagement } = {}) {
+    const [clientConfig, setClientConfig] = React2.useState({
+      webdav: { configured: false, enabled: false, url: "", username: "", auto_connect: false }
     });
-    const [webdavConnected, setWebdavConnected] = React.useState(false);
-    const [aria2Connected, setAria2Connected] = React.useState(false);
-    const [webdavLoading, setWebdavLoading] = React.useState(false);
-    const [aria2Loading, setAria2Loading] = React.useState(false);
-    const [currentPath, setCurrentPath] = React.useState("/");
-    const [files, setFiles] = React.useState([]);
-    const [filesLoading, setFilesLoading] = React.useState(false);
-    const [selectedRowKeys, setSelectedRowKeys] = React.useState([]);
-    const [selectedRows, setSelectedRows] = React.useState([]);
-    const [videoFilter, setVideoFilter] = React.useState(false);
-    const [minFileSizeMb, setMinFileSizeMb] = React.useState(300);
-    const [downloadingSelection, setDownloadingSelection] = React.useState(false);
-    const [downloads, setDownloads] = React.useState([]);
-    const [downloadsLoading, setDownloadsLoading] = React.useState(false);
+    const [netDisks, setNetDisks] = React2.useState([]);
+    const [activeNetDiskId, setActiveNetDiskId] = React2.useState("");
+    const [webdavConnected, setWebdavConnected] = React2.useState(false);
+    const [aria2Connected, setAria2Connected] = React2.useState(false);
+    const [webdavLoading, setWebdavLoading] = React2.useState(false);
+    const [currentPath, setCurrentPath] = React2.useState("/");
+    const [files, setFiles] = React2.useState([]);
+    const [filesLoading, setFilesLoading] = React2.useState(false);
+    const [selectedRowKeys, setSelectedRowKeys] = React2.useState([]);
+    const [selectedRows, setSelectedRows] = React2.useState([]);
+    const [videoFilter, setVideoFilter] = React2.useState(false);
+    const [minFileSizeMb, setMinFileSizeMb] = React2.useState(300);
+    const [fileNameFilter, setFileNameFilter] = React2.useState("");
+    const [netDiskModalOpen, setNetDiskModalOpen] = React2.useState(false);
+    const [localFolderModalOpen, setLocalFolderModalOpen] = React2.useState(false);
+    const [downloadingSelection, setDownloadingSelection] = React2.useState(false);
     const [webdavForm] = Form.useForm();
-    const [aria2Form] = Form.useForm();
-    const autoConnectTriggeredRef = React.useRef({ webdav: false, aria2: false });
-    React.useEffect(() => {
+    const [localFolderForm] = Form.useForm();
+    const autoConnectTriggeredRef = React2.useRef(false);
+    React2.useEffect(() => {
       const savedWebdav = loadWebDavSettings();
-      const savedAria2 = loadAria2Settings();
+      const savedProfiles = loadNetDiskProfiles();
+      const derivedProfiles = savedProfiles.length > 0 ? savedProfiles.map((profile) => ({
+        type: "webdav",
+        ...profile,
+        id: profile.type === "localFolder" ? profile.id || buildLocalFolderId(profile.path) : profile.id?.startsWith("webdav::") ? profile.id : buildProfileId(profile.url, profile.username || "")
+      })) : savedWebdav.url ? [{
+        id: buildProfileId(savedWebdav.url, savedWebdav.username || ""),
+        type: "webdav",
+        name: savedWebdav.url,
+        url: savedWebdav.url,
+        username: savedWebdav.username || ""
+      }] : [];
+      setNetDisks(derivedProfiles);
       webdavForm.setFieldsValue(savedWebdav);
-      aria2Form.setFieldsValue(savedAria2);
       loadClientConfig();
       checkConnectionStatus();
     }, []);
-    React.useEffect(() => {
-      if (clientConfig.webdav.auto_connect && clientConfig.webdav.configured && !webdavConnected && !autoConnectTriggeredRef.current.webdav) {
-        autoConnectTriggeredRef.current.webdav = true;
+    React2.useEffect(() => {
+      if (clientConfig.webdav.auto_connect && clientConfig.webdav.configured && !webdavConnected && !autoConnectTriggeredRef.current) {
+        autoConnectTriggeredRef.current = true;
         handleWebdavConnectFromConfig({ silent: true });
       }
     }, [clientConfig.webdav.auto_connect, clientConfig.webdav.configured, webdavConnected]);
-    React.useEffect(() => {
-      if (clientConfig.aria2.auto_connect && clientConfig.aria2.configured && !aria2Connected && !autoConnectTriggeredRef.current.aria2) {
-        autoConnectTriggeredRef.current.aria2 = true;
-        handleAria2ConnectFromConfig({ silent: true });
-      }
-    }, [clientConfig.aria2.auto_connect, clientConfig.aria2.configured, aria2Connected]);
-    React.useEffect(() => {
-      if (!aria2Connected) return void 0;
-      const timer = window.setInterval(() => {
-        loadDownloads({ silent: true });
-      }, 1e4);
-      return () => window.clearInterval(timer);
-    }, [aria2Connected]);
     const loadClientConfig = async () => {
       try {
         const config = await fetchClientConfig();
@@ -222,9 +408,6 @@
         }
         if (!webdavForm.getFieldValue("username") && config.webdav?.username) {
           webdavForm.setFieldsValue({ username: config.webdav.username });
-        }
-        if (!aria2Form.getFieldValue("url") && config.aria2?.url) {
-          aria2Form.setFieldsValue({ url: config.aria2.url });
         }
       } catch (error) {
         console.error("Load client config error:", error);
@@ -242,27 +425,24 @@
         if (status.webdav_username && !webdavForm.getFieldValue("username")) {
           webdavForm.setFieldsValue({ username: status.webdav_username });
         }
-        if (status.aria2_url && !aria2Form.getFieldValue("url")) {
-          aria2Form.setFieldsValue({ url: status.aria2_url });
-        }
         if (status.webdav_connected) {
-          loadFiles("/");
+          const id = buildProfileId(status.webdav_url, status.webdav_username || "");
+          setActiveNetDiskId(id);
+          loadWebDavFiles("/");
         } else {
-          setFiles([]);
-        }
-        if (status.aria2_connected) {
-          loadDownloads({ silent: true });
-        } else {
-          setDownloads([]);
+          const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
+          if (!activeProfile || activeProfile.type !== "localFolder") {
+            setFiles([]);
+          }
         }
       } catch (error) {
         console.error("Check connection error:", error);
       }
     };
-    const handleWebdavConnect = async (values) => {
+    const connectWebdav = async (values, { saveProfile = true, silent = false } = {}) => {
       setWebdavLoading(true);
       const formData = new FormData();
-      formData.append("webdav_url", values.url);
+      formData.append("webdav_url", values.url || "");
       formData.append("username", values.username || "");
       formData.append("password", values.password || "");
       try {
@@ -270,267 +450,290 @@
         const result = await res.json();
         if (result.success) {
           saveWebDavSettings(values);
-          message.success("WebDAV\u8FDE\u63A5\u6210\u529F");
+          if (saveProfile) {
+            const { profile, profiles } = upsertNetDiskProfile(netDisks, values);
+            setNetDisks(profiles);
+            setActiveNetDiskId(profile.id);
+          }
+          if (!silent) {
+            message2.success("WebDAV\u8FDE\u63A5\u6210\u529F");
+          }
           setWebdavConnected(true);
-          loadFiles("/");
+          setNetDiskModalOpen(false);
+          await checkConnectionStatus();
+          loadWebDavFiles("/");
         } else {
-          message.error(result.message || "WebDAV\u8FDE\u63A5\u5931\u8D25");
+          if (!silent) {
+            message2.error(result.message || "WebDAV\u8FDE\u63A5\u5931\u8D25");
+          }
           setWebdavConnected(false);
           setFiles([]);
         }
       } catch (error) {
-        message.error("WebDAV\u8FDE\u63A5\u5F02\u5E38");
+        if (!silent) {
+          message2.error("WebDAV\u8FDE\u63A5\u5F02\u5E38");
+        }
         setWebdavConnected(false);
         setFiles([]);
       } finally {
         setWebdavLoading(false);
       }
     };
-    const handleAria2Connect = async (values) => {
-      setAria2Loading(true);
-      const formData = new FormData();
-      formData.append("aria2_url", values.url);
-      formData.append("aria2_secret", values.secret || "");
-      try {
-        const res = await fetch("/api/aria2/connect", { method: "POST", body: formData });
-        const result = await res.json();
-        if (result.success) {
-          saveAria2Settings(values);
-          message.success("Aria2\u8FDE\u63A5\u6210\u529F");
-          setAria2Connected(true);
-          loadDownloads({ silent: true });
-        } else {
-          message.error(result.message || "Aria2\u8FDE\u63A5\u5931\u8D25");
-          setAria2Connected(false);
-          setDownloads([]);
-        }
-      } catch (error) {
-        message.error("Aria2\u8FDE\u63A5\u5F02\u5E38");
-        setAria2Connected(false);
-        setDownloads([]);
-      } finally {
-        setAria2Loading(false);
-      }
-    };
+    const handleWebdavConnect = async (values) => connectWebdav(values);
     const handleWebdavConnectFromConfig = async ({ silent = false } = {}) => {
       setWebdavLoading(true);
       try {
         const res = await fetch("/api/webdav/connect-config", { method: "POST" });
         const result = await res.json();
         if (result.success) {
-          if (clientConfig.webdav?.url || clientConfig.webdav?.username) {
-            webdavForm.setFieldsValue({
-              url: clientConfig.webdav.url || "",
-              username: clientConfig.webdav.username || ""
-            });
+          const values = {
+            name: "\u914D\u7F6E WebDAV",
+            url: clientConfig.webdav?.url || "",
+            username: clientConfig.webdav?.username || "",
+            password: ""
+          };
+          if (values.url || values.username) {
+            webdavForm.setFieldsValue({ url: values.url, username: values.username });
+            const { profile, profiles } = upsertNetDiskProfile(netDisks, values);
+            setNetDisks(profiles);
+            setActiveNetDiskId(profile.id);
           }
           setWebdavConnected(true);
           if (!silent) {
-            message.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 WebDAV");
+            message2.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 WebDAV");
           }
-          loadFiles("/");
+          await checkConnectionStatus();
+          loadWebDavFiles("/");
         } else {
           setWebdavConnected(false);
           setFiles([]);
           if (!silent) {
-            message.error(result.message || "WebDAV \u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
+            message2.error(result.message || "WebDAV \u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
           }
         }
       } catch (error) {
         setWebdavConnected(false);
         setFiles([]);
         if (!silent) {
-          message.error("WebDAV \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
+          message2.error("WebDAV \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
         }
       } finally {
         setWebdavLoading(false);
       }
     };
-    const handleAria2ConnectFromConfig = async ({ silent = false } = {}) => {
-      setAria2Loading(true);
-      try {
-        const res = await fetch("/api/aria2/connect-config", { method: "POST" });
-        const result = await res.json();
-        if (result.success) {
-          if (clientConfig.aria2?.url) {
-            aria2Form.setFieldsValue({ url: clientConfig.aria2.url });
-          }
-          setAria2Connected(true);
-          if (!silent) {
-            message.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 Aria2");
-          }
-          loadDownloads({ silent: true });
-        } else {
-          setAria2Connected(false);
-          setDownloads([]);
-          if (!silent) {
-            message.error(result.message || "Aria2 \u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
-          }
-        }
-      } catch (error) {
-        setAria2Connected(false);
-        setDownloads([]);
-        if (!silent) {
-          message.error("Aria2 \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
-        }
-      } finally {
-        setAria2Loading(false);
+    const handleProfileConnect = async (profile) => {
+      if (profile.type === "localFolder") {
+        setActiveNetDiskId(profile.id);
+        setWebdavConnected(false);
+        await loadLocalFiles(profile.path);
+        return;
+      }
+      const secrets = loadNetDiskSecrets();
+      webdavForm.setFieldsValue({
+        name: profile.name,
+        url: profile.url,
+        username: profile.username,
+        password: secrets[profile.id] || ""
+      });
+      await connectWebdav(
+        {
+          name: profile.name,
+          url: profile.url,
+          username: profile.username,
+          password: secrets[profile.id] || ""
+        },
+        { saveProfile: false }
+      );
+      setActiveNetDiskId(profile.id);
+    };
+    const handleLocalFolderAdd = async (values) => {
+      if (!values.path) {
+        message2.warning("\u8BF7\u9009\u62E9\u672C\u5730\u6587\u4EF6\u5939");
+        return;
+      }
+      const { profile, profiles } = upsertLocalFolderProfile(netDisks, values);
+      setNetDisks(profiles);
+      setActiveNetDiskId(profile.id);
+      setWebdavConnected(false);
+      setLocalFolderModalOpen(false);
+      await loadLocalFiles(profile.path);
+    };
+    const openNetDiskModal = () => {
+      webdavForm.setFieldsValue({ name: "", url: "", username: "", password: "" });
+      setNetDiskModalOpen(true);
+    };
+    const openLocalFolderModal = () => {
+      localFolderForm.setFieldsValue({ name: "", path: "" });
+      setLocalFolderModalOpen(true);
+    };
+    const handleRemoveProfile = (profileId) => {
+      const nextProfiles = netDisks.filter((item) => item.id !== profileId);
+      const secrets = loadNetDiskSecrets();
+      delete secrets[profileId];
+      saveNetDiskProfiles(nextProfiles);
+      window.sessionStorage.setItem(NET_DISK_SECRET_KEY, JSON.stringify(secrets));
+      setNetDisks(nextProfiles);
+      if (activeNetDiskId === profileId) {
+        setActiveNetDiskId("");
+        setWebdavConnected(false);
+        setFiles([]);
+        setSelectedRowKeys([]);
+        setSelectedRows([]);
       }
     };
-    const loadFiles = async (path) => {
+    const applyFileList = (entries, path, sourceType) => {
+      const parentRows = [];
+      if (path !== "/" && path !== "") {
+        const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
+        const isLocalRoot = activeProfile?.type === "localFolder" && activeProfile.path === path;
+        if (!isLocalRoot) {
+          const separator = path.includes("\\") ? "\\" : "/";
+          const parts = path.split(/[\\/]/).filter(Boolean);
+          parts.pop();
+          const parentPath = separator === "\\" ? parts.join("\\") : parts.length === 0 ? "/" : `/${parts.join("/")}`;
+          parentRows.push({
+            key: "..",
+            name: "..",
+            path: parentPath || path,
+            is_directory: true,
+            size: 0,
+            isParent: true,
+            source_type: sourceType
+          });
+        }
+      }
+      const actualFiles = (entries || []).sort((a, b) => {
+        if (a.is_directory && !b.is_directory) return -1;
+        if (!a.is_directory && b.is_directory) return 1;
+        return a.name.localeCompare(b.name);
+      }).map((item) => ({ ...item, key: item.path, source_type: sourceType }));
+      setCurrentPath(path);
+      setFiles([...parentRows, ...actualFiles]);
+      setSelectedRowKeys([]);
+      setSelectedRows([]);
+      setFileNameFilter("");
+    };
+    const loadWebDavFiles = async (path) => {
       setFilesLoading(true);
       try {
         const res = await fetch(`/api/webdav/files?path=${encodeURIComponent(path)}`);
         const result = await res.json();
         if (result.success) {
-          setCurrentPath(path);
-          let fileList = [];
-          if (path !== "/") {
-            const parts = path.split("/").filter(Boolean);
-            parts.pop();
-            const parentPath = parts.length === 0 ? "/" : "/" + parts.join("/");
-            fileList.push({
-              key: "..",
-              name: "..",
-              path: parentPath,
-              is_directory: true,
-              size: 0,
-              isParent: true
-            });
-          }
-          const actualFiles = (result.files || []).sort((a, b) => {
-            if (a.is_directory && !b.is_directory) return -1;
-            if (!a.is_directory && b.is_directory) return 1;
-            return a.name.localeCompare(b.name);
-          }).map((item) => ({ ...item, key: item.path }));
-          setFiles([...fileList, ...actualFiles]);
-          setSelectedRowKeys([]);
-          setSelectedRows([]);
+          applyFileList(result.files || [], path, "webdav");
         } else {
-          message.error(result.message || "\u52A0\u8F7D\u6587\u4EF6\u5931\u8D25");
+          message2.error(result.message || "\u52A0\u8F7D\u6587\u4EF6\u5931\u8D25");
         }
       } catch (error) {
-        message.error("\u52A0\u8F7D\u6587\u4EF6\u5F02\u5E38");
+        message2.error("\u52A0\u8F7D\u6587\u4EF6\u5F02\u5E38");
       } finally {
         setFilesLoading(false);
       }
     };
-    const loadDownloads = async ({ silent = false } = {}) => {
-      setDownloadsLoading(true);
+    const loadLocalFiles = async (path) => {
+      setFilesLoading(true);
       try {
-        const res = await fetch("/api/aria2/downloads");
+        const res = await fetch(`/api/system/files?path=${encodeURIComponent(path)}`);
         const result = await res.json();
         if (result.success) {
-          setDownloads(result.downloads || []);
+          applyFileList(result.entries || [], result.current_path || path, "local");
         } else {
-          if (!silent) {
-            message.error(result.message || "\u83B7\u53D6\u4E0B\u8F7D\u5217\u8868\u5931\u8D25");
-          }
+          message2.error(result.message || "\u52A0\u8F7D\u672C\u5730\u6587\u4EF6\u5939\u5931\u8D25");
         }
       } catch (error) {
-        if (!silent) {
-          message.error("\u83B7\u53D6\u4E0B\u8F7D\u5217\u8868\u5F02\u5E38");
-        }
+        message2.error("\u52A0\u8F7D\u672C\u5730\u6587\u4EF6\u5939\u5F02\u5E38");
       } finally {
-        setDownloadsLoading(false);
+        setFilesLoading(false);
       }
+    };
+    const loadFiles = async (path) => {
+      const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
+      if (activeProfile?.type === "localFolder") {
+        await loadLocalFiles(path);
+        return;
+      }
+      await loadWebDavFiles(path);
+    };
+    const ensureAria2Ready = async () => {
+      if (aria2Connected) return true;
+      try {
+        const res = await fetch("/api/webdav/status");
+        const status = await res.json();
+        const connected = !!status.aria2_connected;
+        setAria2Connected(connected);
+        if (connected) return true;
+      } catch (error) {
+        setAria2Connected(false);
+      }
+      message2.warning("\u8BF7\u5148\u5230\u4E0B\u8F7D\u7BA1\u7406\u9875\u9762\u8FDE\u63A5 Aria2 \u4E0B\u8F7D\u5668");
+      if (typeof onOpenDownloadManagement === "function") {
+        onOpenDownloadManagement();
+      }
+      return false;
+    };
+    const submitDownloads = async (rows) => {
+      if (rows.some((row) => row.source_type === "local")) {
+        message2.warning("\u672C\u5730\u6587\u4EF6\u4E0D\u80FD\u53D1\u9001\u5230 Aria2");
+        return null;
+      }
+      const ready = await ensureAria2Ready();
+      if (!ready || rows.length === 0) return null;
+      const res = await fetch("/api/webdav/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: rows,
+          video_filter: videoFilter,
+          min_file_size_mb: minFileSizeMb
+        })
+      });
+      return await res.json();
     };
     const handleDownloadSelected = async () => {
       if (selectedRows.length === 0) return;
-      if (!aria2Connected) {
-        message.warning("\u8BF7\u5148\u8FDE\u63A5Aria2\u4E0B\u8F7D\u5668");
-        return;
-      }
       setDownloadingSelection(true);
       try {
-        const res = await fetch("/api/webdav/download", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            files: selectedRows,
-            video_filter: videoFilter,
-            min_file_size_mb: minFileSizeMb
-          })
-        });
-        const result = await res.json();
+        const result = await submitDownloads(selectedRows);
+        if (!result) return;
         if (result.success) {
           const successCount = result.results.filter((item) => item.success).length;
           const failCount = result.results.filter((item) => !item.success).length;
           if (successCount > 0) {
-            message.success(`\u6210\u529F\u6DFB\u52A0 ${successCount} \u4E2A\u4E0B\u8F7D\u4EFB\u52A1${failCount > 0 ? `\uFF0C${failCount} \u4E2A\u5931\u8D25` : ""}`);
-            loadDownloads();
+            message2.success(`\u6210\u529F\u6DFB\u52A0 ${successCount} \u4E2A\u4E0B\u8F7D\u4EFB\u52A1${failCount > 0 ? `\uFF0C${failCount} \u4E2A\u5931\u8D25` : ""}`);
           } else if (failCount > 0) {
-            message.error(`${failCount} \u4E2A\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25`);
+            message2.error(`${failCount} \u4E2A\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25`);
           }
           setSelectedRowKeys([]);
           setSelectedRows([]);
         } else {
-          message.error("\u6279\u91CF\u4E0B\u8F7D\u5931\u8D25");
+          message2.error("\u6279\u91CF\u4E0B\u8F7D\u5931\u8D25");
         }
       } catch (error) {
-        message.error("\u6279\u91CF\u4E0B\u8F7D\u5F02\u5E38");
+        message2.error("\u6279\u91CF\u4E0B\u8F7D\u5F02\u5E38");
       } finally {
         setDownloadingSelection(false);
       }
     };
     const downloadSingleFile = async (record) => {
-      if (!aria2Connected) {
-        message.warning("\u8BF7\u5148\u8FDE\u63A5Aria2\u4E0B\u8F7D\u5668");
-        return;
-      }
       try {
-        message.loading({ content: `\u6B63\u5728\u6DFB\u52A0\u4EFB\u52A1: ${record.name}`, key: "webdav-download" });
-        const res = await fetch("/api/webdav/download", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            files: [record],
-            video_filter: videoFilter,
-            min_file_size_mb: minFileSizeMb
-          })
-        });
-        const result = await res.json();
+        message2.loading({ content: `\u6B63\u5728\u6DFB\u52A0\u4EFB\u52A1: ${record.name}`, key: "webdav-download" });
+        const result = await submitDownloads([record]);
+        if (!result) {
+          message2.destroy("webdav-download");
+          return;
+        }
         if (result.success && result.results.length > 0) {
           const successCount = result.results.filter((item) => item.success).length;
           if (successCount > 0) {
-            message.success({ content: `\u5DF2\u6DFB\u52A0\u4E0B\u8F7D\u4EFB\u52A1: ${record.name}`, key: "webdav-download" });
-            loadDownloads();
+            message2.success({ content: `\u5DF2\u6DFB\u52A0\u4E0B\u8F7D\u4EFB\u52A1: ${record.name}`, key: "webdav-download" });
           } else {
-            message.error({ content: result.results[0].message || "\u4E0B\u8F7D\u5931\u8D25", key: "webdav-download" });
+            message2.error({ content: result.results[0].message || "\u4E0B\u8F7D\u5931\u8D25", key: "webdav-download" });
           }
         } else {
-          message.error({ content: "\u6CA1\u6709\u53EF\u4E0B\u8F7D\u7684\u6587\u4EF6", key: "webdav-download" });
+          message2.error({ content: "\u6CA1\u6709\u53EF\u4E0B\u8F7D\u7684\u6587\u4EF6", key: "webdav-download" });
         }
       } catch (error) {
-        message.error({ content: "\u4E0B\u8F7D\u5F02\u5E38", key: "webdav-download" });
+        message2.error({ content: "\u4E0B\u8F7D\u5F02\u5E38", key: "webdav-download" });
       }
-    };
-    const doDownloadAction = async (action, gid) => {
-      try {
-        const res = await fetch(`/api/aria2/${action}/${gid}`, { method: action === "remove" ? "DELETE" : "POST" });
-        const result = await res.json();
-        if (result.success) {
-          message.success("\u64CD\u4F5C\u6210\u529F");
-          loadDownloads();
-        } else {
-          message.error(result.message || "\u64CD\u4F5C\u5931\u8D25");
-        }
-      } catch (error) {
-        message.error("\u64CD\u4F5C\u5F02\u5E38");
-      }
-    };
-    const formatFileSize = (bytes) => {
-      if (!bytes || bytes === 0) return "0 B";
-      const k = 1024;
-      const sizes = ["B", "KB", "MB", "GB", "TB"];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-    };
-    const formatSpeed = (speed) => formatFileSize(speed) + "/s";
-    const isVideoFile = (filename) => {
-      if (!filename) return false;
-      const ext = filename.split(".").pop().toLowerCase();
-      return ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "ts", "mts", "mpeg", "mpg"].includes(ext);
     };
     const fileColumns = [
       {
@@ -543,13 +746,13 @@
           const isLargeVideo = isVideo && record.size >= minFileSizeMb * 1024 * 1024;
           let iconNode;
           if (record.is_directory) {
-            iconNode = /* @__PURE__ */ React.createElement(FolderFilled, { style: { color: "#ffc107", marginRight: 8, fontSize: 16 } });
+            iconNode = /* @__PURE__ */ React2.createElement(FolderFilled, { style: { color: "#ffc107", marginRight: 8, fontSize: 16 } });
           } else if (isVideo) {
-            iconNode = /* @__PURE__ */ React.createElement(PlayCircleFilled, { className: "video-icon", style: { marginRight: 8, fontSize: 16 } });
+            iconNode = /* @__PURE__ */ React2.createElement(PlayCircleFilled, { className: "video-icon", style: { marginRight: 8, fontSize: 16 } });
           } else {
-            iconNode = /* @__PURE__ */ React.createElement(FileOutlined, { style: { color: "#8c8c8c", marginRight: 8, fontSize: 16 } });
+            iconNode = /* @__PURE__ */ React2.createElement(FileOutlined, { style: { color: "#8c8c8c", marginRight: 8, fontSize: 16 } });
           }
-          return /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", width: "100%" } }, /* @__PURE__ */ React.createElement("div", { style: { flexShrink: 0 } }, iconNode), /* @__PURE__ */ React.createElement(
+          return /* @__PURE__ */ React2.createElement("div", { style: { display: "flex", alignItems: "center", width: "100%" } }, /* @__PURE__ */ React2.createElement("div", { style: { flexShrink: 0 } }, iconNode), /* @__PURE__ */ React2.createElement(
             "a",
             {
               onClick: () => record.is_directory && loadFiles(record.path),
@@ -565,7 +768,7 @@
               title: text
             },
             text
-          ), isLargeVideo && /* @__PURE__ */ React.createElement(Tag, { color: "success", style: { marginLeft: 8 } }, "\u89C6\u9891"));
+          ), isLargeVideo && /* @__PURE__ */ React2.createElement(Tag, { color: "success", style: { marginLeft: 8 } }, "\u89C6\u9891"));
         }
       },
       {
@@ -575,9 +778,9 @@
         width: 100,
         render: (isDir, record) => {
           if (record.isParent) return "-";
-          if (isDir) return /* @__PURE__ */ React.createElement(Tag, { color: "warning" }, "\u76EE\u5F55");
-          if (isVideoFile(record.name)) return /* @__PURE__ */ React.createElement(Tag, { color: "processing" }, "\u89C6\u9891");
-          return /* @__PURE__ */ React.createElement(Tag, null, "\u6587\u4EF6");
+          if (isDir) return /* @__PURE__ */ React2.createElement(Tag, { color: "warning" }, "\u76EE\u5F55");
+          if (isVideoFile(record.name)) return /* @__PURE__ */ React2.createElement(Tag, { color: "processing" }, "\u89C6\u9891");
+          return /* @__PURE__ */ React2.createElement(Tag, null, "\u6587\u4EF6");
         }
       },
       {
@@ -585,101 +788,89 @@
         dataIndex: "size",
         key: "size",
         width: 120,
-        render: (size, record) => record.is_directory ? "-" : /* @__PURE__ */ React.createElement(Text, { type: "secondary", style: { fontFamily: "monospace" } }, formatFileSize(size))
+        render: (size, record) => record.is_directory ? "-" : /* @__PURE__ */ React2.createElement(Text2, { type: "secondary", style: { fontFamily: "monospace" } }, formatFileSize(size))
       },
       {
         title: "\u64CD\u4F5C",
         key: "action",
         width: 100,
-        render: (_, record) => !record.isParent ? /* @__PURE__ */ React.createElement(Button, { type: "primary", ghost: true, icon: /* @__PURE__ */ React.createElement(DownloadOutlined, null), size: "small", onClick: (e) => {
-          e.stopPropagation();
-          downloadSingleFile(record);
-        } }) : null
-      }
-    ];
-    const downloadColumns = [
-      {
-        title: "\u6587\u4EF6\u540D",
-        key: "name",
-        ellipsis: true,
-        render: (_, record) => {
-          let name = record.name || "\u672A\u77E5\u6587\u4EF6";
-          if ((!record.name || record.name === "\u672A\u77E5\u6587\u4EF6") && record.files?.[0]?.uris?.[0]?.uri) {
-            try {
-              const urlObj = new URL(record.files[0].uris[0].uri);
-              name = decodeURIComponent(urlObj.pathname.split("/").pop() || "\u672A\u77E5\u6587\u4EF6");
-            } catch (error) {
+        render: (_, record) => !record.isParent ? /* @__PURE__ */ React2.createElement(
+          Button2,
+          {
+            type: "primary",
+            ghost: true,
+            icon: /* @__PURE__ */ React2.createElement(DownloadOutlined, null),
+            size: "small",
+            disabled: record.source_type === "local",
+            title: record.source_type === "local" ? "\u672C\u5730\u6587\u4EF6\u4E0D\u80FD\u53D1\u9001\u5230 Aria2" : "\u4E0B\u8F7D",
+            onClick: (event) => {
+              event.stopPropagation();
+              downloadSingleFile(record);
             }
           }
-          return name;
-        }
-      },
-      {
-        title: "\u72B6\u6001",
-        dataIndex: "status",
-        key: "status",
-        width: 100,
-        render: (status) => {
-          const map = {
-            active: { color: "processing", text: "\u4E0B\u8F7D\u4E2D" },
-            waiting: { color: "default", text: "\u7B49\u5F85\u4E2D" },
-            paused: { color: "warning", text: "\u5DF2\u6682\u505C" },
-            error: { color: "error", text: "\u9519\u8BEF" },
-            complete: { color: "success", text: "\u5DF2\u5B8C\u6210" },
-            removed: { color: "default", text: "\u5DF2\u5220\u9664" }
-          };
-          const item = map[status] || { color: "default", text: status };
-          return /* @__PURE__ */ React.createElement(Tag, { color: item.color }, item.text);
-        }
-      },
-      {
-        title: "\u8FDB\u5EA6",
-        key: "progress",
-        width: 200,
-        render: (_, record) => {
-          const percent = record.totalLength > 0 ? Math.round(record.completedLength / record.totalLength * 100) : 0;
-          return /* @__PURE__ */ React.createElement(Progress, { percent, size: "small", status: record.status === "error" ? "exception" : record.status === "active" ? "active" : "normal" });
-        }
-      },
-      {
-        title: "\u901F\u5EA6",
-        dataIndex: "downloadSpeed",
-        key: "speed",
-        width: 120,
-        render: (speed) => /* @__PURE__ */ React.createElement(Text, { style: { fontFamily: "monospace" } }, formatSpeed(speed))
-      },
-      {
-        title: "\u5927\u5C0F",
-        dataIndex: "totalLength",
-        key: "size",
-        width: 120,
-        render: (size) => /* @__PURE__ */ React.createElement(Text, { style: { fontFamily: "monospace" } }, formatFileSize(size))
-      },
-      {
-        title: "\u64CD\u4F5C",
-        key: "action",
-        width: 180,
-        render: (_, record) => /* @__PURE__ */ React.createElement(Space, { size: "small" }, record.status === "active" && /* @__PURE__ */ React.createElement(Button, { size: "small", type: "primary", onClick: () => doDownloadAction("pause", record.gid), icon: /* @__PURE__ */ React.createElement(PauseCircleOutlined, null) }, "\u6682\u505C"), (record.status === "paused" || record.status === "waiting") && /* @__PURE__ */ React.createElement(Button, { size: "small", type: "primary", ghost: true, onClick: () => doDownloadAction("resume", record.gid), icon: /* @__PURE__ */ React.createElement(PlayCircleOutlined, null) }, "\u7EE7\u7EED"), /* @__PURE__ */ React.createElement(Popconfirm, { title: "\u786E\u5B9A\u5220\u9664?", onConfirm: () => doDownloadAction("remove", record.gid) }, /* @__PURE__ */ React.createElement(Button, { size: "small", danger: true, icon: /* @__PURE__ */ React.createElement(DeleteOutlined, null) }, "\u5220\u9664")))
+        ) : null
       }
     ];
     const breadcrumbItems = currentPath.split("/").filter(Boolean).reduce((acc, part) => {
-      const path = acc.length === 0 ? "/" + part : acc[acc.length - 1].path + "/" + part;
-      acc.push({ title: /* @__PURE__ */ React.createElement("a", { onClick: () => loadFiles(path) }, part), path });
+      const path = acc.length === 0 ? `/${part}` : `${acc[acc.length - 1].path}/${part}`;
+      acc.push({ title: /* @__PURE__ */ React2.createElement("a", { onClick: () => loadFiles(path) }, part), path });
       return acc;
     }, []);
-    return /* @__PURE__ */ React.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Title, { level: 3, style: { marginBottom: 4 } }, "WebDAV \u4E0B\u8F7D\u4E2D\u5FC3"), /* @__PURE__ */ React.createElement(Text, { type: "secondary" }, "\u6D4F\u89C8\u7F51\u76D8\u76EE\u5F55\u5E76\u5C06\u76F4\u94FE\u6279\u91CF\u53D1\u9001\u5230 Aria2\u3002")), /* @__PURE__ */ React.createElement(Space, { size: "large", className: "webdav-status-cluster" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement(Text, null, "WebDAV:"), /* @__PURE__ */ React.createElement(Badge, { status: webdavConnected ? "success" : "default", text: webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5", style: { marginInlineStart: 8 } })), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement(Text, null, "Aria2:"), /* @__PURE__ */ React.createElement(Badge, { status: aria2Connected ? "success" : "default", text: aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5", style: { marginInlineStart: 8 } })))), /* @__PURE__ */ React.createElement(Content, null, /* @__PURE__ */ React.createElement(Row, { gutter: [24, 24] }, /* @__PURE__ */ React.createElement(Col, { xs: 24, md: 12 }, /* @__PURE__ */ React.createElement(Card, { className: "webdav-connection-card", title: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(CloudOutlined, null), " WebDAV\u670D\u52A1\u5668"), extra: /* @__PURE__ */ React.createElement(Badge, { status: webdavConnected ? "success" : "default", text: webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" }) }, /* @__PURE__ */ React.createElement(Form, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React.createElement(Form.Item, { label: "WebDAV URL", name: "url", rules: [{ required: true, message: "\u8BF7\u8F93\u5165WebDAV URL" }] }, /* @__PURE__ */ React.createElement(Input, { placeholder: "https://...", autoComplete: "url" })), /* @__PURE__ */ React.createElement(Row, { gutter: 16 }, /* @__PURE__ */ React.createElement(Col, { span: 12 }, /* @__PURE__ */ React.createElement(Form.Item, { label: "\u7528\u6237\u540D", name: "username" }, /* @__PURE__ */ React.createElement(Input, { autoComplete: "username" }))), /* @__PURE__ */ React.createElement(Col, { span: 12 }, /* @__PURE__ */ React.createElement(Form.Item, { label: "\u5BC6\u7801", name: "password" }, /* @__PURE__ */ React.createElement(Input.Password, { autoComplete: "current-password" })))), /* @__PURE__ */ React.createElement(Space, { wrap: true }, /* @__PURE__ */ React.createElement(Button, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React.createElement(ApiOutlined, null), loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav.configured && /* @__PURE__ */ React.createElement(Button, { onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))), /* @__PURE__ */ React.createElement(Col, { xs: 24, md: 12 }, /* @__PURE__ */ React.createElement(Card, { className: "webdav-connection-card", title: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(CloudServerOutlined, null), " Aria2\u4E0B\u8F7D\u5668"), extra: /* @__PURE__ */ React.createElement(Badge, { status: aria2Connected ? "success" : "default", text: aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" }) }, /* @__PURE__ */ React.createElement(Form, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React.createElement(Form.Item, { label: "Aria2 RPC URL", name: "url", rules: [{ required: true, message: "\u8BF7\u8F93\u5165Aria2 URL" }] }, /* @__PURE__ */ React.createElement(Input, { placeholder: "http://localhost:6800/jsonrpc", autoComplete: "url" })), /* @__PURE__ */ React.createElement(Form.Item, { label: "RPC Secret", name: "secret" }, /* @__PURE__ */ React.createElement(Input.Password, { autoComplete: "current-password" })), /* @__PURE__ */ React.createElement(Space, { wrap: true }, /* @__PURE__ */ React.createElement(Button, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React.createElement(ApiOutlined, null), loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2.configured && /* @__PURE__ */ React.createElement(Button, { onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))))), webdavConnected && /* @__PURE__ */ React.createElement(
+    const activeNetDisk = netDisks.find((item) => item.id === activeNetDiskId);
+    const isLocalSource = activeNetDisk?.type === "localFolder";
+    const resourceReady = isLocalSource || webdavConnected;
+    const normalizedFileNameFilter = fileNameFilter.trim().toLowerCase();
+    const visibleFiles = normalizedFileNameFilter ? files.filter((item) => item.isParent || item.name.toLowerCase().includes(normalizedFileNameFilter)) : files;
+    return /* @__PURE__ */ React2.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React2.createElement("div", { className: "webdav-page-header webdav-page-header-compact" }, /* @__PURE__ */ React2.createElement("div", null, /* @__PURE__ */ React2.createElement(Title, { level: 3, style: { marginBottom: 4 } }, "\u7F51\u76D8\u7BA1\u7406"), /* @__PURE__ */ React2.createElement(Text2, { type: "secondary" }, resourceReady ? activeNetDisk?.name || "\u5F53\u524D\u6765\u6E90" : "\u9009\u62E9 WebDAV \u7F51\u76D8\u6216\u672C\u5730\u6587\u4EF6\u5939\u5F00\u59CB\u6D4F\u89C8")), /* @__PURE__ */ React2.createElement(Space2, { wrap: true }, /* @__PURE__ */ React2.createElement(Badge, { status: resourceReady ? "success" : "default", text: resourceReady ? "\u5DF2\u9009\u62E9" : "\u672A\u9009\u62E9" }), /* @__PURE__ */ React2.createElement(Button2, { type: "primary", icon: /* @__PURE__ */ React2.createElement(PlusOutlined, null), onClick: openNetDiskModal }, "\u65B0\u589E\u7F51\u76D8"), /* @__PURE__ */ React2.createElement(Button2, { icon: /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, null), onClick: openLocalFolderModal }, "\u65B0\u589E\u672C\u5730\u6587\u4EF6\u5939"))), /* @__PURE__ */ React2.createElement(Content, null, /* @__PURE__ */ React2.createElement(Row, { gutter: [24, 24] }, /* @__PURE__ */ React2.createElement(Col, { xs: 24, lg: 7, xl: 6 }, /* @__PURE__ */ React2.createElement(
+      Card,
+      {
+        className: "webdav-work-card webdav-netdisk-card",
+        title: /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement(DatabaseOutlined, null), " \u6765\u6E90"),
+        extra: /* @__PURE__ */ React2.createElement(Space2, { size: 4 }, /* @__PURE__ */ React2.createElement(Button2, { type: "text", size: "small", icon: /* @__PURE__ */ React2.createElement(PlusOutlined, null), title: "\u65B0\u589E\u7F51\u76D8", onClick: openNetDiskModal }), /* @__PURE__ */ React2.createElement(Button2, { type: "text", size: "small", icon: /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, null), title: "\u65B0\u589E\u672C\u5730\u6587\u4EF6\u5939", onClick: openLocalFolderModal }))
+      },
+      netDisks.length === 0 ? /* @__PURE__ */ React2.createElement(Empty2, { image: Empty2.PRESENTED_IMAGE_SIMPLE, description: "\u6682\u65E0\u6765\u6E90" }) : /* @__PURE__ */ React2.createElement(
+        List2,
+        {
+          className: "webdav-netdisk-list",
+          dataSource: netDisks,
+          renderItem: (item) => /* @__PURE__ */ React2.createElement(List2.Item, { className: activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder") ? "is-active" : "" }, /* @__PURE__ */ React2.createElement("button", { type: "button", className: "webdav-netdisk-row", onClick: () => handleProfileConnect(item) }, item.type === "localFolder" ? /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, { className: "webdav-netdisk-icon" }) : /* @__PURE__ */ React2.createElement(CloudOutlined, { className: "webdav-netdisk-icon" }), /* @__PURE__ */ React2.createElement("span", { className: "webdav-netdisk-copy" }, /* @__PURE__ */ React2.createElement(Text2, { strong: true, ellipsis: true }, item.name || item.path || item.url), /* @__PURE__ */ React2.createElement(Text2, { type: "secondary", ellipsis: true }, item.type === "localFolder" ? `\u672C\u5730\u6587\u4EF6\u5939 \xB7 ${item.path}` : item.username ? `WebDAV \xB7 ${item.username} @ ${item.url}` : `WebDAV \xB7 ${item.url}`)), activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder") && /* @__PURE__ */ React2.createElement(Badge, { status: "success" })), /* @__PURE__ */ React2.createElement(Popconfirm, { title: "\u5220\u9664\u8BE5\u7F51\u76D8?", onConfirm: () => handleRemoveProfile(item.id) }, /* @__PURE__ */ React2.createElement(Button2, { type: "text", size: "small", danger: true, icon: /* @__PURE__ */ React2.createElement(DeleteOutlined, null), title: "\u5220\u9664" })))
+        }
+      ),
+      clientConfig.webdav.configured && /* @__PURE__ */ React2.createElement(Button2, { block: true, icon: /* @__PURE__ */ React2.createElement(ApiOutlined, null), onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u8FDE\u63A5\u914D\u7F6E\u7F51\u76D8")
+    )), /* @__PURE__ */ React2.createElement(Col, { xs: 24, lg: 17, xl: 18 }, /* @__PURE__ */ React2.createElement(
       Card,
       {
         className: "webdav-work-card",
-        title: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(FolderFilled, null), " \u6587\u4EF6\u6D4F\u89C8\u5668"),
-        extra: /* @__PURE__ */ React.createElement(Space, { wrap: true, className: "webdav-toolbar" }, /* @__PURE__ */ React.createElement(Button, { icon: /* @__PURE__ */ React.createElement(ReloadOutlined, null), onClick: () => loadFiles(currentPath) }, "\u5237\u65B0"), /* @__PURE__ */ React.createElement(Switch, { checkedChildren: "\u4EC5\u89C6\u9891", unCheckedChildren: "\u5168\u90E8\u6587\u4EF6", checked: videoFilter, onChange: setVideoFilter }), /* @__PURE__ */ React.createElement(Space.Compact, null, /* @__PURE__ */ React.createElement(Input, { style: { width: 40, pointerEvents: "none", backgroundColor: "#fafafa", borderRight: 0 }, placeholder: "\u2265", disabled: true }), /* @__PURE__ */ React.createElement(InputNumber, { min: 1, max: 10240, value: minFileSizeMb, onChange: setMinFileSizeMb, disabled: !videoFilter, style: { width: 100 } }), /* @__PURE__ */ React.createElement(Input, { style: { width: 50, pointerEvents: "none", backgroundColor: "#fafafa" }, placeholder: "MB", disabled: true })), /* @__PURE__ */ React.createElement(Button, { type: "primary", icon: /* @__PURE__ */ React.createElement(DownloadOutlined, null), disabled: selectedRowKeys.length === 0, onClick: handleDownloadSelected, loading: downloadingSelection }, "\u4E0B\u8F7D\u9009\u4E2D (", selectedRowKeys.length, ")"))
+        title: /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement(HddOutlined, null), " \u8D44\u6E90\u7BA1\u7406\u5668"),
+        extra: /* @__PURE__ */ React2.createElement(Space2, { wrap: true, className: "webdav-toolbar" }, /* @__PURE__ */ React2.createElement(Button2, { icon: /* @__PURE__ */ React2.createElement(ReloadOutlined, null), onClick: () => loadFiles(currentPath), disabled: !resourceReady }, "\u5237\u65B0"), /* @__PURE__ */ React2.createElement(Switch, { checkedChildren: "\u4EC5\u89C6\u9891", unCheckedChildren: "\u5168\u90E8\u6587\u4EF6", checked: videoFilter, onChange: setVideoFilter }), /* @__PURE__ */ React2.createElement(Space2.Compact, null, /* @__PURE__ */ React2.createElement(Input2, { style: { width: 40, pointerEvents: "none", backgroundColor: "#fafafa", borderRight: 0 }, placeholder: "\u2265", disabled: true }), /* @__PURE__ */ React2.createElement(InputNumber, { min: 1, max: 10240, value: minFileSizeMb, onChange: setMinFileSizeMb, disabled: !videoFilter, style: { width: 100 } }), /* @__PURE__ */ React2.createElement(Input2, { style: { width: 50, pointerEvents: "none", backgroundColor: "#fafafa" }, placeholder: "MB", disabled: true })), /* @__PURE__ */ React2.createElement(
+          Button2,
+          {
+            type: "primary",
+            icon: /* @__PURE__ */ React2.createElement(DownloadOutlined, null),
+            disabled: selectedRowKeys.length === 0 || selectedRows.some((row) => row.source_type === "local"),
+            onClick: handleDownloadSelected,
+            loading: downloadingSelection
+          },
+          "\u4E0B\u8F7D\u9009\u4E2D (",
+          selectedRowKeys.length,
+          ")"
+        ))
       },
-      /* @__PURE__ */ React.createElement(Breadcrumb, { style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement(Breadcrumb.Item, null, /* @__PURE__ */ React.createElement("a", { onClick: () => loadFiles("/") }, "\u6839\u76EE\u5F55")), breadcrumbItems.map((item, idx) => /* @__PURE__ */ React.createElement(Breadcrumb.Item, { key: idx }, idx === breadcrumbItems.length - 1 ? item.title.props.children : item.title))),
-      /* @__PURE__ */ React.createElement(
+      !resourceReady ? /* @__PURE__ */ React2.createElement(Empty2, { description: "\u8BF7\u9009\u62E9 WebDAV \u7F51\u76D8\u6216\u672C\u5730\u6587\u4EF6\u5939" }) : /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement("div", { className: "webdav-explorer-topbar" }, /* @__PURE__ */ React2.createElement(Breadcrumb, null, /* @__PURE__ */ React2.createElement(Breadcrumb.Item, null, /* @__PURE__ */ React2.createElement("a", { onClick: () => loadFiles("/") }, "\u6839\u76EE\u5F55")), breadcrumbItems.map((item, idx) => /* @__PURE__ */ React2.createElement(Breadcrumb.Item, { key: idx }, idx === breadcrumbItems.length - 1 ? item.title.props.children : item.title))), /* @__PURE__ */ React2.createElement(
+        Input2,
+        {
+          allowClear: true,
+          prefix: /* @__PURE__ */ React2.createElement(SearchOutlined, null),
+          placeholder: "\u641C\u7D22\u5F53\u524D\u76EE\u5F55",
+          value: fileNameFilter,
+          onChange: (event) => setFileNameFilter(event.target.value),
+          className: "webdav-file-search"
+        }
+      )), /* @__PURE__ */ React2.createElement(
         Table,
         {
           columns: fileColumns,
-          dataSource: files,
+          dataSource: visibleFiles,
           loading: filesLoading,
           pagination: false,
           scroll: { x: 760 },
@@ -689,21 +880,44 @@
               setSelectedRowKeys(newSelectedRowKeys);
               setSelectedRows(newSelectedRows);
             },
-            getCheckboxProps: (record) => ({ disabled: record.isParent })
+            getCheckboxProps: (record) => ({ disabled: record.isParent || record.source_type === "local" })
           },
           rowClassName: (record) => {
             const isLargeVideo = !record.is_directory && isVideoFile(record.name) && record.size >= minFileSizeMb * 1024 * 1024;
             return isLargeVideo ? "file-row-video" : "";
-          }
+          },
+          locale: { emptyText: fileNameFilter ? "\u6CA1\u6709\u5339\u914D\u6587\u4EF6" : "\u5F53\u524D\u76EE\u5F55\u4E3A\u7A7A" }
         }
-      )
-    ), aria2Connected && /* @__PURE__ */ React.createElement(Card, { className: "webdav-work-card", title: /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(CloudDownloadOutlined, null), " \u4E0B\u8F7D\u7BA1\u7406"), extra: /* @__PURE__ */ React.createElement(Button, { icon: /* @__PURE__ */ React.createElement(ReloadOutlined, null), onClick: loadDownloads, loading: downloadsLoading }, "\u5237\u65B0\u5217\u8868") }, /* @__PURE__ */ React.createElement(Table, { columns: downloadColumns, dataSource: downloads, rowKey: "gid", loading: downloadsLoading, pagination: false, scroll: { x: 920 }, locale: { emptyText: "\u6682\u65E0\u4E0B\u8F7D\u4EFB\u52A1" } }))));
+      ))
+    )))), /* @__PURE__ */ React2.createElement(
+      Modal2,
+      {
+        title: "\u65B0\u589E\u7F51\u76D8",
+        open: netDiskModalOpen,
+        onCancel: () => setNetDiskModalOpen(false),
+        footer: null,
+        destroyOnClose: false,
+        width: 520
+      },
+      /* @__PURE__ */ React2.createElement(Form, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React2.createElement(Form.Item, { label: "\u540D\u79F0", name: "name" }, /* @__PURE__ */ React2.createElement(Input2, { placeholder: "\u5BB6\u5EAD NAS / \u4E91\u76D8", autoComplete: "off" })), /* @__PURE__ */ React2.createElement(Form.Item, { label: "WebDAV URL", name: "url", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV URL" }] }, /* @__PURE__ */ React2.createElement(Input2, { placeholder: "https://...", autoComplete: "url" })), /* @__PURE__ */ React2.createElement(Row, { gutter: 16 }, /* @__PURE__ */ React2.createElement(Col, { xs: 24, sm: 12 }, /* @__PURE__ */ React2.createElement(Form.Item, { label: "\u7528\u6237\u540D", name: "username" }, /* @__PURE__ */ React2.createElement(Input2, { autoComplete: "username" }))), /* @__PURE__ */ React2.createElement(Col, { xs: 24, sm: 12 }, /* @__PURE__ */ React2.createElement(Form.Item, { label: "\u5BC6\u7801", name: "password" }, /* @__PURE__ */ React2.createElement(Input2.Password, { autoComplete: "current-password" })))), /* @__PURE__ */ React2.createElement(Space2, { wrap: true }, /* @__PURE__ */ React2.createElement(Button2, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React2.createElement(ApiOutlined, null), loading: webdavLoading }, "\u8FDE\u63A5\u5E76\u6DFB\u52A0"), /* @__PURE__ */ React2.createElement(Button2, { onClick: () => setNetDiskModalOpen(false) }, "\u53D6\u6D88")))
+    ), /* @__PURE__ */ React2.createElement(
+      Modal2,
+      {
+        title: "\u65B0\u589E\u672C\u5730\u6587\u4EF6\u5939",
+        open: localFolderModalOpen,
+        onCancel: () => setLocalFolderModalOpen(false),
+        footer: null,
+        destroyOnClose: false,
+        width: 560
+      },
+      /* @__PURE__ */ React2.createElement(Form, { form: localFolderForm, layout: "vertical", onFinish: handleLocalFolderAdd }, /* @__PURE__ */ React2.createElement(Form.Item, { label: "\u540D\u79F0", name: "name" }, /* @__PURE__ */ React2.createElement(Input2, { placeholder: "\u672C\u5730\u5F71\u7247\u76EE\u5F55 / \u4E0B\u8F7D\u76EE\u5F55", autoComplete: "off" })), /* @__PURE__ */ React2.createElement(Form.Item, { label: "\u672C\u5730\u8DEF\u5F84", name: "path", rules: [{ required: true, message: "\u8BF7\u9009\u62E9\u672C\u5730\u6587\u4EF6\u5939" }] }, /* @__PURE__ */ React2.createElement(DirectoryInput, { placeholder: "\u9009\u62E9\u670D\u52A1\u7AEF\u53EF\u8BBF\u95EE\u7684\u672C\u5730\u6587\u4EF6\u5939" })), /* @__PURE__ */ React2.createElement(Space2, { wrap: true }, /* @__PURE__ */ React2.createElement(Button2, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, null) }, "\u6DFB\u52A0\u5E76\u6D4F\u89C8"), /* @__PURE__ */ React2.createElement(Button2, { onClick: () => setLocalFolderModalOpen(false) }, "\u53D6\u6D88")))
+    ));
   }
 
   // frontend/src/utils/localScrapeTemplates.mjs
   var LOCAL_SCRAPE_TASK_TEMPLATE_KEY = "localScrapeTaskTemplates";
   var MAX_TEMPLATES = 30;
-  var parseJson2 = (value, fallback) => {
+  var parseJson3 = (value, fallback) => {
     if (!value) {
       return fallback;
     }
@@ -778,7 +992,7 @@
     if (!storage) {
       return [];
     }
-    const parsed = parseJson2(storage.getItem(LOCAL_SCRAPE_TASK_TEMPLATE_KEY), []);
+    const parsed = parseJson3(storage.getItem(LOCAL_SCRAPE_TASK_TEMPLATE_KEY), []);
     if (!Array.isArray(parsed)) {
       return [];
     }
@@ -983,13 +1197,13 @@
       if (!entry || typeof entry !== "object") {
         return null;
       }
-      const message8 = String(entry.message || "").trim();
-      if (!message8) {
+      const message9 = String(entry.message || "").trim();
+      if (!message9) {
         return null;
       }
       const normalized = {
         time: String(entry.time || ""),
-        message: message8
+        message: message9
       };
       if (entry.level) {
         normalized.level = String(entry.level);
@@ -997,133 +1211,6 @@
       return normalized;
     }).filter(Boolean);
   };
-
-  // frontend/src/components/DirectoryInput.jsx
-  var React2 = window.React;
-  var antd2 = window.antd;
-  var icons2 = window.icons || {};
-  var { Button: Button2, Empty, Input: Input2, List, Modal, Space: Space2, Typography: Typography2, message: message2 } = antd2;
-  var { Text: Text2 } = Typography2;
-  var { ArrowUpOutlined, FolderOpenOutlined, HomeOutlined } = icons2;
-  var Icon = ({ as: Component }) => Component ? /* @__PURE__ */ React2.createElement(Component, null) : null;
-  var fetchDirectories = async (path) => {
-    const query = path ? `?path=${encodeURIComponent(path)}` : "";
-    const response = await fetch(`/api/system/directories${query}`);
-    const data = await response.json();
-    if (!response.ok || !data.success) {
-      throw new Error(data.message || `HTTP ${response.status}`);
-    }
-    return data;
-  };
-  function DirectoryInput({ value, onChange, placeholder, disabled }) {
-    const [open, setOpen] = React2.useState(false);
-    const [loading, setLoading] = React2.useState(false);
-    const [browser, setBrowser] = React2.useState({ current_path: "", parent_path: null, entries: [] });
-    const loadPath = async (path) => {
-      setLoading(true);
-      try {
-        const data = await fetchDirectories(path);
-        setBrowser(data);
-      } catch (error) {
-        message2.error(`\u52A0\u8F7D\u76EE\u5F55\u5931\u8D25\uFF1A${error.message}`);
-      } finally {
-        setLoading(false);
-      }
-    };
-    const openBrowser = () => {
-      setOpen(true);
-      void loadPath(value);
-    };
-    const chooseCurrentPath = () => {
-      if (!browser.current_path) {
-        return;
-      }
-      onChange?.(browser.current_path);
-      setOpen(false);
-    };
-    return /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement(Space2.Compact, { block: true }, /* @__PURE__ */ React2.createElement(
-      Input2,
-      {
-        value,
-        disabled,
-        placeholder,
-        onChange: (event) => onChange?.(event.target.value)
-      }
-    ), /* @__PURE__ */ React2.createElement(
-      Button2,
-      {
-        htmlType: "button",
-        disabled,
-        icon: /* @__PURE__ */ React2.createElement(Icon, { as: FolderOpenOutlined }),
-        onClick: openBrowser
-      },
-      "\u6D4F\u89C8"
-    )), /* @__PURE__ */ React2.createElement(
-      Modal,
-      {
-        title: "\u9009\u62E9\u670D\u52A1\u7AEF\u76EE\u5F55",
-        open,
-        onCancel: () => setOpen(false),
-        onOk: chooseCurrentPath,
-        okText: "\u9009\u62E9\u5F53\u524D\u76EE\u5F55",
-        cancelText: "\u53D6\u6D88",
-        okButtonProps: { disabled: !browser.current_path },
-        width: 720
-      },
-      /* @__PURE__ */ React2.createElement(Space2, { style: { width: "100%", marginBottom: 12 }, wrap: true }, /* @__PURE__ */ React2.createElement(
-        Button2,
-        {
-          htmlType: "button",
-          icon: /* @__PURE__ */ React2.createElement(Icon, { as: HomeOutlined }),
-          onClick: () => loadPath("")
-        },
-        "\u6839\u76EE\u5F55"
-      ), /* @__PURE__ */ React2.createElement(
-        Button2,
-        {
-          htmlType: "button",
-          icon: /* @__PURE__ */ React2.createElement(Icon, { as: ArrowUpOutlined }),
-          disabled: !browser.parent_path,
-          onClick: () => loadPath(browser.parent_path)
-        },
-        "\u4E0A\u4E00\u7EA7"
-      ), /* @__PURE__ */ React2.createElement(Text2, { copyable: !!browser.current_path, ellipsis: true, style: { maxWidth: 470 } }, browser.current_path || "\u9009\u62E9\u4E00\u4E2A\u8D77\u59CB\u4F4D\u7F6E")),
-      /* @__PURE__ */ React2.createElement(
-        List,
-        {
-          bordered: true,
-          loading,
-          dataSource: browser.entries || [],
-          locale: { emptyText: /* @__PURE__ */ React2.createElement(Empty, { description: "\u6CA1\u6709\u53EF\u8FDB\u5165\u7684\u76EE\u5F55" }) },
-          renderItem: (entry) => /* @__PURE__ */ React2.createElement(
-            List.Item,
-            {
-              actions: [
-                /* @__PURE__ */ React2.createElement(
-                  Button2,
-                  {
-                    key: "open",
-                    htmlType: "button",
-                    size: "small",
-                    onClick: () => loadPath(entry.path)
-                  },
-                  "\u6253\u5F00"
-                )
-              ]
-            },
-            /* @__PURE__ */ React2.createElement(
-              List.Item.Meta,
-              {
-                avatar: /* @__PURE__ */ React2.createElement(Icon, { as: FolderOpenOutlined }),
-                title: /* @__PURE__ */ React2.createElement("a", { onClick: () => loadPath(entry.path) }, entry.name),
-                description: entry.path
-              }
-            )
-          )
-        }
-      )
-    ));
-  }
 
   // frontend/src/components/LocalScrapePage.jsx
   var React3 = window.React;
@@ -1140,7 +1227,7 @@
     Input: Input3,
     InputNumber: InputNumber2,
     Popconfirm: Popconfirm2,
-    Progress: Progress2,
+    Progress,
     Select,
     Space: Space3,
     Switch: Switch2,
@@ -1156,8 +1243,8 @@
     DeleteOutlined: DeleteOutlined2,
     DragOutlined,
     FileSearchOutlined,
-    FolderOpenOutlined: FolderOpenOutlined2,
-    PlayCircleOutlined: PlayCircleOutlined2,
+    FolderOpenOutlined: FolderOpenOutlined3,
+    PlayCircleOutlined,
     SaveOutlined,
     SettingOutlined,
     WarningOutlined
@@ -1731,7 +1818,7 @@
       const logs = Array.isArray(activeTask.logs) ? activeTask.logs.slice(-12) : [];
       const statusText = activeTask.status === "running" ? "\u8FD0\u884C\u4E2D" : activeTask.status === "success" ? "\u5DF2\u5B8C\u6210" : "\u5931\u8D25";
       return /* @__PURE__ */ React3.createElement(Card2, { size: "small", className: "jav-local-task-card", title: `\u540E\u53F0\u4EFB\u52A1\uFF1A${activeTask.type === "apply" ? "\u6267\u884C\u522E\u524A" : "\u751F\u6210\u9884\u89C8"}` }, /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", style: { width: "100%" }, size: 8 }, /* @__PURE__ */ React3.createElement(Space3, { wrap: true }, /* @__PURE__ */ React3.createElement(Tag2, { color: activeTask.status === "failed" ? "red" : activeTask.status === "success" ? "green" : "processing" }, statusText), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, activeTask.phase || "queued"), activeTask.total > 0 && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, activeTask.completed, "/", activeTask.total)), /* @__PURE__ */ React3.createElement(
-        Progress2,
+        Progress,
         {
           percent: activeTask.percent || 0,
           status: activeTask.status === "failed" ? "exception" : activeTask.status === "success" ? "success" : "active"
@@ -1807,7 +1894,7 @@
     return /* @__PURE__ */ React3.createElement("div", { className: "jav-local-scrape" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-local-layout" }, /* @__PURE__ */ React3.createElement("section", { className: "jav-local-settings" }, /* @__PURE__ */ React3.createElement(
       Card2,
       {
-        title: /* @__PURE__ */ React3.createElement(React3.Fragment, null, /* @__PURE__ */ React3.createElement(Icon2, { as: FolderOpenOutlined2 }), " \u672C\u5730\u522E\u524A"),
+        title: /* @__PURE__ */ React3.createElement(React3.Fragment, null, /* @__PURE__ */ React3.createElement(Icon2, { as: FolderOpenOutlined3 }), " \u672C\u5730\u522E\u524A"),
         size: "small",
         className: "jav-tool-card"
       },
@@ -1846,7 +1933,7 @@
           {
             type: "primary",
             htmlType: "button",
-            icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined2 }),
+            icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined }),
             disabled: !selectedTemplateId,
             loading: loadingPreview,
             onClick: handleRunTemplate
@@ -2018,7 +2105,7 @@
           type: "primary",
           disabled: selectedItems.length === 0,
           loading: loadingApply,
-          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined2 })
+          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined })
         },
         "\u6267\u884C\u9009\u4E2D\u9879"
       )
@@ -2048,7 +2135,7 @@
           type: "primary",
           disabled: selectedConflictItems.length === 0 || !bulkConflictResolution,
           loading: loadingApply,
-          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined2 })
+          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined })
         },
         "\u6279\u91CF\u5904\u7406\u51B2\u7A81"
       )
@@ -2194,46 +2281,309 @@
     ));
   }
 
-  // frontend/src/components/LocalLibraryPage.jsx
+  // frontend/src/components/DownloadManagementPage.jsx
   var React4 = window.React;
   var antd4 = window.antd;
-  var icons4 = window.icons || {};
+  var icons4 = window.icons;
+  var {
+    Layout: Layout2,
+    Typography: Typography4,
+    Badge: Badge2,
+    Card: Card3,
+    Form: Form3,
+    Input: Input4,
+    Button: Button4,
+    Table: Table3,
+    Space: Space4,
+    message: message4,
+    Popconfirm: Popconfirm3,
+    Progress: Progress2,
+    Tag: Tag3
+  } = antd4;
+  var {
+    CloudDownloadOutlined,
+    ReloadOutlined: ReloadOutlined2,
+    PauseCircleOutlined,
+    PlayCircleOutlined: PlayCircleOutlined2,
+    DeleteOutlined: DeleteOutlined3,
+    ApiOutlined: ApiOutlined2,
+    CloudServerOutlined
+  } = icons4;
+  var { Content: Content2 } = Layout2;
+  var { Title: Title3, Text: Text4 } = Typography4;
+  var formatFileSize2 = (bytes) => {
+    if (!bytes || bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+  var formatSpeed = (speed) => `${formatFileSize2(speed)}/s`;
+  function DownloadManagementPage() {
+    const [clientConfig, setClientConfig] = React4.useState({
+      aria2: { configured: false, enabled: false, url: "", auto_connect: false, has_secret: false }
+    });
+    const [aria2Connected, setAria2Connected] = React4.useState(false);
+    const [aria2Loading, setAria2Loading] = React4.useState(false);
+    const [downloads, setDownloads] = React4.useState([]);
+    const [downloadsLoading, setDownloadsLoading] = React4.useState(false);
+    const [aria2Form] = Form3.useForm();
+    const autoConnectTriggeredRef = React4.useRef(false);
+    React4.useEffect(() => {
+      const savedAria2 = loadAria2Settings();
+      aria2Form.setFieldsValue(savedAria2);
+      loadClientConfig();
+      checkConnectionStatus();
+    }, []);
+    React4.useEffect(() => {
+      if (clientConfig.aria2.auto_connect && clientConfig.aria2.configured && !aria2Connected && !autoConnectTriggeredRef.current) {
+        autoConnectTriggeredRef.current = true;
+        handleAria2ConnectFromConfig({ silent: true });
+      }
+    }, [clientConfig.aria2.auto_connect, clientConfig.aria2.configured, aria2Connected]);
+    React4.useEffect(() => {
+      if (!aria2Connected) return void 0;
+      const timer = window.setInterval(() => {
+        loadDownloads({ silent: true });
+      }, 1e4);
+      return () => window.clearInterval(timer);
+    }, [aria2Connected]);
+    const loadClientConfig = async () => {
+      try {
+        const config = await fetchClientConfig();
+        setClientConfig(config);
+        if (!aria2Form.getFieldValue("url") && config.aria2?.url) {
+          aria2Form.setFieldsValue({ url: config.aria2.url });
+        }
+      } catch (error) {
+        console.error("Load client config error:", error);
+      }
+    };
+    const checkConnectionStatus = async () => {
+      try {
+        const res = await fetch("/api/webdav/status");
+        const status = await res.json();
+        setAria2Connected(status.aria2_connected);
+        if (status.aria2_url && !aria2Form.getFieldValue("url")) {
+          aria2Form.setFieldsValue({ url: status.aria2_url });
+        }
+        if (status.aria2_connected) {
+          loadDownloads({ silent: true });
+        } else {
+          setDownloads([]);
+        }
+      } catch (error) {
+        console.error("Check connection error:", error);
+      }
+    };
+    const handleAria2Connect = async (values) => {
+      setAria2Loading(true);
+      const formData = new FormData();
+      formData.append("aria2_url", values.url);
+      formData.append("aria2_secret", values.secret || "");
+      try {
+        const res = await fetch("/api/aria2/connect", { method: "POST", body: formData });
+        const result = await res.json();
+        if (result.success) {
+          saveAria2Settings(values);
+          message4.success("Aria2\u8FDE\u63A5\u6210\u529F");
+          setAria2Connected(true);
+          loadDownloads({ silent: true });
+        } else {
+          message4.error(result.message || "Aria2\u8FDE\u63A5\u5931\u8D25");
+          setAria2Connected(false);
+          setDownloads([]);
+        }
+      } catch (error) {
+        message4.error("Aria2\u8FDE\u63A5\u5F02\u5E38");
+        setAria2Connected(false);
+        setDownloads([]);
+      } finally {
+        setAria2Loading(false);
+      }
+    };
+    const handleAria2ConnectFromConfig = async ({ silent = false } = {}) => {
+      setAria2Loading(true);
+      try {
+        const res = await fetch("/api/aria2/connect-config", { method: "POST" });
+        const result = await res.json();
+        if (result.success) {
+          if (clientConfig.aria2?.url) {
+            aria2Form.setFieldsValue({ url: clientConfig.aria2.url });
+          }
+          setAria2Connected(true);
+          if (!silent) {
+            message4.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 Aria2");
+          }
+          loadDownloads({ silent: true });
+        } else {
+          setAria2Connected(false);
+          setDownloads([]);
+          if (!silent) {
+            message4.error(result.message || "Aria2 \u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
+          }
+        }
+      } catch (error) {
+        setAria2Connected(false);
+        setDownloads([]);
+        if (!silent) {
+          message4.error("Aria2 \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
+        }
+      } finally {
+        setAria2Loading(false);
+      }
+    };
+    const loadDownloads = async ({ silent = false } = {}) => {
+      setDownloadsLoading(true);
+      try {
+        const res = await fetch("/api/aria2/downloads");
+        const result = await res.json();
+        if (result.success) {
+          setDownloads(result.downloads || []);
+        } else if (!silent) {
+          message4.error(result.message || "\u83B7\u53D6\u4E0B\u8F7D\u5217\u8868\u5931\u8D25");
+        }
+      } catch (error) {
+        if (!silent) {
+          message4.error("\u83B7\u53D6\u4E0B\u8F7D\u5217\u8868\u5F02\u5E38");
+        }
+      } finally {
+        setDownloadsLoading(false);
+      }
+    };
+    const doDownloadAction = async (action, gid) => {
+      try {
+        const res = await fetch(`/api/aria2/${action}/${gid}`, { method: action === "remove" ? "DELETE" : "POST" });
+        const result = await res.json();
+        if (result.success) {
+          message4.success("\u64CD\u4F5C\u6210\u529F");
+          loadDownloads();
+        } else {
+          message4.error(result.message || "\u64CD\u4F5C\u5931\u8D25");
+        }
+      } catch (error) {
+        message4.error("\u64CD\u4F5C\u5F02\u5E38");
+      }
+    };
+    const downloadColumns = [
+      {
+        title: "\u6587\u4EF6\u540D",
+        key: "name",
+        ellipsis: true,
+        render: (_, record) => {
+          let name = record.name || "\u672A\u77E5\u6587\u4EF6";
+          if ((!record.name || record.name === "\u672A\u77E5\u6587\u4EF6") && record.files?.[0]?.uris?.[0]?.uri) {
+            try {
+              const urlObj = new URL(record.files[0].uris[0].uri);
+              name = decodeURIComponent(urlObj.pathname.split("/").pop() || "\u672A\u77E5\u6587\u4EF6");
+            } catch (error) {
+            }
+          }
+          return name;
+        }
+      },
+      {
+        title: "\u72B6\u6001",
+        dataIndex: "status",
+        key: "status",
+        width: 100,
+        render: (status) => {
+          const map = {
+            active: { color: "processing", text: "\u4E0B\u8F7D\u4E2D" },
+            waiting: { color: "default", text: "\u7B49\u5F85\u4E2D" },
+            paused: { color: "warning", text: "\u5DF2\u6682\u505C" },
+            error: { color: "error", text: "\u9519\u8BEF" },
+            complete: { color: "success", text: "\u5DF2\u5B8C\u6210" },
+            removed: { color: "default", text: "\u5DF2\u5220\u9664" }
+          };
+          const item = map[status] || { color: "default", text: status };
+          return /* @__PURE__ */ React4.createElement(Tag3, { color: item.color }, item.text);
+        }
+      },
+      {
+        title: "\u8FDB\u5EA6",
+        key: "progress",
+        width: 200,
+        render: (_, record) => {
+          const percent = record.totalLength > 0 ? Math.round(record.completedLength / record.totalLength * 100) : 0;
+          return /* @__PURE__ */ React4.createElement(Progress2, { percent, size: "small", status: record.status === "error" ? "exception" : record.status === "active" ? "active" : "normal" });
+        }
+      },
+      {
+        title: "\u901F\u5EA6",
+        dataIndex: "downloadSpeed",
+        key: "speed",
+        width: 120,
+        render: (speed) => /* @__PURE__ */ React4.createElement(Text4, { style: { fontFamily: "monospace" } }, formatSpeed(speed))
+      },
+      {
+        title: "\u5927\u5C0F",
+        dataIndex: "totalLength",
+        key: "size",
+        width: 120,
+        render: (size) => /* @__PURE__ */ React4.createElement(Text4, { style: { fontFamily: "monospace" } }, formatFileSize2(size))
+      },
+      {
+        title: "\u64CD\u4F5C",
+        key: "action",
+        width: 180,
+        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { size: "small" }, record.status === "active" && /* @__PURE__ */ React4.createElement(Button4, { size: "small", type: "primary", onClick: () => doDownloadAction("pause", record.gid), icon: /* @__PURE__ */ React4.createElement(PauseCircleOutlined, null) }, "\u6682\u505C"), (record.status === "paused" || record.status === "waiting") && /* @__PURE__ */ React4.createElement(Button4, { size: "small", type: "primary", ghost: true, onClick: () => doDownloadAction("resume", record.gid), icon: /* @__PURE__ */ React4.createElement(PlayCircleOutlined2, null) }, "\u7EE7\u7EED"), /* @__PURE__ */ React4.createElement(Popconfirm3, { title: "\u786E\u5B9A\u5220\u9664?", onConfirm: () => doDownloadAction("remove", record.gid) }, /* @__PURE__ */ React4.createElement(Button4, { size: "small", danger: true, icon: /* @__PURE__ */ React4.createElement(DeleteOutlined3, null) }, "\u5220\u9664")))
+      }
+    ];
+    return /* @__PURE__ */ React4.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React4.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 3, style: { marginBottom: 4 } }, "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u8FDE\u63A5 Aria2 \u4E0B\u8F7D\u5668\uFF0C\u67E5\u770B\u4EFB\u52A1\u8FDB\u5EA6\uFF0C\u5E76\u6267\u884C\u6682\u505C\u3001\u7EE7\u7EED\u548C\u5220\u9664\u64CD\u4F5C\u3002")), /* @__PURE__ */ React4.createElement(Space4, { size: "large", className: "webdav-status-cluster" }, /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Text4, null, "Aria2:"), /* @__PURE__ */ React4.createElement(Badge2, { status: aria2Connected ? "success" : "default", text: aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5", style: { marginInlineStart: 8 } })))), /* @__PURE__ */ React4.createElement(Content2, null, /* @__PURE__ */ React4.createElement(Card3, { className: "webdav-connection-card", title: /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement(CloudServerOutlined, null), " Aria2\u4E0B\u8F7D\u5668"), extra: /* @__PURE__ */ React4.createElement(Badge2, { status: aria2Connected ? "success" : "default", text: aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" }) }, /* @__PURE__ */ React4.createElement(Form3, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React4.createElement(Form3.Item, { label: "Aria2 RPC URL", name: "url", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 URL" }] }, /* @__PURE__ */ React4.createElement(Input4, { placeholder: "http://localhost:6800/jsonrpc", autoComplete: "url" })), /* @__PURE__ */ React4.createElement(Form3.Item, { label: "RPC Secret", name: "secret" }, /* @__PURE__ */ React4.createElement(Input4.Password, { autoComplete: "current-password" })), /* @__PURE__ */ React4.createElement(Space4, { wrap: true }, /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React4.createElement(ApiOutlined2, null), loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2.configured && /* @__PURE__ */ React4.createElement(Button4, { onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))), /* @__PURE__ */ React4.createElement(Card3, { className: "webdav-work-card", title: /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement(CloudDownloadOutlined, null), " Aria2\u4EFB\u52A1"), extra: /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(ReloadOutlined2, null), onClick: loadDownloads, loading: downloadsLoading, disabled: !aria2Connected }, "\u5237\u65B0\u5217\u8868") }, /* @__PURE__ */ React4.createElement(
+      Table3,
+      {
+        columns: downloadColumns,
+        dataSource: downloads,
+        rowKey: "gid",
+        loading: downloadsLoading,
+        pagination: false,
+        scroll: { x: 920 },
+        locale: { emptyText: aria2Connected ? "\u6682\u65E0\u4E0B\u8F7D\u4EFB\u52A1" : "\u8BF7\u5148\u8FDE\u63A5 Aria2 \u4E0B\u8F7D\u5668" }
+      }
+    ))));
+  }
+
+  // frontend/src/components/LocalLibraryPage.jsx
+  var React5 = window.React;
+  var antd5 = window.antd;
+  var icons5 = window.icons || {};
   var {
     Alert: Alert2,
-    Button: Button4,
-    Card: Card3,
+    Button: Button5,
+    Card: Card4,
     Checkbox: Checkbox2,
     Divider: Divider2,
     Drawer: Drawer2,
-    Form: Form3,
-    Input: Input4,
+    Form: Form4,
+    Input: Input5,
     InputNumber: InputNumber3,
     Pagination,
-    Popconfirm: Popconfirm3,
+    Popconfirm: Popconfirm4,
     Segmented,
     Select: Select2,
     Slider,
-    Space: Space4,
-    Table: Table3,
-    Tag: Tag3,
-    Typography: Typography4,
-    message: message4
-  } = antd4;
-  var { Text: Text4, Title: Title3 } = Typography4;
+    Space: Space5,
+    Table: Table4,
+    Tag: Tag4,
+    Typography: Typography5,
+    message: message5
+  } = antd5;
+  var { Text: Text5, Title: Title4 } = Typography5;
   var {
     ArrowLeftOutlined,
     AppstoreOutlined,
-    DatabaseOutlined,
-    DeleteOutlined: DeleteOutlined3,
+    DatabaseOutlined: DatabaseOutlined2,
+    DeleteOutlined: DeleteOutlined4,
     DownloadOutlined: DownloadOutlined2,
     FilterOutlined,
     PlayCircleOutlined: PlayCircleOutlined3,
-    ReloadOutlined: ReloadOutlined2,
-    SearchOutlined,
+    ReloadOutlined: ReloadOutlined3,
+    SearchOutlined: SearchOutlined2,
     UnorderedListOutlined,
     UserOutlined
-  } = icons4;
-  var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React4.createElement(Component, null) : null;
+  } = icons5;
+  var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React5.createElement(Component, null) : null;
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
   var LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
   var LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
@@ -2404,7 +2754,7 @@
     if (resolution === "-" && bitrate === "-") {
       return null;
     }
-    return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true, className: "jav-library-media-tags" }, resolution !== "-" && /* @__PURE__ */ React4.createElement(Tag3, { color: "geekblue" }, resolution), bitrate !== "-" && /* @__PURE__ */ React4.createElement(Tag3, { color: "gold" }, bitrate));
+    return /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true, className: "jav-library-media-tags" }, resolution !== "-" && /* @__PURE__ */ React5.createElement(Tag4, { color: "geekblue" }, resolution), bitrate !== "-" && /* @__PURE__ */ React5.createElement(Tag4, { color: "gold" }, bitrate));
   };
   var countedOptions = (records, getter) => {
     const counts = /* @__PURE__ */ new Map();
@@ -2492,15 +2842,15 @@
   };
   var MoviePoster = ({ record, compact = false, width = null, variant = "poster", onRatio = null }) => {
     const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
-    const [failed, setFailed] = React4.useState(false);
-    const [imageLoading, setImageLoading] = React4.useState(!!src);
+    const [failed, setFailed] = React5.useState(false);
+    const [imageLoading, setImageLoading] = React5.useState(!!src);
     const style = width ? { width, height: compact ? Math.round(width * 1.5) : void 0 } : void 0;
-    React4.useEffect(() => {
+    React5.useEffect(() => {
       setFailed(false);
       setImageLoading(!!src);
     }, [src]);
     if (src && !failed) {
-      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, imageLoading && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-loader", "aria-label": "\u5C01\u9762\u52A0\u8F7D\u4E2D" }, /* @__PURE__ */ React4.createElement("span", null, "\u52A0\u8F7D\u5C01\u9762")), /* @__PURE__ */ React4.createElement(
+      return /* @__PURE__ */ React5.createElement("div", { className: `jav-library-poster ${compact ? "is-compact" : ""}`, style }, imageLoading && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-poster-loader", "aria-label": "\u5C01\u9762\u52A0\u8F7D\u4E2D" }, /* @__PURE__ */ React5.createElement("span", null, "\u52A0\u8F7D\u5C01\u9762")), /* @__PURE__ */ React5.createElement(
         "img",
         {
           className: imageLoading ? "is-loading" : "",
@@ -2520,21 +2870,21 @@
         }
       ));
     }
-    return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-poster is-placeholder ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React4.createElement("span", null, record.movie_id || "N/A"));
+    return /* @__PURE__ */ React5.createElement("div", { className: `jav-library-poster is-placeholder ${compact ? "is-compact" : ""}`, style }, /* @__PURE__ */ React5.createElement("span", null, record.movie_id || "N/A"));
   };
   var ActorPill = ({ record, actor, onClick }) => {
-    const [sourceIndex, setSourceIndex] = React4.useState(0);
+    const [sourceIndex, setSourceIndex] = React5.useState(0);
     const sources = actorAvatarSources(record, actor);
     const src = sources[sourceIndex] || "";
     const initial = (actor.name || "?").slice(0, 1).toUpperCase();
-    return /* @__PURE__ */ React4.createElement("button", { className: "jav-library-actor-pill", type: "button", onClick }, /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-avatar" }, src ? /* @__PURE__ */ React4.createElement(
+    return /* @__PURE__ */ React5.createElement("button", { className: "jav-library-actor-pill", type: "button", onClick }, /* @__PURE__ */ React5.createElement("span", { className: "jav-library-actor-avatar" }, src ? /* @__PURE__ */ React5.createElement(
       "img",
       {
         src,
         alt: actor.name,
         onError: () => setSourceIndex((index) => index + 1)
       }
-    ) : /* @__PURE__ */ React4.createElement("span", null, initial)), /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-name" }, actor.name));
+    ) : /* @__PURE__ */ React5.createElement("span", null, initial)), /* @__PURE__ */ React5.createElement("span", { className: "jav-library-actor-name" }, actor.name));
   };
   var ActorLibraryAvatar = ({ actor }) => {
     const sources = [];
@@ -2545,37 +2895,37 @@
     if (remoteAvatar) {
       sources.push(remoteAvatar);
     }
-    const [sourceIndex, setSourceIndex] = React4.useState(0);
+    const [sourceIndex, setSourceIndex] = React5.useState(0);
     const src = sources[sourceIndex] || "";
     const initial = (actor?.name || "?").slice(0, 1).toUpperCase();
-    return /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-card-avatar" }, src ? /* @__PURE__ */ React4.createElement("img", { src, alt: actor.name, onError: () => setSourceIndex((index) => index + 1) }) : /* @__PURE__ */ React4.createElement("span", null, initial));
+    return /* @__PURE__ */ React5.createElement("span", { className: "jav-library-actor-card-avatar" }, src ? /* @__PURE__ */ React5.createElement("img", { src, alt: actor.name, onError: () => setSourceIndex((index) => index + 1) }) : /* @__PURE__ */ React5.createElement("span", null, initial));
   };
   function LocalLibraryPage() {
-    const [library, setLibrary] = React4.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
-    const [actorLibrary, setActorLibrary] = React4.useState({ actors: [], total_actors: 0 });
-    const [informationCheck, setInformationCheck] = React4.useState(null);
-    const [loading, setLoading] = React4.useState(false);
-    const [actorLibraryLoading, setActorLibraryLoading] = React4.useState(false);
-    const [checkingInformation, setCheckingInformation] = React4.useState(false);
-    const [downloadingInformation, setDownloadingInformation] = React4.useState(false);
-    const [deletingMovieId, setDeletingMovieId] = React4.useState("");
-    const [filterOpen, setFilterOpen] = React4.useState(false);
-    const [informationCheckOpen, setInformationCheckOpen] = React4.useState(false);
-    const [informationCheckFields, setInformationCheckFields] = React4.useState(() => loadInformationCheckSettings().fields);
-    const [selectedRecord, setSelectedRecord] = React4.useState(null);
-    const [playingRecordKey, setPlayingRecordKey] = React4.useState("");
-    const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React4.useState(0);
-    const [posterAspectRatioMap, setPosterAspectRatioMap] = React4.useState({});
-    const [viewMode, setViewMode] = React4.useState("list");
-    const [sortRule, setSortRule] = React4.useState("date_desc");
-    const [gridPage, setGridPage] = React4.useState(1);
-    const [gridPageLoading, setGridPageLoading] = React4.useState(false);
-    const [listPage, setListPage] = React4.useState(1);
-    const [listPageSize, setListPageSize] = React4.useState(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
-    const [listPosterSize, setListPosterSize] = React4.useState(56);
-    const [gridPosterSize, setGridPosterSize] = React4.useState(156);
-    const [keywordDraft, setKeywordDraft] = React4.useState("");
-    const [filters, setFilters] = React4.useState({
+    const [library, setLibrary] = React5.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
+    const [actorLibrary, setActorLibrary] = React5.useState({ actors: [], total_actors: 0 });
+    const [informationCheck, setInformationCheck] = React5.useState(null);
+    const [loading, setLoading] = React5.useState(false);
+    const [actorLibraryLoading, setActorLibraryLoading] = React5.useState(false);
+    const [checkingInformation, setCheckingInformation] = React5.useState(false);
+    const [downloadingInformation, setDownloadingInformation] = React5.useState(false);
+    const [deletingMovieId, setDeletingMovieId] = React5.useState("");
+    const [filterOpen, setFilterOpen] = React5.useState(false);
+    const [informationCheckOpen, setInformationCheckOpen] = React5.useState(false);
+    const [informationCheckFields, setInformationCheckFields] = React5.useState(() => loadInformationCheckSettings().fields);
+    const [selectedRecord, setSelectedRecord] = React5.useState(null);
+    const [playingRecordKey, setPlayingRecordKey] = React5.useState("");
+    const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React5.useState(0);
+    const [posterAspectRatioMap, setPosterAspectRatioMap] = React5.useState({});
+    const [viewMode, setViewMode] = React5.useState("list");
+    const [sortRule, setSortRule] = React5.useState("date_desc");
+    const [gridPage, setGridPage] = React5.useState(1);
+    const [gridPageLoading, setGridPageLoading] = React5.useState(false);
+    const [listPage, setListPage] = React5.useState(1);
+    const [listPageSize, setListPageSize] = React5.useState(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
+    const [listPosterSize, setListPosterSize] = React5.useState(56);
+    const [gridPosterSize, setGridPosterSize] = React5.useState(156);
+    const [keywordDraft, setKeywordDraft] = React5.useState("");
+    const [filters, setFilters] = React5.useState({
       keyword: "",
       genres: [],
       stars: [],
@@ -2585,12 +2935,12 @@
       years: [],
       roots: []
     });
-    const [informationCheckForm] = Form3.useForm();
-    const [informationDownloadForm] = Form3.useForm();
-    const gridPageLoadingTimerRef = React4.useRef(null);
+    const [informationCheckForm] = Form4.useForm();
+    const [informationDownloadForm] = Form4.useForm();
+    const gridPageLoadingTimerRef = React5.useRef(null);
     const records = library.records || [];
     const actors = actorLibrary.actors || [];
-    const missingInformationByMovieId = React4.useMemo(() => {
+    const missingInformationByMovieId = React5.useMemo(() => {
       const entries = informationCheck?.records || [];
       return entries.reduce((map, record) => {
         if (record?.movie_id && !record.info_complete) {
@@ -2599,7 +2949,7 @@
         return map;
       }, {});
     }, [informationCheck]);
-    const filterOptions = React4.useMemo(() => ({
+    const filterOptions = React5.useMemo(() => ({
       genres: countedOptions(records, (record) => record.genres),
       stars: countedOptions(records, (record) => record.stars),
       studios: countedOptions(records, (record) => record.studio),
@@ -2608,13 +2958,13 @@
       years: countedOptions(records, (record) => String(record.date || "").slice(0, 4)),
       roots: countedOptions(records, (record) => record.scan_roots)
     }), [records]);
-    const activeFilterCount = React4.useMemo(() => Object.entries(filters).reduce((count, [key, value]) => {
+    const activeFilterCount = React5.useMemo(() => Object.entries(filters).reduce((count, [key, value]) => {
       if (key === "keyword") {
         return count + (String(value || "").trim() ? 1 : 0);
       }
       return count + (Array.isArray(value) ? value.length : 0);
     }, 0), [filters]);
-    const filteredRecords = React4.useMemo(() => {
+    const filteredRecords = React5.useMemo(() => {
       const keyword = filters.keyword.trim().toLowerCase();
       return records.filter((record) => {
         if (keyword) {
@@ -2628,14 +2978,14 @@ ${record.full_text || ""}`.toLowerCase();
         return matchesAny(record.genres, filters.genres) && matchesAny(record.stars, filters.stars) && matchesAny(record.studio, filters.studios) && matchesAny(record.publisher, filters.publishers) && matchesAny(record.series, filters.series) && matchesAny(String(record.date || "").slice(0, 4), filters.years) && matchesAny(record.scan_roots, filters.roots);
       });
     }, [records, filters]);
-    const sortedRecords = React4.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
+    const sortedRecords = React5.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
     const gridStartIndex = (gridPage - 1) * LOCAL_LIBRARY_GRID_PAGE_SIZE;
-    const visibleGridRecords = React4.useMemo(() => sortedRecords.slice(gridStartIndex, gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE), [sortedRecords, gridStartIndex]);
-    React4.useEffect(() => {
+    const visibleGridRecords = React5.useMemo(() => sortedRecords.slice(gridStartIndex, gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE), [sortedRecords, gridStartIndex]);
+    React5.useEffect(() => {
       setGridPage(1);
       setListPage(1);
     }, [records, filters, sortRule]);
-    React4.useEffect(() => () => {
+    React5.useEffect(() => () => {
       if (gridPageLoadingTimerRef.current) {
         window.clearTimeout(gridPageLoadingTimerRef.current);
       }
@@ -2682,7 +3032,7 @@ ${record.full_text || ""}`.toLowerCase();
         setActorLibrary(data);
         return data;
       } catch (error) {
-        message4.error(`\u6F14\u5458\u4FE1\u606F\u5E93\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
+        message5.error(`\u6F14\u5458\u4FE1\u606F\u5E93\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
         return null;
       } finally {
         setActorLibraryLoading(false);
@@ -2699,7 +3049,7 @@ ${record.full_text || ""}`.toLowerCase();
         setLibrary(data);
         await loadActorLibrary();
       } catch (error) {
-        message4.error(`\u5F71\u89C6\u5E93\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
+        message5.error(`\u5F71\u89C6\u5E93\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setLoading(false);
       }
@@ -2713,18 +3063,18 @@ ${record.full_text || ""}`.toLowerCase();
     const handleSaveInformationCheckSettings = () => {
       const fields = informationCheckForm.getFieldValue("fields") || [];
       if (!fields.length) {
-        message4.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879");
+        message5.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879");
         return;
       }
       const normalizedFields = normalizeInformationCheckFields(fields, []);
       saveInformationCheckSettings(normalizedFields);
       setInformationCheckFields(normalizedFields);
-      message4.success("\u68C0\u67E5\u6807\u51C6\u5DF2\u4FDD\u5B58");
+      message5.success("\u68C0\u67E5\u6807\u51C6\u5DF2\u4FDD\u5B58");
     };
     const loadInformationCheck = async (values = {}) => {
       const selectedFields = normalizeInformationCheckFields(values.fields || informationCheckForm.getFieldValue("fields"), []);
       if (!selectedFields.length) {
-        message4.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879");
+        message5.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879");
         return null;
       }
       setCheckingInformation(true);
@@ -2739,19 +3089,19 @@ ${record.full_text || ""}`.toLowerCase();
         setInformationCheckFields(selectedFields);
         setInformationCheck(data);
         if (data.incomplete_count > 0) {
-          message4.warning(`\u53D1\u73B0 ${data.incomplete_count} \u90E8\u5F71\u7247\u7F3A\u5C11\u4FE1\u606F`);
+          message5.warning(`\u53D1\u73B0 ${data.incomplete_count} \u90E8\u5F71\u7247\u7F3A\u5C11\u4FE1\u606F`);
         } else {
-          message4.success("\u5F71\u89C6\u5E93\u4FE1\u606F\u5B8C\u6574");
+          message5.success("\u5F71\u89C6\u5E93\u4FE1\u606F\u5B8C\u6574");
         }
         return data;
       } catch (error) {
-        message4.error(`\u4FE1\u606F\u68C0\u67E5\u5931\u8D25\uFF1A${error.message}`);
+        message5.error(`\u4FE1\u606F\u68C0\u67E5\u5931\u8D25\uFF1A${error.message}`);
         return null;
       } finally {
         setCheckingInformation(false);
       }
     };
-    React4.useEffect(() => {
+    React5.useEffect(() => {
       loadLibrary();
     }, []);
     const openRecordPreview = (record) => {
@@ -2789,9 +3139,9 @@ ${record.full_text || ""}`.toLowerCase();
           throw new Error(data.message || "\u6E05\u7A7A\u5931\u8D25");
         }
         await loadLibrary();
-        message4.success("\u5F71\u89C6\u5E93\u5DF2\u6E05\u7A7A");
+        message5.success("\u5F71\u89C6\u5E93\u5DF2\u6E05\u7A7A");
       } catch (error) {
-        message4.error(`\u6E05\u7A7A\u5931\u8D25\uFF1A${error.message}`);
+        message5.error(`\u6E05\u7A7A\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setLoading(false);
       }
@@ -2799,7 +3149,7 @@ ${record.full_text || ""}`.toLowerCase();
     const handleDeleteMovie = async (record) => {
       const movieId = String(record?.movie_id || "").trim();
       if (!movieId) {
-        message4.warning("\u5F71\u7247\u756A\u53F7\u65E0\u6548");
+        message5.warning("\u5F71\u7247\u756A\u53F7\u65E0\u6548");
         return;
       }
       setDeletingMovieId(movieId);
@@ -2828,9 +3178,9 @@ ${record.full_text || ""}`.toLowerCase();
           };
         });
         await loadLibrary();
-        message4.success(`\u5DF2\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${movieId}`);
+        message5.success(`\u5DF2\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${movieId}`);
       } catch (error) {
-        message4.error(`\u5220\u9664\u5F71\u7247\u5931\u8D25\uFF1A${error.message}`);
+        message5.error(`\u5220\u9664\u5F71\u7247\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setDeletingMovieId("");
       }
@@ -2855,12 +3205,12 @@ ${record.full_text || ""}`.toLowerCase();
         const failedCount = data.failed_count || 0;
         const remainingCount = data.information_check?.incomplete_count || 0;
         if (failedCount > 0 || remainingCount > 0) {
-          message4.warning(`\u5DF2\u66F4\u65B0 ${updatedCount} \u90E8\uFF0C${failedCount} \u90E8\u4E0B\u8F7D\u5931\u8D25\uFF0C\u4ECD\u6709 ${remainingCount} \u90E8\u7F3A\u5931`);
+          message5.warning(`\u5DF2\u66F4\u65B0 ${updatedCount} \u90E8\uFF0C${failedCount} \u90E8\u4E0B\u8F7D\u5931\u8D25\uFF0C\u4ECD\u6709 ${remainingCount} \u90E8\u7F3A\u5931`);
         } else {
-          message4.success(`\u5DF2\u66F4\u65B0 ${updatedCount} \u90E8\u5F71\u7247\u4FE1\u606F`);
+          message5.success(`\u5DF2\u66F4\u65B0 ${updatedCount} \u90E8\u5F71\u7247\u4FE1\u606F`);
         }
       } catch (error) {
-        message4.error(`\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u5931\u8D25\uFF1A${error.message}`);
+        message5.error(`\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setDownloadingInformation(false);
       }
@@ -2868,22 +3218,22 @@ ${record.full_text || ""}`.toLowerCase();
     const filterBlock = (title, key) => {
       const options = filterOptions[key] || [];
       const selected = filters[key] || [];
-      return /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-block" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-block-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, title), selected.length > 0 && /* @__PURE__ */ React4.createElement(
-        Button4,
+      return /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-block" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-block-title" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, title), selected.length > 0 && /* @__PURE__ */ React5.createElement(
+        Button5,
         {
           type: "link",
           size: "small",
           onClick: () => setFilters((prev) => ({ ...prev, [key]: [] }))
         },
         "\u6E05\u9664"
-      )), options.length ? /* @__PURE__ */ React4.createElement(
+      )), options.length ? /* @__PURE__ */ React5.createElement(
         Checkbox2.Group,
         {
           options,
           value: selected,
           onChange: (next) => setFilters((prev) => ({ ...prev, [key]: next }))
         }
-      ) : /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6682\u65E0\u53EF\u9009\u9879"));
+      ) : /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u6682\u65E0\u53EF\u9009\u9879"));
     };
     const activeFilterTags = () => {
       const labels = {
@@ -2895,8 +3245,8 @@ ${record.full_text || ""}`.toLowerCase();
         years: "\u5E74\u4EFD",
         roots: "\u76EE\u5F55"
       };
-      return Object.entries(labels).flatMap(([key, label]) => (filters[key] || []).map((value) => /* @__PURE__ */ React4.createElement(
-        Tag3,
+      return Object.entries(labels).flatMap(([key, label]) => (filters[key] || []).map((value) => /* @__PURE__ */ React5.createElement(
+        Tag4,
         {
           key: `${key}:${value}`,
           closable: true,
@@ -2950,8 +3300,8 @@ ${record.full_text || ""}`.toLowerCase();
       setPlayingRecordKey("");
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
-    const renderFilterTag = (filterKey, value, color) => /* @__PURE__ */ React4.createElement(
-      Tag3,
+    const renderFilterTag = (filterKey, value, color) => /* @__PURE__ */ React5.createElement(
+      Tag4,
       {
         color,
         key: value,
@@ -2963,17 +3313,17 @@ ${record.full_text || ""}`.toLowerCase();
     const renderTagList = (items, color, filterKey = null) => {
       const values = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
       if (!values.length) {
-        return /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "-");
+        return /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "-");
       }
-      return /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, values.map((value) => filterKey ? renderFilterTag(filterKey, value, color) : /* @__PURE__ */ React4.createElement(Tag3, { color, key: value }, value)));
+      return /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true }, values.map((value) => filterKey ? renderFilterTag(filterKey, value, color) : /* @__PURE__ */ React5.createElement(Tag4, { color, key: value }, value)));
     };
     const renderActorList = (record, variant = "compact") => {
       const actors2 = normalizeActors(record);
       if (!actors2.length) {
-        return /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "-");
+        return /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "-");
       }
       const className = variant === "cast" ? "jav-library-actor-list is-cast" : "jav-library-actor-list";
-      return /* @__PURE__ */ React4.createElement("div", { className }, actors2.map((actor) => /* @__PURE__ */ React4.createElement(
+      return /* @__PURE__ */ React5.createElement("div", { className }, actors2.map((actor) => /* @__PURE__ */ React5.createElement(
         ActorPill,
         {
           key: actor.name,
@@ -2995,9 +3345,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         return text.includes(keyword);
       });
       if (!visibleActors.length) {
-        return /* @__PURE__ */ React4.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, actorLibraryLoading ? "\u6F14\u5458\u4FE1\u606F\u5E93\u52A0\u8F7D\u4E2D" : "\u6682\u65E0\u6F14\u5458\u4FE1\u606F"));
+        return /* @__PURE__ */ React5.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, actorLibraryLoading ? "\u6F14\u5458\u4FE1\u606F\u5E93\u52A0\u8F7D\u4E2D" : "\u6682\u65E0\u6F14\u5458\u4FE1\u606F"));
       }
-      return /* @__PURE__ */ React4.createElement("div", { className: "jav-library-actor-grid" }, visibleActors.map((actor) => /* @__PURE__ */ React4.createElement(
+      return /* @__PURE__ */ React5.createElement("div", { className: "jav-library-actor-grid" }, visibleActors.map((actor) => /* @__PURE__ */ React5.createElement(
         "button",
         {
           key: actor.key,
@@ -3005,8 +3355,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           className: "jav-library-actor-card",
           onClick: () => handleActorLibrarySelect(actor)
         },
-        /* @__PURE__ */ React4.createElement(ActorLibraryAvatar, { actor }),
-        /* @__PURE__ */ React4.createElement("span", { className: "jav-library-actor-card-body" }, /* @__PURE__ */ React4.createElement("strong", null, actor.name), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, actor.movie_count || 0, " movies"))
+        /* @__PURE__ */ React5.createElement(ActorLibraryAvatar, { actor }),
+        /* @__PURE__ */ React5.createElement("span", { className: "jav-library-actor-card-body" }, /* @__PURE__ */ React5.createElement("strong", null, actor.name), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, actor.movie_count || 0, " movies"))
       )));
     };
     const renderRecordPreview = () => {
@@ -3036,17 +3386,17 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const posterAspectRatio = posterAspectRatioMap[selectedRecord.movie_id] || null;
       const previewRatioClass = posterAspectRatio > 1.08 ? "is-landscape" : posterAspectRatio && posterAspectRatio < 0.82 ? "is-portrait" : "is-balanced";
       const previewStyle = posterAspectRatio ? { "--jav-library-preview-poster-ratio": posterAspectRatio } : void 0;
-      return /* @__PURE__ */ React4.createElement("div", { className: `jav-library-preview ${previewRatioClass}`, style: previewStyle }, /* @__PURE__ */ React4.createElement("aside", { className: "jav-library-preview-poster" }, /* @__PURE__ */ React4.createElement(MoviePoster, { record: selectedRecord, onRatio: handlePosterAspectRatio }), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-poster-extras" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458"), renderActorList(selectedRecord)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6807\u7B7E"), renderTagList(selectedRecord.genres, "cyan", "genres")))), /* @__PURE__ */ React4.createElement("section", { className: "jav-library-preview-details" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-header" }, /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ArrowLeftOutlined }), onClick: closeRecordPreview }, "\u8FD4\u56DE\u5F71\u7247\u5E93"), /* @__PURE__ */ React4.createElement(Space4, null, /* @__PURE__ */ React4.createElement(
-        Button4,
+      return /* @__PURE__ */ React5.createElement("div", { className: `jav-library-preview ${previewRatioClass}`, style: previewStyle }, /* @__PURE__ */ React5.createElement("aside", { className: "jav-library-preview-poster" }, /* @__PURE__ */ React5.createElement(MoviePoster, { record: selectedRecord, onRatio: handlePosterAspectRatio }), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-poster-extras" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u6F14\u5458"), renderActorList(selectedRecord)), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u6807\u7B7E"), renderTagList(selectedRecord.genres, "cyan", "genres")))), /* @__PURE__ */ React5.createElement("section", { className: "jav-library-preview-details" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-header" }, /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ArrowLeftOutlined }), onClick: closeRecordPreview }, "\u8FD4\u56DE\u5F71\u7247\u5E93"), /* @__PURE__ */ React5.createElement(Space5, null, /* @__PURE__ */ React5.createElement(
+        Button5,
         {
           type: "primary",
-          icon: /* @__PURE__ */ React4.createElement(Icon3, { as: PlayCircleOutlined3 }),
+          icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlayCircleOutlined3 }),
           disabled: !hasPlayableFile,
           onClick: () => handlePlaySelectedRecord(0)
         },
         "\u64AD\u653E\u5F71\u7247"
-      ), /* @__PURE__ */ React4.createElement(
-        Popconfirm3,
+      ), /* @__PURE__ */ React5.createElement(
+        Popconfirm4,
         {
           title: `\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${selectedRecord.movie_id}\uFF1F`,
           description: "\u53EA\u5220\u9664\u6570\u636E\u5E93\u8BB0\u5F55\uFF0C\u4E0D\u5220\u9664\u672C\u5730\u89C6\u9891\u6587\u4EF6\u3002",
@@ -3054,16 +3404,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           cancelText: "\u53D6\u6D88",
           onConfirm: () => handleDeleteMovie(selectedRecord)
         },
-        /* @__PURE__ */ React4.createElement(
-          Button4,
+        /* @__PURE__ */ React5.createElement(
+          Button5,
           {
             danger: true,
-            icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DeleteOutlined3 }),
+            icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
             loading: deletingMovieId === selectedRecord.movie_id
           },
           "\u79FB\u9664"
         )
-      ), /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, selectedRecord.movie_id))), /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 3, className: "jav-library-preview-title" }, selectedRecord.title || selectedRecord.movie_id), selectedRecord.scrape_error && /* @__PURE__ */ React4.createElement(
+      ), /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, selectedRecord.movie_id))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 3, className: "jav-library-preview-title" }, selectedRecord.title || selectedRecord.movie_id), selectedRecord.scrape_error && /* @__PURE__ */ React5.createElement(
         Alert2,
         {
           type: "warning",
@@ -3071,47 +3421,47 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           message: "\u522E\u524A\u5F02\u5E38",
           description: selectedRecord.scrape_error
         }
-      )), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section jav-library-preview-cast" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u6F14\u5458\u9635\u5BB9"), renderActorList(selectedRecord, "cast")), isPlayingSelectedRecord && /* @__PURE__ */ React4.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React4.createElement("span", null, label), /* @__PURE__ */ React4.createElement("strong", null, value)))), renderMediaTags(mediaInfo), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Text4, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React4.createElement(
-        Button4,
+      )), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-section jav-library-preview-cast" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u6F14\u5458\u9635\u5BB9"), renderActorList(selectedRecord, "cast")), isPlayingSelectedRecord && /* @__PURE__ */ React5.createElement("video", { controls: true, className: "jav-library-preview-player", src: videoSrc }, "\u60A8\u7684\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u89C6\u9891\u64AD\u653E\u3002"), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-meta" }, detailRows.map(([label, value]) => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-meta-row", key: label }, /* @__PURE__ */ React5.createElement("span", null, label), /* @__PURE__ */ React5.createElement("strong", null, value)))), renderMediaTags(mediaInfo), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u626B\u63CF\u76EE\u5F55"), renderTagList(selectedRecord.scan_roots, "geekblue")), selectedRecord.full_text && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u5168\u6587\u4FE1\u606F"), /* @__PURE__ */ React5.createElement(Text5, { className: "jav-library-preview-full-text" }, selectedRecord.full_text)), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-section" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u672C\u5730\u6587\u4EF6"), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-files" }, (selectedRecord.files || []).map((file, fileIndex) => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-file", key: file.path }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-preview-file-title" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true, ellipsis: { tooltip: file.path } }, file.file_name || file.path), /* @__PURE__ */ React5.createElement(
+        Button5,
         {
           size: "small",
-          icon: /* @__PURE__ */ React4.createElement(Icon3, { as: PlayCircleOutlined3 }),
+          icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlayCircleOutlined3 }),
           onClick: () => handlePlaySelectedRecord(fileIndex)
         },
         "\u64AD\u653E"
-      )), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", ellipsis: { tooltip: file.path } }, formatBytes2(file.size), " \xB7 ", file.path), renderMediaTags(file)))))));
+      )), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", ellipsis: { tooltip: file.path } }, formatBytes2(file.size), " \xB7 ", file.path), renderMediaTags(file)))))));
     };
     const columns = [
       {
         title: "\u5C01\u9762",
         key: "poster",
         width: listPosterSize + 30,
-        render: (_, record) => /* @__PURE__ */ React4.createElement(MoviePoster, { record, compact: true, width: listPosterSize, variant: "thumbnail" })
+        render: (_, record) => /* @__PURE__ */ React5.createElement(MoviePoster, { record, compact: true, width: listPosterSize, variant: "thumbnail" })
       },
       {
         title: "\u756A\u53F7",
         dataIndex: "movie_id",
         key: "movie_id",
         width: 140,
-        render: (value, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 2 }, /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, value), record.scrape_status === "found" && /* @__PURE__ */ React4.createElement(Tag3, { color: "green" }, "\u5DF2\u522E\u524A"), record.scrape_status === "failed" && /* @__PURE__ */ React4.createElement(Tag3, { color: "red" }, "\u522E\u524A\u5931\u8D25"), missingInformationByMovieId[String(value || "").toUpperCase()] && /* @__PURE__ */ React4.createElement(Tag3, { color: "orange" }, "\u7F3A\u4FE1\u606F"))
+        render: (value, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 2 }, /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, value), record.scrape_status === "found" && /* @__PURE__ */ React5.createElement(Tag4, { color: "green" }, "\u5DF2\u522E\u524A"), record.scrape_status === "failed" && /* @__PURE__ */ React5.createElement(Tag4, { color: "red" }, "\u522E\u524A\u5931\u8D25"), missingInformationByMovieId[String(value || "").toUpperCase()] && /* @__PURE__ */ React5.createElement(Tag4, { color: "orange" }, "\u7F3A\u4FE1\u606F"))
       },
       {
         title: "\u5F71\u7247\u4FE1\u606F",
         key: "info",
-        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 4 }, /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, style: { maxWidth: 620 } }, record.title || record.movie_id), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, record.date), record.studio && /* @__PURE__ */ React4.createElement(Tag3, null, record.studio), record.publisher && /* @__PURE__ */ React4.createElement(Tag3, null, record.publisher), record.series && /* @__PURE__ */ React4.createElement(Tag3, { color: "purple" }, record.series)), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.genres || []).map((genre) => renderFilterTag("genres", genre, "cyan"))), /* @__PURE__ */ React4.createElement(Space4, { size: 4, wrap: true }, (record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta")), (record.stars || []).length > 6 && /* @__PURE__ */ React4.createElement(Tag3, null, "+", record.stars.length - 6)), renderMediaTags(primaryMediaInfo(record)))
+        render: (_, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 4 }, /* @__PURE__ */ React5.createElement(Text5, { strong: true, ellipsis: { tooltip: record.title }, style: { maxWidth: 620 } }, record.title || record.movie_id), /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true }, record.date && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, record.date), record.studio && /* @__PURE__ */ React5.createElement(Tag4, null, record.studio), record.publisher && /* @__PURE__ */ React5.createElement(Tag4, null, record.publisher), record.series && /* @__PURE__ */ React5.createElement(Tag4, { color: "purple" }, record.series)), /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true }, (record.genres || []).map((genre) => renderFilterTag("genres", genre, "cyan"))), /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true }, (record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta")), (record.stars || []).length > 6 && /* @__PURE__ */ React5.createElement(Tag4, null, "+", record.stars.length - 6)), renderMediaTags(primaryMediaInfo(record)))
       },
       {
         title: "\u6587\u4EF6",
         key: "files",
         width: 340,
-        render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { direction: "vertical", size: 2 }, /* @__PURE__ */ React4.createElement(Text4, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React4.createElement(Text4, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name, renderMediaTags(file))), (record.files || []).length > 3 && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
+        render: (_, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 2 }, /* @__PURE__ */ React5.createElement(Text5, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React5.createElement(Text5, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name, renderMediaTags(file))), (record.files || []).length > 3 && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
       },
       {
         title: "\u64CD\u4F5C",
         key: "actions",
         width: 96,
-        render: (_, record) => /* @__PURE__ */ React4.createElement(
-          Popconfirm3,
+        render: (_, record) => /* @__PURE__ */ React5.createElement(
+          Popconfirm4,
           {
             title: `\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${record.movie_id}\uFF1F`,
             description: "\u53EA\u5220\u9664\u6570\u636E\u5E93\u8BB0\u5F55\uFF0C\u4E0D\u5220\u9664\u672C\u5730\u89C6\u9891\u6587\u4EF6\u3002",
@@ -3122,12 +3472,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               return handleDeleteMovie(record);
             }
           },
-          /* @__PURE__ */ React4.createElement(
-            Button4,
+          /* @__PURE__ */ React5.createElement(
+            Button5,
             {
               danger: true,
               size: "small",
-              icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DeleteOutlined3 }),
+              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
               loading: deletingMovieId === record.movie_id,
               onClick: (event) => event.stopPropagation()
             },
@@ -3139,14 +3489,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     if (selectedRecord) {
       const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
       const previewBackdropStyle = previewBackdropSource ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` } : void 0;
-      return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page is-previewing" }, /* @__PURE__ */ React4.createElement(
+      return /* @__PURE__ */ React5.createElement("div", { className: "jav-local-scrape jav-library-page is-previewing" }, /* @__PURE__ */ React5.createElement(
         "div",
         {
           className: "jav-library-preview-backdrop",
           style: previewBackdropStyle,
           onClick: closeRecordPreview
         },
-        /* @__PURE__ */ React4.createElement(
+        /* @__PURE__ */ React5.createElement(
           "section",
           {
             className: "jav-local-results jav-library-results jav-library-preview-surface",
@@ -3159,28 +3509,28 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         )
       ));
     }
-    return /* @__PURE__ */ React4.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React4.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React4.createElement("div", null, /* @__PURE__ */ React4.createElement(Title3, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React4.createElement(Icon3, { as: DatabaseOutlined })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React4.createElement(Text4, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React4.createElement(
-      Input4,
+    return /* @__PURE__ */ React5.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
+      Input5,
       {
         allowClear: true,
-        prefix: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }),
+        prefix: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }),
         placeholder: "\u641C\u7D22\u756A\u53F7\u3001\u6807\u9898\u3001\u6F14\u5458\u3001\u6807\u7B7E",
         value: keywordDraft,
         onChange: (event) => setKeywordDraft(event.target.value),
         onPressEnter: handleKeywordSearch
       }
-    ), /* @__PURE__ */ React4.createElement(Button4, { type: "primary", icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: handleKeywordSearch }, "\u641C\u7D22"), /* @__PURE__ */ React4.createElement(Button4, { onClick: handleKeywordClear }, "\u6E05\u7A7A")), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React5.createElement(Button5, { type: "primary", icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }), onClick: handleKeywordSearch }, "\u641C\u7D22"), /* @__PURE__ */ React5.createElement(Button5, { onClick: handleKeywordClear }, "\u6E05\u7A7A")), /* @__PURE__ */ React5.createElement(
       Segmented,
       {
         value: viewMode,
         onChange: setViewMode,
         options: [
-          { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: UnorderedListOutlined }), " \u5217\u8868"), value: "list" },
-          { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: AppstoreOutlined }), " \u5361\u7247"), value: "grid" },
-          { label: /* @__PURE__ */ React4.createElement("span", null, /* @__PURE__ */ React4.createElement(Icon3, { as: UserOutlined }), " \u6F14\u5458"), value: "actors" }
+          { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: UnorderedListOutlined }), " \u5217\u8868"), value: "list" },
+          { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: AppstoreOutlined }), " \u5361\u7247"), value: "grid" },
+          { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: UserOutlined }), " \u6F14\u5458"), value: "actors" }
         ]
       }
-    ), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React5.createElement(
       Select2,
       {
         value: sortRule,
@@ -3188,7 +3538,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         options: LOCAL_LIBRARY_SORT_OPTIONS,
         "aria-label": "\u5F71\u89C6\u5E93\u6392\u5E8F"
       }
-    ), viewMode !== "actors" && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-size-control" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u5927\u5C0F"), /* @__PURE__ */ React4.createElement(
+    ), viewMode !== "actors" && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-size-control" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5927\u5C0F"), /* @__PURE__ */ React5.createElement(
       Slider,
       {
         min: viewMode === "grid" ? 120 : 44,
@@ -3198,15 +3548,15 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         onChange: viewMode === "grid" ? setGridPosterSize : setListPosterSize,
         tooltip: { formatter: (value) => `${value}px` }
       }
-    )), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React4.createElement(Button4, { icon: /* @__PURE__ */ React4.createElement(Icon3, { as: ReloadOutlined2 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React4.createElement(Popconfirm3, { title: "\u786E\u8BA4\u6E05\u7A7A\u5F71\u89C6\u5E93\u6570\u636E\u5E93\uFF1F", onConfirm: handleClear, okText: "\u6E05\u7A7A", cancelText: "\u53D6\u6D88" }, /* @__PURE__ */ React4.createElement(Button4, { danger: true, loading }, "\u6E05\u7A7A"))), activeFilterCount > 0 && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-active-filters" }, filters.keyword.trim() && /* @__PURE__ */ React4.createElement(
-      Tag3,
+    )), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ReloadOutlined3 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React5.createElement(Popconfirm4, { title: "\u786E\u8BA4\u6E05\u7A7A\u5F71\u89C6\u5E93\u6570\u636E\u5E93\uFF1F", onConfirm: handleClear, okText: "\u6E05\u7A7A", cancelText: "\u53D6\u6D88" }, /* @__PURE__ */ React5.createElement(Button5, { danger: true, loading }, "\u6E05\u7A7A"))), activeFilterCount > 0 && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-active-filters" }, filters.keyword.trim() && /* @__PURE__ */ React5.createElement(
+      Tag4,
       {
         closable: true,
         onClose: handleKeywordClear
       },
       "\u641C\u7D22: ",
       filters.keyword.trim()
-    ), activeFilterTags(), /* @__PURE__ */ React4.createElement(Button4, { size: "small", type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")), /* @__PURE__ */ React4.createElement("div", { className: "jav-kpi-grid jav-local-kpis jav-library-kpis" }, /* @__PURE__ */ React4.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-label" }, "\u5F71\u7247"), /* @__PURE__ */ React4.createElement("strong", null, library.total_movies || 0), /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-note" }, "\u6570\u636E\u5E93\u8BB0\u5F55")), /* @__PURE__ */ React4.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-label" }, "\u6587\u4EF6"), /* @__PURE__ */ React4.createElement("strong", null, library.total_files || 0), /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-note" }, "\u672C\u5730\u89C6\u9891")), /* @__PURE__ */ React4.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-label" }, "\u5BB9\u91CF"), /* @__PURE__ */ React4.createElement("strong", null, formatBytes2(library.total_size)), /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-note" }, "\u603B\u5927\u5C0F")), /* @__PURE__ */ React4.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-label" }, "\u7B5B\u9009"), /* @__PURE__ */ React4.createElement("strong", null, filteredRecords.length), /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-note" }, "\u5F53\u524D\u7ED3\u679C")), /* @__PURE__ */ React4.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-label" }, "\u4FE1\u606F"), /* @__PURE__ */ React4.createElement("strong", null, informationCheck ? informationCheck.incomplete_count : "-"), /* @__PURE__ */ React4.createElement("span", { className: "jav-kpi-note" }, "\u7F3A\u5931\u8D44\u6599"))), informationCheck && /* @__PURE__ */ React4.createElement(
+    ), activeFilterTags(), /* @__PURE__ */ React5.createElement(Button5, { size: "small", type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")), /* @__PURE__ */ React5.createElement("div", { className: "jav-kpi-grid jav-local-kpis jav-library-kpis" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-label" }, "\u5F71\u7247"), /* @__PURE__ */ React5.createElement("strong", null, library.total_movies || 0), /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-note" }, "\u6570\u636E\u5E93\u8BB0\u5F55")), /* @__PURE__ */ React5.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-label" }, "\u6587\u4EF6"), /* @__PURE__ */ React5.createElement("strong", null, library.total_files || 0), /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-note" }, "\u672C\u5730\u89C6\u9891")), /* @__PURE__ */ React5.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-label" }, "\u5BB9\u91CF"), /* @__PURE__ */ React5.createElement("strong", null, formatBytes2(library.total_size)), /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-note" }, "\u603B\u5927\u5C0F")), /* @__PURE__ */ React5.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-label" }, "\u7B5B\u9009"), /* @__PURE__ */ React5.createElement("strong", null, filteredRecords.length), /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-note" }, "\u5F53\u524D\u7ED3\u679C")), /* @__PURE__ */ React5.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-label" }, "\u4FE1\u606F"), /* @__PURE__ */ React5.createElement("strong", null, informationCheck ? informationCheck.incomplete_count : "-"), /* @__PURE__ */ React5.createElement("span", { className: "jav-kpi-note" }, "\u7F3A\u5931\u8D44\u6599"))), informationCheck && /* @__PURE__ */ React5.createElement(
       Alert2,
       {
         style: { marginTop: 14 },
@@ -3215,7 +3565,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         message: `\u4FE1\u606F\u68C0\u67E5\uFF1A\u5B8C\u6574 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`,
         description: informationCheck.incomplete_count > 0 ? `\u7F3A\u5931 ${informationCheck.incomplete_count} \u90E8\uFF0C\u53EF\u5728\u201C\u68C0\u67E5\u4FE1\u606F\u201D\u7A97\u53E3\u4E2D\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u3002` : "\u5F53\u524D\u5DF2\u5165\u5E93\u5F71\u7247\u4FE1\u606F\u548C\u672C\u5730\u8D44\u6599\u5B8C\u6574\u3002"
       }
-    ), /* @__PURE__ */ React4.createElement(Divider2, { className: "jav-section-divider" }), viewMode === "actors" ? renderActorLibraryView() : viewMode === "grid" ? sortedRecords.length ? /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement("div", { className: "jav-library-grid-toolbar" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, gridStartIndex + 1, "-", Math.min(gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length), " / ", sortedRecords.length), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React5.createElement(Divider2, { className: "jav-section-divider" }), viewMode === "actors" ? renderActorLibraryView() : viewMode === "grid" ? sortedRecords.length ? /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-grid-toolbar" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, gridStartIndex + 1, "-", Math.min(gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length), " / ", sortedRecords.length), /* @__PURE__ */ React5.createElement(
       Pagination,
       {
         current: gridPage,
@@ -3224,26 +3574,26 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         showSizeChanger: false,
         onChange: handleGridPageChange
       }
-    )), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-grid-wrap" }, gridPageLoading && /* @__PURE__ */ React4.createElement("div", { className: "jav-library-grid-loading", "aria-live": "polite" }, /* @__PURE__ */ React4.createElement("span", { className: "jav-library-grid-loading-icon" }), /* @__PURE__ */ React4.createElement("span", null, "\u6B63\u5728\u52A0\u8F7D\u672C\u5730\u5C01\u9762")), /* @__PURE__ */ React4.createElement(
+    )), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-grid-wrap" }, gridPageLoading && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-grid-loading", "aria-live": "polite" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-library-grid-loading-icon" }), /* @__PURE__ */ React5.createElement("span", null, "\u6B63\u5728\u52A0\u8F7D\u672C\u5730\u5C01\u9762")), /* @__PURE__ */ React5.createElement(
       "div",
       {
         className: "jav-library-poster-grid",
         style: { "--jav-library-card-min": `${gridPosterSize}px` }
       },
-      visibleGridRecords.map((record) => /* @__PURE__ */ React4.createElement(
-        Card3,
+      visibleGridRecords.map((record) => /* @__PURE__ */ React5.createElement(
+        Card4,
         {
           key: record.movie_id,
           hoverable: true,
           className: "jav-library-poster-card",
-          cover: /* @__PURE__ */ React4.createElement(MoviePoster, { record, variant: "thumbnail" }),
+          cover: /* @__PURE__ */ React5.createElement(MoviePoster, { record, variant: "thumbnail" }),
           onClick: () => openRecordPreview(record)
         },
-        /* @__PURE__ */ React4.createElement(Text4, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
-        /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React4.createElement(Tag3, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, String(record.date).slice(0, 4))),
+        /* @__PURE__ */ React5.createElement(Text5, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
+        /* @__PURE__ */ React5.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, String(record.date).slice(0, 4))),
         renderMediaTags(primaryMediaInfo(record)),
-        /* @__PURE__ */ React4.createElement(
-          Popconfirm3,
+        /* @__PURE__ */ React5.createElement(
+          Popconfirm4,
           {
             title: `\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${record.movie_id}\uFF1F`,
             description: "\u53EA\u5220\u9664\u6570\u636E\u5E93\u8BB0\u5F55\uFF0C\u4E0D\u5220\u9664\u672C\u5730\u89C6\u9891\u6587\u4EF6\u3002",
@@ -3254,12 +3604,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               return handleDeleteMovie(record);
             }
           },
-          /* @__PURE__ */ React4.createElement(
-            Button4,
+          /* @__PURE__ */ React5.createElement(
+            Button5,
             {
               danger: true,
               size: "small",
-              icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DeleteOutlined3 }),
+              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
               loading: deletingMovieId === record.movie_id,
               onClick: (event) => event.stopPropagation(),
               style: { marginTop: 8 }
@@ -3267,9 +3617,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             "\u79FB\u9664"
           )
         ),
-        /* @__PURE__ */ React4.createElement("div", { className: "jav-library-poster-tags" }, (record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta")), (record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan")))
+        /* @__PURE__ */ React5.createElement("div", { className: "jav-library-poster-tags" }, (record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta")), (record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan")))
       ))
-    )), /* @__PURE__ */ React4.createElement(
+    )), /* @__PURE__ */ React5.createElement(
       Pagination,
       {
         className: "jav-library-grid-pagination-bottom",
@@ -3279,8 +3629,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         showSizeChanger: false,
         onChange: handleGridPageChange
       }
-    )) : /* @__PURE__ */ React4.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React4.createElement(
-      Table3,
+    )) : /* @__PURE__ */ React5.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React5.createElement(
+      Table4,
       {
         rowKey: "movie_id",
         size: "small",
@@ -3307,7 +3657,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         }),
         locale: { emptyText: "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55" }
       }
-    ), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React5.createElement(
       Drawer2,
       {
         title: "\u68C0\u67E5\u4FE1\u606F",
@@ -3316,27 +3666,27 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         open: informationCheckOpen,
         onClose: () => setInformationCheckOpen(false)
       },
-      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u5148\u8BBE\u7F6E\u672C\u6B21\u68C0\u67E5\u6807\u51C6\uFF0C\u518D\u5F00\u59CB\u68C0\u67E5\u3002\u9ED8\u8BA4\u68C0\u67E5\u5168\u90E8\u4FE1\u606F\u9879\uFF0C\u4FDD\u5B58\u540E\u4E0B\u6B21\u4F1A\u81EA\u52A8\u6CBF\u7528\u3002")),
-      /* @__PURE__ */ React4.createElement(
-        Form3,
+      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5148\u8BBE\u7F6E\u672C\u6B21\u68C0\u67E5\u6807\u51C6\uFF0C\u518D\u5F00\u59CB\u68C0\u67E5\u3002\u9ED8\u8BA4\u68C0\u67E5\u5168\u90E8\u4FE1\u606F\u9879\uFF0C\u4FDD\u5B58\u540E\u4E0B\u6B21\u4F1A\u81EA\u52A8\u6CBF\u7528\u3002")),
+      /* @__PURE__ */ React5.createElement(
+        Form4,
         {
           form: informationCheckForm,
           layout: "vertical",
           initialValues: { fields: informationCheckFields },
           onFinish: loadInformationCheck
         },
-        /* @__PURE__ */ React4.createElement(
-          Form3.Item,
+        /* @__PURE__ */ React5.createElement(
+          Form4.Item,
           {
             name: "fields",
             label: "\u68C0\u67E5\u6807\u51C6",
             rules: [{ required: true, message: "\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u68C0\u67E5\u9879" }]
           },
-          /* @__PURE__ */ React4.createElement(Checkbox2.Group, { options: INFORMATION_CHECK_FIELD_OPTIONS })
+          /* @__PURE__ */ React5.createElement(Checkbox2.Group, { options: INFORMATION_CHECK_FIELD_OPTIONS })
         ),
-        /* @__PURE__ */ React4.createElement(Space4, { wrap: true }, /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", loading: checkingInformation, icon: /* @__PURE__ */ React4.createElement(Icon3, { as: SearchOutlined }) }, "\u5F00\u59CB\u68C0\u67E5"), /* @__PURE__ */ React4.createElement(Button4, { onClick: handleSaveInformationCheckSettings }, "\u4FDD\u5B58\u6807\u51C6"))
+        /* @__PURE__ */ React5.createElement(Space5, { wrap: true }, /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", loading: checkingInformation, icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }) }, "\u5F00\u59CB\u68C0\u67E5"), /* @__PURE__ */ React5.createElement(Button5, { onClick: handleSaveInformationCheckSettings }, "\u4FDD\u5B58\u6807\u51C6"))
       ),
-      informationCheck && /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement(Divider2, null), /* @__PURE__ */ React4.createElement(
+      informationCheck && /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Divider2, null), /* @__PURE__ */ React5.createElement(
         Alert2,
         {
           type: informationCheck.incomplete_count > 0 ? "warning" : "success",
@@ -3344,8 +3694,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           message: `\u68C0\u67E5\u7ED3\u679C\uFF1A\u5B8C\u6574 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`,
           description: informationCheck.incomplete_count > 0 ? `\u6309\u5F53\u524D\u6807\u51C6\u4ECD\u6709 ${informationCheck.incomplete_count} \u90E8\u7F3A\u5931\u4FE1\u606F\u3002` : "\u5F53\u524D\u6807\u51C6\u4E0B\u5F71\u89C6\u5E93\u4FE1\u606F\u5B8C\u6574\u3002"
         }
-      ), informationCheck.incomplete_count > 0 && /* @__PURE__ */ React4.createElement(React4.Fragment, null, /* @__PURE__ */ React4.createElement(
-        Table3,
+      ), informationCheck.incomplete_count > 0 && /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(
+        Table4,
         {
           size: "small",
           rowKey: "movie_id",
@@ -3362,13 +3712,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             {
               title: "\u7F3A\u5931\u9879",
               key: "missing_labels",
-              render: (_, record) => /* @__PURE__ */ React4.createElement(Space4, { size: [4, 4], wrap: true }, (record.missing_labels || []).map((label) => /* @__PURE__ */ React4.createElement(Tag3, { key: label, color: "warning" }, label)))
+              render: (_, record) => /* @__PURE__ */ React5.createElement(Space5, { size: [4, 4], wrap: true }, (record.missing_labels || []).map((label) => /* @__PURE__ */ React5.createElement(Tag4, { key: label, color: "warning" }, label)))
             }
           ]
         }
-      ), /* @__PURE__ */ React4.createElement(Divider2, null), /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u6309\u4E0A\u9762\u7684\u68C0\u67E5\u7ED3\u679C\u8865\u5168\u7F3A\u5931\u5F71\u7247\uFF0C\u5E76\u53EF\u5199\u5165\u4E0E\u672C\u5730\u522E\u524A\u76F8\u540C\u7C7B\u578B\u7684\u672C\u5730\u8D44\u6599\u6587\u4EF6\u3002")))),
-      informationCheck && informationCheck.incomplete_count > 0 && /* @__PURE__ */ React4.createElement(
-        Form3,
+      ), /* @__PURE__ */ React5.createElement(Divider2, null), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u6309\u4E0A\u9762\u7684\u68C0\u67E5\u7ED3\u679C\u8865\u5168\u7F3A\u5931\u5F71\u7247\uFF0C\u5E76\u53EF\u5199\u5165\u4E0E\u672C\u5730\u522E\u524A\u76F8\u540C\u7C7B\u578B\u7684\u672C\u5730\u8D44\u6599\u6587\u4EF6\u3002")))),
+      informationCheck && informationCheck.incomplete_count > 0 && /* @__PURE__ */ React5.createElement(
+        Form4,
         {
           form: informationDownloadForm,
           layout: "vertical",
@@ -3383,11 +3733,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           },
           onFinish: handleDownloadMissingInformation
         },
-        /* @__PURE__ */ React4.createElement(Space4, { wrap: true }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "writeNfo", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u5199\u5165 NFO")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadImages", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u5C01\u9762")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadSampleImages", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u6837\u54C1\u56FE")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadActorImages", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u6F14\u5458\u5934\u50CF")), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "downloadListThumbnail", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null, "\u4E0B\u8F7D\u5217\u8868\u7F29\u7565\u56FE"))),
-        /* @__PURE__ */ React4.createElement(Space4, { align: "center", wrap: true }, /* @__PURE__ */ React4.createElement(Form3.Item, { name: "concurrent", label: "\u522E\u524A\u5E76\u53D1" }, /* @__PURE__ */ React4.createElement(InputNumber3, { min: 1, max: 5 })), /* @__PURE__ */ React4.createElement(Form3.Item, { name: "overwriteExisting", label: "\u8986\u76D6\u5DF2\u6709\u6587\u4EF6", valuePropName: "checked" }, /* @__PURE__ */ React4.createElement(Checkbox2, null))),
-        /* @__PURE__ */ React4.createElement(Button4, { type: "primary", htmlType: "submit", block: true, loading: downloadingInformation, icon: /* @__PURE__ */ React4.createElement(Icon3, { as: DownloadOutlined2 }) }, "\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F")
+        /* @__PURE__ */ React5.createElement(Space5, { wrap: true }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: "writeNfo", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u5199\u5165 NFO")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "downloadImages", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u4E0B\u8F7D\u5C01\u9762")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "downloadSampleImages", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u4E0B\u8F7D\u6837\u54C1\u56FE")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "downloadActorImages", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u4E0B\u8F7D\u6F14\u5458\u5934\u50CF")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "downloadListThumbnail", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u4E0B\u8F7D\u5217\u8868\u7F29\u7565\u56FE"))),
+        /* @__PURE__ */ React5.createElement(Space5, { align: "center", wrap: true }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: "concurrent", label: "\u522E\u524A\u5E76\u53D1" }, /* @__PURE__ */ React5.createElement(InputNumber3, { min: 1, max: 5 })), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "overwriteExisting", label: "\u8986\u76D6\u5DF2\u6709\u6587\u4EF6", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null))),
+        /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", block: true, loading: downloadingInformation, icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DownloadOutlined2 }) }, "\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F")
       )
-    ), /* @__PURE__ */ React4.createElement(
+    ), /* @__PURE__ */ React5.createElement(
       Drawer2,
       {
         title: "\u7B5B\u9009",
@@ -3395,55 +3745,84 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         width: 420,
         open: filterOpen,
         onClose: () => setFilterOpen(false),
-        extra: /* @__PURE__ */ React4.createElement(Button4, { type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")
+        extra: /* @__PURE__ */ React5.createElement(Button5, { type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")
       },
-      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React4.createElement(Text4, { type: "secondary" }, "\u540C\u4E00\u5B57\u6BB5\u5185\u4E3A\u201C\u4EFB\u4E00\u5339\u914D\u201D\uFF0C\u4E0D\u540C\u5B57\u6BB5\u4E4B\u95F4\u4E3A\u201C\u540C\u65F6\u6EE1\u8DB3\u201D\u3002")),
-      /* @__PURE__ */ React4.createElement("div", { className: "jav-library-filters" }, filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
+      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u540C\u4E00\u5B57\u6BB5\u5185\u4E3A\u201C\u4EFB\u4E00\u5339\u914D\u201D\uFF0C\u4E0D\u540C\u5B57\u6BB5\u4E4B\u95F4\u4E3A\u201C\u540C\u65F6\u6EE1\u8DB3\u201D\u3002")),
+      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filters" }, filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
     ))));
   }
 
   // frontend/src/components/SettingsPage.jsx
-  var React5 = window.React;
-  var antd5 = window.antd;
-  var icons5 = window.icons || {};
+  var React6 = window.React;
+  var antd6 = window.antd;
+  var icons6 = window.icons || {};
   var {
     Alert: Alert3,
-    Button: Button5,
-    Card: Card4,
+    Button: Button6,
+    Card: Card5,
     Col: Col2,
-    Form: Form4,
-    Input: Input5,
+    Form: Form5,
+    Input: Input6,
     InputNumber: InputNumber4,
     Row: Row2,
-    Space: Space5,
+    Select: Select3,
+    Space: Space6,
     Spin,
     Switch: Switch3,
-    Tag: Tag4,
-    Typography: Typography5,
-    message: message5
-  } = antd5;
-  var { Title: Title4, Text: Text5 } = Typography5;
+    Tag: Tag5,
+    Typography: Typography6,
+    message: message6
+  } = antd6;
+  var { Title: Title5, Text: Text6 } = Typography6;
   var {
-    ApiOutlined: ApiOutlined2,
+    ApiOutlined: ApiOutlined3,
     CloudOutlined: CloudOutlined2,
     CloudServerOutlined: CloudServerOutlined2,
     LoginOutlined,
-    ReloadOutlined: ReloadOutlined3,
+    ReloadOutlined: ReloadOutlined4,
     SafetyCertificateOutlined,
     SaveOutlined: SaveOutlined2,
     SettingOutlined: SettingOutlined2
-  } = icons5;
-  var Icon4 = ({ as: Component }) => Component ? /* @__PURE__ */ React5.createElement(Component, null) : null;
+  } = icons6;
+  var Icon4 = ({ as: Component }) => Component ? /* @__PURE__ */ React6.createElement(Component, null) : null;
+  var SCRAPER_OPTIONS = [
+    { value: "javbus", label: "JavBus" },
+    { value: "r18dev", label: "r18dev" },
+    { value: "dmm", label: "DMM" },
+    { value: "libredmm", label: "LibreDMM" },
+    { value: "javlibrary", label: "JavLibrary" },
+    { value: "javdb", label: "JavDB" },
+    { value: "jav321", label: "Jav321" },
+    { value: "mgstage", label: "MGStage" },
+    { value: "tokyohot", label: "TokyoHot" },
+    { value: "aventertainment", label: "AVEntertainment" },
+    { value: "dlgetchu", label: "DL.Getchu" },
+    { value: "caribbeancom", label: "Caribbeancom" },
+    { value: "fc2", label: "FC2" },
+    { value: "javstash", label: "JavStash" }
+  ];
+  var SCRAPER_LANGUAGE_OPTIONS = [
+    { value: "zh", label: "zh" },
+    { value: "cn", label: "cn" },
+    { value: "tw", label: "tw" },
+    { value: "ja", label: "ja" },
+    { value: "en", label: "en" }
+  ];
   var withSecretPlaceholders = (payload = {}) => ({
     javbus: payload.javbus || {},
+    scrapers: {
+      ...payload.scrapers || {},
+      javstash: { ...payload.scrapers?.javstash || {}, api_key: "" }
+    },
     webdav: { ...payload.webdav || {}, password: "" },
     aria2: { ...payload.aria2 || {}, secret: "" },
     pikpak: { ...payload.pikpak || {}, password: "" },
-    pan115: { ...payload.pan115 || {}, access_token: "", refresh_token: "" }
+    pan115: { ...payload.pan115 || {}, cookie: "" }
   });
   var buildSettingsPayload = (values = {}) => {
     const payload = {
       javbus: { ...values.javbus || {} },
+      scrapers: { ...values.scrapers || {} },
       webdav: { ...values.webdav || {} },
       aria2: { ...values.aria2 || {} },
       pikpak: { ...values.pikpak || {} },
@@ -3458,19 +3837,20 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     if (!payload.pikpak.password) {
       delete payload.pikpak.password;
     }
-    if (!payload.pan115.access_token) {
-      delete payload.pan115.access_token;
+    if (!payload.pan115.cookie) {
+      delete payload.pan115.cookie;
     }
-    if (!payload.pan115.refresh_token) {
-      delete payload.pan115.refresh_token;
+    payload.scrapers.javstash = { ...payload.scrapers.javstash || {} };
+    if (!payload.scrapers.javstash.api_key) {
+      delete payload.scrapers.javstash.api_key;
     }
     return payload;
   };
   function SettingsPage() {
-    const [form] = Form4.useForm();
-    const [loading, setLoading] = React5.useState(true);
-    const [saving, setSaving] = React5.useState(false);
-    const [settings, setSettings] = React5.useState(null);
+    const [form] = Form5.useForm();
+    const [loading, setLoading] = React6.useState(true);
+    const [saving, setSaving] = React6.useState(false);
+    const [settings, setSettings] = React6.useState(null);
     const loadSettings = async () => {
       setLoading(true);
       try {
@@ -3478,12 +3858,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         setSettings(payload);
         form.setFieldsValue(withSecretPlaceholders(payload));
       } catch (error) {
-        message5.error("\u52A0\u8F7D\u8BBE\u7F6E\u5931\u8D25");
+        message6.error("\u52A0\u8F7D\u8BBE\u7F6E\u5931\u8D25");
       } finally {
         setLoading(false);
       }
     };
-    React5.useEffect(() => {
+    React6.useEffect(() => {
       loadSettings();
     }, []);
     const saveSettings = async (values) => {
@@ -3492,9 +3872,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         const payload = await updateSystemSettings(buildSettingsPayload(values));
         setSettings(payload);
         form.setFieldsValue(withSecretPlaceholders(payload));
-        message5.success("\u8BBE\u7F6E\u5DF2\u4FDD\u5B58");
+        message6.success("\u8BBE\u7F6E\u5DF2\u4FDD\u5B58");
       } catch (error) {
-        message5.error("\u4FDD\u5B58\u8BBE\u7F6E\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u8F93\u5165\u503C");
+        message6.error("\u4FDD\u5B58\u8BBE\u7F6E\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u8F93\u5165\u503C");
       } finally {
         setSaving(false);
       }
@@ -3505,7 +3885,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const envOverrides = settings?.environment_overrides?.javbus || {};
     const hasEnvOverrides = Object.values(envOverrides).some(Boolean);
     const security = settings?.security || {};
-    return /* @__PURE__ */ React5.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React5.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 3, style: { marginBottom: 4 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u6309\u7C7B\u522B\u7BA1\u7406\u53EF\u70ED\u66F4\u65B0\u7684\u8FD0\u884C\u914D\u7F6E")), /* @__PURE__ */ React5.createElement(Space5, null, hasEnvOverrides && /* @__PURE__ */ React5.createElement(Tag4, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon4, { as: ReloadOutlined3 }), onClick: loadSettings, loading }, "\u5237\u65B0"))), /* @__PURE__ */ React5.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React5.createElement(Form4, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React5.createElement(Row2, { gutter: [24, 24] }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, xl: 14 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: ApiOutlined2 }), " JavBus API") }, hasEnvOverrides && /* @__PURE__ */ React5.createElement(
+    return /* @__PURE__ */ React6.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React6.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 3, style: { marginBottom: 4 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u6309\u7C7B\u522B\u7BA1\u7406\u53EF\u70ED\u66F4\u65B0\u7684\u8FD0\u884C\u914D\u7F6E")), /* @__PURE__ */ React6.createElement(Space6, null, hasEnvOverrides && /* @__PURE__ */ React6.createElement(Tag5, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon4, { as: ReloadOutlined4 }), onClick: loadSettings, loading }, "\u5237\u65B0"))), /* @__PURE__ */ React6.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React6.createElement(Form5, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React6.createElement(Row2, { gutter: [24, 24] }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 14 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: ApiOutlined3 }), " JavBus API") }, hasEnvOverrides && /* @__PURE__ */ React6.createElement(
       Alert3,
       {
         showIcon: true,
@@ -3513,144 +3893,205 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         style: { marginBottom: 16 },
         message: "\u90E8\u5206\u5B57\u6BB5\u6B63\u7531\u73AF\u5883\u53D8\u91CF\u8986\u76D6\uFF0C\u4FDD\u5B58\u5230 config.json \u540E\u9700\u79FB\u9664\u5BF9\u5E94\u73AF\u5883\u53D8\u91CF\u624D\u4F1A\u751F\u6548\u3002"
       }
-    ), /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+    ), /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["javbus", "base_url"],
         label: "Base URL",
         rules: [{ required: true, message: "\u8BF7\u8F93\u5165 API \u57FA\u7840\u5730\u5740" }],
         extra: envOverrides.base_url ? "JAVBUS_BASE_URL \u6B63\u5728\u8986\u76D6\u6B64\u5B57\u6BB5" : null
       },
-      /* @__PURE__ */ React5.createElement(Input5, { placeholder: "https://www.javbus.com", autoComplete: "url" })
-    ), /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(Input6, { placeholder: "https://www.javbus.com", autoComplete: "url" })
+    ), /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["javbus", "proxy"],
         label: "\u4EE3\u7406",
         extra: envOverrides.proxy ? "JAVBUS_PROXY \u6B63\u5728\u8986\u76D6\u6B64\u5B57\u6BB5" : "\u652F\u6301 http\u3001https\u3001socks5\u3001socks5h\uFF1B\u7559\u7A7A\u8868\u793A\u4E0D\u4F7F\u7528\u4EE3\u7406"
       },
-      /* @__PURE__ */ React5.createElement(Input5, { placeholder: "http://127.0.0.1:7890", autoComplete: "off" })
-    ), /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["javbus", "timeout_seconds"], label: "\u8BF7\u6C42\u8D85\u65F6\uFF08\u79D2\uFF09", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u8BF7\u6C42\u8D85\u65F6" }] }, /* @__PURE__ */ React5.createElement(InputNumber4, { min: 1, max: 60, step: 1, style: { width: "100%" } }))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(Input6, { placeholder: "http://127.0.0.1:7890", autoComplete: "off" })
+    ), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["javbus", "timeout_seconds"], label: "\u8BF7\u6C42\u8D85\u65F6\uFF08\u79D2\uFF09", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u8BF7\u6C42\u8D85\u65F6" }] }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 1, max: 60, step: 1, style: { width: "100%" } }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["javbus", "request_interval_seconds"],
         label: "\u8BF7\u6C42\u95F4\u9694\uFF08\u79D2\uFF09",
         rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u8BF7\u6C42\u95F4\u9694" }],
         extra: envOverrides.request_interval_seconds ? "JAVBUS_REQUEST_INTERVAL_SECONDS \u6B63\u5728\u8986\u76D6\u6B64\u5B57\u6BB5" : null
       },
-      /* @__PURE__ */ React5.createElement(InputNumber4, { min: 0, max: 10, step: 0.05, precision: 2, style: { width: "100%" } })
-    ))), /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["javbus", "cache_expire_seconds"], label: "\u7F13\u5B58\u6709\u6548\u671F\uFF08\u79D2\uFF09", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7F13\u5B58\u6709\u6548\u671F" }] }, /* @__PURE__ */ React5.createElement(InputNumber4, { min: 0, max: 86400, step: 60, style: { width: "100%" } }))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["javbus", "cache_max_size"], label: "\u7F13\u5B58\u5BB9\u91CF", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7F13\u5B58\u5BB9\u91CF" }] }, /* @__PURE__ */ React5.createElement(InputNumber4, { min: 1, max: 1e5, step: 100, style: { width: "100%" } })))), /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 10, step: 0.05, precision: 2, style: { width: "100%" } })
+    ))), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["javbus", "cache_expire_seconds"], label: "\u7F13\u5B58\u6709\u6548\u671F\uFF08\u79D2\uFF09", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7F13\u5B58\u6709\u6548\u671F" }] }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 86400, step: 60, style: { width: "100%" } }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["javbus", "cache_max_size"], label: "\u7F13\u5B58\u5BB9\u91CF", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7F13\u5B58\u5BB9\u91CF" }] }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 1, max: 1e5, step: 100, style: { width: "100%" } })))), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["javbus", "image_retry_attempts"],
         label: "\u56FE\u7247\u4E0B\u8F7D\u91CD\u8BD5\u6B21\u6570",
         rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u56FE\u7247\u4E0B\u8F7D\u91CD\u8BD5\u6B21\u6570" }]
       },
-      /* @__PURE__ */ React5.createElement(InputNumber4, { min: 1, max: 10, step: 1, precision: 0, style: { width: "100%" } })
-    )), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(InputNumber4, { min: 1, max: 10, step: 1, precision: 0, style: { width: "100%" } })
+    )), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["javbus", "image_retry_backoff_seconds"],
         label: "\u56FE\u7247\u91CD\u8BD5\u9000\u907F\uFF08\u79D2\uFF09",
         rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u56FE\u7247\u91CD\u8BD5\u9000\u907F" }],
         extra: "\u7B2C 2 \u6B21\u8D77\u6309\u8BE5\u503C\u9012\u589E\u7B49\u5F85\uFF1B\u8BBE\u4E3A 0 \u8868\u793A\u4E0D\u7B49\u5F85"
       },
-      /* @__PURE__ */ React5.createElement(InputNumber4, { min: 0, max: 10, step: 0.05, precision: 2, style: { width: "100%" } })
-    ))))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, xl: 10 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: SettingOutlined2 }), " \u8FD0\u884C\u4E0E\u5B89\u5168") }, /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "session_secret"), /* @__PURE__ */ React5.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React5.createElement(Tag4, { color: security.session_secret_configured ? "success" : "warning" }, security.session_secret_configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"), /* @__PURE__ */ React5.createElement(Tag4, { color: security.using_default_session_secret ? "error" : "success" }, security.using_default_session_secret ? "\u4F7F\u7528\u9ED8\u8BA4\u503C" : "\u975E\u9ED8\u8BA4\u503C"))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5F53\u524D JavBus \u8BF7\u6C42\u95F4\u9694"), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, settings?.javbus?.request_interval_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5F53\u524D JavBus \u7F13\u5B58\u5BB9\u91CF"), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, settings?.javbus?.cache_max_size ?? "-", " \u6761"))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5F53\u524D\u56FE\u7247\u4E0B\u8F7D\u91CD\u8BD5"), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, settings?.javbus?.image_retry_attempts ?? "-", " \u6B21\uFF0C \u9000\u907F ", settings?.javbus?.image_retry_backoff_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6"), /* @__PURE__ */ React5.createElement("div", { style: { marginTop: 6 } }, Object.entries(envOverrides).map(([key, active]) => /* @__PURE__ */ React5.createElement(Tag4, { key, color: active ? "warning" : "default" }, key, ": ", active ? "\u662F" : "\u5426"))))))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: CloudOutlined2 }), " WebDAV") }, /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["webdav", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["webdav", "auto_connect"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null)))), /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["webdav", "url"], label: "WebDAV \u5730\u5740" }, /* @__PURE__ */ React5.createElement(Input5, { placeholder: "https://dav.example.com/", autoComplete: "url" })), /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["webdav", "username"], label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React5.createElement(Input5, { autoComplete: "username" }))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 10, step: 0.05, precision: 2, style: { width: "100%" } })
+    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 14 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SettingOutlined2 }), " \u522E\u524A\u5458") }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
+      {
+        name: ["scrapers", "priority"],
+        label: "Priority",
+        extra: "Inspired by javinizer-go: enabled providers are tried in this order."
+      },
+      /* @__PURE__ */ React6.createElement(Select3, { mode: "multiple", options: SCRAPER_OPTIONS, optionFilterProp: "label" })
+    ), /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, SCRAPER_OPTIONS.map((provider) => /* @__PURE__ */ React6.createElement(
+      "div",
+      {
+        key: provider.value,
+        style: {
+          border: "1px solid #f0f0f0",
+          borderRadius: 8,
+          padding: 12
+        }
+      },
+      /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "small", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, provider.label), /* @__PURE__ */ React6.createElement(Tag5, { color: settings?.scrapers?.[provider.value]?.implemented ? "success" : "default" }, settings?.scrapers?.[provider.value]?.implemented ? "active" : "configured")), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "enabled"], label: "Enabled", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "language"], label: "Language" }, /* @__PURE__ */ React6.createElement(Select3, { options: SCRAPER_LANGUAGE_OPTIONS }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "request_delay"], label: "Delay ms" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 6e4, step: 100, precision: 0, style: { width: "100%" } })))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "base_url"], label: "Base URL" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "url" })), provider.value === "javstash" && /* @__PURE__ */ React6.createElement(
+        Form5.Item,
+        {
+          name: ["scrapers", "javstash", "api_key"],
+          label: "JavStash API Key",
+          extra: settings?.scrapers?.javstash?.has_api_key ? "has_api_key: true; leave blank to keep the saved key" : "GraphQL API key is optional unless JavStash is enabled."
+        },
+        /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password" })
+      ))
+    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 10 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SettingOutlined2 }), " \u8FD0\u884C\u4E0E\u5B89\u5168") }, /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "session_secret"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React6.createElement(Tag5, { color: security.session_secret_configured ? "success" : "warning" }, security.session_secret_configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Tag5, { color: security.using_default_session_secret ? "error" : "success" }, security.using_default_session_secret ? "\u4F7F\u7528\u9ED8\u8BA4\u503C" : "\u975E\u9ED8\u8BA4\u503C"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D JavBus \u8BF7\u6C42\u95F4\u9694"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.request_interval_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D JavBus \u7F13\u5B58\u5BB9\u91CF"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.cache_max_size ?? "-", " \u6761"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D\u56FE\u7247\u4E0B\u8F7D\u91CD\u8BD5"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.image_retry_attempts ?? "-", " \u6B21\uFF0C \u9000\u907F ", settings?.javbus?.image_retry_backoff_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, Object.entries(envOverrides).map(([key, active]) => /* @__PURE__ */ React6.createElement(Tag5, { key, color: active ? "warning" : "default" }, key, ": ", active ? "\u662F" : "\u5426"))))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: CloudOutlined2 }), " WebDAV") }, /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "auto_connect"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null)))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "url"], label: "WebDAV \u5730\u5740" }, /* @__PURE__ */ React6.createElement(Input6, { placeholder: "https://dav.example.com/", autoComplete: "url" })), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "username"], label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "username" }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["webdav", "password"],
         label: "\u5BC6\u7801",
         extra: settings?.webdav?.has_password ? "\u5DF2\u4FDD\u5B58\u5BC6\u7801\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u4EC5\u5728\u586B\u5199\u65F6\u5199\u5165 config.json"
       },
-      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
-    ))))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: CloudServerOutlined2 }), " Aria2") }, /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["aria2", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["aria2", "auto_connect"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null)))), /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["aria2", "url"], label: "RPC \u5730\u5740" }, /* @__PURE__ */ React5.createElement(Input5, { placeholder: "http://127.0.0.1:6800/jsonrpc", autoComplete: "url" })), /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password" })
+    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: CloudServerOutlined2 }), " Aria2") }, /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["aria2", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["aria2", "auto_connect"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null)))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["aria2", "url"], label: "RPC \u5730\u5740" }, /* @__PURE__ */ React6.createElement(Input6, { placeholder: "http://127.0.0.1:6800/jsonrpc", autoComplete: "url" })), /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["aria2", "secret"],
         label: "RPC Secret",
         extra: settings?.aria2?.has_secret ? "\u5DF2\u4FDD\u5B58 secret\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u4EC5\u5728\u586B\u5199\u65F6\u5199\u5165 config.json"
       },
-      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
-    ))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: LoginOutlined }), " PikPak") }, /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pikpak", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u767B\u5F55", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pikpak", "auto_login"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u767B\u5F55", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null)))), /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pikpak", "username"], label: "\u8D26\u53F7" }, /* @__PURE__ */ React5.createElement(Input5, { autoComplete: "username" }))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password" })
+    ))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: LoginOutlined }), " PikPak") }, /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["pikpak", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u767B\u5F55", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["pikpak", "auto_login"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u767B\u5F55", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null)))), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["pikpak", "username"], label: "\u8D26\u53F7" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "username" }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
         name: ["pikpak", "password"],
         label: "\u5BC6\u7801",
         extra: settings?.pikpak?.has_password ? "\u5DF2\u4FDD\u5B58\u5BC6\u7801\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u4EC5\u5728\u586B\u5199\u65F6\u5199\u5165 config.json"
       },
-      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
-    ))))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: CloudServerOutlined2 }), " 115\u7F51\u76D8") }, /* @__PURE__ */ React5.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pan115", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u4E0B\u53D1", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Switch3, null))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: ["pan115", "save_dir_id"], label: "\u4FDD\u5B58\u76EE\u5F55 ID" }, /* @__PURE__ */ React5.createElement(Input5, { placeholder: "0", autoComplete: "off" })))), /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+      /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password" })
+    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: CloudServerOutlined2 }), " 115\u7F51\u76D8") }, /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["pan115", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u4E0B\u53D1", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["pan115", "save_dir_id"], label: "\u4FDD\u5B58\u76EE\u5F55 ID" }, /* @__PURE__ */ React6.createElement(Input6, { placeholder: "0", autoComplete: "off" })))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["pan115", "login_app"], label: "\u626B\u7801\u767B\u5F55\u7AEF" }, /* @__PURE__ */ React6.createElement(
+      Select3,
       {
-        name: ["pan115", "access_token"],
-        label: "Access Token",
-        extra: settings?.pan115?.has_access_token ? "\u5DF2\u4FDD\u5B58 access token\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u4EC5\u5728\u586B\u5199\u65F6\u5199\u5165 config.json"
-      },
-      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
-    ), /* @__PURE__ */ React5.createElement(
-      Form4.Item,
+        options: [
+          { value: "wechatmini", label: "\u5FAE\u4FE1\u5C0F\u7A0B\u5E8F" },
+          { value: "tv", label: "TV" },
+          { value: "web", label: "Web" },
+          { value: "android", label: "Android" },
+          { value: "ios", label: "iOS" },
+          { value: "alipaymini", label: "\u652F\u4ED8\u5B9D\u5C0F\u7A0B\u5E8F" },
+          { value: "qandroid", label: "Android Q" }
+        ]
+      }
+    )), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
       {
-        name: ["pan115", "refresh_token"],
-        label: "Refresh Token",
-        extra: settings?.pan115?.has_refresh_token ? "\u5DF2\u4FDD\u5B58 refresh token\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u53EF\u9009\uFF1B\u7528\u4E8E access token \u8FC7\u671F\u540E\u81EA\u52A8\u5237\u65B0"
+        name: ["pan115", "batch_size"],
+        label: "\u6BCF\u6279\u94FE\u63A5\u6570",
+        extra: "\u9ED8\u8BA4 20\uFF1B\u4E00\u6B21\u8BF7\u6C42\u4F1A\u63D0\u4EA4\u8FD9\u4E00\u6279\u91CC\u7684\u591A\u4E2A\u94FE\u63A5"
       },
-      /* @__PURE__ */ React5.createElement(Input5.Password, { autoComplete: "new-password" })
-    ))), /* @__PURE__ */ React5.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React5.createElement(Card4, { className: "webdav-connection-card", title: /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(Icon4, { as: SafetyCertificateOutlined }), " \u4FDD\u5B58\u7B56\u7565") }, /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React5.createElement(
+      /* @__PURE__ */ React6.createElement(InputNumber4, { min: 1, max: 50, precision: 0, style: { width: "100%" } })
+    )), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
+      {
+        name: ["pan115", "batch_interval_seconds"],
+        label: "\u6279\u6B21\u95F4\u9694\uFF08\u79D2\uFF09",
+        extra: "\u9ED8\u8BA4 25\uFF1B\u4EC5\u5728\u8D85\u8FC7\u4E00\u6279\u65F6\u751F\u6548"
+      },
+      /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 300, step: 5, precision: 1, style: { width: "100%" } })
+    )), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+      Form5.Item,
+      {
+        name: ["pan115", "jitter_seconds"],
+        label: "\u968F\u673A\u6296\u52A8\uFF08\u79D2\uFF09",
+        extra: "\u9ED8\u8BA4 5\uFF1B\u6279\u6B21\u95F4\u9694\u4F1A\u5728\u8BE5\u8303\u56F4\u5185\u8F7B\u5FAE\u6D6E\u52A8"
+      },
+      /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 60, step: 1, precision: 1, style: { width: "100%" } })
+    ))), /* @__PURE__ */ React6.createElement(
+      Form5.Item,
+      {
+        name: ["pan115", "cookie"],
+        label: "Cookie",
+        extra: settings?.pan115?.has_cookie ? "\u5DF2\u4FDD\u5B58 Cookie\uFF1B\u7559\u7A7A\u8868\u793A\u4FDD\u7559\u539F\u503C" : "\u53EF\u901A\u8FC7\u4E0B\u8F7D\u5DE5\u5177\u62BD\u5C49\u626B\u7801\u767B\u5F55\u81EA\u52A8\u5199\u5165"
+      },
+      /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password", placeholder: "UID=...;CID=...;SEID=...;KID=..." })
+    ))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SafetyCertificateOutlined }), " \u4FDD\u5B58\u7B56\u7565") }, /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement(
       Alert3,
       {
         showIcon: true,
         type: "info",
         message: "\u654F\u611F\u5B57\u6BB5\u4E0D\u4F1A\u4ECE\u63A5\u53E3\u56DE\u663E\u3002\u5BC6\u7801\u6216 secret \u7559\u7A7A\u65F6\uFF0C\u4FDD\u5B58\u4E0D\u4F1A\u8986\u76D6 config.json \u4E2D\u5DF2\u6709\u503C\u3002"
       }
-    ), /* @__PURE__ */ React5.createElement(Space5, { wrap: true }, /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React5.createElement(Icon4, { as: SaveOutlined2 }), loading: saving }, "\u4FDD\u5B58\u5168\u90E8\u8BBE\u7F6E"), /* @__PURE__ */ React5.createElement(Button5, { onClick: resetForm, disabled: saving }, "\u91CD\u7F6E\u8868\u5355")))))))));
+    ), /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(Button6, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined2 }), loading: saving }, "\u4FDD\u5B58\u5168\u90E8\u8BBE\u7F6E"), /* @__PURE__ */ React6.createElement(Button6, { onClick: resetForm, disabled: saving }, "\u91CD\u7F6E\u8868\u5355")))))))));
   }
 
   // frontend/src/components/AutomationPage.jsx
-  var React6 = window.React;
-  var antd6 = window.antd;
-  var icons6 = window.icons || {};
+  var React7 = window.React;
+  var antd7 = window.antd;
+  var icons7 = window.icons || {};
   var {
-    Button: Button6,
-    Card: Card5,
+    Button: Button7,
+    Card: Card6,
     Divider: Divider3,
-    Empty: Empty2,
-    Form: Form5,
-    Input: Input6,
+    Empty: Empty3,
+    Form: Form6,
+    Input: Input7,
     InputNumber: InputNumber5,
-    List: List2,
-    Popconfirm: Popconfirm4,
-    Select: Select3,
-    Space: Space6,
+    List: List3,
+    Popconfirm: Popconfirm5,
+    Select: Select4,
+    Space: Space7,
     Switch: Switch4,
-    Table: Table4,
-    Tag: Tag5,
-    Typography: Typography6,
-    message: message6
-  } = antd6;
-  var { Text: Text6, Title: Title5 } = Typography6;
+    Table: Table5,
+    Tag: Tag6,
+    Typography: Typography7,
+    message: message7
+  } = antd7;
+  var { Text: Text7, Title: Title6 } = Typography7;
   var {
     ClockCircleOutlined,
-    DeleteOutlined: DeleteOutlined4,
+    DeleteOutlined: DeleteOutlined5,
     DownloadOutlined: DownloadOutlined3,
     LinkOutlined,
-    PlusOutlined,
+    PlusOutlined: PlusOutlined2,
     PlayCircleOutlined: PlayCircleOutlined4,
     SaveOutlined: SaveOutlined3,
-    SearchOutlined: SearchOutlined2,
+    SearchOutlined: SearchOutlined3,
     ThunderboltOutlined
-  } = icons6;
-  var Icon5 = ({ as: Component }) => Component ? /* @__PURE__ */ React6.createElement(Component, null) : null;
+  } = icons7;
+  var Icon5 = ({ as: Component }) => Component ? /* @__PURE__ */ React7.createElement(Component, null) : null;
   var NODE_WIDTH = 196;
   var NODE_HEIGHT = 84;
   var NODE_GAP = 52;
   var NODE_MIN_X = 48;
   var NODE_MIN_Y = 92;
   var NODE_TYPE_ORDER = ["trigger", "search", "magnet", "download"];
+  var MAGNET_SOURCE_LABELS = {
+    javbus: "JavBus",
+    cilisousuo: "Cilisousuo",
+    yhg007: "YHG007"
+  };
   var FILTER_TYPE_LABELS = { genre: "\u7C7B\u522B", star: "\u6F14\u5458" };
   var NODE_META = {
     trigger: { title: "\u89E6\u53D1", icon: ThunderboltOutlined, className: "automation-node-trigger" },
-    search: { title: "\u68C0\u7D22", icon: SearchOutlined2, className: "automation-node-search" },
+    search: { title: "\u68C0\u7D22", icon: SearchOutlined3, className: "automation-node-search" },
     magnet: { title: "\u78C1\u529B", icon: LinkOutlined, className: "automation-node-magnet" },
     download: { title: "\u4E0B\u8F7D", icon: DownloadOutlined3, className: "automation-node-download" }
   };
@@ -3730,21 +4171,21 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     return `\u95F4\u9694 ${trigger.interval_minutes || 60} \u5206\u949F`;
   };
   function AutomationPage() {
-    const [tasks, setTasks] = React6.useState([]);
-    const [currentTask, setCurrentTask] = React6.useState(buildDefaultTask());
-    const [selectedNodeId, setSelectedNodeId] = React6.useState("search");
-    const [loading, setLoading] = React6.useState(false);
-    const [saving, setSaving] = React6.useState(false);
-    const [running, setRunning] = React6.useState(false);
-    const [dragState, setDragState] = React6.useState(null);
-    const [categoryGroups, setCategoryGroups] = React6.useState({});
-    const [actorGroups, setActorGroups] = React6.useState({});
-    const canvasRef = React6.useRef(null);
-    React6.useEffect(() => {
+    const [tasks, setTasks] = React7.useState([]);
+    const [currentTask, setCurrentTask] = React7.useState(buildDefaultTask());
+    const [selectedNodeId, setSelectedNodeId] = React7.useState("search");
+    const [loading, setLoading] = React7.useState(false);
+    const [saving, setSaving] = React7.useState(false);
+    const [running, setRunning] = React7.useState(false);
+    const [dragState, setDragState] = React7.useState(null);
+    const [categoryGroups, setCategoryGroups] = React7.useState({});
+    const [actorGroups, setActorGroups] = React7.useState({});
+    const canvasRef = React7.useRef(null);
+    React7.useEffect(() => {
       void loadTasks();
       void loadFilterCatalogs();
     }, []);
-    React6.useEffect(() => {
+    React7.useEffect(() => {
       if (!dragState) return void 0;
       const handleMove = (event) => {
         const rect = canvasRef.current?.getBoundingClientRect();
@@ -3772,7 +4213,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           setSelectedNodeId(nextTasks[0].nodes?.[1]?.id || "search");
         }
       } catch (error) {
-        message6.error("\u52A0\u8F7D\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
+        message7.error("\u52A0\u8F7D\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
       } finally {
         setLoading(false);
       }
@@ -3786,7 +4227,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         setCategoryGroups(categoryPayload || {});
         setActorGroups(actorPayload || {});
       } catch (error) {
-        message6.warning("\u7B5B\u9009\u9884\u89C8\u6570\u636E\u52A0\u8F7D\u5931\u8D25");
+        message7.warning("\u7B5B\u9009\u9884\u89C8\u6570\u636E\u52A0\u8F7D\u5931\u8D25");
       }
     };
     const updateTaskField = (field, value) => {
@@ -3807,7 +4248,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         nodes: (prev.nodes || []).map((node) => node.id === nodeId ? { ...node, config: { ...node.config || {}, ...patch } } : node)
       }));
     };
-    const categorySelectOptions = React6.useMemo(() => Object.entries(categoryGroups || {}).map(([groupName, items]) => ({
+    const categorySelectOptions = React7.useMemo(() => Object.entries(categoryGroups || {}).map(([groupName, items]) => ({
       label: groupName,
       options: (Array.isArray(items) ? items : []).map((item) => ({
         label: item.name || item.code,
@@ -3815,12 +4256,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         filterType: "genre"
       }))
     })), [categoryGroups]);
-    const actorSelectOptions = React6.useMemo(() => Object.values(actorGroups || {}).flatMap((items) => Array.isArray(items) ? items : []).map((item) => ({
+    const actorSelectOptions = React7.useMemo(() => Object.values(actorGroups || {}).flatMap((items) => Array.isArray(items) ? items : []).map((item) => ({
       label: item.name || item.code,
       value: item.code,
       filterType: "star"
     })), [actorGroups]);
-    const filterOptionMap = React6.useMemo(() => {
+    const filterOptionMap = React7.useMemo(() => {
       const nextMap = /* @__PURE__ */ new Map();
       categorySelectOptions.forEach((group) => {
         (group.options || []).forEach((option) => nextMap.set(`genre:${option.value}`, option));
@@ -3888,7 +4329,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           }))
         };
       });
-      message6.success("\u5DF2\u81EA\u52A8\u6392\u7248");
+      message7.success("\u5DF2\u81EA\u52A8\u6392\u7248");
     };
     const handleNewTask = () => {
       const task = buildDefaultTask();
@@ -3901,7 +4342,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const handleSave = async () => {
       if (!currentTask.name?.trim()) {
-        message6.warning("\u8BF7\u8F93\u5165\u4EFB\u52A1\u540D\u79F0");
+        message7.warning("\u8BF7\u8F93\u5165\u4EFB\u52A1\u540D\u79F0");
         return;
       }
       setSaving(true);
@@ -3916,28 +4357,28 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         const saved = currentTask.id ? await updateAutomationTask(currentTask.id, payload) : await createAutomationTask(payload);
         setCurrentTask(saved);
         await loadTasks();
-        message6.success("\u81EA\u52A8\u4EFB\u52A1\u5DF2\u4FDD\u5B58");
+        message7.success("\u81EA\u52A8\u4EFB\u52A1\u5DF2\u4FDD\u5B58");
       } catch (error) {
-        message6.error("\u4FDD\u5B58\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
+        message7.error("\u4FDD\u5B58\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
       } finally {
         setSaving(false);
       }
     };
     const handleRun = async () => {
       if (!currentTask.id) {
-        message6.warning("\u8BF7\u5148\u4FDD\u5B58\u4EFB\u52A1");
+        message7.warning("\u8BF7\u5148\u4FDD\u5B58\u4EFB\u52A1");
         return;
       }
       setRunning(true);
       try {
         const run = await runAutomationTask(currentTask.id);
-        message6[run.status === "failed" ? "error" : "success"](`\u8FD0\u884C\u5B8C\u6210\uFF1A\u6D3E\u53D1 ${run.dispatched_count || 0} \u4E2A\u4EFB\u52A1`);
+        message7[run.status === "failed" ? "error" : "success"](`\u8FD0\u884C\u5B8C\u6210\uFF1A\u6D3E\u53D1 ${run.dispatched_count || 0} \u4E2A\u4EFB\u52A1`);
         await loadTasks();
         const refreshed = await fetchAutomationTasks();
         const latest = (refreshed.tasks || []).find((task) => task.id === currentTask.id);
         if (latest) setCurrentTask(latest);
       } catch (error) {
-        message6.error("\u8FD0\u884C\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
+        message7.error("\u8FD0\u884C\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
       } finally {
         setRunning(false);
       }
@@ -3949,18 +4390,18 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }
       try {
         await deleteAutomationTask(currentTask.id);
-        message6.success("\u81EA\u52A8\u4EFB\u52A1\u5DF2\u5220\u9664");
+        message7.success("\u81EA\u52A8\u4EFB\u52A1\u5DF2\u5220\u9664");
         const payload = await fetchAutomationTasks();
         const nextTasks = payload.tasks || [];
         setTasks(nextTasks);
         setCurrentTask(nextTasks[0] || buildDefaultTask());
       } catch (error) {
-        message6.error("\u5220\u9664\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
+        message7.error("\u5220\u9664\u81EA\u52A8\u4EFB\u52A1\u5931\u8D25");
       }
     };
     const selectedNode = (currentTask.nodes || []).find((node) => node.id === selectedNodeId) || currentTask.nodes?.[0];
     const nodeMap = Object.fromEntries((currentTask.nodes || []).map((node) => [node.id, node]));
-    const renderEdges = () => /* @__PURE__ */ React6.createElement("svg", { className: "automation-flow-lines" }, (currentTask.edges || []).map((edge) => {
+    const renderEdges = () => /* @__PURE__ */ React7.createElement("svg", { className: "automation-flow-lines" }, (currentTask.edges || []).map((edge) => {
       const source = nodeMap[edge.source];
       const target = nodeMap[edge.target];
       if (!source || !target) return null;
@@ -3969,7 +4410,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const x2 = target.position?.x || 0;
       const y2 = (target.position?.y || 0) + 42;
       const mid = x1 + Math.max(48, (x2 - x1) / 2);
-      return /* @__PURE__ */ React6.createElement(
+      return /* @__PURE__ */ React7.createElement(
         "path",
         {
           key: edge.id,
@@ -3985,23 +4426,23 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (mode === "filter") return `${node.config?.filter_type || "\u7B5B\u9009"}:${node.config?.filter_value || "-"}`;
         return node.config?.keyword || "\u5173\u952E\u8BCD";
       }
-      if (node.type === "magnet") return node.config?.source === "cilisousuo" ? "Cilisousuo" : "JavBus";
+      if (node.type === "magnet") return MAGNET_SOURCE_LABELS[node.config?.source || "javbus"] || node.config?.source || "JavBus";
       if (node.config?.tool === "aria2") return "Aria2";
       if (node.config?.tool === "115") return "115\u7F51\u76D8";
       return "PikPak";
     };
     const renderInspector = () => {
-      if (!selectedNode) return /* @__PURE__ */ React6.createElement(Empty2, { image: Empty2.PRESENTED_IMAGE_SIMPLE });
+      if (!selectedNode) return /* @__PURE__ */ React7.createElement(Empty3, { image: Empty3.PRESENTED_IMAGE_SIMPLE });
       const config = selectedNode.config || {};
       if (selectedNode.type === "trigger") {
-        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u89E6\u53D1\u6761\u4EF6" }, /* @__PURE__ */ React6.createElement(Select3, { value: currentTask.trigger?.type || "auto", onChange: (type) => updateTrigger({ type }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "auto" }, "\u81EA\u52A8\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "scheduled" }, "\u5B9A\u65F6\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "interval" }, "\u95F4\u9694\u8FD0\u884C"))), currentTask.trigger?.type === "scheduled" && /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6BCF\u5929\u65F6\u95F4" }, /* @__PURE__ */ React6.createElement(
-          Input6,
+        return /* @__PURE__ */ React7.createElement(Form6, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u89E6\u53D1\u6761\u4EF6" }, /* @__PURE__ */ React7.createElement(Select4, { value: currentTask.trigger?.type || "auto", onChange: (type) => updateTrigger({ type }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: "auto" }, "\u81EA\u52A8\u8FD0\u884C"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "scheduled" }, "\u5B9A\u65F6\u8FD0\u884C"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "interval" }, "\u95F4\u9694\u8FD0\u884C"))), currentTask.trigger?.type === "scheduled" && /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u6BCF\u5929\u65F6\u95F4" }, /* @__PURE__ */ React7.createElement(
+          Input7,
           {
             value: currentTask.trigger?.scheduled_time || "00:00",
             placeholder: "09:30",
             onChange: (event) => updateTrigger({ scheduled_time: event.target.value })
           }
-        )), currentTask.trigger?.type === "interval" && /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u95F4\u9694\u5206\u949F" }, /* @__PURE__ */ React6.createElement(
+        )), currentTask.trigger?.type === "interval" && /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u95F4\u9694\u5206\u949F" }, /* @__PURE__ */ React7.createElement(
           InputNumber5,
           {
             min: 1,
@@ -4013,16 +4454,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         )));
       }
       if (selectedNode.type === "search") {
-        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u68C0\u7D22\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.mode || "keyword", onChange: (mode) => updateNodeConfig(selectedNode.id, { mode }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "keyword" }, "\u5173\u952E\u8BCD"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "codes" }, "\u756A\u53F7\u5217\u8868"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "filter" }, "\u6807\u7B7E\u7B5B\u9009"))), config.mode === "codes" ? /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u756A\u53F7" }, /* @__PURE__ */ React6.createElement(
-          Input6.TextArea,
+        return /* @__PURE__ */ React7.createElement(Form6, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u68C0\u7D22\u65B9\u5F0F" }, /* @__PURE__ */ React7.createElement(Select4, { value: config.mode || "keyword", onChange: (mode) => updateNodeConfig(selectedNode.id, { mode }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: "keyword" }, "\u5173\u952E\u8BCD"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "codes" }, "\u756A\u53F7\u5217\u8868"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "filter" }, "\u6807\u7B7E\u7B5B\u9009"))), config.mode === "codes" ? /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u756A\u53F7" }, /* @__PURE__ */ React7.createElement(
+          Input7.TextArea,
           {
             rows: 5,
             value: config.codes || "",
             placeholder: "ABP-123, ABP-124",
             onChange: (event) => updateNodeConfig(selectedNode.id, { codes: event.target.value })
           }
-        )) : config.mode === "filter" ? /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement("div", { className: "automation-filter-builder" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u7C7B\u522B\u9884\u89C8\u4E0E\u9009\u62E9" }, /* @__PURE__ */ React6.createElement(
-          Select3,
+        )) : config.mode === "filter" ? /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement("div", { className: "automation-filter-builder" }, /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u7C7B\u522B\u9884\u89C8\u4E0E\u9009\u62E9" }, /* @__PURE__ */ React7.createElement(
+          Select4,
           {
             mode: "multiple",
             allowClear: true,
@@ -4033,8 +4474,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             options: categorySelectOptions,
             onChange: (values) => setSelectedFilterValues("genre", values)
           }
-        )), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6F14\u5458\u9884\u89C8\u4E0E\u9009\u62E9" }, /* @__PURE__ */ React6.createElement(
-          Select3,
+        )), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u6F14\u5458\u9884\u89C8\u4E0E\u9009\u62E9" }, /* @__PURE__ */ React7.createElement(
+          Select4,
           {
             mode: "multiple",
             allowClear: true,
@@ -4045,46 +4486,46 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             options: actorSelectOptions,
             onChange: (values) => setSelectedFilterValues("star", values)
           }
-        )), /* @__PURE__ */ React6.createElement("div", { className: "automation-filter-summary" }, getSearchFilters(config).length > 0 ? getSearchFilters(config).map((filter) => /* @__PURE__ */ React6.createElement(Tag5, { key: `${filter.type}:${filter.value}`, color: filter.type === "star" ? "magenta" : "cyan" }, FILTER_TYPE_LABELS[filter.type] || filter.type, ": ", filter.label || filter.value)) : /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5C1A\u672A\u9009\u62E9\u7B5B\u9009\u6761\u4EF6")))) : /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5173\u952E\u8BCD" }, /* @__PURE__ */ React6.createElement(Input6, { value: config.keyword || "", onChange: (event) => updateNodeConfig(selectedNode.id, { keyword: event.target.value }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6700\u5927\u7B5B\u9009\u7ED3\u679C" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.max_results || 10, onChange: (max_results) => updateNodeConfig(selectedNode.id, { max_results }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: 10 }, "10"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 20 }, "20"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 50 }, "50"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 100 }, "100"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: 200 }, "200"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "all" }, "\u5168\u90E8"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u78C1\u529B\u6761\u4EF6" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.magnet || "exist", onChange: (magnet) => updateNodeConfig(selectedNode.id, { magnet }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "exist" }, "\u4EC5\u6709\u78C1\u529B"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u8DF3\u8FC7\u5DF2\u5B58\u5728" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.skip_existing !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { skip_existing: checked }) })));
+        )), /* @__PURE__ */ React7.createElement("div", { className: "automation-filter-summary" }, getSearchFilters(config).length > 0 ? getSearchFilters(config).map((filter) => /* @__PURE__ */ React7.createElement(Tag6, { key: `${filter.type}:${filter.value}`, color: filter.type === "star" ? "magenta" : "cyan" }, FILTER_TYPE_LABELS[filter.type] || filter.type, ": ", filter.label || filter.value)) : /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u5C1A\u672A\u9009\u62E9\u7B5B\u9009\u6761\u4EF6")))) : /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u5173\u952E\u8BCD" }, /* @__PURE__ */ React7.createElement(Input7, { value: config.keyword || "", onChange: (event) => updateNodeConfig(selectedNode.id, { keyword: event.target.value }) })), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u6700\u5927\u7B5B\u9009\u7ED3\u679C" }, /* @__PURE__ */ React7.createElement(Select4, { value: config.max_results || 10, onChange: (max_results) => updateNodeConfig(selectedNode.id, { max_results }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: 10 }, "10"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: 20 }, "20"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: 50 }, "50"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: 100 }, "100"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: 200 }, "200"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "all" }, "\u5168\u90E8"))), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u78C1\u529B\u6761\u4EF6" }, /* @__PURE__ */ React7.createElement(Select4, { value: config.magnet || "exist", onChange: (magnet) => updateNodeConfig(selectedNode.id, { magnet }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: "exist" }, "\u4EC5\u6709\u78C1\u529B"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u8DF3\u8FC7\u5DF2\u5B58\u5728" }, /* @__PURE__ */ React7.createElement(Switch4, { checked: config.skip_existing !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { skip_existing: checked }) })));
       }
       if (selectedNode.type === "magnet") {
-        return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6765\u6E90" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.source || "javbus", onChange: (source) => updateNodeConfig(selectedNode.id, { source }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "javbus" }, "JavBus"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "cilisousuo" }, "Cilisousuo"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5B57\u5E55\u8FC7\u6EE4" }, /* @__PURE__ */ React6.createElement(Select3, { allowClear: true, value: config.has_subtitle, onChange: (has_subtitle) => updateNodeConfig(selectedNode.id, { has_subtitle }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "true" }, "\u53EA\u8981\u5B57\u5E55"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "false" }, "\u4E0D\u8981\u5B57\u5E55"))), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u6392\u9664 4K" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: !!config.exclude_4k, onChange: (checked) => updateNodeConfig(selectedNode.id, { exclude_4k: checked }) })), /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u5141\u8BB8\u4E2D\u6587\u5B57\u5E55" }, /* @__PURE__ */ React6.createElement(Switch4, { checked: config.allow_chinese_subtitles !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { allow_chinese_subtitles: checked }) })));
+        return /* @__PURE__ */ React7.createElement(Form6, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u6765\u6E90" }, /* @__PURE__ */ React7.createElement(Select4, { value: config.source || "javbus", onChange: (source) => updateNodeConfig(selectedNode.id, { source }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: "javbus" }, "JavBus"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "cilisousuo" }, "Cilisousuo"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "yhg007" }, "YHG007"))), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u5B57\u5E55\u8FC7\u6EE4" }, /* @__PURE__ */ React7.createElement(Select4, { allowClear: true, value: config.has_subtitle, onChange: (has_subtitle) => updateNodeConfig(selectedNode.id, { has_subtitle }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: "true" }, "\u53EA\u8981\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "false" }, "\u4E0D\u8981\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u6392\u9664 4K" }, /* @__PURE__ */ React7.createElement(Switch4, { checked: !!config.exclude_4k, onChange: (checked) => updateNodeConfig(selectedNode.id, { exclude_4k: checked }) })), /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u5141\u8BB8\u4E2D\u6587\u5B57\u5E55" }, /* @__PURE__ */ React7.createElement(Switch4, { checked: config.allow_chinese_subtitles !== false, onChange: (checked) => updateNodeConfig(selectedNode.id, { allow_chinese_subtitles: checked }) })));
       }
-      return /* @__PURE__ */ React6.createElement(Form5, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React6.createElement(Form5.Item, { label: "\u4E0B\u8F7D\u65B9\u5F0F" }, /* @__PURE__ */ React6.createElement(Select3, { value: config.tool || "pikpak", onChange: (tool) => updateNodeConfig(selectedNode.id, { tool }) }, /* @__PURE__ */ React6.createElement(Select3.Option, { value: "pikpak" }, "PikPak"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "115" }, "115\u7F51\u76D8"), /* @__PURE__ */ React6.createElement(Select3.Option, { value: "aria2" }, "Aria2"))));
+      return /* @__PURE__ */ React7.createElement(Form6, { layout: "vertical", className: "automation-inspector-form" }, /* @__PURE__ */ React7.createElement(Form6.Item, { label: "\u4E0B\u8F7D\u65B9\u5F0F" }, /* @__PURE__ */ React7.createElement(Select4, { value: config.tool || "pikpak", onChange: (tool) => updateNodeConfig(selectedNode.id, { tool }) }, /* @__PURE__ */ React7.createElement(Select4.Option, { value: "pikpak" }, "PikPak"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "115" }, "115\u7F51\u76D8"), /* @__PURE__ */ React7.createElement(Select4.Option, { value: "aria2" }, "Aria2"))));
     };
     const runColumns = [
       { title: "\u65F6\u95F4", dataIndex: "started_at", width: 170 },
-      { title: "\u72B6\u6001", dataIndex: "status", width: 90, render: (value) => /* @__PURE__ */ React6.createElement(Tag5, { color: statusColor(value) }, value || "-") },
+      { title: "\u72B6\u6001", dataIndex: "status", width: 90, render: (value) => /* @__PURE__ */ React7.createElement(Tag6, { color: statusColor(value) }, value || "-") },
       { title: "\u68C0\u7D22", dataIndex: "found_count", width: 70 },
       { title: "\u78C1\u529B", dataIndex: "magnet_count", width: 70 },
       { title: "\u6D3E\u53D1", dataIndex: "dispatched_count", width: 70 },
       { title: "\u8DF3\u8FC7", dataIndex: "skipped_count", width: 70 },
       { title: "\u9519\u8BEF", dataIndex: "error", ellipsis: true }
     ];
-    return /* @__PURE__ */ React6.createElement("div", { className: "automation-page" }, /* @__PURE__ */ React6.createElement("aside", { className: "automation-sidebar" }, /* @__PURE__ */ React6.createElement("div", { className: "automation-sidebar-header" }, /* @__PURE__ */ React6.createElement(Title5, { level: 5 }, "\u81EA\u52A8\u6A21\u5F0F"), /* @__PURE__ */ React6.createElement(Button6, { type: "primary", size: "small", icon: /* @__PURE__ */ React6.createElement(Icon5, { as: PlusOutlined }), onClick: handleNewTask }, "\u65B0\u5EFA")), /* @__PURE__ */ React6.createElement(
-      List2,
+    return /* @__PURE__ */ React7.createElement("div", { className: "automation-page" }, /* @__PURE__ */ React7.createElement("aside", { className: "automation-sidebar" }, /* @__PURE__ */ React7.createElement("div", { className: "automation-sidebar-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5 }, "\u81EA\u52A8\u6A21\u5F0F"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", size: "small", icon: /* @__PURE__ */ React7.createElement(Icon5, { as: PlusOutlined2 }), onClick: handleNewTask }, "\u65B0\u5EFA")), /* @__PURE__ */ React7.createElement(
+      List3,
       {
         loading,
         dataSource: tasks,
-        locale: { emptyText: /* @__PURE__ */ React6.createElement(Empty2, { image: Empty2.PRESENTED_IMAGE_SIMPLE, description: "\u6682\u65E0\u4EFB\u52A1" }) },
-        renderItem: (task) => /* @__PURE__ */ React6.createElement(
-          List2.Item,
+        locale: { emptyText: /* @__PURE__ */ React7.createElement(Empty3, { image: Empty3.PRESENTED_IMAGE_SIMPLE, description: "\u6682\u65E0\u4EFB\u52A1" }) },
+        renderItem: (task) => /* @__PURE__ */ React7.createElement(
+          List3.Item,
           {
             className: `automation-task-item ${currentTask.id === task.id ? "is-active" : ""}`,
             onClick: () => handleSelectTask(task)
           },
-          /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, task.name), /* @__PURE__ */ React6.createElement("div", { className: "automation-task-meta" }, /* @__PURE__ */ React6.createElement(Tag5, { color: task.enabled ? "green" : "default" }, task.enabled ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528"), /* @__PURE__ */ React6.createElement("span", null, triggerLabel(task.trigger))))
+          /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement(Text7, { strong: true }, task.name), /* @__PURE__ */ React7.createElement("div", { className: "automation-task-meta" }, /* @__PURE__ */ React7.createElement(Tag6, { color: task.enabled ? "green" : "default" }, task.enabled ? "\u5DF2\u542F\u7528" : "\u672A\u542F\u7528"), /* @__PURE__ */ React7.createElement("span", null, triggerLabel(task.trigger))))
         )
       }
-    )), /* @__PURE__ */ React6.createElement("main", { className: "automation-main" }, /* @__PURE__ */ React6.createElement("section", { className: "automation-toolbar" }, /* @__PURE__ */ React6.createElement(Space6, { align: "center", wrap: true }, /* @__PURE__ */ React6.createElement(
-      Input6,
+    )), /* @__PURE__ */ React7.createElement("main", { className: "automation-main" }, /* @__PURE__ */ React7.createElement("section", { className: "automation-toolbar" }, /* @__PURE__ */ React7.createElement(Space7, { align: "center", wrap: true }, /* @__PURE__ */ React7.createElement(
+      Input7,
       {
         className: "automation-name-input",
         value: currentTask.name,
         onChange: (event) => updateTaskField("name", event.target.value),
         placeholder: "\u4EFB\u52A1\u540D\u79F0"
       }
-    ), /* @__PURE__ */ React6.createElement(
+    ), /* @__PURE__ */ React7.createElement(
       Switch4,
       {
         checked: !!currentTask.enabled,
@@ -4092,9 +4533,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         unCheckedChildren: "\u505C\u7528",
         onChange: (checked) => updateTaskField("enabled", checked)
       }
-    ), /* @__PURE__ */ React6.createElement(Tag5, { icon: /* @__PURE__ */ React6.createElement(Icon5, { as: ClockCircleOutlined }), color: "blue" }, triggerLabel(currentTask.trigger))), /* @__PURE__ */ React6.createElement(Space6, null, /* @__PURE__ */ React6.createElement(Button6, { className: "automation-layout-button", onClick: handleAutoLayout }, "\u81EA\u52A8\u6392\u7248"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon5, { as: PlayCircleOutlined4 }), onClick: handleRun, loading: running }, "\u8FD0\u884C"), /* @__PURE__ */ React6.createElement(Button6, { type: "primary", icon: /* @__PURE__ */ React6.createElement(Icon5, { as: SaveOutlined3 }), onClick: handleSave, loading: saving }, "\u4FDD\u5B58"), /* @__PURE__ */ React6.createElement(Popconfirm4, { title: "\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u4EFB\u52A1\uFF1F", okText: "\u5220\u9664", cancelText: "\u53D6\u6D88", onConfirm: handleDelete }, /* @__PURE__ */ React6.createElement(Button6, { danger: true, icon: /* @__PURE__ */ React6.createElement(Icon5, { as: DeleteOutlined4 }) }, "\u5220\u9664")))), /* @__PURE__ */ React6.createElement("section", { className: "automation-workbench" }, /* @__PURE__ */ React6.createElement("div", { className: "automation-canvas", ref: canvasRef }, renderEdges(), (currentTask.nodes || []).map((node) => {
+    ), /* @__PURE__ */ React7.createElement(Tag6, { icon: /* @__PURE__ */ React7.createElement(Icon5, { as: ClockCircleOutlined }), color: "blue" }, triggerLabel(currentTask.trigger))), /* @__PURE__ */ React7.createElement(Space7, null, /* @__PURE__ */ React7.createElement(Button7, { className: "automation-layout-button", onClick: handleAutoLayout }, "\u81EA\u52A8\u6392\u7248"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon5, { as: PlayCircleOutlined4 }), onClick: handleRun, loading: running }, "\u8FD0\u884C"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", icon: /* @__PURE__ */ React7.createElement(Icon5, { as: SaveOutlined3 }), onClick: handleSave, loading: saving }, "\u4FDD\u5B58"), /* @__PURE__ */ React7.createElement(Popconfirm5, { title: "\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u4EFB\u52A1\uFF1F", okText: "\u5220\u9664", cancelText: "\u53D6\u6D88", onConfirm: handleDelete }, /* @__PURE__ */ React7.createElement(Button7, { danger: true, icon: /* @__PURE__ */ React7.createElement(Icon5, { as: DeleteOutlined5 }) }, "\u5220\u9664")))), /* @__PURE__ */ React7.createElement("section", { className: "automation-workbench" }, /* @__PURE__ */ React7.createElement("div", { className: "automation-canvas", ref: canvasRef }, renderEdges(), (currentTask.nodes || []).map((node) => {
       const meta = NODE_META[node.type] || NODE_META.search;
-      return /* @__PURE__ */ React6.createElement(
+      return /* @__PURE__ */ React7.createElement(
         "button",
         {
           key: node.id,
@@ -4112,52 +4553,52 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             });
           }
         },
-        /* @__PURE__ */ React6.createElement("span", { className: "automation-node-icon" }, /* @__PURE__ */ React6.createElement(Icon5, { as: meta.icon })),
-        /* @__PURE__ */ React6.createElement("span", { className: "automation-node-body" }, /* @__PURE__ */ React6.createElement("strong", null, meta.title), /* @__PURE__ */ React6.createElement("em", null, renderNodeSummary(node)))
+        /* @__PURE__ */ React7.createElement("span", { className: "automation-node-icon" }, /* @__PURE__ */ React7.createElement(Icon5, { as: meta.icon })),
+        /* @__PURE__ */ React7.createElement("span", { className: "automation-node-body" }, /* @__PURE__ */ React7.createElement("strong", null, meta.title), /* @__PURE__ */ React7.createElement("em", null, renderNodeSummary(node)))
       );
-    })), /* @__PURE__ */ React6.createElement("aside", { className: "automation-inspector" }, /* @__PURE__ */ React6.createElement(Card5, { size: "small", title: selectedNode ? NODE_META[selectedNode.type]?.title : "\u8282\u70B9" }, renderInspector()))), /* @__PURE__ */ React6.createElement("section", { className: "automation-runs" }, /* @__PURE__ */ React6.createElement(Card5, { size: "small", title: "\u8FD0\u884C\u8BB0\u5F55" }, /* @__PURE__ */ React6.createElement(
-      Table4,
+    })), /* @__PURE__ */ React7.createElement("aside", { className: "automation-inspector" }, /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: selectedNode ? NODE_META[selectedNode.type]?.title : "\u8282\u70B9" }, renderInspector()))), /* @__PURE__ */ React7.createElement("section", { className: "automation-runs" }, /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: "\u8FD0\u884C\u8BB0\u5F55" }, /* @__PURE__ */ React7.createElement(
+      Table5,
       {
         size: "small",
         rowKey: "id",
         columns: runColumns,
         dataSource: currentTask.runs || [],
         pagination: { pageSize: 5, hideOnSinglePage: true },
-        locale: { emptyText: /* @__PURE__ */ React6.createElement(Empty2, { image: Empty2.PRESENTED_IMAGE_SIMPLE, description: "\u6682\u65E0\u8FD0\u884C\u8BB0\u5F55" }) }
+        locale: { emptyText: /* @__PURE__ */ React7.createElement(Empty3, { image: Empty3.PRESENTED_IMAGE_SIMPLE, description: "\u6682\u65E0\u8FD0\u884C\u8BB0\u5F55" }) }
       }
     )))));
   }
 
   // frontend/src/components/JavPage.jsx
-  var React7 = window.React;
-  var antd7 = window.antd;
-  var icons7 = window.icons || {};
+  var React8 = window.React;
+  var antd8 = window.antd;
+  var icons8 = window.icons || {};
   var {
-    Layout: Layout2,
-    Button: Button7,
+    Layout: Layout3,
+    Button: Button8,
     Drawer: Drawer3,
-    Input: Input7,
-    Form: Form6,
-    Select: Select4,
-    Card: Card6,
+    Input: Input8,
+    Form: Form7,
+    Select: Select5,
+    Card: Card7,
     Spin: Spin2,
-    message: message7,
-    Typography: Typography7,
-    Space: Space7,
+    message: message8,
+    Typography: Typography8,
+    Space: Space8,
     Divider: Divider4,
-    List: List3,
-    Tag: Tag6,
+    List: List4,
+    Tag: Tag7,
     ConfigProvider,
     Segmented: Segmented2,
-    Popconfirm: Popconfirm5
-  } = antd7;
-  var { Header, Content: Content2, Sider } = Layout2;
-  var { Title: Title6, Text: Text7 } = Typography7;
-  var { Option } = Select4;
+    Popconfirm: Popconfirm6
+  } = antd8;
+  var { Header, Content: Content3, Sider } = Layout3;
+  var { Title: Title7, Text: Text8 } = Typography8;
+  var { Option } = Select5;
   var {
     ArrowLeftOutlined: ArrowLeftOutlined2,
     ArrowRightOutlined,
-    DatabaseOutlined: DatabaseOutlined2,
+    DatabaseOutlined: DatabaseOutlined3,
     DownloadOutlined: DownloadOutlined4,
     FilterOutlined: FilterOutlined2,
     GithubOutlined,
@@ -4166,11 +4607,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     LoginOutlined: LoginOutlined2,
     LogoutOutlined,
     SafetyCertificateOutlined: SafetyCertificateOutlined2,
-    SearchOutlined: SearchOutlined3,
+    SearchOutlined: SearchOutlined4,
     SettingOutlined: SettingOutlined3,
     ThunderboltOutlined: ThunderboltOutlined2
-  } = icons7;
-  var Icon6 = ({ as: Component }) => Component ? /* @__PURE__ */ React7.createElement(Component, null) : null;
+  } = icons8;
+  var Icon6 = ({ as: Component }) => Component ? /* @__PURE__ */ React8.createElement(Component, null) : null;
   var HEADER_BRAND_NAME = "JavJaeger";
   var HEADER_SLOGAN_QUOTE = '"\u4EBA\u7C7B\u7684\u4E00\u5207\u75DB\u82E6\uFF0C\u90FD\u662F\u56E0\u4E3A\u6027\u6B32\u5F97\u4E0D\u5230\u6EE1\u8DB3"';
   var HEADER_SLOGAN_AUTHOR = " --\u5F17\u6D1B\u4F0A\u5FB7 \u5CF0";
@@ -4183,6 +4624,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     label: "\u53D1\u884C\u5546",
     series: "\u7CFB\u5217"
   };
+  var MAGNET_SOURCE_LABELS2 = {
+    javbus: "JavBus",
+    cilisousuo: "Cilisousuo",
+    yhg007: "YHG007"
+  };
+  var magnetSourceRequiresMovieParams = (source) => source === "javbus";
   var runWithConcurrency = async (items, limit, worker) => {
     if (!Array.isArray(items) || items.length === 0) {
       return;
@@ -4199,56 +4646,60 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     await Promise.all(runners);
   };
   function JavPage() {
-    const [collapsedLeft, setCollapsedLeft] = React7.useState(false);
-    const [collapsedRight, setCollapsedRight] = React7.useState(false);
-    const [versionInfo, setVersionInfo] = React7.useState({
+    const [collapsedLeft, setCollapsedLeft] = React8.useState(false);
+    const [collapsedRight, setCollapsedRight] = React8.useState(false);
+    const [versionInfo, setVersionInfo] = React8.useState({
       version: "v1.0.0",
       build_date: "Unknown",
       asset_version: "",
       auto_reload_frontend: false
     });
-    const [activePage, setActivePage] = React7.useState("jav");
-    const [logoPreviewOpen, setLogoPreviewOpen] = React7.useState(false);
-    const [loading, setLoading] = React7.useState(false);
-    const [downloadingMovieIds, setDownloadingMovieIds] = React7.useState({});
-    const [moviesData, setMoviesData] = React7.useState(null);
-    const [magnetDataMap, setMagnetDataMap] = React7.useState({});
-    const [movieImageLoadErrorMap, setMovieImageLoadErrorMap] = React7.useState({});
-    const [movieDetailMap, setMovieDetailMap] = React7.useState({});
-    const [webdavConnected, setWebdavConnected] = React7.useState(false);
-    const [historyData, setHistoryData] = React7.useState(null);
-    const [currentPage, setCurrentPage] = React7.useState(1);
-    const [lastFilterValues, setLastFilterValues] = React7.useState(null);
-    const [lastMagnetSearchValues, setLastMagnetSearchValues] = React7.useState(null);
-    const [selectedFilters, setSelectedFilters] = React7.useState([]);
-    const [downloadTool, setDownloadTool] = React7.useState(() => {
+    const [activePage, setActivePage] = React8.useState("jav");
+    const [logoPreviewOpen, setLogoPreviewOpen] = React8.useState(false);
+    const [loading, setLoading] = React8.useState(false);
+    const [downloadingMovieIds, setDownloadingMovieIds] = React8.useState({});
+    const [moviesData, setMoviesData] = React8.useState(null);
+    const [magnetDataMap, setMagnetDataMap] = React8.useState({});
+    const [movieImageLoadErrorMap, setMovieImageLoadErrorMap] = React8.useState({});
+    const [movieDetailMap, setMovieDetailMap] = React8.useState({});
+    const [webdavConnected, setWebdavConnected] = React8.useState(false);
+    const [historyData, setHistoryData] = React8.useState(null);
+    const [currentPage, setCurrentPage] = React8.useState(1);
+    const [lastFilterValues, setLastFilterValues] = React8.useState(null);
+    const [lastMagnetSearchValues, setLastMagnetSearchValues] = React8.useState(null);
+    const [selectedFilters, setSelectedFilters] = React8.useState([]);
+    const [downloadTool, setDownloadTool] = React8.useState(() => {
       try {
         return window.localStorage.getItem("downloadTool") || "pikpak";
       } catch (error) {
         return "pikpak";
       }
     });
-    const [downloadToolConfigOpen, setDownloadToolConfigOpen] = React7.useState(false);
-    const [aria2Connected, setAria2Connected] = React7.useState(false);
-    const [categories, setCategories] = React7.useState({});
-    const [actors, setActors] = React7.useState({});
-    const [viewMode, setViewMode] = React7.useState("search");
-    const [filterForm] = Form6.useForm();
-    const [magnetSettingsForm] = Form6.useForm();
-    const [webdavForm] = Form6.useForm();
-    const [aria2Form] = Form6.useForm();
-    const magnetRequestVersionRef = React7.useRef({});
-    const resourceLoadVersionRef = React7.useRef(0);
-    const [isLoggedIn, setIsLoggedIn] = React7.useState(false);
-    const [pikpakCredentials, setPikpakCredentials] = React7.useState(null);
-    const [aria2Loading, setAria2Loading] = React7.useState(false);
-    const [webdavLoading, setWebdavLoading] = React7.useState(false);
-    const [clientConfig, setClientConfig] = React7.useState({
+    const [downloadToolConfigOpen, setDownloadToolConfigOpen] = React8.useState(false);
+    const [aria2Connected, setAria2Connected] = React8.useState(false);
+    const [pan115QrLoading, setPan115QrLoading] = React8.useState(false);
+    const [pan115QrSession, setPan115QrSession] = React8.useState(null);
+    const [pan115QrStatus, setPan115QrStatus] = React8.useState(null);
+    const [pan115DownloadJob, setPan115DownloadJob] = React8.useState(null);
+    const [categories, setCategories] = React8.useState({});
+    const [actors, setActors] = React8.useState({});
+    const [viewMode, setViewMode] = React8.useState("search");
+    const [filterForm] = Form7.useForm();
+    const [magnetSettingsForm] = Form7.useForm();
+    const [webdavForm] = Form7.useForm();
+    const [aria2Form] = Form7.useForm();
+    const magnetRequestVersionRef = React8.useRef({});
+    const resourceLoadVersionRef = React8.useRef(0);
+    const [isLoggedIn, setIsLoggedIn] = React8.useState(false);
+    const [pikpakCredentials, setPikpakCredentials] = React8.useState(null);
+    const [aria2Loading, setAria2Loading] = React8.useState(false);
+    const [webdavLoading, setWebdavLoading] = React8.useState(false);
+    const [clientConfig, setClientConfig] = React8.useState({
       pikpak: { configured: false, enabled: false, username: "", auto_login: false },
-      pan115: { configured: false, enabled: false, save_dir_id: "0", has_access_token: false, has_refresh_token: false }
+      pan115: { configured: false, enabled: false, save_dir_id: "0", has_cookie: false, login_app: "wechatmini" }
     });
-    const autoLoginTriggeredRef = React7.useRef(false);
-    React7.useEffect(() => {
+    const autoLoginTriggeredRef = React8.useRef(false);
+    React8.useEffect(() => {
       if (window.versionInfo) {
         setVersionInfo(window.versionInfo);
       }
@@ -4270,7 +4721,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       loadClientSideConfig();
       void loadDownloadToolStatus();
     }, []);
-    React7.useEffect(() => {
+    React8.useEffect(() => {
       if (!versionInfo.auto_reload_frontend || !versionInfo.asset_version) {
         return;
       }
@@ -4292,13 +4743,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         window.clearInterval(timer);
       };
     }, [versionInfo.auto_reload_frontend, versionInfo.asset_version]);
-    React7.useEffect(() => {
+    React8.useEffect(() => {
       if (clientConfig.pikpak.auto_login && clientConfig.pikpak.configured && !isLoggedIn && !autoLoginTriggeredRef.current) {
         autoLoginTriggeredRef.current = true;
         handlePikPakLoginFromConfig({ silent: true });
       }
     }, [clientConfig.pikpak.auto_login, clientConfig.pikpak.configured, isLoggedIn]);
-    React7.useEffect(() => {
+    React8.useEffect(() => {
       if (downloadTool !== "aria2") {
         return void 0;
       }
@@ -4307,7 +4758,31 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }, 1e4);
       return () => window.clearInterval(timer);
     }, [downloadTool]);
-    React7.useEffect(() => {
+    React8.useEffect(() => {
+      if (!pan115QrSession?.session_id || pan115QrStatus?.state === "allowed") {
+        return void 0;
+      }
+      const timer = window.setInterval(async () => {
+        try {
+          const status = await fetchWithRetry(`/api/115/qrcode/${encodeURIComponent(pan115QrSession.session_id)}/status`, {}, 0);
+          setPan115QrStatus(status);
+          if (status?.state === "allowed" || status?.configured) {
+            message8.success("115 \u626B\u7801\u767B\u5F55\u6210\u529F");
+            setPan115QrSession(null);
+            await loadClientSideConfig();
+            window.clearInterval(timer);
+          }
+          if (status?.state === "expired" || status?.state === "canceled") {
+            setPan115QrSession(null);
+            window.clearInterval(timer);
+          }
+        } catch (error) {
+          setPan115QrStatus({ state: "error", message: "\u626B\u7801\u72B6\u6001\u68C0\u67E5\u5931\u8D25" });
+        }
+      }, 2e3);
+      return () => window.clearInterval(timer);
+    }, [pan115QrSession?.session_id, pan115QrStatus?.state]);
+    React8.useEffect(() => {
       if (!logoPreviewOpen) {
         return void 0;
       }
@@ -4359,7 +4834,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const addSelectedFilter = (type, value, label) => {
       const nextFilter = buildFilterCondition(type, value, label);
       if (!nextFilter) {
-        message7.warning("\u8BF7\u9009\u62E9\u7B5B\u9009\u7C7B\u578B\u5E76\u586B\u5199\u6807\u7B7E");
+        message8.warning("\u8BF7\u9009\u62E9\u7B5B\u9009\u7C7B\u578B\u5E76\u586B\u5199\u6807\u7B7E");
         return;
       }
       setSelectedFilters((prev) => {
@@ -4454,7 +4929,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const config = getDownloadToolConfig(tool);
       if (config.requiresLogin) {
         if (!isLoggedIn && !clientConfig.pikpak.configured) {
-          message7.warning("\u8BF7\u5148\u767B\u5F55 PikPak \u6216\u5728 config.json \u4E2D\u914D\u7F6E\u8D26\u53F7");
+          message8.warning("\u8BF7\u5148\u767B\u5F55 PikPak \u6216\u5728 config.json \u4E2D\u914D\u7F6E\u8D26\u53F7");
           return false;
         }
         return true;
@@ -4462,14 +4937,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       if (config.requiresConnection) {
         const connected = await loadDownloadToolStatus();
         if (!connected) {
-          message7.warning("\u8BF7\u5148\u8FDE\u63A5 Aria2 \u6216\u68C0\u67E5\u914D\u7F6E");
+          message8.warning("\u8BF7\u5148\u8FDE\u63A5 Aria2 \u6216\u68C0\u67E5\u914D\u7F6E");
           return false;
         }
         return true;
       }
       if (config.requiresConfig) {
         if (!clientConfig.pan115?.configured) {
-          message7.warning("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E 115 Open API access token");
+          message8.warning("\u8BF7\u5148\u626B\u7801\u767B\u5F55 115 \u7F51\u76D8");
           return false;
         }
         return true;
@@ -4480,23 +4955,23 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const magnetLinks = Array.isArray(payload) ? payload.map((item) => item.link).filter(Boolean) : [];
       const movieIds = Array.isArray(payload) ? payload.map((item) => item.movie_id).filter(Boolean) : [];
       if (magnetLinks.length === 0) {
-        message7.warning("\u6CA1\u6709\u53EF\u7528\u7684\u78C1\u529B\u94FE\u63A5");
+        message8.warning("\u6CA1\u6709\u53EF\u7528\u7684\u78C1\u529B\u94FE\u63A5");
         return { success: false, message: "no_magnet" };
       }
       const config = getDownloadToolConfig(tool);
       if (config.requiresLogin) {
         if (!isLoggedIn && !clientConfig.pikpak.configured) {
-          message7.warning("\u8BF7\u5148\u767B\u5F55 PikPak \u6216\u5728 config.json \u4E2D\u914D\u7F6E\u8D26\u53F7");
+          message8.warning("\u8BF7\u5148\u767B\u5F55 PikPak \u6216\u5728 config.json \u4E2D\u914D\u7F6E\u8D26\u53F7");
           return { success: false };
         }
       } else if (config.requiresConnection && !aria2Connected) {
         const connected = await loadDownloadToolStatus();
         if (!connected) {
-          message7.warning("\u8BF7\u5148\u5728 WebDAV \u4E0B\u8F7D\u9875\u9762\u8FDE\u63A5 Aria2");
+          message8.warning("\u8BF7\u5148\u5728\u4E0B\u8F7D\u7BA1\u7406\u9875\u9762\u8FDE\u63A5 Aria2");
           return { success: false };
         }
       } else if (config.requiresConfig && !clientConfig.pan115?.configured) {
-        message7.warning("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E 115 Open API access token");
+        message8.warning("\u8BF7\u5148\u626B\u7801\u767B\u5F55 115 \u7F51\u76D8");
         return { success: false };
       }
       const endpointMap = {
@@ -4504,6 +4979,21 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         "115": "/api/115/download",
         pikpak: "/api/pikpak/download"
       };
+      if (config.tool === "115") {
+        const jobResponse = await fetch("/api/115/download-jobs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            magnet_links: magnetLinks,
+            movie_ids: movieIds
+          })
+        });
+        const job = await jobResponse.json();
+        if (!jobResponse.ok || !job.job_id) {
+          return { success: false, message: job.detail || "115 \u4EFB\u52A1\u521B\u5EFA\u5931\u8D25" };
+        }
+        return await waitForPan115DownloadJob(job.job_id);
+      }
       const response = await fetch(
         endpointMap[config.tool] || endpointMap.pikpak,
         {
@@ -4518,6 +5008,23 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       );
       return await response.json();
     };
+    const waitForPan115DownloadJob = async (jobId) => {
+      while (true) {
+        const response = await fetch(`/api/115/download-jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+        const job = await response.json();
+        setPan115DownloadJob(job);
+        if (!response.ok) {
+          return { success: false, message: job.detail || "115 \u4EFB\u52A1\u72B6\u6001\u83B7\u53D6\u5931\u8D25" };
+        }
+        if (job.status === "completed") {
+          return job.result || { success: true, message: "115 \u4E0B\u8F7D\u4EFB\u52A1\u5DF2\u5B8C\u6210" };
+        }
+        if (job.status === "failed") {
+          return { success: false, message: job.error || job.result?.message || "115 \u4E0B\u8F7D\u4EFB\u52A1\u5931\u8D25", results: job.result?.results || [] };
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 2e3));
+      }
+    };
     const handleDownloadToolChange = (toolValue) => {
       const nextTool = toolValue === "aria2" ? "aria2" : toolValue === "115" ? "115" : "pikpak";
       setDownloadTool(nextTool);
@@ -4531,6 +5038,27 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const closeDownloadToolConfig = () => {
       setDownloadToolConfigOpen(false);
+    };
+    const handlePan115QrStart = async () => {
+      setPan115QrLoading(true);
+      setPan115QrStatus(null);
+      try {
+        const payload = await fetchWithRetry(
+          "/api/115/qrcode/start",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ app: clientConfig.pan115?.login_app || "wechatmini" })
+          },
+          0
+        );
+        setPan115QrSession(payload);
+        setPan115QrStatus({ state: "waiting", message: "\u7B49\u5F85\u626B\u7801" });
+      } catch (error) {
+        message8.error("\u83B7\u53D6 115 \u767B\u5F55\u4E8C\u7EF4\u7801\u5931\u8D25");
+      } finally {
+        setPan115QrLoading(false);
+      }
     };
     const fetchMovieDetail = async (id, resourceVersion = null) => {
       try {
@@ -4585,7 +5113,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           loadMovieResources([data]);
         }
       } catch (error) {
-        message7.error("\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+        message8.error("\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
       } finally {
         setLoading(false);
       }
@@ -4621,7 +5149,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           loadMovieResources(data.movies);
         }
       } catch (error) {
-        message7.error("\u7B5B\u9009\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+        message8.error("\u7B5B\u9009\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
       } finally {
         setLoading(false);
       }
@@ -4655,7 +5183,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (values.sortBy) queryParams.append("sortBy", values.sortBy);
         if (values.sortOrder) queryParams.append("sortOrder", values.sortOrder);
         if (values.hasSubtitle) queryParams.append("hasSubtitle", values.hasSubtitle);
-        if (magnetSource !== "cilisousuo") {
+        if (magnetSourceRequiresMovieParams(magnetSource)) {
           const movieData = await fetchWithRetry(`/api/movies/${encodeURIComponent(values.movieId)}`);
           if (!movieData || !movieData.gid || movieData.uc === void 0) {
             throw new Error("\u65E0\u6CD5\u83B7\u53D6\u5F71\u7247\u8BE6\u60C5\u6216\u5FC5\u8981\u53C2\u6570");
@@ -4672,7 +5200,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (!isLatestMagnetRequestVersion(values.movieId, requestVersion)) {
           return;
         }
-        message7.error("\u83B7\u53D6\u78C1\u529B\u94FE\u63A5\u5931\u8D25");
+        message8.error("\u83B7\u53D6\u78C1\u529B\u94FE\u63A5\u5931\u8D25");
         setMoviesData(null);
       } finally {
         setLoading(false);
@@ -4684,7 +5212,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const queryParams = new URLSearchParams();
       queryParams.append("source", magnetSource);
       if (exclude4k) queryParams.append("exclude4k", "true");
-      if (magnetSource !== "cilisousuo") {
+      if (magnetSourceRequiresMovieParams(magnetSource)) {
         if (gid) queryParams.append("gid", gid);
         if (uc !== void 0) queryParams.append("uc", uc);
       }
@@ -4739,12 +5267,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           setIsLoggedIn(true);
           setPikpakCredentials(values);
           persistPikPakSession(values);
-          message7.success("\u767B\u5F55\u6210\u529F\uFF01");
+          message8.success("\u767B\u5F55\u6210\u529F\uFF01");
         } else {
-          message7.error("\u767B\u5F55\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
+          message8.error("\u767B\u5F55\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
         }
       } catch (error) {
-        message7.error("\u767B\u5F55\u5F02\u5E38");
+        message8.error("\u767B\u5F55\u5F02\u5E38");
       } finally {
         setLoading(false);
       }
@@ -4753,7 +5281,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       clearPikPakSession();
       setIsLoggedIn(false);
       setPikpakCredentials(null);
-      message7.info("\u5DF2\u9000\u51FA\u767B\u5F55");
+      message8.info("\u5DF2\u9000\u51FA\u767B\u5F55");
     };
     const handleRecognizeMovie = async (values) => {
       setLoading(true);
@@ -4780,24 +5308,24 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         });
         const data = await response.json();
         if (data.error) {
-          message7.error(`\u9519\u8BEF: ${data.error}`);
+          message8.error(`\u9519\u8BEF: ${data.error}`);
         } else {
           setMoviesData(data);
           if (data.magnet_results) {
             setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
           }
-          message7.success("\u8BC6\u522B\u5B8C\u6210");
+          message8.success("\u8BC6\u522B\u5B8C\u6210");
           if (shouldAutoDownload && downloadTool !== "pikpak" && data.magnet_results?.length > 0) {
             const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
             if (dispatchResult && dispatchResult.success) {
-              message7.success(dispatchResult.message || `\u5DF2\u63D0\u4EA4 ${getDownloadToolConfig().label} \u4E0B\u8F7D\u4EFB\u52A1`);
+              message8.success(dispatchResult.message || `\u5DF2\u63D0\u4EA4 ${getDownloadToolConfig().label} \u4E0B\u8F7D\u4EFB\u52A1`);
             } else {
-              message7.error(`\u4E0B\u8F7D\u5931\u8D25: ${dispatchResult?.message || "\u672A\u77E5\u9519\u8BEF"}`);
+              message8.error(`\u4E0B\u8F7D\u5931\u8D25: ${dispatchResult?.message || "\u672A\u77E5\u9519\u8BEF"}`);
             }
           }
         }
       } catch (error) {
-        message7.error("\u5F71\u7247\u8BC6\u522B\u5931\u8D25");
+        message8.error("\u5F71\u7247\u8BC6\u522B\u5931\u8D25");
       } finally {
         setLoading(false);
       }
@@ -4827,7 +5355,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         });
         const data = await response.json();
         if (data.error) {
-          message7.error(`\u9519\u8BEF: ${data.error}`);
+          message8.error(`\u9519\u8BEF: ${data.error}`);
           return;
         }
         const movies = (data.found_movies || []).map((movie) => ({
@@ -4841,17 +5369,17 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (data.magnet_results) {
           setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
         }
-        message7.success(data.message || "\u5904\u7406\u5B8C\u6210");
+        message8.success(data.message || "\u5904\u7406\u5B8C\u6210");
         if (shouldAutoDownload && downloadTool !== "pikpak" && data.magnet_results?.length > 0) {
           const dispatchResult = await dispatchMagnetDownloads(data.magnet_results);
           if (dispatchResult && dispatchResult.success) {
-            message7.success(dispatchResult.message || `\u5DF2\u63D0\u4EA4 ${getDownloadToolConfig().label} \u4E0B\u8F7D\u4EFB\u52A1`);
+            message8.success(dispatchResult.message || `\u5DF2\u63D0\u4EA4 ${getDownloadToolConfig().label} \u4E0B\u8F7D\u4EFB\u52A1`);
           } else {
-            message7.error(`\u4E0B\u8F7D\u5931\u8D25: ${dispatchResult?.message || "\u672A\u77E5\u9519\u8BEF"}`);
+            message8.error(`\u4E0B\u8F7D\u5931\u8D25: ${dispatchResult?.message || "\u672A\u77E5\u9519\u8BEF"}`);
           }
         }
       } catch (error) {
-        message7.error("\u756A\u53F7\u5904\u7406\u5931\u8D25");
+        message8.error("\u756A\u53F7\u5904\u7406\u5931\u8D25");
       } finally {
         setLoading(false);
       }
@@ -4869,14 +5397,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           setPikpakCredentials(sessionProfile);
           persistPikPakSession(sessionProfile);
           if (!silent) {
-            message7.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u767B\u5F55 PikPak");
+            message8.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u767B\u5F55 PikPak");
           }
         } else if (!silent) {
-          message7.error("\u767B\u5F55\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
+          message8.error("\u767B\u5F55\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
         }
       } catch (error) {
         if (!silent) {
-          message7.error("\u914D\u7F6E\u767B\u5F55\u5F02\u5E38");
+          message8.error("\u914D\u7F6E\u767B\u5F55\u5F02\u5E38");
         }
       } finally {
         setLoading(false);
@@ -4887,7 +5415,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         return;
       }
       if (!moviesData || !moviesData.movies || moviesData.movies.length === 0) {
-        message7.warning("\u6CA1\u6709\u53EF\u4E0B\u8F7D\u7684\u5F71\u7247");
+        message8.warning("\u6CA1\u6709\u53EF\u4E0B\u8F7D\u7684\u5F71\u7247");
         return;
       }
       const magnetLinks = [];
@@ -4907,7 +5435,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         }
       }
       if (magnetLinks.length === 0) {
-        message7.warning("\u6682\u65E0\u53EF\u7528\u7684\u78C1\u529B\u94FE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u52A0\u8F7D\u5B8C\u6210");
+        message8.warning("\u6682\u65E0\u53EF\u7528\u7684\u78C1\u529B\u94FE\u63A5\uFF0C\u8BF7\u7B49\u5F85\u52A0\u8F7D\u5B8C\u6210");
         return;
       }
       try {
@@ -4917,12 +5445,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           downloadTool
         );
         if (result.success) {
-          message7.success(result.message || `\u5DF2\u6DFB\u52A0 ${magnetLinks.length} \u4E2A\u4E0B\u8F7D\u4EFB\u52A1`);
+          message8.success(result.message || `\u5DF2\u6DFB\u52A0 ${magnetLinks.length} \u4E2A\u4E0B\u8F7D\u4EFB\u52A1`);
         } else {
-          message7.error("\u4E0B\u8F7D\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
+          message8.error("\u4E0B\u8F7D\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
         }
       } catch (error) {
-        message7.error("\u4E0B\u8F7D\u8BF7\u6C42\u5931\u8D25");
+        message8.error("\u4E0B\u8F7D\u8BF7\u6C42\u5931\u8D25");
       } finally {
         setLoading(false);
       }
@@ -4943,14 +5471,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           saveWebDavSettings(values);
           setWebdavConnected(true);
           loadDownloadToolStatus();
-          message7.success("WebDAV\u8FDE\u63A5\u6210\u529F");
+          message8.success("WebDAV\u8FDE\u63A5\u6210\u529F");
         } else {
           setWebdavConnected(false);
-          message7.error(result.message || "WebDAV\u8FDE\u63A5\u5931\u8D25");
+          message8.error(result.message || "WebDAV\u8FDE\u63A5\u5931\u8D25");
         }
       } catch (error) {
         setWebdavConnected(false);
-        message7.error("WebDAV\u8FDE\u63A5\u5F02\u5E38");
+        message8.error("WebDAV\u8FDE\u63A5\u5F02\u5E38");
       } finally {
         setWebdavLoading(false);
       }
@@ -4970,14 +5498,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           saveAria2Settings(values);
           setAria2Connected(true);
           loadDownloadToolStatus();
-          message7.success("Aria2\u8FDE\u63A5\u6210\u529F");
+          message8.success("Aria2\u8FDE\u63A5\u6210\u529F");
         } else {
           setAria2Connected(false);
-          message7.error(result.message || "Aria2\u8FDE\u63A5\u5931\u8D25");
+          message8.error(result.message || "Aria2\u8FDE\u63A5\u5931\u8D25");
         }
       } catch (error) {
         setAria2Connected(false);
-        message7.error("Aria2\u8FDE\u63A5\u5F02\u5E38");
+        message8.error("Aria2\u8FDE\u63A5\u5F02\u5E38");
       } finally {
         setAria2Loading(false);
       }
@@ -4997,18 +5525,18 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           setWebdavConnected(true);
           loadDownloadToolStatus();
           if (!silent) {
-            message7.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 WebDAV");
+            message8.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 WebDAV");
           }
         } else {
           setWebdavConnected(false);
           if (!silent) {
-            message7.error(result.message || "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
+            message8.error(result.message || "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
           }
         }
       } catch (error) {
         setWebdavConnected(false);
         if (!silent) {
-          message7.error("WebDAV \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
+          message8.error("WebDAV \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
         }
       } finally {
         setWebdavLoading(false);
@@ -5026,18 +5554,18 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           setAria2Connected(true);
           loadDownloadToolStatus();
           if (!silent) {
-            message7.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 Aria2");
+            message8.success("\u5DF2\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5 Aria2");
           }
         } else {
           setAria2Connected(false);
           if (!silent) {
-            message7.error(result.message || "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
+            message8.error(result.message || "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5\u5931\u8D25");
           }
         }
       } catch (error) {
         setAria2Connected(false);
         if (!silent) {
-          message7.error("Aria2 \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
+          message8.error("Aria2 \u914D\u7F6E\u8FDE\u63A5\u5F02\u5E38");
         }
       } finally {
         setAria2Loading(false);
@@ -5053,23 +5581,23 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const magnets = magnetDataMap[movie.id];
       const bestMagnet = magnets && magnets.length > 0 ? magnets[0] : null;
       if (!bestMagnet || !bestMagnet.link) {
-        message7.warning("\u8BE5\u5F71\u7247\u6682\u65E0\u53EF\u7528\u78C1\u529B\u94FE\u63A5");
+        message8.warning("\u8BE5\u5F71\u7247\u6682\u65E0\u53EF\u7528\u78C1\u529B\u94FE\u63A5");
         return;
       }
       if (movie.status === "local_exists" || movie.status === "already_downloaded" || movie.is_downloaded || movie.in_local_library) {
-        message7.info("\u8BE5\u5F71\u7247\u5DF2\u4E0B\u8F7D\u6216\u672C\u5730\u5DF2\u5B58\u5728");
+        message8.info("\u8BE5\u5F71\u7247\u5DF2\u4E0B\u8F7D\u6216\u672C\u5730\u5DF2\u5B58\u5728");
         return;
       }
       setDownloadingMovieIds((prev) => ({ ...prev, [movie.id]: true }));
       try {
         const result = await dispatchMagnetDownloads([{ link: bestMagnet.link, movie_id: movie.id }], downloadTool);
         if (result.success) {
-          message7.success(result.message || `${movie.id} \u5DF2\u6DFB\u52A0\u4E0B\u8F7D\u4EFB\u52A1`);
+          message8.success(result.message || `${movie.id} \u5DF2\u6DFB\u52A0\u4E0B\u8F7D\u4EFB\u52A1`);
         } else {
-          message7.error("\u4E0B\u8F7D\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
+          message8.error("\u4E0B\u8F7D\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
         }
       } catch (error) {
-        message7.error("\u4E0B\u8F7D\u8BF7\u6C42\u5931\u8D25");
+        message8.error("\u4E0B\u8F7D\u8BF7\u6C42\u5931\u8D25");
       } finally {
         setDownloadingMovieIds((prev) => ({ ...prev, [movie.id]: false }));
       }
@@ -5080,9 +5608,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       try {
         const data = await fetchWithRetry("/api/history");
         setHistoryData(data);
-        message7.success("\u5DF2\u52A0\u8F7D\u5386\u53F2\u8BB0\u5F55");
+        message8.success("\u5DF2\u52A0\u8F7D\u5386\u53F2\u8BB0\u5F55");
       } catch (error) {
-        message7.error("\u83B7\u53D6\u5386\u53F2\u8BB0\u5F55\u5931\u8D25");
+        message8.error("\u83B7\u53D6\u5386\u53F2\u8BB0\u5F55\u5931\u8D25");
       } finally {
         setLoading(false);
       }
@@ -5093,13 +5621,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         const response = await fetch("/api/history", { method: "DELETE" });
         const result = await response.json();
         if (result.success) {
-          message7.success("\u5386\u53F2\u8BB0\u5F55\u5DF2\u6E05\u7A7A");
+          message8.success("\u5386\u53F2\u8BB0\u5F55\u5DF2\u6E05\u7A7A");
           setHistoryData([]);
         } else {
-          message7.error("\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
+          message8.error("\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
         }
       } catch (error) {
-        message7.error("\u8BF7\u6C42\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55\u5931\u8D25");
+        message8.error("\u8BF7\u6C42\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55\u5931\u8D25");
       } finally {
         setLoading(false);
       }
@@ -5115,41 +5643,41 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         return renderActorsList();
       }
       if (loading) {
-        return /* @__PURE__ */ React7.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React7.createElement(Spin2, { size: "large" }), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u6B63\u5728\u641C\u7D22..."));
+        return /* @__PURE__ */ React8.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React8.createElement(Spin2, { size: "large" }), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u6B63\u5728\u641C\u7D22..."));
       }
       if (!moviesData) {
-        return /* @__PURE__ */ React7.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u6CA1\u6709\u4EFB\u4F55\u7ED3\u679C\uFF0C\u8BF7\u5728\u5DE6\u4FA7\u9009\u62E9\u67E5\u8BE2\u529F\u80FD\u5F00\u59CB\u641C\u7D22"));
+        return /* @__PURE__ */ React8.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u6CA1\u6709\u4EFB\u4F55\u7ED3\u679C\uFF0C\u8BF7\u5728\u5DE6\u4FA7\u9009\u62E9\u67E5\u8BE2\u529F\u80FD\u5F00\u59CB\u641C\u7D22"));
       }
       if (moviesData.error) {
-        return /* @__PURE__ */ React7.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React7.createElement(Text7, { type: "danger" }, moviesData.error));
+        return /* @__PURE__ */ React8.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React8.createElement(Text8, { type: "danger" }, moviesData.error));
       }
       if (moviesData.id && !moviesData.gid && !moviesData.uc && moviesData.avatar) {
-        return /* @__PURE__ */ React7.createElement(Card6, { style: { marginBottom: 16, textAlign: "center" } }, /* @__PURE__ */ React7.createElement("img", { src: moviesData.avatar, alt: moviesData.name, style: { width: 150, height: 150, borderRadius: "50%", objectFit: "cover" } }), /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { marginTop: 16 } }, moviesData.name));
+        return /* @__PURE__ */ React8.createElement(Card7, { style: { marginBottom: 16, textAlign: "center" } }, /* @__PURE__ */ React8.createElement("img", { src: moviesData.avatar, alt: moviesData.name, style: { width: 150, height: 150, borderRadius: "50%", objectFit: "cover" } }), /* @__PURE__ */ React8.createElement(Title7, { level: 4, style: { marginTop: 16 } }, moviesData.name));
       }
       if (moviesData.movies && moviesData.movies.length > 0) {
         const isPageMode = lastFilterValues && lastFilterValues.fetchMode !== "all";
         const canGoPrev = isPageMode && lastFilterValues && currentPage > 1;
         const canGoNext = isPageMode && lastFilterValues && moviesData.movies.length >= 30;
-        const paginationBar = isPageMode && lastFilterValues && /* @__PURE__ */ React7.createElement("div", { className: "jav-pagination-bar" }, /* @__PURE__ */ React7.createElement(
-          Button7,
+        const paginationBar = isPageMode && lastFilterValues && /* @__PURE__ */ React8.createElement("div", { className: "jav-pagination-bar" }, /* @__PURE__ */ React8.createElement(
+          Button8,
           {
-            icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }),
+            icon: /* @__PURE__ */ React8.createElement(Icon6, { as: ArrowLeftOutlined2 }),
             disabled: !canGoPrev || loading,
             onClick: () => handleFilterPageChange(currentPage - 1)
           },
           "\u4E0A\u4E00\u9875"
-        ), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u7B2C ", currentPage, " \u9875"), /* @__PURE__ */ React7.createElement(
-          Button7,
+        ), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u7B2C ", currentPage, " \u9875"), /* @__PURE__ */ React8.createElement(
+          Button8,
           {
-            icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowRightOutlined }),
+            icon: /* @__PURE__ */ React8.createElement(Icon6, { as: ArrowRightOutlined }),
             disabled: !canGoNext || loading,
             onClick: () => handleFilterPageChange(currentPage + 1)
           },
           "\u4E0B\u4E00\u9875"
         ));
-        return /* @__PURE__ */ React7.createElement("div", { className: "jav-results-list" }, /* @__PURE__ */ React7.createElement("div", { className: "jav-results-meta" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u5171 ", moviesData.movies.length, " \u90E8")), paginationBar, moviesData.movies.map((movie) => renderMovieCard(movie)), paginationBar);
+        return /* @__PURE__ */ React8.createElement("div", { className: "jav-results-list" }, /* @__PURE__ */ React8.createElement("div", { className: "jav-results-meta" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u5171 ", moviesData.movies.length, " \u90E8")), paginationBar, moviesData.movies.map((movie) => renderMovieCard(movie)), paginationBar);
       }
-      return /* @__PURE__ */ React7.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u672A\u627E\u5230\u76F8\u5173\u6570\u636E"));
+      return /* @__PURE__ */ React8.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u672A\u627E\u5230\u76F8\u5173\u6570\u636E"));
     };
     const handleCategorySelect = (code, name) => {
       filterForm.setFieldsValue({ filterType: "genre", filterValue: code, filterValueName: name });
@@ -5162,36 +5690,36 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       setViewMode("search");
     };
     const renderCategoryGroups = () => {
-      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u7C7B\u522B"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), Object.keys(categories).map((group) => /* @__PURE__ */ React7.createElement("div", { key: group, style: { marginBottom: 24 } }, /* @__PURE__ */ React7.createElement(Title6, { level: 5 }, group), /* @__PURE__ */ React7.createElement(
-        List3,
+      return /* @__PURE__ */ React8.createElement("div", null, /* @__PURE__ */ React8.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React8.createElement(Title7, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u7C7B\u522B"), /* @__PURE__ */ React8.createElement(Button8, { icon: /* @__PURE__ */ React8.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React8.createElement(Divider4, { className: "jav-section-divider" }), Object.keys(categories).map((group) => /* @__PURE__ */ React8.createElement("div", { key: group, style: { marginBottom: 24 } }, /* @__PURE__ */ React8.createElement(Title7, { level: 5 }, group), /* @__PURE__ */ React8.createElement(
+        List4,
         {
           grid: { gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 6 },
           dataSource: categories[group],
-          renderItem: (cat) => /* @__PURE__ */ React7.createElement(List3.Item, null, /* @__PURE__ */ React7.createElement(
-            Card6,
+          renderItem: (cat) => /* @__PURE__ */ React8.createElement(List4.Item, null, /* @__PURE__ */ React8.createElement(
+            Card7,
             {
               hoverable: true,
               size: "small",
               className: "jav-picker-card",
               onClick: () => handleCategorySelect(cat.code, cat.name)
             },
-            /* @__PURE__ */ React7.createElement(Text7, { strong: true, style: { fontSize: 16 } }, cat.name)
+            /* @__PURE__ */ React8.createElement(Text8, { strong: true, style: { fontSize: 16 } }, cat.name)
           ))
         }
       ))));
     };
     const renderHistory = () => {
-      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u5386\u53F2\u4E0B\u8F7D\u8BB0\u5F55"), /* @__PURE__ */ React7.createElement(Space7, null, /* @__PURE__ */ React7.createElement(
-        Popconfirm5,
+      return /* @__PURE__ */ React8.createElement("div", null, /* @__PURE__ */ React8.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React8.createElement(Title7, { level: 4, style: { margin: 0 } }, "\u5386\u53F2\u4E0B\u8F7D\u8BB0\u5F55"), /* @__PURE__ */ React8.createElement(Space8, null, /* @__PURE__ */ React8.createElement(
+        Popconfirm6,
         {
           title: "\u786E\u5B9A\u8981\u6E05\u7A7A\u6240\u6709\u5386\u53F2\u8BB0\u5F55\u5417\uFF1F",
           onConfirm: handleClearHistory,
           okText: "\u786E\u5B9A",
           cancelText: "\u53D6\u6D88"
         },
-        /* @__PURE__ */ React7.createElement(Button7, { danger: true, disabled: !historyData || historyData.length === 0, loading }, "\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55")
-      ), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2"))), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React7.createElement(
-        antd7.Table,
+        /* @__PURE__ */ React8.createElement(Button8, { danger: true, disabled: !historyData || historyData.length === 0, loading }, "\u6E05\u7A7A\u5386\u53F2\u8BB0\u5F55")
+      ), /* @__PURE__ */ React8.createElement(Button8, { icon: /* @__PURE__ */ React8.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2"))), /* @__PURE__ */ React8.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React8.createElement(
+        antd8.Table,
         {
           dataSource: historyData || [],
           rowKey: "movie_id",
@@ -5201,25 +5729,25 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               title: "\u5F71\u7247\u756A\u53F7",
               dataIndex: "movie_id",
               key: "movie_id",
-              render: (text) => /* @__PURE__ */ React7.createElement(Text7, { strong: true }, text)
+              render: (text) => /* @__PURE__ */ React8.createElement(Text8, { strong: true }, text)
             },
             {
               title: "\u5F71\u7247\u540D",
               dataIndex: "title",
               key: "title",
-              render: (text) => text ? /* @__PURE__ */ React7.createElement(Text7, { ellipsis: { tooltip: text }, style: { maxWidth: 200 } }, text) : "-"
+              render: (text) => text ? /* @__PURE__ */ React8.createElement(Text8, { ellipsis: { tooltip: text }, style: { maxWidth: 200 } }, text) : "-"
             },
             {
               title: "\u6F14\u5458",
               dataIndex: "stars",
               key: "stars",
-              render: (tags) => /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px" } }, tags && Array.isArray(tags) ? tags.map((tag) => /* @__PURE__ */ React7.createElement(Tag6, { color: "magenta", key: tag }, tag)) : "-")
+              render: (tags) => /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px" } }, tags && Array.isArray(tags) ? tags.map((tag) => /* @__PURE__ */ React8.createElement(Tag7, { color: "magenta", key: tag }, tag)) : "-")
             },
             {
               title: "\u7C7B\u578B",
               dataIndex: "genres",
               key: "genres",
-              render: (tags) => /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px" } }, tags && Array.isArray(tags) ? tags.map((tag) => /* @__PURE__ */ React7.createElement(Tag6, { color: "cyan", key: tag }, tag)) : "-")
+              render: (tags) => /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px" } }, tags && Array.isArray(tags) ? tags.map((tag) => /* @__PURE__ */ React8.createElement(Tag7, { color: "cyan", key: tag }, tag)) : "-")
             },
             {
               title: "\u53D1\u5E03\u65F6\u95F4",
@@ -5240,7 +5768,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             {
               title: "\u64CD\u4F5C",
               key: "action",
-              render: (_, record) => /* @__PURE__ */ React7.createElement(Button7, { type: "primary", size: "small", onClick: () => {
+              render: (_, record) => /* @__PURE__ */ React8.createElement(Button8, { type: "primary", size: "small", onClick: () => {
                 setViewMode("search");
                 searchMovie({ keyword: record.movie_id });
               } }, "\u8BE6\u60C5\u641C\u7D22")
@@ -5250,25 +5778,25 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       ));
     };
     const renderActorsList = () => {
-      return /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u6F14\u5458"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React7.createElement(
-        List3,
+      return /* @__PURE__ */ React8.createElement("div", null, /* @__PURE__ */ React8.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React8.createElement(Title7, { level: 4, style: { margin: 0 } }, "\u6D4F\u89C8\u6F14\u5458"), /* @__PURE__ */ React8.createElement(Button8, { icon: /* @__PURE__ */ React8.createElement(Icon6, { as: ArrowLeftOutlined2 }), onClick: () => setViewMode("search") }, "\u8FD4\u56DE\u67E5\u8BE2")), /* @__PURE__ */ React8.createElement(Divider4, { className: "jav-section-divider" }), /* @__PURE__ */ React8.createElement(
+        List4,
         {
           grid: { gutter: 16, xs: 2, sm: 3, md: 4, lg: 5, xl: 5, xxl: 5 },
           dataSource: Array.isArray(actors) ? actors : Object.values(actors).flat(),
           renderItem: (actor) => {
             const actorName2 = actor.name || actor;
             const actorCode = actor.code || actor;
-            const fallbackImage = /* @__PURE__ */ React7.createElement("div", { className: "jav-actor-fallback" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u65E0\u5934\u50CF"));
-            return /* @__PURE__ */ React7.createElement(List3.Item, null, /* @__PURE__ */ React7.createElement(
-              Card6,
+            const fallbackImage = /* @__PURE__ */ React8.createElement("div", { className: "jav-actor-fallback" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u65E0\u5934\u50CF"));
+            return /* @__PURE__ */ React8.createElement(List4.Item, null, /* @__PURE__ */ React8.createElement(
+              Card7,
               {
                 hoverable: true,
                 className: "jav-actor-card",
-                cover: actor.avatar ? /* @__PURE__ */ React7.createElement("img", { alt: actorName2, src: actor.avatar, className: "jav-actor-cover" }) : fallbackImage,
+                cover: actor.avatar ? /* @__PURE__ */ React8.createElement("img", { alt: actorName2, src: actor.avatar, className: "jav-actor-cover" }) : fallbackImage,
                 onClick: () => handleActorSelect(actorCode, actorName2),
                 size: "small"
               },
-              /* @__PURE__ */ React7.createElement(Card6.Meta, { title: actorName2, style: { textAlign: "center" } })
+              /* @__PURE__ */ React8.createElement(Card7.Meta, { title: actorName2, style: { textAlign: "center" } })
             ));
           }
         }
@@ -5287,8 +5815,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const showImage = movieImage && !movieImageLoadErrorMap[movie.id];
       const stars = detail && detail.stars ? detail.stars.map((s) => s.name || s).filter(Boolean) : [];
       const genres = detail && detail.genres ? detail.genres.map((g) => g.name || g).filter(Boolean) : [];
-      return /* @__PURE__ */ React7.createElement(
-        Card6,
+      return /* @__PURE__ */ React8.createElement(
+        Card7,
         {
           key: movie.id,
           size: "small",
@@ -5296,7 +5824,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           className: "jav-movie-card",
           styles: { body: { padding: "10px 16px" } }
         },
-        /* @__PURE__ */ React7.createElement("div", { className: "jav-movie-content-row", style: { display: "flex", alignItems: "stretch", gap: 12 } }, /* @__PURE__ */ React7.createElement(
+        /* @__PURE__ */ React8.createElement("div", { className: "jav-movie-content-row", style: { display: "flex", alignItems: "stretch", gap: 12 } }, /* @__PURE__ */ React8.createElement(
           "div",
           {
             style: {
@@ -5309,7 +5837,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               border: "1px solid #e5e7eb"
             }
           },
-          showImage ? /* @__PURE__ */ React7.createElement(
+          showImage ? /* @__PURE__ */ React8.createElement(
             "img",
             {
               src: movieImage,
@@ -5323,7 +5851,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               }),
               loading: "lazy"
             }
-          ) : /* @__PURE__ */ React7.createElement("div", { style: {
+          ) : /* @__PURE__ */ React8.createElement("div", { style: {
             width: "100%",
             height: "100%",
             display: "flex",
@@ -5331,16 +5859,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             justifyContent: "center",
             color: "#8c8c8c",
             fontSize: 12
-          } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u6682\u65E0\u5C01\u9762"))
-        ), /* @__PURE__ */ React7.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React7.createElement("div", { className: "jav-movie-row jav-movie-meta-row" }, /* @__PURE__ */ React7.createElement(Tag6, { color: "blue", style: { fontWeight: 700, fontSize: 13, margin: 0 } }, movie.id), (movie.status === "local_exists" || movie.in_local_library) && /* @__PURE__ */ React7.createElement(Tag6, { color: "purple", style: { margin: 0, fontSize: 12 } }, "\u672C\u5730\u5DF2\u6709"), (movie.status === "already_downloaded" || movie.is_downloaded) && /* @__PURE__ */ React7.createElement(Tag6, { color: "green", style: { margin: 0, fontSize: 12 } }, "\u5DF2\u4E0B\u8F7D"), movie.date && /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, movie.date)), /* @__PURE__ */ React7.createElement(
-          Text7,
+          } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u6682\u65E0\u5C01\u9762"))
+        ), /* @__PURE__ */ React8.createElement("div", { style: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ React8.createElement("div", { className: "jav-movie-row jav-movie-meta-row" }, /* @__PURE__ */ React8.createElement(Tag7, { color: "blue", style: { fontWeight: 700, fontSize: 13, margin: 0 } }, movie.id), (movie.status === "local_exists" || movie.in_local_library) && /* @__PURE__ */ React8.createElement(Tag7, { color: "purple", style: { margin: 0, fontSize: 12 } }, "\u672C\u5730\u5DF2\u6709"), (movie.status === "already_downloaded" || movie.is_downloaded) && /* @__PURE__ */ React8.createElement(Tag7, { color: "green", style: { margin: 0, fontSize: 12 } }, "\u5DF2\u4E0B\u8F7D"), movie.date && /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, movie.date)), /* @__PURE__ */ React8.createElement(
+          Text8,
           {
             strong: true,
             className: "jav-movie-title",
             title: movie.title || movie.full_title
           },
           movie.title || movie.full_title
-        ), stars.length > 0 && /* @__PURE__ */ React7.createElement("div", { className: "jav-movie-row" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u6F14\u5458"), stars.map((s) => /* @__PURE__ */ React7.createElement(Tag6, { key: s, color: "magenta", style: { margin: 0, fontSize: 12 } }, s))), genres.length > 0 && /* @__PURE__ */ React7.createElement("div", { className: "jav-movie-row" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u7C7B\u578B"), genres.slice(0, 8).map((g) => /* @__PURE__ */ React7.createElement(Tag6, { key: g, color: "cyan", style: { margin: 0, fontSize: 12 } }, g)), genres.length > 8 && /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "+", genres.length - 8)), /* @__PURE__ */ React7.createElement(Divider4, { style: { margin: "6px 0" } }), /* @__PURE__ */ React7.createElement("div", { className: "jav-magnet-row" }, magnetLoading && /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Spin2, { size: "small" }), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u641C\u7D22\u78C1\u529B\u94FE\u63A5...")), magnets && magnets.length === 0 && /* @__PURE__ */ React7.createElement(Text7, { type: "danger", style: { fontSize: 12 } }, "\u6682\u65E0\u53EF\u7528\u8D44\u6E90"), hasMagnets && /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Tag6, { color: "gold", style: { margin: 0, fontSize: 12, flexShrink: 0 } }, "\u6700\u4F73"), bestMagnet.hasSubtitle && /* @__PURE__ */ React7.createElement(Tag6, { color: "green", style: { margin: 0, fontSize: 12, flexShrink: 0 } }, "\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, flexShrink: 0 } }, bestMagnet.size), bestMagnet.shareDate && /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, flexShrink: 0 } }, bestMagnet.shareDate), /* @__PURE__ */ React7.createElement(
+        ), stars.length > 0 && /* @__PURE__ */ React8.createElement("div", { className: "jav-movie-row" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u6F14\u5458"), stars.map((s) => /* @__PURE__ */ React8.createElement(Tag7, { key: s, color: "magenta", style: { margin: 0, fontSize: 12 } }, s))), genres.length > 0 && /* @__PURE__ */ React8.createElement("div", { className: "jav-movie-row" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u7C7B\u578B"), genres.slice(0, 8).map((g) => /* @__PURE__ */ React8.createElement(Tag7, { key: g, color: "cyan", style: { margin: 0, fontSize: 12 } }, g)), genres.length > 8 && /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "+", genres.length - 8)), /* @__PURE__ */ React8.createElement(Divider4, { style: { margin: "6px 0" } }), /* @__PURE__ */ React8.createElement("div", { className: "jav-magnet-row" }, magnetLoading && /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Spin2, { size: "small" }), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u641C\u7D22\u78C1\u529B\u94FE\u63A5...")), magnets && magnets.length === 0 && /* @__PURE__ */ React8.createElement(Text8, { type: "danger", style: { fontSize: 12 } }, "\u6682\u65E0\u53EF\u7528\u8D44\u6E90"), hasMagnets && /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Tag7, { color: "gold", style: { margin: 0, fontSize: 12, flexShrink: 0 } }, "\u6700\u4F73"), bestMagnet.hasSubtitle && /* @__PURE__ */ React8.createElement(Tag7, { color: "green", style: { margin: 0, fontSize: 12, flexShrink: 0 } }, "\u5B57\u5E55"), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, flexShrink: 0 } }, bestMagnet.size), bestMagnet.shareDate && /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, flexShrink: 0 } }, bestMagnet.shareDate), /* @__PURE__ */ React8.createElement(
           "a",
           {
             href: bestMagnet.link,
@@ -5350,12 +5878,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             title: bestMagnet.title
           },
           bestMagnet.title
-        ))), /* @__PURE__ */ React7.createElement("div", { style: { marginTop: "auto", marginLeft: "auto" } }, /* @__PURE__ */ React7.createElement(
-          Button7,
+        ))), /* @__PURE__ */ React8.createElement("div", { style: { marginTop: "auto", marginLeft: "auto" } }, /* @__PURE__ */ React8.createElement(
+          Button8,
           {
             type: "primary",
             size: "small",
-            icon: /* @__PURE__ */ React7.createElement(Icon6, { as: DownloadOutlined4 }),
+            icon: /* @__PURE__ */ React8.createElement(Icon6, { as: DownloadOutlined4 }),
             loading: isDownloadingMovie,
             disabled: magnetLoading || !bestMagnet || isMovieDownloaded || !isCurrentDownloadToolReady,
             onClick: () => handleDownloadMovie(movie)
@@ -5366,15 +5894,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const renderStandalonePage = (page) => {
       const pageContent = {
-        localScrape: /* @__PURE__ */ React7.createElement(LocalScrapePage, null),
-        localLibrary: /* @__PURE__ */ React7.createElement(LocalLibraryPage, null),
-        automation: /* @__PURE__ */ React7.createElement(AutomationPage, null),
-        settings: /* @__PURE__ */ React7.createElement(SettingsPage, null),
-        webdav: /* @__PURE__ */ React7.createElement(WebDavPage, null)
-      }[page] || /* @__PURE__ */ React7.createElement(WebDavPage, null);
-      return /* @__PURE__ */ React7.createElement(Layout2, { className: "jav-workspace jav-page-workspace" }, /* @__PURE__ */ React7.createElement(Content2, { className: "jav-content jav-page-content" }, /* @__PURE__ */ React7.createElement("section", { className: "jav-results-panel jav-page-panel" }, pageContent)));
+        localScrape: /* @__PURE__ */ React8.createElement(LocalScrapePage, null),
+        localLibrary: /* @__PURE__ */ React8.createElement(LocalLibraryPage, null),
+        automation: /* @__PURE__ */ React8.createElement(AutomationPage, null),
+        settings: /* @__PURE__ */ React8.createElement(SettingsPage, null),
+        webdav: /* @__PURE__ */ React8.createElement(WebDavPage, { onOpenDownloadManagement: () => setActivePage("downloadManagement") }),
+        downloadManagement: /* @__PURE__ */ React8.createElement(DownloadManagementPage, null)
+      }[page] || /* @__PURE__ */ React8.createElement(WebDavPage, null);
+      return /* @__PURE__ */ React8.createElement(Layout3, { className: "jav-workspace jav-page-workspace" }, /* @__PURE__ */ React8.createElement(Content3, { className: "jav-content jav-page-content" }, /* @__PURE__ */ React8.createElement("section", { className: "jav-results-panel jav-page-panel" }, pageContent)));
     };
-    return /* @__PURE__ */ React7.createElement(
+    return /* @__PURE__ */ React8.createElement(
       ConfigProvider,
       {
         theme: {
@@ -5391,7 +5920,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           }
         }
       },
-      /* @__PURE__ */ React7.createElement("div", { className: "jav-app" }, /* @__PURE__ */ React7.createElement(Layout2, { className: "jav-app-layout" }, /* @__PURE__ */ React7.createElement(Header, { className: "jav-header" }, /* @__PURE__ */ React7.createElement("div", { className: "jav-header-left" }, /* @__PURE__ */ React7.createElement("div", { className: "jav-brand" }, /* @__PURE__ */ React7.createElement(
+      /* @__PURE__ */ React8.createElement("div", { className: "jav-app" }, /* @__PURE__ */ React8.createElement(Layout3, { className: "jav-app-layout" }, /* @__PURE__ */ React8.createElement(Header, { className: "jav-header" }, /* @__PURE__ */ React8.createElement("div", { className: "jav-header-left" }, /* @__PURE__ */ React8.createElement("div", { className: "jav-brand" }, /* @__PURE__ */ React8.createElement(
         "button",
         {
           type: "button",
@@ -5399,8 +5928,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           "aria-label": "\u67E5\u770B JavJaeger logo \u5927\u56FE",
           onClick: handleLogoPreviewOpen
         },
-        /* @__PURE__ */ React7.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger", className: "jav-brand-logo" })
-      ), /* @__PURE__ */ React7.createElement("span", { className: "jav-brand-copy" }, /* @__PURE__ */ React7.createElement(Text7, { className: "jav-brand-name" }, HEADER_BRAND_NAME), /* @__PURE__ */ React7.createElement(Text7, { className: "jav-brand-slogan" }, /* @__PURE__ */ React7.createElement("span", null, HEADER_SLOGAN_QUOTE), /* @__PURE__ */ React7.createElement("span", null, HEADER_SLOGAN_AUTHOR))))), /* @__PURE__ */ React7.createElement("div", { className: "jav-header-nav" }, /* @__PURE__ */ React7.createElement(
+        /* @__PURE__ */ React8.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger", className: "jav-brand-logo" })
+      ), /* @__PURE__ */ React8.createElement("span", { className: "jav-brand-copy" }, /* @__PURE__ */ React8.createElement(Text8, { className: "jav-brand-name" }, HEADER_BRAND_NAME), /* @__PURE__ */ React8.createElement(Text8, { className: "jav-brand-slogan" }, /* @__PURE__ */ React8.createElement("span", null, HEADER_SLOGAN_QUOTE), /* @__PURE__ */ React8.createElement("span", null, HEADER_SLOGAN_AUTHOR))))), /* @__PURE__ */ React8.createElement("div", { className: "jav-header-nav" }, /* @__PURE__ */ React8.createElement(
         Segmented2,
         {
           className: "jav-page-tabs",
@@ -5411,11 +5940,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             { label: "\u522E\u524A", value: "localScrape" },
             { label: "\u5F71\u89C6\u5E93", value: "localLibrary" },
             { label: "\u81EA\u52A8\u6A21\u5F0F", value: "automation" },
-            { label: "WebDAV\u4E0B\u8F7D", value: "webdav" },
+            { label: "\u7F51\u76D8\u7BA1\u7406", value: "webdav" },
+            { label: "\u4E0B\u8F7D\u7BA1\u7406", value: "downloadManagement" },
             { label: "\u8BBE\u7F6E", value: "settings" }
           ]
         }
-      )), /* @__PURE__ */ React7.createElement(Space7, { size: "middle", className: "jav-header-actions" }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", className: "jav-version" }, displayVersion, " (", versionInfo.build_date, ")"), /* @__PURE__ */ React7.createElement("a", { className: "jav-github-link", href: "https://github.com/cnlutong/JavJaeger", target: "_blank", rel: "noreferrer", "aria-label": "GitHub repository" }, GithubOutlined ? /* @__PURE__ */ React7.createElement(GithubOutlined, null) : /* @__PURE__ */ React7.createElement("svg", { viewBox: "0 0 24 24", fill: "currentColor", width: "24", height: "24" }, /* @__PURE__ */ React7.createElement("path", { d: "M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" }))))), logoPreviewOpen && /* @__PURE__ */ React7.createElement(
+      )), /* @__PURE__ */ React8.createElement(Space8, { size: "middle", className: "jav-header-actions" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", className: "jav-version" }, displayVersion, " (", versionInfo.build_date, ")"), /* @__PURE__ */ React8.createElement("a", { className: "jav-github-link", href: "https://github.com/cnlutong/JavJaeger", target: "_blank", rel: "noreferrer", "aria-label": "GitHub repository" }, GithubOutlined ? /* @__PURE__ */ React8.createElement(GithubOutlined, null) : /* @__PURE__ */ React8.createElement("svg", { viewBox: "0 0 24 24", fill: "currentColor", width: "24", height: "24" }, /* @__PURE__ */ React8.createElement("path", { d: "M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" }))))), logoPreviewOpen && /* @__PURE__ */ React8.createElement(
         "div",
         {
           className: "jav-logo-preview-overlay",
@@ -5424,7 +5954,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           "aria-label": "JavJaeger logo \u5927\u56FE",
           onClick: handleLogoPreviewClose
         },
-        /* @__PURE__ */ React7.createElement(
+        /* @__PURE__ */ React8.createElement(
           "button",
           {
             type: "button",
@@ -5434,8 +5964,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           },
           "\xD7"
         ),
-        /* @__PURE__ */ React7.createElement("div", { className: "jav-logo-preview-frame", onClick: (event) => event.stopPropagation() }, /* @__PURE__ */ React7.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger logo \u5927\u56FE", className: "jav-logo-preview-image" }))
-      ), activePage === "jav" ? /* @__PURE__ */ React7.createElement(Layout2, { className: "jav-workspace" }, /* @__PURE__ */ React7.createElement(
+        /* @__PURE__ */ React8.createElement("div", { className: "jav-logo-preview-frame", onClick: (event) => event.stopPropagation() }, /* @__PURE__ */ React8.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger logo \u5927\u56FE", className: "jav-logo-preview-image" }))
+      ), activePage === "jav" ? /* @__PURE__ */ React8.createElement(Layout3, { className: "jav-workspace" }, /* @__PURE__ */ React8.createElement(
         Sider,
         {
           width: 320,
@@ -5445,16 +5975,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           onCollapse: (value) => setCollapsedLeft(value),
           className: "jav-sidebar jav-sidebar-left"
         },
-        /* @__PURE__ */ React7.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5, className: "jav-sidebar-title" }, "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page" } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React7.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React7.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React7.createElement("a", { onClick: (e) => {
+        /* @__PURE__ */ React8.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React8.createElement(Title7, { level: 5, className: "jav-sidebar-title" }, "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React8.createElement(Divider4, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(Form7, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page" } }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React8.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React8.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React8.createElement("a", { onClick: (e) => {
           e.stopPropagation();
           filterForm.setFieldsValue({ filterType: "star" });
           setViewMode("browseActor");
-        } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React7.createElement(Option, { value: "genre", label: "\u7C7B\u522B" }, /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React7.createElement("span", null, "\u7C7B\u522B"), /* @__PURE__ */ React7.createElement("a", { onClick: (e) => {
+        } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React8.createElement(Option, { value: "genre", label: "\u7C7B\u522B" }, /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React8.createElement("span", null, "\u7C7B\u522B"), /* @__PURE__ */ React8.createElement("a", { onClick: (e) => {
           e.stopPropagation();
           filterForm.setFieldsValue({ filterType: "genre" });
           setViewMode("browseCategory");
-        } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React7.createElement(Option, { value: "director", label: "\u5BFC\u6F14" }, "\u5BFC\u6F14"), /* @__PURE__ */ React7.createElement(Option, { value: "studio", label: "\u5236\u4F5C\u5546" }, "\u5236\u4F5C\u5546"), /* @__PURE__ */ React7.createElement(Option, { value: "label", label: "\u53D1\u884C\u5546" }, "\u53D1\u884C\u5546"), /* @__PURE__ */ React7.createElement(Option, { value: "series", label: "\u7CFB\u5217" }, "\u7CFB\u5217"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "filterValue", hidden: true }, /* @__PURE__ */ React7.createElement(Input7, null)), /* @__PURE__ */ React7.createElement(Form6.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", width: "100%" } }, /* @__PURE__ */ React7.createElement("div", { style: { flex: "1 1 0", minWidth: 0 } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "filterValueName", noStyle: true }, /* @__PURE__ */ React7.createElement(
-          Input7,
+        } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React8.createElement(Option, { value: "director", label: "\u5BFC\u6F14" }, "\u5BFC\u6F14"), /* @__PURE__ */ React8.createElement(Option, { value: "studio", label: "\u5236\u4F5C\u5546" }, "\u5236\u4F5C\u5546"), /* @__PURE__ */ React8.createElement(Option, { value: "label", label: "\u53D1\u884C\u5546" }, "\u53D1\u884C\u5546"), /* @__PURE__ */ React8.createElement(Option, { value: "series", label: "\u7CFB\u5217" }, "\u7CFB\u5217"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "filterValue", hidden: true }, /* @__PURE__ */ React8.createElement(Input8, null)), /* @__PURE__ */ React8.createElement(Form7.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", width: "100%" } }, /* @__PURE__ */ React8.createElement("div", { style: { flex: "1 1 0", minWidth: 0 } }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "filterValueName", noStyle: true }, /* @__PURE__ */ React8.createElement(
+          Input8,
           {
             placeholder: "\u7B5B\u9009\u4EE3\u7801\u6216\u540D\u79F0",
             onChange: (e) => filterForm.setFieldsValue({ filterValue: e.target.value }),
@@ -5467,8 +5997,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               borderBottomRightRadius: 0
             }
           }
-        ))), /* @__PURE__ */ React7.createElement(
-          Button7,
+        ))), /* @__PURE__ */ React8.createElement(
+          Button8,
           {
             htmlType: "button",
             onClick: handleAddCurrentFilter,
@@ -5483,9 +6013,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               paddingInline: 0
             }
           },
-          /* @__PURE__ */ React7.createElement("span", null, "\u52A0\u5165")
-        ))), selectedFilters.length > 0 && /* @__PURE__ */ React7.createElement(Form6.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, selectedFilters.map((filter) => /* @__PURE__ */ React7.createElement(
-          Tag6,
+          /* @__PURE__ */ React8.createElement("span", null, "\u52A0\u5165")
+        ))), selectedFilters.length > 0 && /* @__PURE__ */ React8.createElement(Form7.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, selectedFilters.map((filter) => /* @__PURE__ */ React8.createElement(
+          Tag7,
           {
             key: `${filter.type}:${filter.value}`,
             closable: true,
@@ -5496,7 +6026,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           FILTER_TYPE_LABELS2[filter.type] || filter.type,
           ": ",
           filter.label || filter.value
-        )), /* @__PURE__ */ React7.createElement(Button7, { type: "link", size: "small", htmlType: "button", onClick: () => setSelectedFilters([]) }, "\u6E05\u7A7A"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "magnet", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u78C1\u529B\u94FE\u63A5\u72B6\u6001" }, /* @__PURE__ */ React7.createElement(Option, { value: "exist" }, "\u6709\u78C1\u529B\u94FE\u63A5"), /* @__PURE__ */ React7.createElement(Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "type", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5F71\u7247\u7C7B\u578B" }, /* @__PURE__ */ React7.createElement(Option, { value: "normal" }, "\u6709\u7801\u5F71\u7247"), /* @__PURE__ */ React7.createElement(Option, { value: "uncensored" }, "\u65E0\u7801\u5F71\u7247"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "actorCountFilter", label: "\u6F14\u5458\u4EBA\u6570", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "1" }, "\u5355\u4EBA\u4F5C\u54C1 (=1)"), /* @__PURE__ */ React7.createElement(Option, { value: "2" }, "\u53CC\u4EBA\u4F5C\u54C1 (=2)"), /* @__PURE__ */ React7.createElement(Option, { value: "3" }, "\u4E09\u4EBA\u4F5C\u54C1 (=3)"), /* @__PURE__ */ React7.createElement(Option, { value: "<=2" }, "\u5C11\u4E8E\u7B49\u4E8E2\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: "<=3" }, "\u5C11\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: ">=3" }, "\u5927\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React7.createElement(Option, { value: ">=4" }, "\u5927\u4E8E\u7B49\u4E8E4\u4EBA"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", label: "\u5B57\u5E55\u8981\u6C42", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "" }, "\u5305\u542B\u6216\u4E0D\u5305\u542B\u90FD\u53EF\u4EE5"), /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u5305\u542B\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u4E0D\u542B\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "fetchMode", label: "\u83B7\u53D6\u65B9\u5F0F", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, null, /* @__PURE__ */ React7.createElement(Option, { value: "page" }, "\u9010\u9875\u83B7\u53D6 (\u6BCF\u987530\u4E2A)"), /* @__PURE__ */ React7.createElement(Option, { value: "all" }, "\u83B7\u53D6\u5168\u90E8 (\u6240\u6709\u9875)"))), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: FilterOutlined2 }) }, "\u7B5B\u9009"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }), " \u5F71\u7247\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: searchMovie, layout: "vertical" }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "keyword", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }) }, "\u641C\u7D22"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: searchMagnet, layout: "vertical" }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "movieId", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "sortBy", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u6392\u5E8F\u65B9\u5F0F", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "date" }, "\u65E5\u671F"), /* @__PURE__ */ React7.createElement(Option, { value: "size" }, "\u5927\u5C0F"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "sortOrder", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u6392\u5E8F\u987A\u5E8F", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "asc" }, "\u5347\u5E8F"), /* @__PURE__ */ React7.createElement(Option, { value: "desc" }, "\u964D\u5E8F"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }) }, "\u67E5\u8BE2\u78C1\u529B\u94FE\u63A5"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: DatabaseOutlined2 }), " \u5F71\u7247\u8BC6\u522B"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: handleRecognizeMovie, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "htmlContent", rules: [{ required: true, message: "\u8BF7\u7C98\u8D34HTML\u6E90\u4EE3\u7801" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Input7.TextArea, { placeholder: "\u8BF7\u7C98\u8D34JAVLibrary\u7F51\u9875\u6E90\u4EE3\u7801...", rows: 4 })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React8.createElement(Button8, { type: "link", size: "small", htmlType: "button", onClick: () => setSelectedFilters([]) }, "\u6E05\u7A7A"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "magnet", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u78C1\u529B\u94FE\u63A5\u72B6\u6001" }, /* @__PURE__ */ React8.createElement(Option, { value: "exist" }, "\u6709\u78C1\u529B\u94FE\u63A5"), /* @__PURE__ */ React8.createElement(Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "type", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u5F71\u7247\u7C7B\u578B" }, /* @__PURE__ */ React8.createElement(Option, { value: "normal" }, "\u6709\u7801\u5F71\u7247"), /* @__PURE__ */ React8.createElement(Option, { value: "uncensored" }, "\u65E0\u7801\u5F71\u7247"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "actorCountFilter", label: "\u6F14\u5458\u4EBA\u6570", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "1" }, "\u5355\u4EBA\u4F5C\u54C1 (=1)"), /* @__PURE__ */ React8.createElement(Option, { value: "2" }, "\u53CC\u4EBA\u4F5C\u54C1 (=2)"), /* @__PURE__ */ React8.createElement(Option, { value: "3" }, "\u4E09\u4EBA\u4F5C\u54C1 (=3)"), /* @__PURE__ */ React8.createElement(Option, { value: "<=2" }, "\u5C11\u4E8E\u7B49\u4E8E2\u4EBA"), /* @__PURE__ */ React8.createElement(Option, { value: "<=3" }, "\u5C11\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React8.createElement(Option, { value: ">=3" }, "\u5927\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React8.createElement(Option, { value: ">=4" }, "\u5927\u4E8E\u7B49\u4E8E4\u4EBA"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "hasSubtitle", label: "\u5B57\u5E55\u8981\u6C42", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "" }, "\u5305\u542B\u6216\u4E0D\u5305\u542B\u90FD\u53EF\u4EE5"), /* @__PURE__ */ React8.createElement(Option, { value: "true" }, "\u5305\u542B\u5B57\u5E55"), /* @__PURE__ */ React8.createElement(Option, { value: "false" }, "\u4E0D\u542B\u5B57\u5E55"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "fetchMode", label: "\u83B7\u53D6\u65B9\u5F0F", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, null, /* @__PURE__ */ React8.createElement(Option, { value: "page" }, "\u9010\u9875\u83B7\u53D6 (\u6BCF\u987530\u4E2A)"), /* @__PURE__ */ React8.createElement(Option, { value: "all" }, "\u83B7\u53D6\u5168\u90E8 (\u6240\u6709\u9875)"))), /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React8.createElement(Icon6, { as: FilterOutlined2 }) }, "\u7B5B\u9009"))), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: SearchOutlined4 }), " \u5F71\u7247\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(Form7, { onFinish: searchMovie, layout: "vertical" }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "keyword", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React8.createElement(Input8, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React8.createElement(Icon6, { as: SearchOutlined4 }) }, "\u641C\u7D22"))), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(Form7, { onFinish: searchMagnet, layout: "vertical" }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "movieId", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React8.createElement(Input8, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "sortBy", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u6392\u5E8F\u65B9\u5F0F", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "date" }, "\u65E5\u671F"), /* @__PURE__ */ React8.createElement(Option, { value: "size" }, "\u5927\u5C0F"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "sortOrder", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u6392\u5E8F\u987A\u5E8F", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "asc" }, "\u5347\u5E8F"), /* @__PURE__ */ React8.createElement(Option, { value: "desc" }, "\u964D\u5E8F"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React8.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React8.createElement(Icon6, { as: LinkOutlined2 }) }, "\u67E5\u8BE2\u78C1\u529B\u94FE\u63A5"))), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: DatabaseOutlined3 }), " \u5F71\u7247\u8BC6\u522B"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(Form7, { onFinish: handleRecognizeMovie, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "htmlContent", rules: [{ required: true, message: "\u8BF7\u7C98\u8D34HTML\u6E90\u4EE3\u7801" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Input8.TextArea, { placeholder: "\u8BF7\u7C98\u8D34JAVLibrary\u7F51\u9875\u6E90\u4EE3\u7801...", rows: 4 })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React8.createElement(
           Segmented2,
           {
             block: true,
@@ -5505,7 +6035,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
             ]
           }
-        )), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React8.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React8.createElement(
           Segmented2,
           {
             block: true,
@@ -5514,7 +6044,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               { label: "\u6392\u96644K", value: true }
             ]
           }
-        )), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 }) }, "\u8BC6\u522B\u5E76\u4E0B\u8F7D"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: DownloadOutlined4 }), " \u756A\u53F7\u81EA\u52A8\u4E0B\u8F7D"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Form6, { onFinish: handleCodeDownload, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "movieCodes", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Input7.TextArea, { placeholder: "\u652F\u6301\u591A\u884C\u3001\u7A7A\u683C\u5206\u9694...", rows: 4 })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React8.createElement(Icon6, { as: SearchOutlined4 }) }, "\u8BC6\u522B\u5E76\u4E0B\u8F7D"))), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: DownloadOutlined4 }), " \u756A\u53F7\u81EA\u52A8\u4E0B\u8F7D"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(Form7, { onFinish: handleCodeDownload, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "movieCodes", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Input8.TextArea, { placeholder: "\u652F\u6301\u591A\u884C\u3001\u7A7A\u683C\u5206\u9694...", rows: 4 })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React8.createElement(
           Segmented2,
           {
             block: true,
@@ -5523,7 +6053,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
             ]
           }
-        )), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Select4, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React7.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React7.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React7.createElement(
+        )), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Select5, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React8.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React8.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React8.createElement(
           Segmented2,
           {
             block: true,
@@ -5532,18 +6062,18 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               { label: "\u6392\u96644K", value: true }
             ]
           }
-        )), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: DownloadOutlined4 }) }, "\u641C\u7D22\u5E76\u4E0B\u8F7D"))))
-      ), /* @__PURE__ */ React7.createElement(Content2, { className: "jav-content" }, /* @__PURE__ */ React7.createElement("section", { className: "jav-results-panel" }, viewMode === "search" && /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React7.createElement("div", null, /* @__PURE__ */ React7.createElement(Title6, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 })), "\u67E5\u8BE2\u7ED3\u679C"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", className: "jav-results-subtitle" }, "\u5F53\u524D\u6279\u6B21\u8D44\u6E90\u6982\u89C8")), /* @__PURE__ */ React7.createElement(
-        Button7,
+        )), /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React8.createElement(Icon6, { as: DownloadOutlined4 }) }, "\u641C\u7D22\u5E76\u4E0B\u8F7D"))))
+      ), /* @__PURE__ */ React8.createElement(Content3, { className: "jav-content" }, /* @__PURE__ */ React8.createElement("section", { className: "jav-results-panel" }, viewMode === "search" && /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React8.createElement("div", null, /* @__PURE__ */ React8.createElement(Title7, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React8.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React8.createElement(Icon6, { as: ThunderboltOutlined2 })), "\u67E5\u8BE2\u7ED3\u679C"), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", className: "jav-results-subtitle" }, "\u5F53\u524D\u6279\u6B21\u8D44\u6E90\u6982\u89C8")), /* @__PURE__ */ React8.createElement(
+        Button8,
         {
           type: "primary",
           disabled: !isCurrentDownloadToolReady || !moviesData || !moviesData.movies || moviesData.movies.length === 0,
           loading,
-          icon: /* @__PURE__ */ React7.createElement(Icon6, { as: DownloadOutlined4 }),
+          icon: /* @__PURE__ */ React8.createElement(Icon6, { as: DownloadOutlined4 }),
           onClick: handleDownloadAllMovies
         },
         "\u4E0B\u8F7D\u672C\u9875\u5168\u90E8\u5F71\u7247"
-      )), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React7.createElement("strong", null, resultCount), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React7.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React7.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React7.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React7.createElement("strong", null, currentMagnetSource === "cilisousuo" ? "Cilisousuo" : "JavBus"), /* @__PURE__ */ React7.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", magnetSettingsForm.getFieldValue("globalExclude4k") ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React7.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: SearchOutlined3 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React7.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React7.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React7.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React7.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React7.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React7.createElement("span", null, /* @__PURE__ */ React7.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React7.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React7.createElement(
+      )), /* @__PURE__ */ React8.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React8.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React8.createElement("strong", null, resultCount), /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React8.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React8.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React8.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React8.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React8.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React8.createElement("strong", null, MAGNET_SOURCE_LABELS2[currentMagnetSource] || currentMagnetSource), /* @__PURE__ */ React8.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", magnetSettingsForm.getFieldValue("globalExclude4k") ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React8.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React8.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React8.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React8.createElement(Icon6, { as: SearchOutlined4 })), /* @__PURE__ */ React8.createElement("span", null, /* @__PURE__ */ React8.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React8.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React8.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React8.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React8.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React8.createElement("span", null, /* @__PURE__ */ React8.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React8.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React8.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React8.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React8.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React8.createElement("span", null, /* @__PURE__ */ React8.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React8.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React8.createElement(Divider4, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React8.createElement(
         Sider,
         {
           width: 300,
@@ -5554,26 +6084,26 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           className: "jav-sidebar jav-sidebar-right",
           reverseArrow: true
         },
-        /* @__PURE__ */ React7.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5, className: "jav-sidebar-title" }, "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React7.createElement(Divider4, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React7.createElement(
-          Card6,
+        /* @__PURE__ */ React8.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React8.createElement(Title7, { level: 5, className: "jav-sidebar-title" }, "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React8.createElement(Divider4, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React8.createElement(
+          Card7,
           {
-            title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " \u4E0B\u8F7D\u5DE5\u5177"),
-            extra: /* @__PURE__ */ React7.createElement(
-              Button7,
+            title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: ThunderboltOutlined2 }), " \u4E0B\u8F7D\u5DE5\u5177"),
+            extra: /* @__PURE__ */ React8.createElement(
+              Button8,
               {
                 type: "text",
                 size: "small",
                 title: "\u6253\u5F00\u914D\u7F6E",
-                icon: /* @__PURE__ */ React7.createElement(Icon6, { as: SettingOutlined3 }),
+                icon: /* @__PURE__ */ React8.createElement(Icon6, { as: SettingOutlined3 }),
                 onClick: openDownloadToolConfig
               }
             ),
             size: "small",
             className: "jav-tool-card"
           },
-          /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u5F53\u524D\u9009\u62E9\uFF1A", /* @__PURE__ */ React7.createElement(Text7, { strong: true, style: { marginLeft: 6, color: "#262626" } }, getDownloadToolConfig().label))),
-          /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 10 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, "WebDAV\uFF08\u7F51\u76D8\uFF09\uFF1A", webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React7.createElement("br", null), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, "Aria2\uFF1A", aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React7.createElement("br", null), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, "115\u7F51\u76D8\uFF1A", clientConfig.pan115?.configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E")),
-          /* @__PURE__ */ React7.createElement(
+          /* @__PURE__ */ React8.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u5F53\u524D\u9009\u62E9\uFF1A", /* @__PURE__ */ React8.createElement(Text8, { strong: true, style: { marginLeft: 6, color: "#262626" } }, getDownloadToolConfig().label))),
+          /* @__PURE__ */ React8.createElement("div", { style: { marginBottom: 10 } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, "WebDAV\uFF08\u7F51\u76D8\uFF09\uFF1A", webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React8.createElement("br", null), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, "Aria2\uFF1A", aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React8.createElement("br", null), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, "115\u7F51\u76D8\uFF1A", clientConfig.pan115?.configured ? "\u5DF2\u767B\u5F55" : "\u672A\u767B\u5F55")),
+          /* @__PURE__ */ React8.createElement(
             Segmented2,
             {
               value: downloadTool,
@@ -5586,7 +6116,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               ]
             }
           )
-        ), /* @__PURE__ */ React7.createElement(
+        ), /* @__PURE__ */ React8.createElement(
           Drawer3,
           {
             title: downloadTool === "aria2" ? "\u914D\u7F6E Aria2\uFF08\u76F4\u63A5\u4E0B\u8F7D\uFF09" : downloadTool === "115" ? "\u914D\u7F6E 115\u7F51\u76D8" : "\u914D\u7F6E \u7F51\u76D8\uFF08PikPak\uFF09",
@@ -5596,30 +6126,37 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             placement: "right",
             destroyOnClose: true
           },
-          downloadTool === "aria2" ? /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " Aria2 \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, aria2Connected ? "Aria2 \u5DF2\u8FDE\u63A5" : "Aria2 \u672A\u8FDE\u63A5")), /* @__PURE__ */ React7.createElement(Form6, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "url", label: "Aria2 RPC \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 RPC \u5730\u5740" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "http://127.0.0.1:6800/jsonrpc" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "secret", label: "RPC Secret" }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2?.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))) : downloadTool === "115" ? /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " 115\u7F51\u76D8\u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, clientConfig.pan115?.configured ? "115 Open API \u5DF2\u914D\u7F6E" : "115 Open API \u672A\u914D\u7F6E"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12 } }, "\u4FDD\u5B58\u76EE\u5F55 ID\uFF1A", clientConfig.pan115?.save_dir_id || "0"), /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => {
+          downloadTool === "aria2" ? /* @__PURE__ */ React8.createElement(Card7, { size: "small", title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: ThunderboltOutlined2 }), " Aria2 \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, aria2Connected ? "Aria2 \u5DF2\u8FDE\u63A5" : "Aria2 \u672A\u8FDE\u63A5")), /* @__PURE__ */ React8.createElement(Form7, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "url", label: "Aria2 RPC \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 RPC \u5730\u5740" }] }, /* @__PURE__ */ React8.createElement(Input8, { placeholder: "http://127.0.0.1:6800/jsonrpc" })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "secret", label: "RPC Secret" }, /* @__PURE__ */ React8.createElement(Input8.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React8.createElement(Space8, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2?.configured && /* @__PURE__ */ React8.createElement(Button8, { block: true, onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))) : downloadTool === "115" ? /* @__PURE__ */ React8.createElement(Card7, { size: "small", title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: ThunderboltOutlined2 }), " 115\u7F51\u76D8\u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(Space8, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, clientConfig.pan115?.configured ? "115 \u5DF2\u626B\u7801\u767B\u5F55" : "115 \u672A\u767B\u5F55"), /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u4FDD\u5B58\u76EE\u5F55 ID\uFF1A", clientConfig.pan115?.save_dir_id || "0"), pan115DownloadJob && /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, "\u540E\u53F0\u4EFB\u52A1\uFF1A", pan115DownloadJob.status || "queued", "\uFF0C", pan115DownloadJob.completed_count || 0, "/", pan115DownloadJob.total_count || 0, pan115DownloadJob.total_batches ? `\uFF0C\u6279\u6B21 ${pan115DownloadJob.current_batch || 0}/${pan115DownloadJob.total_batches}` : ""), pan115QrSession?.qrcode_image_url && /* @__PURE__ */ React8.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React8.createElement(
+            "img",
+            {
+              src: pan115QrSession.qrcode_image_url,
+              alt: "115 \u767B\u5F55\u4E8C\u7EF4\u7801",
+              style: { width: 220, height: 220, maxWidth: "100%", border: "1px solid #f0f0f0", borderRadius: 8 }
+            }
+          ), /* @__PURE__ */ React8.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12 } }, pan115QrStatus?.state === "scanned" ? "\u5DF2\u626B\u7801\uFF0C\u8BF7\u5728\u624B\u673A\u7AEF\u786E\u8BA4" : pan115QrStatus?.state === "expired" ? "\u4E8C\u7EF4\u7801\u5DF2\u8FC7\u671F" : pan115QrStatus?.state === "canceled" ? "\u626B\u7801\u5DF2\u53D6\u6D88" : "\u8BF7\u4F7F\u7528 115 \u624B\u673A\u7AEF\u626B\u7801"))), /* @__PURE__ */ React8.createElement(Button8, { type: "primary", block: true, onClick: handlePan115QrStart, loading: pan115QrLoading }, pan115QrSession ? "\u91CD\u65B0\u83B7\u53D6\u4E8C\u7EF4\u7801" : "\u626B\u7801\u767B\u5F55 115"), /* @__PURE__ */ React8.createElement(Button8, { block: true, onClick: () => {
             closeDownloadToolConfig();
             setActivePage("settings");
-          } }, "\u6253\u5F00\u8BBE\u7F6E"))) : /* @__PURE__ */ React7.createElement(Card6, { size: "small", title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: ThunderboltOutlined2 }), " WebDAV \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React7.createElement(Text7, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, webdavConnected ? "WebDAV \u5DF2\u8FDE\u63A5" : "WebDAV \u672A\u8FDE\u63A5")), /* @__PURE__ */ React7.createElement(Form6, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "url", label: "WebDAV \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV \u5730\u5740" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "https://dav.example.com/" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "username", label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "password", label: "\u5BC6\u7801" }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav?.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))
-        ), /* @__PURE__ */ React7.createElement(
-          Button7,
+          } }, "\u6253\u5F00\u8BBE\u7F6E"))) : /* @__PURE__ */ React8.createElement(Card7, { size: "small", title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: ThunderboltOutlined2 }), " WebDAV \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, webdavConnected ? "WebDAV \u5DF2\u8FDE\u63A5" : "WebDAV \u672A\u8FDE\u63A5")), /* @__PURE__ */ React8.createElement(Form7, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "url", label: "WebDAV \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV \u5730\u5740" }] }, /* @__PURE__ */ React8.createElement(Input8, { placeholder: "https://dav.example.com/" })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "username", label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React8.createElement(Input8, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "password", label: "\u5BC6\u7801" }, /* @__PURE__ */ React8.createElement(Input8.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React8.createElement(Space8, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav?.configured && /* @__PURE__ */ React8.createElement(Button8, { block: true, onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))
+        ), /* @__PURE__ */ React8.createElement(
+          Button8,
           {
             type: "default",
             block: true,
-            icon: /* @__PURE__ */ React7.createElement(Icon6, { as: HistoryOutlined }),
+            icon: /* @__PURE__ */ React8.createElement(Icon6, { as: HistoryOutlined }),
             onClick: fetchHistory,
             className: "jav-sidebar-action"
           },
           "\u67E5\u770B\u5386\u53F2\u8BB0\u5F55"
-        ), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: LoginOutlined2 }), " PikPak \u767B\u5F55"), size: "small", className: "jav-tool-card" }, !isLoggedIn ? /* @__PURE__ */ React7.createElement(Form6, { layout: "vertical", onFinish: handlePikPakLogin }, /* @__PURE__ */ React7.createElement(Form6.Item, { name: "username", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7528\u6237\u540D" }] }, /* @__PURE__ */ React7.createElement(Input7, { placeholder: "\u7528\u6237\u540D", autoComplete: "username" })), /* @__PURE__ */ React7.createElement(Form6.Item, { name: "password", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u5BC6\u7801" }] }, /* @__PURE__ */ React7.createElement(Input7.Password, { placeholder: "\u5BC6\u7801", autoComplete: "current-password" })), /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", htmlType: "submit", block: true, loading }, "\u767B\u5F55"), clientConfig.pikpak.configured && /* @__PURE__ */ React7.createElement(Button7, { block: true, onClick: () => handlePikPakLoginFromConfig(), loading }, "\u4F7F\u7528\u914D\u7F6E\u767B\u5F55"))) : /* @__PURE__ */ React7.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React7.createElement(Text7, { type: "success", strong: true }, "\u5DF2\u767B\u5F55"), /* @__PURE__ */ React7.createElement("div", { style: { marginTop: 8 } }, pikpakCredentials?.username), /* @__PURE__ */ React7.createElement(Button7, { danger: true, style: { marginTop: 12 }, block: true, onClick: handleLogout, icon: /* @__PURE__ */ React7.createElement(Icon6, { as: LogoutOutlined }) }, "\u9000\u51FA\u767B\u5F55"))), /* @__PURE__ */ React7.createElement(Card6, { title: /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u6765\u6E90"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React7.createElement(
-          Form6,
+        ), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: LoginOutlined2 }), " PikPak \u767B\u5F55"), size: "small", className: "jav-tool-card" }, !isLoggedIn ? /* @__PURE__ */ React8.createElement(Form7, { layout: "vertical", onFinish: handlePikPakLogin }, /* @__PURE__ */ React8.createElement(Form7.Item, { name: "username", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7528\u6237\u540D" }] }, /* @__PURE__ */ React8.createElement(Input8, { placeholder: "\u7528\u6237\u540D", autoComplete: "username" })), /* @__PURE__ */ React8.createElement(Form7.Item, { name: "password", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u5BC6\u7801" }] }, /* @__PURE__ */ React8.createElement(Input8.Password, { placeholder: "\u5BC6\u7801", autoComplete: "current-password" })), /* @__PURE__ */ React8.createElement(Space8, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React8.createElement(Button8, { type: "primary", htmlType: "submit", block: true, loading }, "\u767B\u5F55"), clientConfig.pikpak.configured && /* @__PURE__ */ React8.createElement(Button8, { block: true, onClick: () => handlePikPakLoginFromConfig(), loading }, "\u4F7F\u7528\u914D\u7F6E\u767B\u5F55"))) : /* @__PURE__ */ React8.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React8.createElement(Text8, { type: "success", strong: true }, "\u5DF2\u767B\u5F55"), /* @__PURE__ */ React8.createElement("div", { style: { marginTop: 8 } }, pikpakCredentials?.username), /* @__PURE__ */ React8.createElement(Button8, { danger: true, style: { marginTop: 12 }, block: true, onClick: handleLogout, icon: /* @__PURE__ */ React8.createElement(Icon6, { as: LogoutOutlined }) }, "\u9000\u51FA\u767B\u5F55"))), /* @__PURE__ */ React8.createElement(Card7, { title: /* @__PURE__ */ React8.createElement(React8.Fragment, null, /* @__PURE__ */ React8.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u6765\u6E90"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React8.createElement(
+          Form7,
           {
             form: magnetSettingsForm,
             layout: "vertical",
             initialValues: { magnetSource: "javbus", globalExclude4k: false },
             onValuesChange: handleMagnetSettingsChange
           },
-          /* @__PURE__ */ React7.createElement(Form6.Item, { name: "magnetSource", label: "\u9009\u62E9\u6765\u6E90", style: { marginBottom: "12px" } }, /* @__PURE__ */ React7.createElement(Select4, null, /* @__PURE__ */ React7.createElement(Option, { value: "javbus" }, "JavBus API (\u9ED8\u8BA4)"), /* @__PURE__ */ React7.createElement(Option, { value: "cilisousuo" }, "Cilisousuo"))),
-          /* @__PURE__ */ React7.createElement(Form6.Item, { name: "globalExclude4k", style: { marginBottom: 0 } }, /* @__PURE__ */ React7.createElement(
+          /* @__PURE__ */ React8.createElement(Form7.Item, { name: "magnetSource", label: "\u9009\u62E9\u6765\u6E90", style: { marginBottom: "12px" } }, /* @__PURE__ */ React8.createElement(Select5, null, /* @__PURE__ */ React8.createElement(Option, { value: "javbus" }, "JavBus API (\u9ED8\u8BA4)"), /* @__PURE__ */ React8.createElement(Option, { value: "cilisousuo" }, "Cilisousuo"), /* @__PURE__ */ React8.createElement(Option, { value: "yhg007" }, "YHG007"))),
+          /* @__PURE__ */ React8.createElement(Form7.Item, { name: "globalExclude4k", style: { marginBottom: 0 } }, /* @__PURE__ */ React8.createElement(
             Segmented2,
             {
               block: true,
@@ -5635,14 +6172,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
   }
 
   // frontend/src/App.jsx
-  var React8 = window.React;
+  var React9 = window.React;
   function App() {
-    return /* @__PURE__ */ React8.createElement(JavPage, null);
+    return /* @__PURE__ */ React9.createElement(JavPage, null);
   }
 
   // frontend/src/main.jsx
-  var React9 = window.React;
+  var React10 = window.React;
   var ReactDOM = window.ReactDOM;
   var root = ReactDOM.createRoot(document.getElementById("root"));
-  root.render(/* @__PURE__ */ React9.createElement(App, null));
+  root.render(/* @__PURE__ */ React10.createElement(App, null));
 })();

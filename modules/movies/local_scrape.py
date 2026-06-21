@@ -18,6 +18,7 @@ from modules.common.runtime import get_javbus_config
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
+from .metadata_scrapers import metadata_scraper_service
 from .schemas import LocalScrapeApplyRequest, LocalScrapeDeleteRequest, LocalScrapePreviewRequest
 
 
@@ -693,6 +694,9 @@ async def preview_local_scrape(
     async def enrich(candidate: LocalFileCandidate) -> dict[str, Any]:
         nonlocal completed
         movie_detail = None
+        scrape_source = None
+        scrape_error = None
+        scrape_error_message = ""
         scrape_status = "skipped"
         error = None
         scrape_reason = ""
@@ -713,10 +717,37 @@ async def preview_local_scrape(
             scrape_logs.append(_scrape_diagnostic_log(f"识别到番号：{candidate.code}"))
             async with semaphore:
                 try:
-                    movie_detail = await javbus_api_service.get_movie_detail(candidate.code)
+                    scrape_result = await metadata_scraper_service.get_movie_detail(candidate.code)
+                    if isinstance(scrape_result, dict):
+                        movie_detail = scrape_result.get("metadata")
+                        scrape_source = scrape_result.get("source")
+                        scrape_error = scrape_result.get("error")
+                        scrape_error_message = str(scrape_result.get("error_message") or "")
+                        for entry in scrape_result.get("logs") or []:
+                            if not isinstance(entry, dict):
+                                continue
+                            provider = entry.get("provider")
+                            message = str(entry.get("message") or "")
+                            prefix = f"[{provider}] " if provider else ""
+                            scrape_logs.append(
+                                _scrape_diagnostic_log(f"{prefix}{message}", str(entry.get("level") or "info"))
+                            )
+                    else:
+                        movie_detail = scrape_result
+                        scrape_source = "javbus"
                     scrape_status = "found" if movie_detail and movie_detail.get("id") else "not_found"
-                    if scrape_status == "found":
+                    if scrape_status == "not_found" and scrape_error:
+                        scrape_status = "failed"
+                        error = str(scrape_error)
+                    if scrape_status == "failed":
+                        detail = f": {scrape_error_message}" if scrape_error_message else ""
+                        scrape_reason = f"Metadata fetch failed for {candidate.code}{detail}"
+                        scrape_logs.append(_scrape_diagnostic_log(scrape_reason, "error"))
+                    elif scrape_status == "found":
+                        source_label = scrape_source or "metadata scraper"
                         scrape_reason = f"已通过 JavBus 获取番号 {candidate.code} 的元数据"
+                        if source_label != "javbus":
+                            scrape_reason = f"Found metadata via {source_label} for {candidate.code}"
                         scrape_logs.append(_scrape_diagnostic_log(scrape_reason))
                     else:
                         scrape_reason = f"已识别番号 {candidate.code}，但 JavBus 未返回元数据"
@@ -762,6 +793,7 @@ async def preview_local_scrape(
             "recognition_method": candidate.recognition_method if candidate.code else "failed",
             "recognition_message": candidate.recognition_message,
             "scrape_status": scrape_status,
+            "scrape_source": scrape_source,
             "error": error,
             "scrape_reason": scrape_reason,
             "scrape_logs": scrape_logs,

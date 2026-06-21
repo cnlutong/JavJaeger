@@ -15,6 +15,40 @@ JAVBUS_SETTING_LIMITS = {
     "image_retry_attempts": (1, 10),
     "image_retry_backoff_seconds": (0.0, 10.0),
 }
+SCRAPER_SETTING_LIMITS = {
+    "request_delay": (0, 60000),
+}
+SCRAPER_LANGUAGES = {"en", "ja", "zh", "cn", "tw"}
+PAN115_SETTING_LIMITS = {
+    "batch_size": (1, 50),
+    "batch_interval_seconds": (0.0, 300.0),
+    "jitter_seconds": (0.0, 60.0),
+}
+
+
+def build_scrapers_settings_payload(scrapers_config: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "priority": [
+            provider
+            for provider in scrapers_config.get("priority", runtime.SCRAPER_PROVIDER_NAMES)
+            if provider in runtime.SCRAPER_PROVIDER_NAMES
+        ],
+    }
+    for provider in runtime.SCRAPER_PROVIDER_NAMES:
+        provider_config = scrapers_config.get(provider)
+        if not isinstance(provider_config, dict):
+            provider_config = {}
+        item = {
+            "enabled": bool(provider_config.get("enabled")),
+            "language": provider_config.get("language") or "",
+            "request_delay": provider_config.get("request_delay"),
+            "base_url": provider_config.get("base_url") or "",
+            "implemented": provider == "javbus",
+        }
+        if provider == "javstash":
+            item["has_api_key"] = bool(provider_config.get("api_key"))
+        payload[provider] = item
+    return payload
 
 
 def build_settings_payload() -> dict[str, Any]:
@@ -23,6 +57,7 @@ def build_settings_payload() -> dict[str, Any]:
     aria2_config = runtime.get_aria2_config()
     pikpak_config = runtime.get_pikpak_config()
     pan115_config = runtime.get_pan115_config()
+    scrapers_config = runtime.get_scrapers_config()
     return {
         "javbus": {
             "base_url": javbus_config.get("base_url") or "",
@@ -34,6 +69,7 @@ def build_settings_payload() -> dict[str, Any]:
             "image_retry_attempts": javbus_config.get("image_retry_attempts"),
             "image_retry_backoff_seconds": javbus_config.get("image_retry_backoff_seconds"),
         },
+        "scrapers": build_scrapers_settings_payload(scrapers_config),
         "webdav": {
             "enabled": bool(webdav_config.get("enabled")),
             "url": webdav_config.get("url") or "",
@@ -55,9 +91,12 @@ def build_settings_payload() -> dict[str, Any]:
         },
         "pan115": {
             "enabled": bool(pan115_config.get("enabled")),
-            "has_access_token": bool(pan115_config.get("access_token")),
-            "has_refresh_token": bool(pan115_config.get("refresh_token")),
+            "has_cookie": bool(pan115_config.get("cookie")),
             "save_dir_id": pan115_config.get("save_dir_id") or "0",
+            "login_app": pan115_config.get("login_app") or "wechatmini",
+            "batch_size": pan115_config.get("batch_size") or 20,
+            "batch_interval_seconds": pan115_config.get("batch_interval_seconds") if pan115_config.get("batch_interval_seconds") is not None else 25.0,
+            "jitter_seconds": pan115_config.get("jitter_seconds") if pan115_config.get("jitter_seconds") is not None else 5.0,
         },
         "security": {
             "session_secret_configured": bool(os.getenv("APP_SESSION_SECRET") or runtime.config.get("session_secret")),
@@ -141,6 +180,68 @@ def _normalize_string(values: dict[str, Any], key: str) -> str | None:
     return str(values[key] or "").strip()
 
 
+def validate_scrapers_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="scrapers_settings_required")
+
+    normalized: dict[str, Any] = {}
+    if "priority" in payload:
+        if not isinstance(payload["priority"], list):
+            raise HTTPException(status_code=400, detail="scraper_priority_must_be_list")
+        priority: list[str] = []
+        for value in payload["priority"]:
+            provider = str(value or "").strip().lower()
+            if provider not in runtime.SCRAPER_PROVIDER_NAMES:
+                raise HTTPException(status_code=400, detail="unknown_scraper_provider")
+            if provider not in priority:
+                priority.append(provider)
+        normalized["priority"] = priority
+
+    for provider in runtime.SCRAPER_PROVIDER_NAMES:
+        values = payload.get(provider)
+        if values is None:
+            continue
+        if not isinstance(values, dict):
+            raise HTTPException(status_code=400, detail=f"{provider}_scraper_settings_required")
+
+        provider_updates: dict[str, Any] = {}
+        enabled = _normalize_bool(values, "enabled")
+        if enabled is not None:
+            provider_updates["enabled"] = enabled
+
+        language = _normalize_string(values, "language")
+        if language is not None:
+            language = language.lower()
+            if language and language not in SCRAPER_LANGUAGES:
+                raise HTTPException(status_code=400, detail="scraper_language_unsupported")
+            provider_updates["language"] = language
+
+        for key, (minimum, maximum) in SCRAPER_SETTING_LIMITS.items():
+            if key not in values:
+                continue
+            try:
+                number = int(float(values[key]))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{key}_must_be_number")
+            if number < minimum or number > maximum:
+                raise HTTPException(status_code=400, detail=f"{key}_out_of_range")
+            provider_updates[key] = number
+
+        base_url = _normalize_url(values, "base_url", ("http://", "https://"))
+        if base_url is not None:
+            provider_updates["base_url"] = base_url.rstrip("/") if base_url else ""
+
+        if provider == "javstash":
+            api_key = _normalize_string(values, "api_key")
+            if api_key is not None:
+                provider_updates["api_key"] = api_key
+
+        if provider_updates:
+            normalized[provider] = provider_updates
+
+    return normalized
+
+
 def validate_webdav_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="webdav_settings_required")
@@ -211,10 +312,41 @@ def validate_pan115_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if enabled is not None:
         normalized["enabled"] = enabled
 
-    for key in ("access_token", "refresh_token", "save_dir_id"):
+    for key in ("cookie", "save_dir_id", "login_app"):
         value = _normalize_string(payload, key)
         if value is not None:
-            normalized[key] = value or ("0" if key == "save_dir_id" else "")
+            if key == "save_dir_id":
+                normalized[key] = value or "0"
+            elif key == "login_app":
+                normalized[key] = value or "wechatmini"
+            else:
+                normalized[key] = value
+
+    for key, (minimum, maximum) in PAN115_SETTING_LIMITS.items():
+        if key not in payload:
+            continue
+        try:
+            number = float(payload[key])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{key}_must_be_number")
+        if number < minimum or number > maximum:
+            raise HTTPException(status_code=400, detail=f"{key}_out_of_range")
+        normalized[key] = int(number) if key == "batch_size" else number
+
+    if "failure_backoff_seconds" in payload:
+        value = payload["failure_backoff_seconds"]
+        if not isinstance(value, list):
+            raise HTTPException(status_code=400, detail="failure_backoff_seconds_must_be_list")
+        backoff: list[float] = []
+        for item in value[:5]:
+            try:
+                seconds = float(item)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="failure_backoff_seconds_must_be_number")
+            if seconds < 0 or seconds > 3600:
+                raise HTTPException(status_code=400, detail="failure_backoff_seconds_out_of_range")
+            backoff.append(seconds)
+        normalized["failure_backoff_seconds"] = backoff
 
     return normalized
 
@@ -235,6 +367,7 @@ async def update_system_settings(payload: dict[str, Any]) -> dict[str, Any]:
 
     validators = {
         "javbus": validate_javbus_settings,
+        "scrapers": validate_scrapers_settings,
         "webdav": validate_webdav_settings,
         "aria2": validate_aria2_settings,
         "pikpak": validate_pikpak_settings,

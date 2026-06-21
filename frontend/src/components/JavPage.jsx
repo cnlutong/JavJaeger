@@ -1,5 +1,6 @@
 ﻿import WebDavPage from "./WebDavPage.jsx";
 import LocalScrapePage from "./LocalScrapePage.jsx";
+import DownloadManagementPage from "./DownloadManagementPage.jsx";
 import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
@@ -72,6 +73,12 @@ const FILTER_TYPE_LABELS = {
     label: '发行商',
     series: '系列',
 };
+const MAGNET_SOURCE_LABELS = {
+    javbus: 'JavBus',
+    cilisousuo: 'Cilisousuo',
+    yhg007: 'YHG007',
+};
+const magnetSourceRequiresMovieParams = (source) => source === 'javbus';
 
 const runWithConcurrency = async (items, limit, worker) => {
     if (!Array.isArray(items) || items.length === 0) {
@@ -126,6 +133,10 @@ export default function JavPage() {
     });
     const [downloadToolConfigOpen, setDownloadToolConfigOpen] = React.useState(false);
     const [aria2Connected, setAria2Connected] = React.useState(false);
+    const [pan115QrLoading, setPan115QrLoading] = React.useState(false);
+    const [pan115QrSession, setPan115QrSession] = React.useState(null);
+    const [pan115QrStatus, setPan115QrStatus] = React.useState(null);
+    const [pan115DownloadJob, setPan115DownloadJob] = React.useState(null);
 
     // Filter Data State
     const [categories, setCategories] = React.useState({});
@@ -147,7 +158,7 @@ export default function JavPage() {
     const [webdavLoading, setWebdavLoading] = React.useState(false);
     const [clientConfig, setClientConfig] = React.useState({
         pikpak: { configured: false, enabled: false, username: "", auto_login: false },
-        pan115: { configured: false, enabled: false, save_dir_id: "0", has_access_token: false, has_refresh_token: false },
+        pan115: { configured: false, enabled: false, save_dir_id: "0", has_cookie: false, login_app: "wechatmini" },
     });
     const autoLoginTriggeredRef = React.useRef(false);
 
@@ -225,6 +236,31 @@ export default function JavPage() {
         }, 10000);
         return () => window.clearInterval(timer);
     }, [downloadTool]);
+
+    React.useEffect(() => {
+        if (!pan115QrSession?.session_id || pan115QrStatus?.state === 'allowed') {
+            return undefined;
+        }
+        const timer = window.setInterval(async () => {
+            try {
+                const status = await fetchWithRetry(`/api/115/qrcode/${encodeURIComponent(pan115QrSession.session_id)}/status`, {}, 0);
+                setPan115QrStatus(status);
+                if (status?.state === 'allowed' || status?.configured) {
+                    message.success('115 扫码登录成功');
+                    setPan115QrSession(null);
+                    await loadClientSideConfig();
+                    window.clearInterval(timer);
+                }
+                if (status?.state === 'expired' || status?.state === 'canceled') {
+                    setPan115QrSession(null);
+                    window.clearInterval(timer);
+                }
+            } catch (error) {
+                setPan115QrStatus({ state: 'error', message: '扫码状态检查失败' });
+            }
+        }, 2000);
+        return () => window.clearInterval(timer);
+    }, [pan115QrSession?.session_id, pan115QrStatus?.state]);
 
     React.useEffect(() => {
         if (!logoPreviewOpen) {
@@ -409,7 +445,7 @@ export default function JavPage() {
         }
         if (config.requiresConfig) {
             if (!clientConfig.pan115?.configured) {
-                message.warning('请先在设置中配置 115 Open API access token');
+                message.warning('请先扫码登录 115 网盘');
                 return false;
             }
             return true;
@@ -436,11 +472,11 @@ export default function JavPage() {
         } else if (config.requiresConnection && !aria2Connected) {
             const connected = await loadDownloadToolStatus();
             if (!connected) {
-                message.warning('请先在 WebDAV 下载页面连接 Aria2');
+                message.warning('请先在下载管理页面连接 Aria2');
                 return { success: false };
             }
         } else if (config.requiresConfig && !clientConfig.pan115?.configured) {
-            message.warning('请先在设置中配置 115 Open API access token');
+            message.warning('请先扫码登录 115 网盘');
             return { success: false };
         }
 
@@ -449,6 +485,21 @@ export default function JavPage() {
             '115': '/api/115/download',
             pikpak: '/api/pikpak/download',
         };
+        if (config.tool === '115') {
+            const jobResponse = await fetch('/api/115/download-jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    magnet_links: magnetLinks,
+                    movie_ids: movieIds,
+                }),
+            });
+            const job = await jobResponse.json();
+            if (!jobResponse.ok || !job.job_id) {
+                return { success: false, message: job.detail || '115 任务创建失败' };
+            }
+            return await waitForPan115DownloadJob(job.job_id);
+        }
         const response = await fetch(
             endpointMap[config.tool] || endpointMap.pikpak,
             {
@@ -462,6 +513,24 @@ export default function JavPage() {
             }
         );
         return await response.json();
+    };
+
+    const waitForPan115DownloadJob = async (jobId) => {
+        while (true) {
+            const response = await fetch(`/api/115/download-jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+            const job = await response.json();
+            setPan115DownloadJob(job);
+            if (!response.ok) {
+                return { success: false, message: job.detail || '115 任务状态获取失败' };
+            }
+            if (job.status === 'completed') {
+                return job.result || { success: true, message: '115 下载任务已完成' };
+            }
+            if (job.status === 'failed') {
+                return { success: false, message: job.error || job.result?.message || '115 下载任务失败', results: job.result?.results || [] };
+            }
+            await new Promise(resolve => window.setTimeout(resolve, 2000));
+        }
     };
 
     const handleDownloadToolChange = (toolValue) => {
@@ -480,6 +549,28 @@ export default function JavPage() {
 
     const closeDownloadToolConfig = () => {
         setDownloadToolConfigOpen(false);
+    };
+
+    const handlePan115QrStart = async () => {
+        setPan115QrLoading(true);
+        setPan115QrStatus(null);
+        try {
+            const payload = await fetchWithRetry(
+                '/api/115/qrcode/start',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ app: clientConfig.pan115?.login_app || 'wechatmini' }),
+                },
+                0
+            );
+            setPan115QrSession(payload);
+            setPan115QrStatus({ state: 'waiting', message: '等待扫码' });
+        } catch (error) {
+            message.error('获取 115 登录二维码失败');
+        } finally {
+            setPan115QrLoading(false);
+        }
     };
 
     // ---- API Calls ----
@@ -622,7 +713,7 @@ export default function JavPage() {
             if (values.sortOrder) queryParams.append('sortOrder', values.sortOrder);
             if (values.hasSubtitle) queryParams.append('hasSubtitle', values.hasSubtitle);
 
-            if (magnetSource !== 'cilisousuo') {
+            if (magnetSourceRequiresMovieParams(magnetSource)) {
                 const movieData = await fetchWithRetry(`/api/movies/${encodeURIComponent(values.movieId)}`);
                 if (!movieData || !movieData.gid || movieData.uc === undefined) {
                     throw new Error('无法获取影片详情或必要参数');
@@ -653,7 +744,7 @@ export default function JavPage() {
         const queryParams = new URLSearchParams();
         queryParams.append('source', magnetSource);
         if (exclude4k) queryParams.append('exclude4k', 'true');
-        if (magnetSource !== 'cilisousuo') {
+        if (magnetSourceRequiresMovieParams(magnetSource)) {
             if (gid) queryParams.append('gid', gid);
             if (uc !== undefined) queryParams.append('uc', uc);
         }
@@ -1510,7 +1601,8 @@ export default function JavPage() {
             localLibrary: <LocalLibraryPage />,
             automation: <AutomationPage />,
             settings: <SettingsPage />,
-            webdav: <WebDavPage />,
+            webdav: <WebDavPage onOpenDownloadManagement={() => setActivePage('downloadManagement')} />,
+            downloadManagement: <DownloadManagementPage />,
         }[page] || <WebDavPage />;
 
         return (
@@ -1574,7 +1666,8 @@ export default function JavPage() {
                                     { label: '刮削', value: 'localScrape' },
                                     { label: '影视库', value: 'localLibrary' },
                                     { label: '自动模式', value: 'automation' },
-                                    { label: 'WebDAV下载', value: 'webdav' },
+                                    { label: '网盘管理', value: 'webdav' },
+                                    { label: '下载管理', value: 'downloadManagement' },
                                     { label: '设置', value: 'settings' }
                                 ]}
                             />
@@ -1897,7 +1990,7 @@ export default function JavPage() {
                                             </div>
                                             <div className="jav-kpi-card">
                                                 <span className="jav-kpi-label">来源</span>
-                                                <strong>{currentMagnetSource === 'cilisousuo' ? 'Cilisousuo' : 'JavBus'}</strong>
+                                                <strong>{MAGNET_SOURCE_LABELS[currentMagnetSource] || currentMagnetSource}</strong>
                                                 <span className="jav-kpi-note">4K过滤：{magnetSettingsForm.getFieldValue('globalExclude4k') ? '开启' : '关闭'}</span>
                                             </div>
                                         </div>
@@ -1985,7 +2078,7 @@ export default function JavPage() {
                                         </Text>
                                         <br />
                                         <Text type="secondary" style={{ fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" }}>
-                                            115网盘：{clientConfig.pan115?.configured ? '已配置' : '未配置'}
+                                            115网盘：{clientConfig.pan115?.configured ? '已登录' : '未登录'}
                                         </Text>
                                     </div>
                                     <Segmented
@@ -2036,11 +2129,41 @@ export default function JavPage() {
                                         <Card size="small" title={<><Icon as={ThunderboltOutlined} /> 115网盘配置</>} className="jav-tool-card">
                                             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                                                 <Text type="secondary" style={{ fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" }}>
-                                                    {clientConfig.pan115?.configured ? "115 Open API 已配置" : "115 Open API 未配置"}
+                                                    {clientConfig.pan115?.configured ? "115 已扫码登录" : "115 未登录"}
                                                 </Text>
                                                 <Text type="secondary" style={{ fontSize: 12 }}>
                                                     保存目录 ID：{clientConfig.pan115?.save_dir_id || '0'}
                                                 </Text>
+                                                {pan115DownloadJob && (
+                                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                                        后台任务：{pan115DownloadJob.status || 'queued'}，
+                                                        {pan115DownloadJob.completed_count || 0}/{pan115DownloadJob.total_count || 0}
+                                                        {pan115DownloadJob.total_batches ? `，批次 ${pan115DownloadJob.current_batch || 0}/${pan115DownloadJob.total_batches}` : ''}
+                                                    </Text>
+                                                )}
+                                                {pan115QrSession?.qrcode_image_url && (
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <img
+                                                            src={pan115QrSession.qrcode_image_url}
+                                                            alt="115 登录二维码"
+                                                            style={{ width: 220, height: 220, maxWidth: '100%', border: '1px solid #f0f0f0', borderRadius: 8 }}
+                                                        />
+                                                        <div style={{ marginTop: 8 }}>
+                                                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                {pan115QrStatus?.state === 'scanned'
+                                                                    ? '已扫码，请在手机端确认'
+                                                                    : pan115QrStatus?.state === 'expired'
+                                                                        ? '二维码已过期'
+                                                                        : pan115QrStatus?.state === 'canceled'
+                                                                            ? '扫码已取消'
+                                                                            : '请使用 115 手机端扫码'}
+                                                            </Text>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <Button type="primary" block onClick={handlePan115QrStart} loading={pan115QrLoading}>
+                                                    {pan115QrSession ? '重新获取二维码' : '扫码登录 115'}
+                                                </Button>
                                                 <Button block onClick={() => { closeDownloadToolConfig(); setActivePage('settings'); }}>
                                                     打开设置
                                                 </Button>
@@ -2124,6 +2247,7 @@ export default function JavPage() {
                                             <Select>
                                                 <Option value="javbus">JavBus API (默认)</Option>
                                                 <Option value="cilisousuo">Cilisousuo</Option>
+                                                <Option value="yhg007">YHG007</Option>
                                             </Select>
                                         </Form.Item>
                                         <Form.Item name="globalExclude4k" style={{ marginBottom: 0 }}>

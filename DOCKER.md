@@ -80,9 +80,13 @@ volumes:
   },
   "pan115": {
     "enabled": true,
-    "access_token": "your-115-open-access-token",
-    "refresh_token": "your-115-open-refresh-token",
-    "save_dir_id": "0"
+    "cookie": "UID=...;CID=...;SEID=...;KID=...",
+    "save_dir_id": "0",
+    "login_app": "wechatmini",
+    "batch_size": 20,
+    "batch_interval_seconds": 25.0,
+    "jitter_seconds": 5.0,
+    "failure_backoff_seconds": [120.0, 600.0]
   }
 }
 ```
@@ -217,7 +221,7 @@ A: 检查 `config.json` 中对应模块是否同时满足：
 - `webdav` 需要至少有 `url`
 - `aria2` 需要至少有 `url`
 - `pikpak` 需要有 `username` 和 `password`
-- `pan115` 需要有 `access_token`；`refresh_token` 用于过期后自动刷新
+- `pan115` 支持页面扫码登录；也可以配置 `cookie`、`save_dir_id`、`login_app`、`batch_size`、`batch_interval_seconds`、`jitter_seconds` 和 `failure_backoff_seconds`
 
 ### Q: 我修改了前端代码，为什么容器里页面没变化？
 

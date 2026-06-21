@@ -10,6 +10,49 @@
     "image_retry_attempts": 3,
     "image_retry_backoff_seconds": 0.25
   },
+  "scrapers": {
+    "priority": [
+      "javbus",
+      "r18dev",
+      "dmm",
+      "libredmm",
+      "javlibrary",
+      "javdb",
+      "jav321",
+      "mgstage",
+      "tokyohot",
+      "aventertainment",
+      "dlgetchu",
+      "caribbeancom",
+      "fc2",
+      "javstash"
+    ],
+    "javbus": {
+      "enabled": true,
+      "language": "zh",
+      "request_delay": 500,
+      "base_url": "https://www.javbus.com"
+    },
+    "r18dev": { "enabled": false, "language": "en", "request_delay": 1500 },
+    "dmm": { "enabled": false, "language": "ja", "request_delay": 1500 },
+    "libredmm": { "enabled": false, "language": "ja", "request_delay": 1500 },
+    "javlibrary": { "enabled": false, "language": "cn", "request_delay": 1500 },
+    "javdb": { "enabled": false, "language": "zh", "request_delay": 1500 },
+    "jav321": { "enabled": false, "language": "zh", "request_delay": 1500 },
+    "mgstage": { "enabled": false, "language": "ja", "request_delay": 1500 },
+    "tokyohot": { "enabled": false, "language": "zh", "request_delay": 1500 },
+    "aventertainment": { "enabled": false, "language": "en", "request_delay": 1500 },
+    "dlgetchu": { "enabled": false, "language": "ja", "request_delay": 1500 },
+    "caribbeancom": { "enabled": false, "language": "ja", "request_delay": 1500 },
+    "fc2": { "enabled": false, "language": "ja", "request_delay": 1500 },
+    "javstash": {
+      "enabled": false,
+      "language": "en",
+      "request_delay": 1500,
+      "base_url": "https://javstash.org/graphql",
+      "api_key": ""
+    }
+  },
   "webdav": {
     "enabled": false,
     "url": "",
@@ -31,8 +74,12 @@
   },
   "pan115": {
     "enabled": false,
-    "access_token": "",
-    "refresh_token": "",
-    "save_dir_id": "0"
+    "cookie": "",
+    "save_dir_id": "0",
+    "login_app": "wechatmini",
+    "batch_size": 20,
+    "batch_interval_seconds": 25.0,
+    "jitter_seconds": 5.0,
+    "failure_backoff_seconds": [120.0, 600.0]
   }
 }

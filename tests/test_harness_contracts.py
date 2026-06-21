@@ -18,6 +18,7 @@ from modules.movies import local_scrape
 from modules.movies import local_library as movies_local_library
 from modules.movies.local_scrape_tasks import LocalScrapeTaskManager
 from modules.movies import service as movies_service
+from modules.magnets import service as magnets_service
 from modules.system import path_browser
 from modules.system import settings as system_settings
 from modules.ui import router as ui_router
@@ -35,8 +36,14 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
     assert "/api/system/info" in api_paths
     assert "/api/movies" in api_paths
     assert "/api/automation/tasks" in api_paths
+    assert "/api/115/qrcode/start" in api_paths
     assert "/api/115/download" in api_paths
+    assert "/api/115/download-jobs" in api_paths
+    assert "/api/115/files" in api_paths
+    assert api_paths.index("/api/115/qrcode/start") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/115/download") < api_paths.index("/api/{path:path}")
+    assert api_paths.index("/api/115/download-jobs") < api_paths.index("/api/{path:path}")
+    assert api_paths.index("/api/115/files") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/automation/tasks") < api_paths.index("/api/{path:path}")
     assert "/api/{path:path}" == api_paths[-1]
 
@@ -115,9 +122,12 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
             },
             "pan115": {
                 "enabled": True,
-                "access_token": "pan115-access-token",
-                "refresh_token": "pan115-refresh-token",
+                "cookie": "UID=pan115-uid;CID=pan115-cid;SEID=pan115-seid;KID=pan115-kid",
                 "save_dir_id": "12345",
+                "login_app": "wechatmini",
+                "batch_size": 20,
+                "batch_interval_seconds": 25.0,
+                "jitter_seconds": 5.0,
             },
         },
     )
@@ -134,10 +144,12 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
     assert "password" not in client_config["pikpak"]
     assert client_config["pan115"]["configured"] is True
     assert client_config["pan115"]["save_dir_id"] == "12345"
-    assert client_config["pan115"]["has_access_token"] is True
-    assert client_config["pan115"]["has_refresh_token"] is True
-    assert "access_token" not in client_config["pan115"]
-    assert "refresh_token" not in client_config["pan115"]
+    assert client_config["pan115"]["login_app"] == "wechatmini"
+    assert client_config["pan115"]["batch_size"] == 20
+    assert client_config["pan115"]["batch_interval_seconds"] == 25.0
+    assert client_config["pan115"]["jitter_seconds"] == 5.0
+    assert client_config["pan115"]["has_cookie"] is True
+    assert "cookie" not in client_config["pan115"]
 
 
 def test_javbus_default_request_interval_is_conservative():
@@ -203,6 +215,12 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
     test_config = runtime.merge_config(
         runtime.DEFAULT_CONFIG,
         {
+            "scrapers": {
+                "priority": ["javbus", "r18dev", "javstash"],
+                "javbus": {"enabled": True, "language": "zh"},
+                "r18dev": {"enabled": True, "language": "en", "request_delay": 1500},
+                "javstash": {"enabled": True, "api_key": "javstash-secret", "language": "en"},
+            },
             "webdav": {
                 "enabled": True,
                 "url": "https://dav.example.test/",
@@ -224,9 +242,12 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
             },
             "pan115": {
                 "enabled": True,
-                "access_token": "pan115-access-token",
-                "refresh_token": "pan115-refresh-token",
+                "cookie": "UID=pan115-uid;CID=pan115-cid;SEID=pan115-seid;KID=pan115-kid",
                 "save_dir_id": "12345",
+                "login_app": "wechatmini",
+                "batch_size": 20,
+                "batch_interval_seconds": 25.0,
+                "jitter_seconds": 5.0,
             },
         },
     )
@@ -234,7 +255,12 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
 
     payload = system_settings.build_settings_payload()
 
-    assert set(["javbus", "webdav", "aria2", "pikpak", "pan115", "security"]).issubset(payload)
+    assert set(["javbus", "scrapers", "webdav", "aria2", "pikpak", "pan115", "security"]).issubset(payload)
+    assert payload["scrapers"]["priority"] == ["javbus", "r18dev", "javstash"]
+    assert payload["scrapers"]["javbus"]["enabled"] is True
+    assert payload["scrapers"]["r18dev"]["enabled"] is True
+    assert payload["scrapers"]["javstash"]["has_api_key"] is True
+    assert "api_key" not in payload["scrapers"]["javstash"]
     assert payload["webdav"]["url"] == "https://dav.example.test/"
     assert payload["webdav"]["has_password"] is True
     assert "password" not in payload["webdav"]
@@ -245,10 +271,12 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
     assert "password" not in payload["pikpak"]
     assert payload["pan115"]["enabled"] is True
     assert payload["pan115"]["save_dir_id"] == "12345"
-    assert payload["pan115"]["has_access_token"] is True
-    assert payload["pan115"]["has_refresh_token"] is True
-    assert "access_token" not in payload["pan115"]
-    assert "refresh_token" not in payload["pan115"]
+    assert payload["pan115"]["login_app"] == "wechatmini"
+    assert payload["pan115"]["batch_size"] == 20
+    assert payload["pan115"]["batch_interval_seconds"] == 25.0
+    assert payload["pan115"]["jitter_seconds"] == 5.0
+    assert payload["pan115"]["has_cookie"] is True
+    assert "cookie" not in payload["pan115"]
 
 
 def test_system_settings_update_persists_connector_sections_without_echoing_secrets(tmp_path, monkeypatch):
@@ -282,9 +310,18 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
             },
             "pan115": {
                 "enabled": True,
-                "access_token": "pan115-access-token",
-                "refresh_token": "pan115-refresh-token",
+                "cookie": "UID=pan115-uid;CID=pan115-cid;SEID=pan115-seid;KID=pan115-kid",
                 "save_dir_id": "67890",
+                "login_app": "wechatmini",
+                "batch_size": 25,
+                "batch_interval_seconds": 60.0,
+                "jitter_seconds": 4.0,
+            },
+            "scrapers": {
+                "priority": ["r18dev", "javbus", "javstash"],
+                "r18dev": {"enabled": True, "language": "ja", "request_delay": 2000},
+                "javbus": {"enabled": True, "language": "zh", "base_url": "https://www.javbus.com"},
+                "javstash": {"enabled": True, "api_key": "javstash-api-key", "language": "en"},
             },
         },
     )
@@ -297,18 +334,29 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
     assert "secret" not in payload["aria2"]
     assert payload["pikpak"]["has_password"] is True
     assert "password" not in payload["pikpak"]
-    assert payload["pan115"]["has_access_token"] is True
-    assert payload["pan115"]["has_refresh_token"] is True
-    assert "access_token" not in payload["pan115"]
-    assert "refresh_token" not in payload["pan115"]
+    assert payload["pan115"]["has_cookie"] is True
+    assert payload["pan115"]["login_app"] == "wechatmini"
+    assert payload["pan115"]["batch_size"] == 25
+    assert payload["pan115"]["batch_interval_seconds"] == 60.0
+    assert payload["pan115"]["jitter_seconds"] == 4.0
+    assert "cookie" not in payload["pan115"]
+    assert payload["scrapers"]["priority"] == ["r18dev", "javbus", "javstash"]
+    assert payload["scrapers"]["javstash"]["has_api_key"] is True
+    assert "api_key" not in payload["scrapers"]["javstash"]
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["webdav"]["password"] == "webdav-password"
     assert saved["aria2"]["secret"] == "aria2-secret"
     assert saved["pikpak"]["password"] == "pikpak-password"
-    assert saved["pan115"]["access_token"] == "pan115-access-token"
-    assert saved["pan115"]["refresh_token"] == "pan115-refresh-token"
+    assert saved["pan115"]["cookie"] == "UID=pan115-uid;CID=pan115-cid;SEID=pan115-seid;KID=pan115-kid"
     assert saved["pan115"]["save_dir_id"] == "67890"
+    assert saved["pan115"]["login_app"] == "wechatmini"
+    assert saved["pan115"]["batch_size"] == 25
+    assert saved["pan115"]["batch_interval_seconds"] == 60.0
+    assert saved["pan115"]["jitter_seconds"] == 4.0
+    assert saved["scrapers"]["priority"] == ["r18dev", "javbus", "javstash"]
+    assert saved["scrapers"]["r18dev"]["language"] == "ja"
+    assert saved["scrapers"]["javstash"]["api_key"] == "javstash-api-key"
 
 
 def test_system_settings_rejects_invalid_javbus_values():
@@ -427,6 +475,25 @@ def test_path_browser_lists_only_child_directories(tmp_path):
     assert payload["parent_path"] == str(tmp_path.resolve().parent)
     assert [entry["name"] for entry in payload["entries"]] == ["Downloads", "Movies"]
     assert all(entry["is_directory"] for entry in payload["entries"])
+
+
+def test_path_browser_lists_local_files_for_resource_manager(tmp_path):
+    (tmp_path / "Movies").mkdir()
+    video = tmp_path / "ABP-123.mp4"
+    text = tmp_path / "notes.txt"
+    video.write_bytes(b"video")
+    text.write_text("note", encoding="utf-8")
+
+    payload = path_browser.list_file_entries_payload(str(tmp_path))
+
+    assert payload["success"] is True
+    assert payload["current_path"] == str(tmp_path.resolve())
+    entries = {entry["name"]: entry for entry in payload["entries"]}
+    assert entries["Movies"]["is_directory"] is True
+    assert entries["ABP-123.mp4"]["is_directory"] is False
+    assert entries["ABP-123.mp4"]["size"] == 5
+    assert entries["ABP-123.mp4"]["path"] == str(video.resolve())
+    assert "modified" in entries["notes.txt"]
 
 
 def test_path_browser_reports_invalid_directory(tmp_path):
@@ -628,12 +695,82 @@ def test_download_magnets_to_aria2_requires_connection(monkeypatch):
     assert response.json()["detail"] == "请先连接 Aria2"
 
 
+def test_yhg007_parser_extracts_magnet_rows():
+    html = """
+    <div class="ssbox">
+        <div class="title"><h3><a href="/hash/abc.html">ABP-123 ch</a></h3></div>
+        <div class="slist"><ul>
+            <li>ABP-123-C.mp4&nbsp;<span class="lightColor">2.5 GB</span></li>
+        </ul></div>
+        <div class="sbar">
+            <span><a href="magnet:?xt=urn:btih:ABC123" target="_blank">[磁力链接]</a></span>
+            <span>添加时间:<b>2026-06-20</b></span>
+            <span>大小:<b class="cpill yellow-pill">2.5 GB</b></span>
+            <span>热度:<b>42</b></span>
+        </div>
+    </div>
+    """
+
+    results = magnets_service.parse_yhg007_search_results(html)
+
+    assert len(results) == 1
+    assert results[0]["link"] == "magnet:?xt=urn:btih:ABC123"
+    assert results[0]["title"] == "ABP-123 ch"
+    assert results[0]["filename"] == "ABP-123-C.mp4 2.5 GB"
+    assert results[0]["size"] == "2.5 GB"
+    assert results[0]["date"] == "2026-06-20"
+    assert results[0]["shareDate"] == "2026-06-20"
+    assert results[0]["hasSubtitle"] is True
+    assert results[0]["source"] == "yhg007"
+    assert results[0]["hot"] == "42"
+
+
+def test_yhg007_best_resource_prefers_hottest_within_twenty_percent_of_largest_size():
+    results = [
+        {"title": "largest but colder", "size": "10 GB", "hot": "100", "link": "magnet:largest"},
+        {"title": "too small but hot", "size": "7.9 GB", "hot": "9999", "link": "magnet:small-hot"},
+        {"title": "within band and hottest", "size": "8.1 GB", "hot": "500", "link": "magnet:band-hot"},
+        {"title": "within band but colder", "size": "9.5 GB", "hot": "200", "link": "magnet:band-cold"},
+    ]
+
+    best = magnets_service.select_yhg007_best_magnet(results)
+
+    assert best["link"] == "magnet:band-hot"
+
+
+def test_get_magnets_payload_uses_yhg007_without_javbus_params(monkeypatch):
+    calls = []
+
+    async def fake_fetch_yhg007(movie_id, **kwargs):
+        calls.append((movie_id, kwargs))
+        return [{"link": "magnet:?xt=urn:btih:abc", "title": "ABP-123", "size": "2 GB"}]
+
+    async def fail_get_movie_detail(movie_id):
+        raise AssertionError("yhg007 should not require JavBus movie params")
+
+    monkeypatch.setattr(magnets_service, "fetch_yhg007_magnet_data", fake_fetch_yhg007)
+    monkeypatch.setattr(magnets_service, "get_movie_detail", fail_get_movie_detail)
+
+    payload = asyncio.run(
+        magnets_service.get_magnets_payload(
+            "ABP-123",
+            {"source": "yhg007", "hasSubtitle": "false", "exclude4k": "true", "sortBy": "size", "sortOrder": "desc"},
+        )
+    )
+
+    assert payload == [{"link": "magnet:?xt=urn:btih:abc", "title": "ABP-123", "size": "2 GB"}]
+    assert calls == [
+        (
+            "ABP-123",
+            {"has_subtitle_filter": "false", "exclude_4k": True, "sort_by": "size", "sort_order": "desc"},
+        )
+    ]
+
+
 def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
     class FakePan115Client:
-        def __init__(self, access_token, refresh_token="", on_token_refresh=None):
-            self.access_token = access_token
-            self.refresh_token = refresh_token
-            self.on_token_refresh = on_token_refresh
+        def __init__(self, cookie):
+            self.cookie = cookie
             self.calls = []
 
         async def add_offline_tasks(self, urls, save_dir_id="0"):
@@ -670,8 +807,7 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
         "get_pan115_config",
         lambda: {
             "enabled": True,
-            "access_token": "access-token",
-            "refresh_token": "refresh-token",
+            "cookie": "UID=uid;CID=cid;SEID=seid;KID=kid",
             "save_dir_id": "555",
         },
     )
@@ -685,8 +821,7 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
         )
     )
 
-    assert clients[0].access_token == "access-token"
-    assert clients[0].refresh_token == "refresh-token"
+    assert clients[0].cookie == "UID=uid;CID=cid;SEID=seid;KID=kid"
     assert clients[0].calls == [(["magnet:ok", "magnet:fail"], "555")]
     assert result["success"] is True
     assert result["success_count"] == 1
@@ -696,26 +831,32 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
     assert saved_ids == ["M-OK"]
 
 
-def test_pan115_download_does_not_persist_request_tokens(monkeypatch):
-    clients = []
-
+def test_pan115_download_batches_large_dispatches_with_configured_pause(monkeypatch):
     class FakePan115Client:
-        def __init__(self, access_token, refresh_token="", on_token_refresh=None):
-            self.access_token = access_token
-            self.refresh_token = refresh_token
-            self.on_token_refresh = on_token_refresh
+        def __init__(self, cookie):
+            self.cookie = cookie
+            self.calls = []
             clients.append(self)
 
         async def add_offline_tasks(self, urls, save_dir_id="0"):
-            return [{"url": urls[0], "success": True, "info_hash": "hash-ok"}]
+            self.calls.append((list(urls), save_dir_id))
+            return [{"url": url, "success": True, "info_hash": f"hash-{index}"} for index, url in enumerate(urls)]
+
+    clients = []
+    saved_ids = []
+    sleeps = []
 
     async def fake_not_exists(_movie_id):
         return False
 
-    async def fake_save_movies(_movie_ids):
-        return None
+    async def fake_save_movies(movie_ids):
+        saved_ids.extend(movie_ids)
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
 
     monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
+    monkeypatch.setattr(pan115_service_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
@@ -724,28 +865,386 @@ def test_pan115_download_does_not_persist_request_tokens(monkeypatch):
         "get_pan115_config",
         lambda: {
             "enabled": True,
-            "access_token": "config-access-token",
-            "refresh_token": "config-refresh-token",
-            "save_dir_id": "0",
+            "cookie": "UID=uid;CID=cid;SEID=seid;KID=kid",
+            "save_dir_id": "555",
+            "batch_size": 2,
+            "batch_interval_seconds": 0.25,
+            "jitter_seconds": 0,
         },
     )
-    monkeypatch.setattr(pan115_service_module.runtime, "update_config_section", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("manual tokens must not persist")))
 
     result = asyncio.run(
         pan115_service_module.download(
             Pan115DownloadRequest(
-                magnet_links=["magnet:ok"],
-                movie_ids=["M-OK"],
-                access_token="manual-access-token",
-                refresh_token="manual-refresh-token",
+                magnet_links=["magnet:1", "magnet:2", "magnet:3", "magnet:4", "magnet:5"],
+                movie_ids=["M1", "M2", "M3", "M4", "M5"],
             )
         )
     )
 
+    assert clients[0].calls == [
+        (["magnet:1", "magnet:2"], "555"),
+        (["magnet:3", "magnet:4"], "555"),
+        (["magnet:5"], "555"),
+    ]
+    assert sleeps == [0.25, 0.25]
+    assert result["success_count"] == 5
+    assert saved_ids == ["M1", "M2", "M3", "M4", "M5"]
+
+
+def test_pan115_download_deduplicates_links_and_applies_jitter(monkeypatch):
+    class FakePan115Client:
+        def __init__(self, cookie):
+            self.cookie = cookie
+            self.calls = []
+            clients.append(self)
+
+        async def add_offline_tasks(self, urls, save_dir_id="0"):
+            self.calls.append((list(urls), save_dir_id))
+            return [{"url": url, "success": True, "info_hash": f"hash-{url[-1]}"} for url in urls]
+
+    clients = []
+    sleeps = []
+
+    async def fake_not_exists(_movie_id):
+        return False
+
+    async def fake_save_movies(_movie_ids):
+        return None
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
+    monkeypatch.setattr(pan115_service_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(pan115_service_module.random, "uniform", lambda _low, _high: -3.0)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(
+        pan115_service_module,
+        "get_pan115_config",
+        lambda: {
+            "enabled": True,
+            "cookie": "UID=uid;CID=cid;SEID=seid;KID=kid",
+            "save_dir_id": "555",
+            "batch_size": 2,
+            "batch_interval_seconds": 25,
+            "jitter_seconds": 5,
+        },
+    )
+
+    result = asyncio.run(
+        pan115_service_module.download(
+            Pan115DownloadRequest(
+                magnet_links=["magnet:1", "magnet:1", "magnet:2"],
+                movie_ids=["M1", "M1-DUP", "M2"],
+            )
+        )
+    )
+
+    assert clients[0].calls == [(["magnet:1", "magnet:2"], "555")]
+    assert sleeps == []
+    assert result["success_count"] == 2
+    assert [item.get("reason") for item in result["results"] if item.get("skipped")] == ["duplicate_magnet"]
+
+
+def test_pan115_download_retries_failed_batches_with_backoff(monkeypatch):
+    class FakePan115Client:
+        def __init__(self, cookie):
+            self.calls = 0
+
+        async def add_offline_tasks(self, urls, save_dir_id="0"):
+            self.calls += 1
+            if self.calls == 1:
+                raise pan115_service_module.Pan115Error("pan115_add_failed", "temporary failure")
+            return [{"url": urls[0], "success": True, "info_hash": "hash-ok"}]
+
+    sleeps = []
+
+    async def fake_not_exists(_movie_id):
+        return False
+
+    async def fake_save_movies(_movie_ids):
+        return None
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
+    monkeypatch.setattr(pan115_service_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(
+        pan115_service_module,
+        "get_pan115_config",
+        lambda: {
+            "enabled": True,
+            "cookie": "UID=uid;CID=cid;SEID=seid;KID=kid",
+            "save_dir_id": "555",
+            "batch_size": 2,
+            "batch_interval_seconds": 0,
+            "failure_backoff_seconds": [120, 600],
+        },
+    )
+
+    result = asyncio.run(
+        pan115_service_module.download(Pan115DownloadRequest(magnet_links=["magnet:ok"], movie_ids=["M-OK"]))
+    )
+
+    assert sleeps == [120.0]
     assert result["success"] is True
-    assert clients[0].access_token == "manual-access-token"
-    assert clients[0].refresh_token == "manual-refresh-token"
-    assert clients[0].on_token_refresh is None
+    assert result["success_count"] == 1
+
+
+def test_pan115_download_job_manager_records_progress(monkeypatch):
+    async def fake_download(request, progress_callback=None):
+        if progress_callback:
+            await progress_callback({"completed_count": 1, "total_count": len(request.magnet_links), "current_batch": 1, "total_batches": 1})
+        return {"success": True, "success_count": 1, "skipped_count": 0, "results": [{"success": True}]}
+
+    monkeypatch.setattr(pan115_service_module, "download", fake_download)
+
+    async def exercise():
+        manager = pan115_service_module.Pan115DownloadJobManager()
+        job = manager.submit(Pan115DownloadRequest(magnet_links=["magnet:ok"], movie_ids=["M-OK"]))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        return manager.get(job["job_id"])
+
+    snapshot = asyncio.run(exercise())
+
+    assert snapshot["status"] == "completed"
+    assert snapshot["completed_count"] == 1
+    assert snapshot["result"]["success"] is True
+    assert "cookie" not in json.dumps(snapshot)
+
+
+def test_pan115_directory_cache_reuses_recent_listing(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"state": True, "cid": "0", "count": 1, "data": [{"cid": "folder-1", "n": "云下载", "fc": 0}]}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, params=None, headers=None):
+            calls.append((url, params))
+            return FakeResponse()
+
+    monkeypatch.setattr(pan115_service_module.httpx, "AsyncClient", FakeAsyncClient)
+    client = pan115_service_module.Pan115Client("UID=uid;CID=cid;SEID=seid;KID=kid")
+
+    first = asyncio.run(client.list_directory("0", cache_ttl_seconds=120))
+    second = asyncio.run(client.list_directory("0", cache_ttl_seconds=120))
+
+    assert first == second
+    assert calls == [(pan115_service_module.PAN115_FILE_LIST_URL, calls[0][1])]
+
+
+def test_pan115_client_add_offline_tasks_uses_web_sign_flow(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, params=None, headers=None):
+            calls.append(("get", url, params, headers))
+            return FakeResponse({"state": True, "sign": "offline-sign", "time": 1782079287})
+
+        async def post(self, url, params=None, data=None, headers=None):
+            calls.append(("post", url, params, data, headers))
+            return FakeResponse(
+                {
+                    "state": True,
+                    "result": [
+                        {
+                            "state": True,
+                            "errno": 0,
+                            "info_hash": "cd272bf4b1c483abadc09006d4d481a022008217",
+                            "url": data["url[0]"],
+                        }
+                    ],
+                }
+            )
+
+    monkeypatch.setattr(pan115_service_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        pan115_service_module.Pan115Client("UID=9770899_R1_1782078708;CID=cid;SEID=seid").add_offline_tasks(
+            ["magnet:?xt=urn:btih:CD272BF4B1C483ABADC09006D4D481A022008217"],
+            save_dir_id="3456592279215537221",
+        )
+    )
+
+    assert calls[0][0] == "get"
+    assert calls[0][2]["ct"] == "offline"
+    assert calls[0][2]["ac"] == "space"
+    assert calls[1][0] == "post"
+    assert calls[1][2] == {"ct": "lixian", "ac": "add_task_urls"}
+    assert calls[1][3]["uid"] == "9770899"
+    assert calls[1][3]["sign"] == "offline-sign"
+    assert calls[1][3]["time"] == "1782079287"
+    assert calls[1][3]["wp_path_id"] == "3456592279215537221"
+    assert calls[1][3]["url[0]"].startswith("magnet:?xt=urn:btih:")
+    assert result[0]["success"] is True
+    assert result[0]["info_hash"] == "cd272bf4b1c483abadc09006d4d481a022008217"
+
+
+def test_pan115_client_treats_existing_offline_task_as_success(monkeypatch):
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return FakeResponse({"state": True, "sign": "offline-sign", "time": 1782079287})
+
+        async def post(self, _url, params=None, data=None, headers=None):
+            return FakeResponse(
+                {
+                    "state": False,
+                    "error_msg": "任务已存在，请勿输入重复的链接地址",
+                    "result": [
+                        {
+                            "state": False,
+                            "errcode": 10008,
+                            "error_msg": "任务已存在，请勿输入重复的链接地址",
+                            "info_hash": "cd272bf4b1c483abadc09006d4d481a022008217",
+                            "url": data["url[0]"],
+                        }
+                    ],
+                }
+            )
+
+    monkeypatch.setattr(pan115_service_module.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        pan115_service_module.Pan115Client("UID=9770899_R1_1782078708;CID=cid;SEID=seid").add_offline_tasks(
+            ["magnet:?xt=urn:btih:CD272BF4B1C483ABADC09006D4D481A022008217"]
+        )
+    )
+
+    assert result[0]["success"] is True
+    assert result[0]["message"] == "任务已存在，请勿输入重复的链接地址"
+
+
+def test_pan115_qrcode_status_allowed_saves_cookie_without_echoing_secret(monkeypatch, tmp_path):
+    class FakeQrStore:
+        def get(self, session_id):
+            assert session_id == "session-1"
+            return SimpleNamespace(uid="qr-uid", app="wechatmini")
+
+        def delete(self, session_id):
+            assert session_id == "session-1"
+
+    async def fake_check_qrcode_status(_session):
+        return {"status": 2, "state": "allowed", "message": "allowed"}
+
+    async def fake_login_qrcode(_session):
+        return "UID=pan115-uid;CID=pan115-cid;SEID=pan115-seid;KID=pan115-kid"
+
+    saved_updates = []
+    monkeypatch.setattr(pan115_service_module, "qr_session_store", FakeQrStore())
+    monkeypatch.setattr(pan115_service_module, "check_qrcode_status", fake_check_qrcode_status)
+    monkeypatch.setattr(pan115_service_module, "login_qrcode", fake_login_qrcode)
+    monkeypatch.setattr(pan115_service_module.runtime, "update_config_section", lambda section, updates: saved_updates.append((section, updates)) or updates)
+
+    client = TestClient(main.app)
+    response = client.get("/api/115/qrcode/session-1/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == 2
+    assert payload["state"] == "allowed"
+    assert payload["configured"] is True
+    assert "cookie" not in payload
+    assert saved_updates == [
+        (
+            "pan115",
+            {
+                "enabled": True,
+                "cookie": "UID=pan115-uid;CID=pan115-cid;SEID=pan115-seid;KID=pan115-kid",
+                "login_app": "wechatmini",
+            },
+        )
+    ]
+
+
+def test_pan115_qrcode_start_returns_public_session_without_secret(monkeypatch):
+    class FakeQrStore:
+        def create(self, session, app):
+            assert app == "wechatmini"
+            assert session["uid"] == "qr-uid"
+            return "session-1"
+
+    async def fake_start_qrcode():
+        return {
+            "uid": "qr-uid",
+            "time": 1710000000,
+            "sign": "qr-sign",
+            "qrcode": "115://qrcode-content",
+        }
+
+    monkeypatch.setattr(pan115_service_module, "qr_session_store", FakeQrStore())
+    monkeypatch.setattr(pan115_service_module, "start_qrcode", fake_start_qrcode)
+
+    client = TestClient(main.app)
+    response = client.post("/api/115/qrcode/start", json={"app": "wechatmini"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["session_id"] == "session-1"
+    assert payload["qrcode"] == "115://qrcode-content"
+    assert payload["qrcode_image_url"].endswith("uid=qr-uid")
+    assert payload["state"] == "waiting"
+    assert "sign" not in payload
+    assert "cookie" not in payload
 
 
 def test_automation_service_dispatches_to_pan115(tmp_path, monkeypatch):
@@ -1473,6 +1972,42 @@ def test_local_scrape_preview_reports_progress(tmp_path):
     assert events[-1]["phase"] == "complete"
     assert events[-1]["completed"] == 2
     assert any("ABP-123.mp4" in event.get("message", "") for event in events)
+
+
+def test_local_scrape_preview_uses_configured_metadata_scraper_chain(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+
+    class FakeMetadataScraperService:
+        async def get_movie_detail(self, movie_id):
+            assert movie_id == "ABP-123"
+            return {
+                "metadata": {
+                    "id": movie_id,
+                    "title": "ABP-123 Provider Title",
+                    "date": "2026-06-21",
+                    "raw": {"id": movie_id},
+                },
+                "source": "r18dev",
+                "logs": [
+                    {"level": "warning", "message": "javbus did not match"},
+                    {"level": "info", "message": "r18dev matched"},
+                ],
+            }
+
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService())
+
+    payload = asyncio.run(
+        local_scrape.preview_local_scrape(
+            local_scrape.LocalScrapePreviewRequest(directory=str(tmp_path), scrape=True),
+        )
+    )
+
+    item = payload["items"][0]
+    assert item["scrape_status"] == "found"
+    assert item["scrape_source"] == "r18dev"
+    assert item["metadata"]["title"] == "ABP-123 Provider Title"
+    assert any("r18dev matched" in entry["message"] for entry in item["scrape_logs"])
 
 
 def test_local_scrape_preview_keeps_diagnostic_reasons_for_abnormal_rows(tmp_path, monkeypatch):

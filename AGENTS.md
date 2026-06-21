@@ -87,8 +87,8 @@ Use this as the source-of-truth ownership map.
 - `modules/pikpak/`
   - PikPak login and download dispatch
 - `modules/pan115/`
-  - 115 Open API token-based offline download dispatch
-  - 115 token refresh and refreshed-token persistence
+  - 115 QR/Cookie login
+  - 115 Cookie-based offline download dispatch
 - `modules/webdav/`
   - WebDAV browsing
   - Aria2 dispatch

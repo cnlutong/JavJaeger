@@ -533,3 +533,95 @@
     background: transparent !important;
     scrollbar-gutter: auto;
 }
+
+/* Net disk manager refinement */
+.webdav-page-header-compact {
+    min-height: 64px;
+}
+
+.webdav-page-header-compact h3.ant-typography {
+    margin: 0 !important;
+}
+
+.webdav-netdisk-card.webdav-work-card {
+    margin-top: 0;
+}
+
+.webdav-page .ant-row > .ant-col > .webdav-work-card {
+    margin-top: 0;
+}
+
+.webdav-netdisk-card .ant-card-body {
+    padding: 8px !important;
+}
+
+.webdav-netdisk-list {
+    margin-bottom: 8px;
+}
+
+.webdav-netdisk-list .ant-list-item {
+    gap: 6px;
+    padding: 4px;
+    border-block-end: 0 !important;
+    border-radius: 8px;
+}
+
+.webdav-netdisk-list .ant-list-item.is-active,
+.webdav-netdisk-list .ant-list-item:hover {
+    background: #f0f7ff;
+}
+
+.webdav-netdisk-row {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) 12px;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    padding: 8px;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.webdav-netdisk-row:focus-visible {
+    outline: 2px solid #1677ff;
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.webdav-netdisk-icon {
+    color: #1677ff;
+    font-size: 16px;
+}
+
+.webdav-netdisk-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.webdav-explorer-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.webdav-explorer-topbar .ant-breadcrumb {
+    margin-bottom: 0 !important;
+}
+
+.webdav-file-search {
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .webdav-explorer-topbar {
+        grid-template-columns: 1fr;
+    }
+}
