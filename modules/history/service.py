@@ -655,7 +655,7 @@ class LocalMovieLibraryService:
         if not normalized_media:
             return False
 
-        allowed_fields = {"width", "height", "resolution_pixels", "bitrate", "codec", "duration_seconds"}
+        allowed_fields = {"width", "height", "resolution_pixels", "bitrate", "codec", "container", "duration_seconds"}
         async with self._lock:
             record = self._cache.get(normalized)
             if not record:
@@ -677,6 +677,97 @@ class LocalMovieLibraryService:
                 self._refresh_record_totals(record, datetime.datetime.now().isoformat())
                 await self._save_locked()
             return changed
+
+    async def clean_file_records(
+        self,
+        invalid_paths_by_movie: dict[str, list[str]],
+        media_by_movie: dict[str, dict[str, dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
+        await self.load_records()
+        media_by_movie = media_by_movie or {}
+        allowed_fields = {"width", "height", "resolution_pixels", "bitrate", "codec", "container", "duration_seconds"}
+        now = datetime.datetime.now().isoformat()
+        removed_file_count = 0
+        removed_movie_ids: list[str] = []
+        updated_media_file_count = 0
+
+        normalized_invalid = {
+            str(movie_id or "").strip().upper(): {os.path.abspath(str(path)) for path in paths}
+            for movie_id, paths in (invalid_paths_by_movie or {}).items()
+        }
+        normalized_media = {
+            str(movie_id or "").strip().upper(): {
+                os.path.abspath(str(path)): media
+                for path, media in media_by_path.items()
+                if isinstance(media, dict) and media
+            }
+            for movie_id, media_by_path in media_by_movie.items()
+            if isinstance(media_by_path, dict)
+        }
+
+        async with self._lock:
+            touched = False
+            movie_ids = set(normalized_invalid.keys()) | set(normalized_media.keys())
+            for movie_id in movie_ids:
+                if not movie_id:
+                    continue
+                record = self._cache.get(movie_id)
+                if not record:
+                    continue
+
+                invalid_paths = normalized_invalid.get(movie_id, set())
+                media_by_path = normalized_media.get(movie_id, {})
+                kept_files: list[dict[str, Any]] = []
+                record_changed = False
+
+                for file_record in record.get("files", []):
+                    file_path = os.path.abspath(str(file_record.get("path") or ""))
+                    if file_path in invalid_paths:
+                        removed_file_count += 1
+                        record_changed = True
+                        touched = True
+                        continue
+
+                    media = media_by_path.get(file_path)
+                    if media:
+                        media_changed = False
+                        for key in allowed_fields:
+                            value = media.get(key)
+                            if value in (None, "", 0):
+                                continue
+                            if file_record.get(key) != value:
+                                file_record[key] = value
+                                media_changed = True
+                        if media_changed:
+                            updated_media_file_count += 1
+                            record_changed = True
+                            touched = True
+                    kept_files.append(file_record)
+
+                if record_changed:
+                    record["files"] = kept_files
+                    if kept_files:
+                        self._refresh_record_totals(record, now)
+                    else:
+                        self._cache.pop(movie_id, None)
+                        removed_movie_ids.append(movie_id)
+
+            actor_records = list(self._cache.values())
+            if touched:
+                await self._save_locked()
+
+        if removed_file_count or removed_movie_ids:
+            await self._sync_actor_library(actor_records, download_missing_avatars=False)
+
+        return {
+            "success": True,
+            "removed_file_count": removed_file_count,
+            "removed_movie_count": len(removed_movie_ids),
+            "removed_movie_ids": removed_movie_ids,
+            "updated_media_file_count": updated_media_file_count,
+            "total_movies": len(self._cache),
+            "total_files": sum(int(record.get("file_count") or 0) for record in self._cache.values()),
+        }
 
     async def clear(self) -> dict[str, Any]:
         await self.load_records()
@@ -959,7 +1050,7 @@ class LocalMovieLibraryService:
             return {}
         media_info = {
             key: best_file.get(key)
-            for key in ("width", "height", "resolution_pixels", "bitrate", "codec", "duration_seconds")
+            for key in ("width", "height", "resolution_pixels", "bitrate", "codec", "container", "duration_seconds")
             if best_file.get(key) not in (None, "", 0)
         }
         return media_info

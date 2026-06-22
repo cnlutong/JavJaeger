@@ -249,15 +249,15 @@ class Aria2Client:
             logger.error("Aria2连接测试失败: %s", exc)
             return False
 
-    def add_download(self, url: str, options: Dict[str, str] | None = None) -> str:
+    def add_download(self, url: str, options: Dict[str, Any] | None = None) -> str:
         if not self.aria2:
             raise RuntimeError("Aria2未连接")
 
-        aria2_options: Dict[str, str] = {}
+        aria2_options: Dict[str, Any] = {}
         if options:
             for key, value in options.items():
                 if value is not None:
-                    aria2_options[key] = str(value)
+                    aria2_options[key] = value if isinstance(value, list) else str(value)
 
         download = self.aria2.add_uris([url], options=aria2_options)
         return download.gid

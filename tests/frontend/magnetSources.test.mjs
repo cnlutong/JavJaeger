@@ -11,6 +11,12 @@ test("jav page exposes yhg007 as a direct-search magnet source", () => {
     assert.match(javPage, /<Option value="yhg007">YHG007<\/Option>/);
 });
 
+test("jav page exposes exclude VR movie search option", () => {
+    assert.match(javPage, /initialValues=\{\{ magnet: 'exist', type: 'normal', fetchMode: 'page', excludeVr: false \}\}/);
+    assert.match(javPage, /if \(normalizedValues\.excludeVr\) queryParams\.append\('excludeVr', 'true'\);/);
+    assert.match(javPage, /排除VR/);
+});
+
 test("automation page exposes yhg007 as a magnet node source", () => {
     assert.match(automationPage, /yhg007: "YHG007"/);
     assert.match(automationPage, /MAGNET_SOURCE_LABELS\[node\.config\?\.source \|\| "javbus"\]/);

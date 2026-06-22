@@ -38,7 +38,10 @@ def resolve_user_path(value: str | None) -> Path:
             "当前服务运行在 Linux/macOS，请输入服务所在系统可访问的路径，例如 /media/JAV 或 /data/JAV",
         )
 
-    return Path(expanded).resolve()
+    try:
+        return Path(expanded).resolve()
+    except OSError as exc:
+        raise UserPathError("invalid_path", f"路径无法访问：{exc}") from exc
 
 
 def resolve_existing_directory(value: str | None) -> Path:

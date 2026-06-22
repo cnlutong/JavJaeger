@@ -129,16 +129,41 @@ test("local library preview exposes a click-to-play video player", () => {
     assert.match(css, /\.jav-library-preview-player\s*\{[\s\S]*width:\s*100%;/);
 });
 
-test("local library shows probed video resolution and bitrate", () => {
+test("local library shows probed video resolution, bitrate, codec, and container", () => {
     assert.match(localLibraryPage, /const formatBitrate = \(bitrate\) =>/);
     assert.match(localLibraryPage, /const formatResolution = \(mediaInfo\) =>/);
+    assert.match(localLibraryPage, /const formatCodec = \(codec\) =>/);
+    assert.match(localLibraryPage, /const formatContainer = \(container\) =>/);
     assert.match(localLibraryPage, /const primaryMediaInfo = \(record\) =>/);
     assert.match(localLibraryPage, /const renderMediaTags = \(mediaInfo\) =>/);
     assert.match(localLibraryPage, /\["分辨率", selectedMediaInfo\.width && selectedMediaInfo\.height \? formatResolution\(selectedMediaInfo\) : ""\]/);
     assert.match(localLibraryPage, /\["码率", selectedMediaInfo\.bitrate \? formatBitrate\(selectedMediaInfo\.bitrate\) : ""\]/);
+    assert.match(localLibraryPage, /selectedMediaInfo\.codec \? formatCodec\(selectedMediaInfo\.codec\) : ""/);
+    assert.match(localLibraryPage, /selectedMediaInfo\.container \? formatContainer\(selectedMediaInfo\.container\) : ""/);
     assert.match(localLibraryPage, /\{renderMediaTags\(file\)\}/);
     assert.match(localLibraryPage, /\{renderMediaTags\(primaryMediaInfo\(record\)\)\}/);
     assert.match(localLibraryPage, /\{renderMediaTags\(mediaInfo\)\}/);
+});
+
+test("local library exposes invalid file cleanup from probed media metadata", () => {
+    assert.match(localLibraryPage, /cleaningInvalidFiles/);
+    assert.match(localLibraryPage, /handleCleanInvalidFiles/);
+    assert.match(localLibraryPage, /\/api\/movies\/local-library\/clean-invalid/);
+    assert.match(localLibraryPage, /checked_file_count/);
+    assert.match(localLibraryPage, /deleted_file_count/);
+    assert.match(localLibraryPage, /removed_movie_count/);
+    assert.match(localLibraryPage, /Popconfirm[\s\S]*handleCleanInvalidFiles/);
+});
+
+test("local library list mode renders media metadata as separate columns", () => {
+    const columnsBlock = localLibraryPage.match(/const columns = \[[\s\S]*?\n    \];/)?.[0] || "";
+    assert.match(columnsBlock, /title:\s*"分辨率"[\s\S]*key:\s*"resolution"[\s\S]*formatResolution\(primaryMediaInfo\(record\)\)/);
+    assert.match(columnsBlock, /title:\s*"码率"[\s\S]*key:\s*"bitrate"[\s\S]*formatBitrate\(primaryMediaInfo\(record\)\?\.bitrate\)/);
+    assert.match(columnsBlock, /key:\s*"codec"[\s\S]*formatCodec\(primaryMediaInfo\(record\)\?\.codec\)/);
+    assert.match(columnsBlock, /key:\s*"container"[\s\S]*formatContainer\(primaryMediaInfo\(record\)\?\.container\)/);
+
+    const infoColumnBlock = columnsBlock.match(/title:\s*"影片信息"[\s\S]*?title:\s*"分辨率"/)?.[0] || "";
+    assert.doesNotMatch(infoColumnBlock, /renderMediaTags\(primaryMediaInfo\(record\)\)/);
 });
 
 test("local library actor and genre tags filter from list, grid, and preview", () => {

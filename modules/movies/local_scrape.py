@@ -86,6 +86,7 @@ DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
 RESOLUTION_NUMBERS = {"800", "1080", "720", "480", "360"}
 INVALID_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 PART_MARKER_PATTERN = re.compile(r"(?i)(?:^|[._\-\s])(?P<kind>part|pt|cd|disc|disk)[._\-\s]*(?P<number>\d{1,2})(?:[^A-Z0-9]|$)")
+MAX_PATH_SEGMENT_BYTES = 180
 
 
 @dataclass(frozen=True)
@@ -207,12 +208,33 @@ def _walk_video_files(root: Path, recursive: bool, max_depth: int | None) -> lis
     return sorted(files, key=lambda path: str(path).lower())
 
 
+def _truncate_utf8(value: str, max_bytes: int) -> str:
+    if len(value.encode("utf-8")) <= max_bytes:
+        return value
+
+    used = 0
+    chars: list[str] = []
+    for char in value:
+        char_size = len(char.encode("utf-8"))
+        if used + char_size > max_bytes:
+            break
+        chars.append(char)
+        used += char_size
+    return "".join(chars)
+
+
 def _sanitize_path_segment(value: str, fallback: str) -> str:
     cleaned = INVALID_PATH_CHARS.sub("_", value).strip().strip(". ")
     cleaned = re.sub(r"\s+", " ", cleaned)
     if not cleaned:
-        cleaned = fallback
-    return cleaned[:180].rstrip(". ")
+        cleaned = INVALID_PATH_CHARS.sub("_", fallback).strip().strip(". ")
+        cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = _truncate_utf8(cleaned, MAX_PATH_SEGMENT_BYTES).rstrip(". ")
+    if cleaned:
+        return cleaned
+    fallback_cleaned = INVALID_PATH_CHARS.sub("_", fallback).strip().strip(". ")
+    fallback_cleaned = re.sub(r"\s+", " ", fallback_cleaned) or "item"
+    return _truncate_utf8(fallback_cleaned, MAX_PATH_SEGMENT_BYTES).rstrip(". ") or "item"
 
 
 def _name_from_link(value: Any) -> str:
@@ -479,6 +501,33 @@ def _int_or_none(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _normalize_container_format(format_name: Any, suffix: str) -> str:
+    names = [item.strip().lower() for item in str(format_name or "").split(",") if item.strip()]
+    extension = str(suffix or "").lower()
+    extension_containers = {
+        ".mp4": "mp4",
+        ".m4v": "mp4",
+        ".mov": "mov",
+        ".mkv": "matroska",
+        ".webm": "webm",
+        ".avi": "avi",
+        ".wmv": "asf",
+        ".flv": "flv",
+        ".ts": "mpegts",
+        ".mpg": "mpeg",
+        ".mpeg": "mpeg",
+        ".3gp": "3gp",
+    }
+    extension_container = extension_containers.get(extension)
+    if extension_container and (not names or extension_container in names):
+        return extension_container
+    if extension_container == "mp4" and {"mov", "mp4"}.issubset(set(names)):
+        return "mp4"
+    if extension_container == "webm" and "webm" in names:
+        return "webm"
+    return names[0] if names else ""
+
+
 def _probe_video_metadata(path: Path) -> dict[str, Any]:
     try:
         completed = subprocess.run(
@@ -489,7 +538,7 @@ def _probe_video_metadata(path: Path) -> dict[str, Any]:
                 "-select_streams",
                 "v:0",
                 "-show_entries",
-                "stream=width,height,bit_rate,codec_name,duration:format=bit_rate,duration",
+                "stream=width,height,bit_rate,codec_name,duration:format=bit_rate,duration,format_name",
                 "-of",
                 "json",
                 str(path),
@@ -516,6 +565,7 @@ def _probe_video_metadata(path: Path) -> dict[str, Any]:
     bitrate = _int_or_none(stream.get("bit_rate")) or _int_or_none(file_format.get("bit_rate"))
     duration = _int_or_none(stream.get("duration")) or _int_or_none(file_format.get("duration"))
     codec = str(stream.get("codec_name") or "").strip()
+    container = _normalize_container_format(file_format.get("format_name"), path.suffix)
     metadata: dict[str, Any] = {}
     if width:
         metadata["width"] = width
@@ -527,6 +577,8 @@ def _probe_video_metadata(path: Path) -> dict[str, Any]:
         metadata["bitrate"] = bitrate
     if codec:
         metadata["codec"] = codec
+    if container:
+        metadata["container"] = container
     if duration:
         metadata["duration_seconds"] = duration
     return metadata
@@ -926,6 +978,7 @@ def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | No
         stream_details = ET.SubElement(file_info, "streamdetails")
         video = ET.SubElement(stream_details, "video")
         add_to(video, "codec", media_info.get("codec"))
+        add_to(video, "container", media_info.get("container"))
         add_to(video, "width", media_info.get("width"))
         add_to(video, "height", media_info.get("height"))
         add_to(video, "bitrate", media_info.get("bitrate"))

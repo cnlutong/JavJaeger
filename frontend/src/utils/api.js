@@ -2,7 +2,13 @@ export const fetchWithRetry = async (url, options = {}, retries = 3, delay = 100
     try {
         const response = await fetch(url, options);
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            let detail = "";
+            try {
+                detail = await response.text();
+            } catch (error) {
+                detail = "";
+            }
+            throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
         }
         return await response.json();
     } catch (error) {

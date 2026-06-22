@@ -48,8 +48,18 @@ test("webdav resource manager can browse configured 115 net disk safely", () => 
     assert.match(webDavPage, /pan115/);
     assert.match(webDavPage, /\/api\/115\/files/);
     assert.match(webDavPage, /115网盘/);
-    assert.match(webDavPage, /record\.source_type === "pan115"/);
-    assert.match(webDavPage, /115 网盘文件暂不支持直接派发到 Aria2/);
+    assert.match(webDavPage, /sourceType !== "pan115"/);
+    assert.match(webDavPage, /pick_code: item\.pick_code \|\| ""/);
+    assert.doesNotMatch(webDavPage, /115 网盘文件暂不支持直接派发到 Aria2/);
+});
+
+test("webdav resource manager allows selecting 115 rows for aria2 dispatch", () => {
+    assert.match(webDavPage, /const isFileRowSelectable = \(record\) => !record\.isParent && record\.source_type !== "local";/);
+    assert.match(webDavPage, /const isAria2Dispatchable = \(record\) => record\.source_type !== "local";/);
+    assert.match(webDavPage, /getCheckboxProps: \(record\) => \({ disabled: !isFileRowSelectable\(record\) }\)/);
+    assert.match(webDavPage, /const hasSelectedRows = selectedRows\.length > 0;/);
+    assert.match(webDavPage, /disabled=\{!hasSelectedRows\}/);
+    assert.doesNotMatch(webDavPage, /getCheckboxProps:[\s\S]*record\.source_type === "pan115"/);
 });
 
 test("download management page owns aria2 connection and task controls", () => {

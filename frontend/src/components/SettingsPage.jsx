@@ -88,6 +88,7 @@ const withSecretPlaceholders = (payload = {}) => ({
     aria2: { ...(payload.aria2 || {}), secret: "" },
     pikpak: { ...(payload.pikpak || {}), password: "" },
     pan115: { ...(payload.pan115 || {}), cookie: "" },
+    magnet_health: payload.magnet_health || {},
 });
 
 const buildSettingsPayload = (values = {}) => {
@@ -98,6 +99,7 @@ const buildSettingsPayload = (values = {}) => {
         aria2: { ...(values.aria2 || {}) },
         pikpak: { ...(values.pikpak || {}) },
         pan115: { ...(values.pan115 || {}) },
+        magnet_health: { ...(values.magnet_health || {}) },
     };
 
     if (!payload.webdav.password) {
@@ -511,6 +513,32 @@ const SectionHeading = ({ title, description }) => (
     </div>
 );
 
+const formatApiError = (error, fallback) => {
+    const rawMessage = String(error?.message || "");
+    const jsonStart = rawMessage.indexOf("{");
+    if (jsonStart >= 0) {
+        try {
+            const parsed = JSON.parse(rawMessage.slice(jsonStart));
+            const detail = parsed?.detail;
+            if (typeof detail === "string") {
+                return detail;
+            }
+            if (detail?.message && detail?.reason) {
+                return `${detail.message}: ${detail.reason}`;
+            }
+            if (detail?.message) {
+                return detail.message;
+            }
+            if (detail?.error) {
+                return detail.error;
+            }
+        } catch (parseError) {
+            // Fall back to the transport error below.
+        }
+    }
+    return rawMessage || fallback;
+};
+
 export default function SettingsPage() {
     const [form] = Form.useForm();
     const [loading, setLoading] = React.useState(true);
@@ -548,7 +576,7 @@ export default function SettingsPage() {
             form.setFieldsValue(withSecretPlaceholders(payload));
             message.success("设置已保存");
         } catch (error) {
-            message.error("保存设置失败，请检查输入值");
+            message.error(`保存设置失败：${formatApiError(error, "请检查输入值")}`);
         } finally {
             setSaving(false);
         }
@@ -558,16 +586,20 @@ export default function SettingsPage() {
         setScraperTesting(true);
         try {
             const values = form.getFieldsValue(true);
-            const saved = await updateSystemSettings(buildSettingsPayload(values));
-            setSettings(saved);
-            form.setFieldsValue(withSecretPlaceholders(saved));
+            try {
+                const saved = await updateSystemSettings(buildSettingsPayload(values));
+                setSettings(saved);
+                form.setFieldsValue(withSecretPlaceholders(saved));
+            } catch (saveError) {
+                message.warning("保存当前设置失败，将使用服务器已保存配置测试");
+            }
             const result = await testMetadataScrapers({
                 providers: SCRAPER_OPTIONS.map((option) => option.value),
             });
             setScraperTestResult(result);
             message.success(`测试完成：${result.summary?.success || 0}/${result.summary?.total || 0} 可用`);
         } catch (error) {
-            message.error("测试刮削源失败");
+            message.error(`测试刮削源失败：${error.message || "请求失败"}`);
         } finally {
             setScraperTesting(false);
         }
@@ -584,7 +616,7 @@ export default function SettingsPage() {
             await loadSettings();
             message.success("已按测试结果更新启用状态");
         } catch (error) {
-            message.error("应用测试结果失败");
+            message.error(`应用测试结果失败：${formatApiError(error, "请求失败")}`);
         } finally {
             setScraperApplying(false);
         }
@@ -1077,6 +1109,60 @@ export default function SettingsPage() {
                 >
                     <Input.Password autoComplete="new-password" placeholder="UID=...;CID=...;SEID=...;KID=..." />
                 </Form.Item>
+            </ServicePanel>
+
+            <ServicePanel icon={SafetyCertificateOutlined} title="磁力健康度" configured={Boolean(settings?.magnet_health?.enabled)}>
+                <Row gutter={16}>
+                    <Col xs={24} md={12}>
+                        <Form.Item name={["magnet_health", "enabled"]} label="启用健康度过滤" valuePropName="checked">
+                            <Switch />
+                        </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                        <Form.Item
+                            name={["magnet_health", "probe_with_aria2"]}
+                            label="使用 Aria2 探测"
+                            valuePropName="checked"
+                            extra="需要已启用并配置 Aria2；探测使用 metadata-only 任务并自动清理"
+                        >
+                            <Switch />
+                        </Form.Item>
+                    </Col>
+                </Row>
+                <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                        <Form.Item name={["magnet_health", "min_seeders"]} label="最少做种数">
+                            <InputNumber min={0} max={10000} precision={0} style={{ width: "100%" }} />
+                        </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                        <Form.Item name={["magnet_health", "min_peers"]} label="最少 Peer 数">
+                            <InputNumber min={0} max={10000} precision={0} style={{ width: "100%" }} />
+                        </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                        <Form.Item name={["magnet_health", "min_availability"]} label="最小可用度">
+                            <InputNumber min={0} max={100} step={0.1} precision={2} style={{ width: "100%" }} />
+                        </Form.Item>
+                    </Col>
+                </Row>
+                <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                        <Form.Item name={["magnet_health", "min_score"]} label="最低评分">
+                            <InputNumber min={0} max={100000} step={0.5} precision={1} style={{ width: "100%" }} />
+                        </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                        <Form.Item name={["magnet_health", "probe_timeout_seconds"]} label="探测超时（秒）">
+                            <InputNumber min={3} max={120} step={1} precision={0} style={{ width: "100%" }} />
+                        </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                        <Form.Item name={["magnet_health", "allow_unknown"]} label="放行未知健康度" valuePropName="checked">
+                            <Switch />
+                        </Form.Item>
+                    </Col>
+                </Row>
             </ServicePanel>
         </div>
     );

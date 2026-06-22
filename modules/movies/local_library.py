@@ -1,6 +1,8 @@
 import datetime
 import asyncio
 import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +53,18 @@ def _build_library_file_record(path: Path, root: Path) -> dict[str, Any]:
     }
     record.update(_probe_video_metadata(path))
     return record
+
+
+def _has_readable_video_media(media_info: dict[str, Any]) -> bool:
+    if not isinstance(media_info, dict):
+        return False
+    width = int(media_info.get("width") or 0)
+    height = int(media_info.get("height") or 0)
+    resolution = int(media_info.get("resolution_pixels") or 0)
+    bitrate = int(media_info.get("bitrate") or 0)
+    codec = str(media_info.get("codec") or "").strip()
+    container = str(media_info.get("container") or "").strip()
+    return bool((width > 0 and height > 0) or resolution > 0 or bitrate > 0 or codec or container)
 
 
 async def _scrape_metadata(movie_ids: list[str], concurrent: int) -> dict[str, dict[str, Any]]:
@@ -134,6 +148,95 @@ def parse_information_check_fields(fields: str | list[str] | tuple[str, ...] | N
 
 async def get_local_library_information_check(fields: str | list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
     return await local_movie_library_service.get_information_check(parse_information_check_fields(fields))
+
+
+async def clean_invalid_local_library_files() -> dict[str, Any]:
+    if shutil.which("ffprobe") is None:
+        return {
+            "success": False,
+            "error": "ffprobe_unavailable",
+            "message": "ffprobe 不可用，无法安全清洗无效视频文件",
+            "checked_file_count": 0,
+            "invalid_file_count": 0,
+            "deleted_file_count": 0,
+            "deletion_failed_count": 0,
+            "removed_movie_count": 0,
+        }
+
+    records = await local_movie_library_service.get_all()
+    checked_file_count = 0
+    invalid_file_count = 0
+    deleted_files: list[dict[str, Any]] = []
+    failed_files: list[dict[str, Any]] = []
+    invalid_paths_by_movie: dict[str, list[str]] = {}
+    media_by_movie: dict[str, dict[str, dict[str, Any]]] = {}
+
+    for record in records:
+        movie_id = str(record.get("movie_id") or "").strip().upper()
+        if not movie_id:
+            continue
+        for file_record in record.get("files", []):
+            video_path = Path(str(file_record.get("path") or ""))
+            if not video_path.name:
+                continue
+            try:
+                resolved = video_path.resolve()
+            except OSError as exc:
+                failed_files.append({
+                    "movie_id": movie_id,
+                    "path": str(video_path),
+                    "error": "path_resolve_failed",
+                    "message": str(exc),
+                })
+                continue
+            if not resolved.exists() or not resolved.is_file():
+                continue
+
+            checked_file_count += 1
+            media_info = _probe_video_metadata(resolved)
+            if _has_readable_video_media(media_info):
+                media_by_movie.setdefault(movie_id, {})[os.path.abspath(str(resolved))] = media_info
+                continue
+
+            invalid_file_count += 1
+            try:
+                resolved.unlink()
+            except OSError as exc:
+                failed_files.append({
+                    "movie_id": movie_id,
+                    "path": str(resolved),
+                    "error": "delete_failed",
+                    "message": str(exc),
+                })
+                continue
+
+            deleted_files.append({
+                "movie_id": movie_id,
+                "path": str(resolved),
+                "file_name": file_record.get("file_name") or resolved.name,
+                "size": int(file_record.get("size") or 0),
+            })
+            invalid_paths_by_movie.setdefault(movie_id, []).append(os.path.abspath(str(resolved)))
+
+    prune_result = await local_movie_library_service.clean_file_records(
+        invalid_paths_by_movie,
+        media_by_movie,
+    )
+    return {
+        "success": True,
+        "checked_file_count": checked_file_count,
+        "invalid_file_count": invalid_file_count,
+        "deleted_file_count": len(deleted_files),
+        "deletion_failed_count": len(failed_files),
+        "removed_file_count": prune_result.get("removed_file_count", 0),
+        "removed_movie_count": prune_result.get("removed_movie_count", 0),
+        "updated_media_file_count": prune_result.get("updated_media_file_count", 0),
+        "total_movies": prune_result.get("total_movies", 0),
+        "total_files": prune_result.get("total_files", 0),
+        "deleted_files": deleted_files[:100],
+        "failed_files": failed_files[:100],
+        "message": f"已清洗 {len(deleted_files)} 个无效文件",
+    }
 
 
 async def download_missing_local_library_information(request: LocalLibraryInformationDownloadRequest) -> dict[str, Any]:

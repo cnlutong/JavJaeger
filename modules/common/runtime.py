@@ -98,9 +98,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "jitter_seconds": 5.0,
         "failure_backoff_seconds": [120.0, 600.0],
     },
+    "magnet_health": {
+        "enabled": False,
+        "probe_with_aria2": False,
+        "min_seeders": 1,
+        "min_peers": 1,
+        "min_availability": 1.0,
+        "min_score": 1.0,
+        "probe_timeout_seconds": 20.0,
+        "allow_unknown": True,
+    },
 }
 
 CONFIG_PATH = os.getenv("JAVJAEGER_CONFIG_PATH", "config.json")
+
+
+class ConfigSaveError(RuntimeError):
+    def __init__(self, path: str, reason: str):
+        super().__init__(f"Failed to save config to {path}: {reason}")
+        self.path = path
+        self.reason = reason
 
 
 def get_version_info() -> dict[str, str]:
@@ -211,9 +228,16 @@ def load_config() -> dict[str, Any]:
 
 def save_config(next_config: dict[str, Any]) -> dict[str, Any]:
     merged = merge_config(DEFAULT_CONFIG, next_config)
-    with open(CONFIG_PATH, "w", encoding="utf-8") as file:
-        json.dump(merged, file, ensure_ascii=False, indent=2)
-        file.write("\n")
+    try:
+        parent = os.path.dirname(os.path.abspath(CONFIG_PATH))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as file:
+            json.dump(merged, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+    except OSError as exc:
+        logger.error("保存配置文件失败 %s: %s", CONFIG_PATH, exc)
+        raise ConfigSaveError(CONFIG_PATH, str(exc)) from exc
     return merged
 
 
@@ -245,6 +269,10 @@ def get_pan115_config() -> dict[str, Any]:
     return copy.deepcopy(config.get("pan115", DEFAULT_CONFIG["pan115"]))
 
 
+def get_magnet_health_config() -> dict[str, Any]:
+    return copy.deepcopy(config.get("magnet_health", DEFAULT_CONFIG["magnet_health"]))
+
+
 def get_javbus_config() -> dict[str, Any]:
     javbus_config = copy.deepcopy(config.get("javbus", DEFAULT_CONFIG["javbus"]))
     env_base_url = os.getenv("JAVBUS_BASE_URL")
@@ -268,6 +296,7 @@ def build_client_config() -> dict[str, Any]:
     aria2_config = get_aria2_config()
     pikpak_config = get_pikpak_config()
     pan115_config = get_pan115_config()
+    magnet_health_config = get_magnet_health_config()
     webdav_enabled = bool(webdav_config.get("enabled"))
     aria2_enabled = bool(aria2_config.get("enabled"))
     pikpak_enabled = bool(pikpak_config.get("enabled"))
@@ -302,6 +331,16 @@ def build_client_config() -> dict[str, Any]:
             "batch_interval_seconds": pan115_config.get("batch_interval_seconds") if pan115_config.get("batch_interval_seconds") is not None else 25.0,
             "jitter_seconds": pan115_config.get("jitter_seconds") if pan115_config.get("jitter_seconds") is not None else 5.0,
             "has_cookie": bool(pan115_config.get("cookie")),
+        },
+        "magnet_health": {
+            "enabled": bool(magnet_health_config.get("enabled")),
+            "probe_with_aria2": bool(magnet_health_config.get("probe_with_aria2")),
+            "min_seeders": int(magnet_health_config.get("min_seeders") or 0),
+            "min_peers": int(magnet_health_config.get("min_peers") or 0),
+            "min_availability": float(magnet_health_config.get("min_availability") or 0),
+            "min_score": float(magnet_health_config.get("min_score") or 0),
+            "probe_timeout_seconds": float(magnet_health_config.get("probe_timeout_seconds") or 0),
+            "allow_unknown": bool(magnet_health_config.get("allow_unknown", True)),
         },
     }
 

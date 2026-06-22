@@ -52,6 +52,10 @@ def _normalize_filter_value(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+def _parse_bool_query(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _iter_detail_values(value: Any) -> list[str]:
     if value is None:
         return []
@@ -143,13 +147,27 @@ def _movie_detail_matches_filter(movie_detail: dict[str, Any], condition: dict[s
     return bool(detail_values.intersection(expected_values))
 
 
+def _movie_detail_is_vr(movie_detail: dict[str, Any]) -> bool:
+    genre_values = set(_iter_detail_values(movie_detail.get("genres")))
+    if "vr" in genre_values:
+        return True
+
+    title_values = []
+    for field_name in ("title", "full_title", "name"):
+        normalized = _normalize_filter_value(movie_detail.get(field_name))
+        if normalized:
+            title_values.append(normalized)
+    return any("【vr】" in title for title in title_values)
+
+
 async def _filter_movies_by_detail(
     movies: list[dict[str, Any]],
     filter_conditions: list[dict[str, str]],
     actor_count_filter: str | None,
+    exclude_vr: bool,
     semaphore_size: int,
 ) -> list[dict[str, Any]]:
-    if not movies or (len(filter_conditions) <= 1 and not actor_count_filter):
+    if not movies or (len(filter_conditions) <= 1 and not actor_count_filter and not exclude_vr):
         return movies
 
     semaphore = asyncio.Semaphore(semaphore_size)
@@ -158,6 +176,8 @@ async def _filter_movies_by_detail(
         try:
             movie_detail = await get_movie_detail(movie["id"])
             if not movie_detail:
+                return None
+            if exclude_vr and _movie_detail_is_vr(movie_detail):
                 return None
             if actor_count_filter and not _matches_actor_count_filter(len(movie_detail.get("stars") or []), actor_count_filter):
                 return None
@@ -182,23 +202,26 @@ async def filter_movies_by_detail_conditions(
     movies: list[dict[str, Any]],
     filter_conditions: list[dict[str, str]],
     actor_count_filter: str | None = None,
+    exclude_vr: bool = False,
     semaphore_size: int = 3,
 ) -> list[dict[str, Any]]:
-    return await _filter_movies_by_detail(movies, filter_conditions, actor_count_filter, semaphore_size)
+    return await _filter_movies_by_detail(movies, filter_conditions, actor_count_filter, exclude_vr, semaphore_size)
 
 
 async def get_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
+    exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
     filter_conditions = _parse_filter_conditions(request.query_params)
 
     query_params = _build_list_query_params(request.query_params, filter_conditions)
+    query_params.pop("excludeVr", None)
 
     data = await javbus_api_service.get_movies_by_page(query_params)
     if data is None:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
 
     if data.get("movies"):
-        filtered_movies = await _filter_movies_by_detail(data["movies"], filter_conditions, actor_count_filter, 3)
+        filtered_movies = await _filter_movies_by_detail(data["movies"], filter_conditions, actor_count_filter, exclude_vr, 3)
         data["movies"] = filtered_movies
         if "pagination" in data:
             data["pagination"]["total"] = len(filtered_movies)
@@ -208,9 +231,11 @@ async def get_movies_payload(request: Request) -> dict[str, Any]:
 
 async def get_all_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
+    exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
     filter_conditions = _parse_filter_conditions(request.query_params)
     query_params = _build_list_query_params(request.query_params, filter_conditions)
     query_params.pop("page", None)
+    query_params.pop("excludeVr", None)
 
     all_movies: list[dict[str, Any]] = []
     current_page = 1
@@ -248,7 +273,7 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
         batch_size = 50
         for index in range(0, len(all_movies), batch_size):
             batch = all_movies[index : index + batch_size]
-            filtered_movies.extend(await _filter_movies_by_detail(batch, filter_conditions, actor_count_filter, 5))
+            filtered_movies.extend(await _filter_movies_by_detail(batch, filter_conditions, actor_count_filter, exclude_vr, 5))
 
         all_movies = filtered_movies
 
@@ -270,11 +295,18 @@ async def get_movies_search_payload(request: Request) -> dict[str, Any]:
     page = request.query_params.get("page") or "1"
     magnet = request.query_params.get("magnet") or "exist"
     movie_type = request.query_params.get("type")
+    exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
     if not keyword:
         return {"error": "`keyword` is required", "messages": ["`keyword` is required"]}
 
     try:
-        return await javbus_api_service.get_movies_by_keyword_and_page(keyword, page, magnet, movie_type)
+        data = await javbus_api_service.get_movies_by_keyword_and_page(keyword, page, magnet, movie_type)
+        if exclude_vr and data.get("movies"):
+            filtered_movies = await _filter_movies_by_detail(data["movies"], [], None, True, 3)
+            data["movies"] = filtered_movies
+            if "pagination" in data:
+                data["pagination"]["total"] = len(filtered_movies)
+        return data
     except Exception as exc:
         if "404" in str(exc):
             return {

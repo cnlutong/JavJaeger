@@ -31,6 +31,17 @@ test("settings page strips blank sensitive fields before saving", () => {
     assert.match(settingsPage, /delete payload\.scrapers\.javstash\.api_key/);
 });
 
+test("settings page exposes magnet health thresholds", () => {
+    assert.match(settingsPage, /magnet_health/);
+    assert.match(settingsPage, /min_seeders/);
+    assert.match(settingsPage, /min_peers/);
+    assert.match(settingsPage, /min_availability/);
+    assert.match(settingsPage, /min_score/);
+    assert.match(settingsPage, /probe_timeout_seconds/);
+    assert.match(settingsPage, /allow_unknown/);
+    assert.match(settingsPage, /probe_with_aria2/);
+});
+
 test("settings page exposes configurable scraper providers inspired by javinizer-go", () => {
     assert.match(settingsPage, /name=\{\["scrapers", "priority"\]\}/);
     assert.match(settingsPage, /r18dev/);
@@ -48,6 +59,19 @@ test("settings page exposes configurable scraper providers inspired by javinizer
     assert.match(settingsPage, /fc2/);
     assert.match(settingsPage, /javstash/);
     assert.match(settingsPage, /has_api_key/);
+});
+
+test("settings scraper testing continues when settings save is unavailable", () => {
+    assert.match(settingsPage, /保存当前设置失败，将使用服务器已保存配置测试/);
+    assert.match(settingsPage, /testMetadataScrapers/);
+    assert.match(apiUtils, /HTTP \$\{response\.status\}/);
+});
+
+test("settings save surfaces backend failure details", () => {
+    assert.match(settingsPage, /formatApiError/);
+    assert.match(settingsPage, /detail\?\.reason/);
+    assert.match(settingsPage, /保存设置失败：/);
+    assert.match(settingsPage, /应用测试结果失败：/);
 });
 
 test("settings API has a grouped update helper", () => {

@@ -4,8 +4,10 @@ import mimetypes
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
+from modules.common import runtime
 from modules.history.service import local_actor_library_service, local_movie_library_service
 from .local_library import (
+    clean_invalid_local_library_files,
     clear_local_library,
     delete_local_library_movie,
     download_missing_local_library_information,
@@ -106,6 +108,15 @@ async def download_local_movie_library_information(request: LocalLibraryInformat
     except Exception as exc:
         logger.error("Local library information download failed: %s", exc)
         return {"success": False, "error": "information_download_failed", "message": "下载影视库缺失信息失败"}
+
+
+@router.post("/api/movies/local-library/clean-invalid")
+async def clean_invalid_local_movie_library_files():
+    try:
+        return await clean_invalid_local_library_files()
+    except Exception as exc:
+        logger.error("Local library invalid file cleanup failed: %s", exc)
+        return {"success": False, "error": "invalid_cleanup_failed", "message": "清洗影视库无效文件失败"}
 
 
 @router.get("/api/movies/local-library/actors")
@@ -215,7 +226,18 @@ async def test_movie_metadata_scrapers(request: MetadataScraperTestRequest):
 
 @router.post("/api/movies/metadata-scrapers/apply-test-results")
 async def apply_movie_metadata_scraper_test_results(request: MetadataScraperApplyTestResultsRequest):
-    return apply_metadata_scraper_test_results(request.results)
+    try:
+        return apply_metadata_scraper_test_results(request.results)
+    except runtime.ConfigSaveError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "config_save_failed",
+                "message": "配置文件写入失败，请检查部署环境中的配置文件路径和写入权限",
+                "path": exc.path,
+                "reason": exc.reason,
+            },
+        )
 
 
 @router.get("/api/movies/{movie_id}")

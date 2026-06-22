@@ -658,6 +658,7 @@ export default function JavPage() {
             if (normalizedValues.type) queryParams.append('type', normalizedValues.type);
             if (normalizedValues.actorCountFilter) queryParams.append('actorCountFilter', normalizedValues.actorCountFilter);
             if (normalizedValues.hasSubtitle) queryParams.append('hasSubtitle', normalizedValues.hasSubtitle);
+            if (normalizedValues.excludeVr) queryParams.append('excludeVr', 'true');
             if (page > 1) queryParams.append('page', page);
 
             const apiUrl = normalizedValues.fetchMode === 'all'
@@ -1724,7 +1725,7 @@ export default function JavPage() {
                                 <Divider className="jav-sidebar-divider" />
 
                                 <Card title={<><Icon as={FilterOutlined} /> 影片列表筛选</>} size="small" className="jav-tool-card">
-                                    <Form form={filterForm} onFinish={filterMovies} layout="vertical" initialValues={{ magnet: 'exist', type: 'normal', fetchMode: 'page' }}>
+                                    <Form form={filterForm} onFinish={filterMovies} layout="vertical" initialValues={{ magnet: 'exist', type: 'normal', fetchMode: 'page', excludeVr: false }}>
                                         <Form.Item name="filterType" style={{ marginBottom: 8 }}>
                                             <Select placeholder="选择筛选类型" allowClear optionLabelProp="label">
                                                 <Option value="star" label="演员">
@@ -1833,6 +1834,15 @@ export default function JavPage() {
                                                 <Option value="true">包含字幕</Option>
                                                 <Option value="false">不含字幕</Option>
                                             </Select>
+                                        </Form.Item>
+                                        <Form.Item name="excludeVr" label="VR影片" style={{ marginBottom: 8 }}>
+                                            <Segmented
+                                                block
+                                                options={[
+                                                    { label: '不排除VR', value: false },
+                                                    { label: '排除VR', value: true }
+                                                ]}
+                                            />
                                         </Form.Item>
                                         <Form.Item name="fetchMode" label="获取方式" style={{ marginBottom: 8 }}>
                                             <Select>

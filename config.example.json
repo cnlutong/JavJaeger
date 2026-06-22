@@ -81,5 +81,15 @@
     "batch_interval_seconds": 25.0,
     "jitter_seconds": 5.0,
     "failure_backoff_seconds": [120.0, 600.0]
+  },
+  "magnet_health": {
+    "enabled": false,
+    "probe_with_aria2": false,
+    "min_seeders": 1,
+    "min_peers": 1,
+    "min_availability": 1.0,
+    "min_score": 1.0,
+    "probe_timeout_seconds": 20.0,
+    "allow_unknown": true
   }
 }

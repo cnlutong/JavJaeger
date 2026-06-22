@@ -89,6 +89,7 @@ Use this as the source-of-truth ownership map.
 - `modules/pan115/`
   - 115 QR/Cookie login
   - 115 Cookie-based offline download dispatch
+  - 115 direct download URL resolution for server-side Aria2 dispatch
 - `modules/webdav/`
   - WebDAV browsing
   - Aria2 dispatch
@@ -297,6 +298,7 @@ Current approved backend cross-module dependencies:
 - `pikpak` -> `history`
 - `pan115` -> `history`
 - `pan115` -> `common`
+- `webdav` -> `pan115`
 - `automation` -> `javbus_api`, `movies`, `magnets`, `pikpak`, `pan115`, `webdav`, `history`
 
 If a new module is needed, define its ownership and allowed imports before writing code.

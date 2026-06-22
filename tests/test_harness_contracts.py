@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import main
 from modules.automation.schemas import AutomationTaskCreate, AutomationTaskUpdate
 from modules.automation.service import AutomationService
@@ -14,6 +15,7 @@ from modules.history.service import local_movie_library_service
 from modules.history.service import local_actor_library_service
 from modules.history import service as history_service_module
 from modules.common import runtime
+from modules.common import paths as common_paths
 from modules.movies import local_scrape
 from modules.movies import local_library as movies_local_library
 from modules.movies import metadata_scrapers
@@ -26,6 +28,7 @@ from modules.ui import router as ui_router
 from modules.webdav.clients import WebDavClient
 from modules.webdav.session_state import WebDavSessionStore
 from modules.webdav import router as webdav_router
+from modules.webdav import service as webdav_service
 from fastapi.testclient import TestClient
 from starlette.datastructures import QueryParams
 from modules.proxy import router as proxy_router
@@ -47,6 +50,18 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
     assert api_paths.index("/api/115/files") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/automation/tasks") < api_paths.index("/api/{path:path}")
     assert "/api/{path:path}" == api_paths[-1]
+
+
+def test_resolve_user_path_wraps_filesystem_os_errors(monkeypatch):
+    def fail_resolve(self):
+        raise OSError(36, "File name too long")
+
+    monkeypatch.setattr(common_paths.Path, "resolve", fail_resolve)
+
+    with pytest.raises(common_paths.UserPathError) as exc_info:
+        common_paths.resolve_user_path("/app/data/temp/" + ("x" * 300))
+
+    assert exc_info.value.code == "invalid_path"
 
 
 def test_local_library_poster_route_is_before_status_route():
@@ -84,6 +99,14 @@ def test_local_library_information_routes_are_before_status_route():
         "/api/movies/local-library/{movie_id}"
     )
     assert api_paths.index("/api/movies/local-library/information/download") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+
+
+def test_local_library_clean_invalid_route_is_before_status_route():
+    api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
+
+    assert api_paths.index("/api/movies/local-library/clean-invalid") < api_paths.index(
         "/api/movies/local-library/{movie_id}"
     )
 
@@ -162,6 +185,38 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
     assert "cookie" not in client_config["pan115"]
 
 
+def test_client_config_includes_non_sensitive_magnet_health_settings(monkeypatch):
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "magnet_health": {
+                "enabled": True,
+                "probe_with_aria2": True,
+                "min_seeders": 3,
+                "min_peers": 5,
+                "min_availability": 1.0,
+                "min_score": 3.0,
+                "probe_timeout_seconds": 12.0,
+                "allow_unknown": False,
+            },
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+
+    client_config = runtime.build_client_config()
+
+    assert client_config["magnet_health"] == {
+        "enabled": True,
+        "probe_with_aria2": True,
+        "min_seeders": 3,
+        "min_peers": 5,
+        "min_availability": 1.0,
+        "min_score": 3.0,
+        "probe_timeout_seconds": 12.0,
+        "allow_unknown": False,
+    }
+
+
 def test_javbus_default_request_interval_is_conservative():
     assert runtime.DEFAULT_CONFIG["javbus"]["request_interval_seconds"] == 0.5
 
@@ -183,6 +238,48 @@ def test_live_verified_metadata_providers_are_enabled_by_default():
     }
 
     assert enabled_defaults == {"javbus", "libredmm", "jav321", "tokyohot", "dlgetchu", "fc2"}
+
+
+def test_system_settings_update_reports_config_save_failure(monkeypatch):
+    monkeypatch.setattr(runtime, "config", runtime.merge_config(runtime.DEFAULT_CONFIG, {}))
+
+    def fail_save_config(next_config):
+        raise runtime.ConfigSaveError("/readonly/config.json", "permission denied")
+
+    monkeypatch.setattr(runtime, "save_config", fail_save_config)
+    client = TestClient(main.app)
+
+    response = client.put(
+        "/api/system/settings",
+        json={"scrapers": {"javbus": {"enabled": True}}},
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["error"] == "config_save_failed"
+    assert detail["path"] == "/readonly/config.json"
+    assert detail["reason"] == "permission denied"
+
+
+def test_metadata_scraper_apply_results_reports_config_save_failure(monkeypatch):
+    monkeypatch.setattr(runtime, "config", runtime.merge_config(runtime.DEFAULT_CONFIG, {}))
+
+    def fail_save_config(next_config):
+        raise runtime.ConfigSaveError("/readonly/config.json", "permission denied")
+
+    monkeypatch.setattr(runtime, "save_config", fail_save_config)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/api/movies/metadata-scrapers/apply-test-results",
+        json={"results": [{"provider": "javbus", "success": True}]},
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["error"] == "config_save_failed"
+    assert detail["path"] == "/readonly/config.json"
+    assert detail["reason"] == "permission denied"
 
 
 def test_libredmm_metadata_adapter_maps_json_payload(monkeypatch):
@@ -701,13 +798,23 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
                 "batch_interval_seconds": 25.0,
                 "jitter_seconds": 5.0,
             },
+            "magnet_health": {
+                "enabled": True,
+                "probe_with_aria2": True,
+                "min_seeders": 2,
+                "min_peers": 4,
+                "min_availability": 1.0,
+                "min_score": 2.0,
+                "probe_timeout_seconds": 15.0,
+                "allow_unknown": False,
+            },
         },
     )
     monkeypatch.setattr(runtime, "config", test_config)
 
     payload = system_settings.build_settings_payload()
 
-    assert set(["javbus", "scrapers", "webdav", "aria2", "pikpak", "pan115", "security"]).issubset(payload)
+    assert set(["javbus", "scrapers", "webdav", "aria2", "pikpak", "pan115", "magnet_health", "security"]).issubset(payload)
     assert payload["scrapers"]["priority"] == ["javbus", "r18dev", "javstash"]
     assert payload["scrapers"]["javbus"]["enabled"] is True
     assert payload["scrapers"]["r18dev"]["enabled"] is True
@@ -730,6 +837,10 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
     assert payload["pan115"]["jitter_seconds"] == 5.0
     assert payload["pan115"]["has_cookie"] is True
     assert "cookie" not in payload["pan115"]
+    assert payload["magnet_health"]["enabled"] is True
+    assert payload["magnet_health"]["probe_with_aria2"] is True
+    assert payload["magnet_health"]["min_seeders"] == 2
+    assert payload["magnet_health"]["allow_unknown"] is False
 
 
 def test_system_settings_update_persists_connector_sections_without_echoing_secrets(tmp_path, monkeypatch):
@@ -776,6 +887,16 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
                 "javbus": {"enabled": True, "language": "zh", "base_url": "https://www.javbus.com"},
                 "javstash": {"enabled": True, "api_key": "javstash-api-key", "language": "en"},
             },
+            "magnet_health": {
+                "enabled": True,
+                "probe_with_aria2": False,
+                "min_seeders": 2,
+                "min_peers": 3,
+                "min_availability": 1.0,
+                "min_score": 2.0,
+                "probe_timeout_seconds": 10.0,
+                "allow_unknown": False,
+            },
         },
     )
 
@@ -796,6 +917,9 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
     assert payload["scrapers"]["priority"] == ["r18dev", "javbus", "javstash"]
     assert payload["scrapers"]["javstash"]["has_api_key"] is True
     assert "api_key" not in payload["scrapers"]["javstash"]
+    assert payload["magnet_health"]["enabled"] is True
+    assert payload["magnet_health"]["min_seeders"] == 2
+    assert payload["magnet_health"]["allow_unknown"] is False
 
     saved = json.loads(config_path.read_text(encoding="utf-8"))
     assert saved["webdav"]["password"] == "webdav-password"
@@ -810,6 +934,9 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
     assert saved["scrapers"]["priority"] == ["r18dev", "javbus", "javstash"]
     assert saved["scrapers"]["r18dev"]["language"] == "ja"
     assert saved["scrapers"]["javstash"]["api_key"] == "javstash-api-key"
+    assert saved["magnet_health"]["enabled"] is True
+    assert saved["magnet_health"]["min_seeders"] == 2
+    assert saved["magnet_health"]["allow_unknown"] is False
 
 
 def test_system_settings_rejects_invalid_javbus_values():
@@ -1088,6 +1215,43 @@ def test_movies_payload_refines_results_with_multiple_filter_tags(monkeypatch):
     assert payload["pagination"]["total"] == 1
 
 
+def test_movies_payload_can_exclude_vr_movies_by_genre_and_title(monkeypatch):
+    class FakeRequest:
+        query_params = QueryParams({"excludeVr": "true", "magnet": "exist", "type": "normal"})
+
+    class FakeJavBusService:
+        def __init__(self):
+            self.page_queries = []
+
+        async def get_movies_by_page(self, query):
+            self.page_queries.append(query)
+            return {
+                "movies": [
+                    {"id": "KEEP-001", "title": "Regular Movie"},
+                    {"id": "VR-GENRE-001", "title": "Regular Title"},
+                    {"id": "VR-TITLE-001", "title": "Some 【VR】 Movie"},
+                ],
+                "pagination": {"total": 3},
+            }
+
+        async def get_movie_detail(self, movie_id):
+            details = {
+                "KEEP-001": {"title": "Regular Movie", "genres": [{"id": "drama", "name": "Drama"}]},
+                "VR-GENRE-001": {"title": "Regular Title", "genres": [{"id": "vr", "name": "VR"}]},
+                "VR-TITLE-001": {"title": "Some 【VR】 Movie", "genres": [{"id": "drama", "name": "Drama"}]},
+            }
+            return details[movie_id]
+
+    fake_service = FakeJavBusService()
+    monkeypatch.setattr(movies_service, "javbus_api_service", fake_service)
+
+    payload = asyncio.run(movies_service.get_movies_payload(FakeRequest()))
+
+    assert fake_service.page_queries == [{"magnet": "exist", "type": "normal"}]
+    assert payload["movies"] == [{"id": "KEEP-001", "title": "Regular Movie"}]
+    assert payload["pagination"]["total"] == 1
+
+
 def test_download_magnets_to_aria2_routes_success_and_failures(monkeypatch):
     class FakeAria2Client:
         def __init__(self):
@@ -1148,6 +1312,67 @@ def test_download_magnets_to_aria2_requires_connection(monkeypatch):
     assert response.json()["detail"] == "请先连接 Aria2"
 
 
+def test_webdav_download_dispatches_pan115_rows_to_session_aria2_without_webdav(monkeypatch):
+    class FakeAria2Client:
+        def __init__(self):
+            self.calls = []
+
+        def add_download(self, url, options=None):
+            self.calls.append((url, options or {}))
+            return f"gid-{len(self.calls)}"
+
+    fake_aria2_client = FakeAria2Client()
+
+    class FakeSessionStore:
+        async def get_state(self, _request):
+            return SimpleNamespace(webdav_client=None, aria2_client=fake_aria2_client)
+
+    async def fake_resolve_downloads(files, video_filter=False, min_file_size_mb=300):
+        assert files[0].source_type == "pan115"
+        assert files[0].pick_code == "pick-1"
+        return [
+            SimpleNamespace(
+                name="movie.mp4",
+                url="https://download.115.test/movie.mp4",
+                headers=["Cookie: UID=secret;CID=secret;SEID=secret", "User-Agent: Mozilla/5.0 JavJaeger/1.0"],
+            )
+        ], []
+
+    monkeypatch.setattr(webdav_router, "session_store", FakeSessionStore())
+    monkeypatch.setattr(webdav_service.pan115_service, "resolve_download_entries_from_config", fake_resolve_downloads)
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/webdav/download",
+        json={
+            "files": [
+                {
+                    "source_type": "pan115",
+                    "name": "movie.mp4",
+                    "path": "file-1",
+                    "pick_code": "pick-1",
+                    "is_directory": False,
+                    "size": 1024,
+                }
+            ],
+            "video_filter": False,
+            "min_file_size_mb": 300,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["results"] == [{"filename": "movie.mp4", "success": True, "gid": "gid-1", "message": "添加成功"}]
+    assert fake_aria2_client.calls == [
+        (
+            "https://download.115.test/movie.mp4",
+            {"out": "movie.mp4", "header": ["Cookie: UID=secret;CID=secret;SEID=secret", "User-Agent: Mozilla/5.0 JavJaeger/1.0"]},
+        )
+    ]
+    assert "UID=secret" not in json.dumps(payload)
+
+
 def test_yhg007_parser_extracts_magnet_rows():
     html = """
     <div class="ssbox">
@@ -1189,6 +1414,74 @@ def test_yhg007_best_resource_prefers_hottest_within_twenty_percent_of_largest_s
     best = magnets_service.select_yhg007_best_magnet(results)
 
     assert best["link"] == "magnet:band-hot"
+
+
+def test_javbus_best_magnet_retries_after_unhealthy_candidate(monkeypatch):
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "magnet_health": {
+                "enabled": True,
+                "probe_with_aria2": False,
+                "min_seeders": 1,
+                "min_peers": 1,
+                "min_availability": 1.0,
+                "min_score": 1.0,
+                "allow_unknown": False,
+            },
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+
+    async def fake_get_movie_detail(movie_id):
+        return {"id": movie_id, "gid": "1", "uc": "2"}
+
+    async def fake_fetch_javbus(movie_id, movie_data):
+        return [
+            {"title": "largest dead", "link": "magnet:dead", "size": "10 GB", "seeders": 0, "peers": 0},
+            {"title": "smaller healthy", "link": "magnet:healthy", "size": "8 GB", "seeders": 2, "peers": 3},
+        ]
+
+    monkeypatch.setattr(magnets_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(magnets_service, "fetch_javbus_magnet_data", fake_fetch_javbus)
+
+    best = asyncio.run(magnets_service.get_best_magnet_payload("ABP-123", magnet_source="javbus"))
+
+    assert best["link"] == "magnet:healthy"
+    assert best["health"]["status"] == "healthy"
+    assert best["health"]["seeders"] == 2
+
+
+def test_javbus_best_magnet_returns_none_when_all_candidates_unhealthy(monkeypatch):
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "magnet_health": {
+                "enabled": True,
+                "probe_with_aria2": False,
+                "min_seeders": 1,
+                "min_peers": 1,
+                "allow_unknown": False,
+            },
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+
+    async def fake_get_movie_detail(movie_id):
+        return {"id": movie_id, "gid": "1", "uc": "2"}
+
+    async def fake_fetch_javbus(movie_id, movie_data):
+        return [
+            {"title": "dead", "link": "magnet:dead", "size": "10 GB", "seeders": 0, "peers": 0},
+            {"title": "unknown", "link": "magnet:unknown", "size": "8 GB"},
+        ]
+
+    monkeypatch.setattr(magnets_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(magnets_service, "fetch_javbus_magnet_data", fake_fetch_javbus)
+
+    best = asyncio.run(magnets_service.get_best_magnet_payload("ABP-123", magnet_source="javbus"))
+
+    assert best is None
 
 
 def test_get_magnets_payload_uses_yhg007_without_javbus_params(monkeypatch):
@@ -1508,6 +1801,123 @@ def test_pan115_directory_cache_reuses_recent_listing(monkeypatch):
     assert calls == [(pan115_service_module.PAN115_FILE_LIST_URL, calls[0][1])]
 
 
+def test_pan115_directory_listing_exposes_pick_code(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "state": True,
+                "cid": "0",
+                "count": 1,
+                "data": [{"fid": "file-1", "pid": "0", "n": "movie.mp4", "ico": "mp4", "s": "1024", "pc": "pick-1"}],
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(pan115_service_module.httpx, "AsyncClient", FakeAsyncClient)
+    client = pan115_service_module.Pan115Client("UID=uid;CID=cid;SEID=seid;KID=kid")
+
+    payload = asyncio.run(client.list_directory("0", cache_ttl_seconds=0))
+
+    assert payload["items"][0]["id"] == "file-1"
+    assert payload["items"][0]["pick_code"] == "pick-1"
+
+
+def test_pan115_direct_download_uses_android_client(monkeypatch):
+    class FakeP115Client:
+        def __init__(self, cookie):
+            self.cookie = cookie
+
+        async def download_url(self, pick_code, *, headers, app, async_):
+            assert self.cookie == "UID=uid;CID=cid;SEID=seid;KID=kid"
+            assert pick_code == "pick-1"
+            assert headers["user-agent"] == pan115_service_module.PAN115_DOWNLOAD_USER_AGENT
+            assert app == "android"
+            assert async_ is True
+            return "https://download.115.test/movie.mp4"
+
+    monkeypatch.setattr(pan115_service_module, "P115Client", FakeP115Client)
+    client = pan115_service_module.Pan115Client("UID=uid;CID=cid;SEID=seid;KID=kid")
+
+    info = asyncio.run(client.resolve_direct_download("pick-1", fallback_name="movie.mp4", fallback_size=1024))
+
+    assert info.url == "https://download.115.test/movie.mp4"
+    assert info.name == "movie.mp4"
+    assert info.size == 1024
+    assert "Cookie: UID=uid;CID=cid;SEID=seid;KID=kid" in info.headers
+
+
+def test_pan115_direct_download_uses_android_client_for_large_files(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "state": False,
+                "msg": "文件大小超出限制，请使用115电脑端下载",
+                "msg_code": 50028,
+                "file_name": "movie.mp4",
+                "file_size": "5173612098",
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    class FakeP115Client:
+        def __init__(self, cookie):
+            self.cookie = cookie
+
+        async def download_url(self, pick_code, *, headers, app, async_):
+            assert pick_code == "pick-large"
+            assert headers["user-agent"] == pan115_service_module.PAN115_DOWNLOAD_USER_AGENT
+            assert app == "android"
+            assert async_ is True
+            return "https://download.115.test/movie.mp4"
+
+    monkeypatch.setattr(pan115_service_module, "P115Client", FakeP115Client)
+    client = pan115_service_module.Pan115Client("UID=uid;CID=cid;SEID=seid;KID=kid")
+
+    info = asyncio.run(client.resolve_direct_download("pick-large", fallback_name="movie.mp4", fallback_size=5173612098))
+
+    assert info.url == "https://download.115.test/movie.mp4"
+    assert info.name == "movie.mp4"
+    assert info.size == 5173612098
+
+
+def test_pan115_direct_download_requires_android_client(monkeypatch):
+    monkeypatch.setattr(pan115_service_module, "P115Client", None)
+    client = pan115_service_module.Pan115Client("UID=uid;CID=cid;SEID=seid;KID=kid")
+
+    with pytest.raises(pan115_service_module.Pan115Error) as exc_info:
+        asyncio.run(client.resolve_direct_download("pick-1", fallback_name="movie.mp4", fallback_size=1024))
+
+    assert exc_info.value.code == "pan115_android_client_unavailable"
+
+
 def test_pan115_client_add_offline_tasks_uses_web_sign_flow(monkeypatch):
     calls = []
 
@@ -1776,6 +2186,33 @@ def test_local_scrape_empty_folder_template_uses_target_root():
     assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"
 
 
+def test_local_scrape_target_paths_truncate_multibyte_segments_to_filesystem_limit():
+    source_path = Path("/incoming/MIDA-440.mp4")
+    long_title = "MIDA-440 " + ("ご主人様" * 80)
+    metadata = local_scrape._build_metadata(
+        {
+            "id": "MIDA-440",
+            "title": long_title,
+        },
+        "MIDA-440",
+        source_path.stem,
+    )
+
+    target_dir, target_video, target_stem = local_scrape._build_target_paths(
+        source_path,
+        metadata,
+        True,
+        "/library",
+        "{code} {title}",
+        "{code} {title}",
+    )
+
+    folder_name = target_dir.name
+    assert len(folder_name.encode("utf-8")) <= 180
+    assert len(target_stem.encode("utf-8")) <= 180
+    assert len(target_video.name.encode("utf-8")) <= 255
+
+
 def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
@@ -1850,6 +2287,7 @@ def test_local_scrape_nfo_writes_video_stream_details(tmp_path, monkeypatch):
             "resolution_pixels": 1920 * 1080,
             "bitrate": 4_500_000,
             "codec": "h264",
+            "container": "mp4",
             "duration_seconds": 3600,
         }
 
@@ -1876,6 +2314,7 @@ def test_local_scrape_nfo_writes_video_stream_details(tmp_path, monkeypatch):
     assert "<height>1080</height>" in text
     assert "<bitrate>4500000</bitrate>" in text
     assert "<codec>h264</codec>" in text
+    assert "<container>mp4</container>" in text
     assert "<durationinseconds>3600</durationinseconds>" in text
 
 
@@ -1898,6 +2337,8 @@ def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
             "height": 2160,
             "resolution_pixels": 3840 * 2160,
             "bitrate": 12_000_000,
+            "codec": "hevc",
+            "container": "matroska",
         }
 
     monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
@@ -1918,9 +2359,13 @@ def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
     assert file_record["height"] == 2160
     assert file_record["resolution_pixels"] == 3840 * 2160
     assert file_record["bitrate"] == 12_000_000
+    assert file_record["codec"] == "hevc"
+    assert file_record["container"] == "matroska"
     assert record["media_info"]["width"] == 3840
     assert record["media_info"]["height"] == 2160
     assert record["media_info"]["bitrate"] == 12_000_000
+    assert record["media_info"]["codec"] == "hevc"
+    assert record["media_info"]["container"] == "matroska"
 
 
 def test_local_library_information_download_refreshes_video_media_metadata(tmp_path, monkeypatch):
@@ -1964,6 +2409,8 @@ def test_local_library_information_download_refreshes_video_media_metadata(tmp_p
             "height": 1080,
             "resolution_pixels": 1920 * 1080,
             "bitrate": 5_000_000,
+            "codec": "h264",
+            "container": "mp4",
         }
 
     monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
@@ -1988,8 +2435,84 @@ def test_local_library_information_download_refreshes_video_media_metadata(tmp_p
     assert file_record["width"] == 1920
     assert file_record["height"] == 1080
     assert file_record["bitrate"] == 5_000_000
+    assert file_record["codec"] == "h264"
+    assert file_record["container"] == "mp4"
     assert summary["records"][0]["media_info"]["resolution_pixels"] == 1920 * 1080
-    assert "<width>1920</width>" in video.with_suffix(".nfo").read_text(encoding="utf-8-sig")
+    nfo_text = video.with_suffix(".nfo").read_text(encoding="utf-8-sig")
+    assert "<width>1920</width>" in nfo_text
+    assert "<codec>h264</codec>" in nfo_text
+    assert "<container>mp4</container>" in nfo_text
+
+
+def test_local_library_clean_invalid_deletes_unprobeable_files_and_updates_index(tmp_path, monkeypatch):
+    valid_video = tmp_path / "ABP-123.mp4"
+    broken_video = tmp_path / "ABP-123-broken.mp4"
+    only_broken_video = tmp_path / "IPX-456.mp4"
+    valid_video.write_bytes(b"valid")
+    broken_video.write_bytes(b"broken")
+    only_broken_video.write_bytes(b"broken-only")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    asyncio.run(
+        service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(valid_video),
+                    "relative_path": valid_video.name,
+                    "file_name": valid_video.name,
+                    "size": valid_video.stat().st_size,
+                    "modified_at": "2024-01-01T00:00:00",
+                    "extension": ".mp4",
+                },
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(broken_video),
+                    "relative_path": broken_video.name,
+                    "file_name": broken_video.name,
+                    "size": broken_video.stat().st_size,
+                    "modified_at": "2024-01-01T00:00:00",
+                    "extension": ".mp4",
+                },
+                {
+                    "movie_id": "IPX-456",
+                    "path": str(only_broken_video),
+                    "relative_path": only_broken_video.name,
+                    "file_name": only_broken_video.name,
+                    "size": only_broken_video.stat().st_size,
+                    "modified_at": "2024-01-01T00:00:00",
+                    "extension": ".mp4",
+                },
+            ],
+        )
+    )
+
+    def fake_probe_video_metadata(path):
+        return {
+            "width": 1920,
+            "height": 1080,
+            "resolution_pixels": 1920 * 1080,
+            "bitrate": 8_000_000,
+        } if Path(path).resolve() == valid_video.resolve() else {}
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fake_probe_video_metadata)
+    monkeypatch.setattr(movies_local_library.shutil, "which", lambda name: "ffprobe")
+
+    payload = asyncio.run(movies_local_library.clean_invalid_local_library_files())
+    summary = asyncio.run(service.get_summary())
+
+    assert payload["success"] is True
+    assert payload["checked_file_count"] == 3
+    assert payload["deleted_file_count"] == 2
+    assert payload["removed_movie_count"] == 1
+    assert valid_video.exists()
+    assert not broken_video.exists()
+    assert not only_broken_video.exists()
+    assert [record["movie_id"] for record in summary["records"]] == ["ABP-123"]
+    assert summary["records"][0]["file_count"] == 1
+    assert summary["records"][0]["media_info"]["bitrate"] == 8_000_000
 
 
 def test_docker_image_installs_ffmpeg_for_local_scrape_media_comparison():
@@ -2477,6 +3000,14 @@ def test_local_scrape_preview_keeps_diagnostic_reasons_for_abnormal_rows(tmp_pat
         return None
 
     monkeypatch.setattr(local_scrape.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(
+        metadata_scrapers.runtime,
+        "get_scrapers_config",
+        lambda: {
+            "priority": ["javbus"],
+            "javbus": {"enabled": True},
+        },
+    )
 
     payload = asyncio.run(
         local_scrape.preview_local_scrape(

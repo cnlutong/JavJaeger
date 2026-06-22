@@ -105,6 +105,13 @@ const isVideoFile = (filename) => {
     return ["mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "ts", "mts", "mpeg", "mpg"].includes(ext);
 };
 
+const isFileRowSelectable = (record) => !record.isParent && record.source_type !== "local";
+const isAria2Dispatchable = (record) => record.source_type !== "local";
+const getUnsupportedDownloadMessage = (record) => {
+    if (record.source_type === "local") return "本地文件不能发送到 Aria2";
+    return "";
+};
+
 export default function WebDavPage({ onOpenDownloadManagement } = {}) {
     const [clientConfig, setClientConfig] = React.useState({
         webdav: { configured: false, enabled: false, url: "", username: "", auto_connect: false },
@@ -475,6 +482,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                         parent_id: item.parent_id || currentCid,
                         is_directory: isDirectory,
                         size: Number.isFinite(size) ? size : 0,
+                        pick_code: item.pick_code || "",
                     };
                 });
                 setPan115Breadcrumbs((breadcrumbs) => {
@@ -531,12 +539,9 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
     };
 
     const submitDownloads = async (rows) => {
-        if (rows.some((row) => row.source_type === "local")) {
-            message.warning("本地文件不能发送到 Aria2");
-            return null;
-        }
-        if (rows.some((row) => row.source_type === "pan115")) {
-            message.warning("115 网盘文件暂不支持直接派发到 Aria2");
+        const unsupportedRow = rows.find((row) => !isAria2Dispatchable(row));
+        if (unsupportedRow) {
+            message.warning(getUnsupportedDownloadMessage(unsupportedRow));
             return null;
         }
         const ready = await ensureAria2Ready();
@@ -676,14 +681,8 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                     ghost
                     icon={<DownloadOutlined />}
                     size="small"
-                    disabled={record.source_type === "local" || record.source_type === "pan115"}
-                    title={
-                        record.source_type === "local"
-                            ? "本地文件不能发送到 Aria2"
-                            : record.source_type === "pan115"
-                                ? "115 网盘文件暂不支持直接派发到 Aria2"
-                                : "下载"
-                    }
+                    disabled={!isFileRowSelectable(record)}
+                    title={getUnsupportedDownloadMessage(record) || "下载"}
                     onClick={(event) => {
                         event.stopPropagation();
                         downloadSingleFile(record);
@@ -712,6 +711,8 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
     const visibleFiles = normalizedFileNameFilter
         ? files.filter((item) => item.isParent || item.name.toLowerCase().includes(normalizedFileNameFilter))
         : files;
+    const hasSelectedRows = selectedRows.length > 0;
+    const hasUnsupportedSelectedRows = selectedRows.some((row) => !isAria2Dispatchable(row));
 
     return (
         <div className="webdav-page">
@@ -801,7 +802,8 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                                     <Button
                                         type="primary"
                                         icon={<DownloadOutlined />}
-                                        disabled={selectedRowKeys.length === 0 || selectedRows.some((row) => row.source_type === "local" || row.source_type === "pan115")}
+                                        disabled={!hasSelectedRows}
+                                        title={hasUnsupportedSelectedRows ? "选中项包含暂不支持派发到 Aria2 的来源" : "下载选中"}
                                         onClick={handleDownloadSelected}
                                         loading={downloadingSelection}
                                     >
@@ -843,7 +845,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                                                 setSelectedRowKeys(newSelectedRowKeys);
                                                 setSelectedRows(newSelectedRows);
                                             },
-                                            getCheckboxProps: (record) => ({ disabled: record.isParent || record.source_type === "local" || record.source_type === "pan115" }),
+                                            getCheckboxProps: (record) => ({ disabled: !isFileRowSelectable(record) }),
                                         }}
                                         rowClassName={(record) => {
                                             const isLargeVideo = !record.is_directory && isVideoFile(record.name) && record.size >= minFileSizeMb * 1024 * 1024;

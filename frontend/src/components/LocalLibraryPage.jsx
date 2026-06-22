@@ -136,8 +136,24 @@ const formatResolution = (mediaInfo) => {
     return `${mediaInfo.width}x${mediaInfo.height}`;
 };
 
+const formatCodec = (codec) => {
+    const value = String(codec || "").trim();
+    return value ? value.toUpperCase() : "-";
+};
+
+const formatContainer = (container) => {
+    const value = String(container || "").trim();
+    return value ? value.toUpperCase() : "-";
+};
+
 const primaryMediaInfo = (record) => {
-    if (record?.media_info?.width || record?.media_info?.height || record?.media_info?.bitrate) {
+    if (
+        record?.media_info?.width
+        || record?.media_info?.height
+        || record?.media_info?.bitrate
+        || record?.media_info?.codec
+        || record?.media_info?.container
+    ) {
         return record.media_info;
     }
     const files = Array.isArray(record?.files) ? record.files : [];
@@ -225,13 +241,17 @@ const sortLocalLibraryRecords = (records, sortRule) => {
 const renderMediaTags = (mediaInfo) => {
     const resolution = formatResolution(mediaInfo);
     const bitrate = formatBitrate(mediaInfo?.bitrate);
-    if (resolution === "-" && bitrate === "-") {
+    const codec = formatCodec(mediaInfo?.codec);
+    const container = formatContainer(mediaInfo?.container);
+    if (resolution === "-" && bitrate === "-" && codec === "-" && container === "-") {
         return null;
     }
     return (
         <Space size={4} wrap className="jav-library-media-tags">
             {resolution !== "-" && <Tag color="geekblue">{resolution}</Tag>}
             {bitrate !== "-" && <Tag color="gold">{bitrate}</Tag>}
+            {codec !== "-" && <Tag color="volcano">{codec}</Tag>}
+            {container !== "-" && <Tag color="purple">{container}</Tag>}
         </Space>
     );
 };
@@ -432,6 +452,7 @@ export default function LocalLibraryPage() {
     const [actorLibraryLoading, setActorLibraryLoading] = React.useState(false);
     const [checkingInformation, setCheckingInformation] = React.useState(false);
     const [downloadingInformation, setDownloadingInformation] = React.useState(false);
+    const [cleaningInvalidFiles, setCleaningInvalidFiles] = React.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React.useState("");
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [informationCheckOpen, setInformationCheckOpen] = React.useState(false);
@@ -700,6 +721,30 @@ export default function LocalLibraryPage() {
         }
     };
 
+    const handleCleanInvalidFiles = async () => {
+        setCleaningInvalidFiles(true);
+        try {
+            const response = await fetch("/api/movies/local-library/clean-invalid", { method: "POST" });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "清洗失败");
+            }
+            await loadLibrary();
+            const checked = data.checked_file_count || 0;
+            const deleted = data.deleted_file_count || 0;
+            const removedMovies = data.removed_movie_count || 0;
+            if (deleted > 0) {
+                message.success(`已检查 ${checked} 个文件，删除 ${deleted} 个无效文件，移除 ${removedMovies} 部空记录`);
+            } else {
+                message.success(`已检查 ${checked} 个文件，未发现无效文件`);
+            }
+        } catch (error) {
+            message.error(`清洗无效文件失败：${error.message}`);
+        } finally {
+            setCleaningInvalidFiles(false);
+        }
+    };
+
     const handleDeleteMovie = async (record) => {
         const movieId = String(record?.movie_id || "").trim();
         if (!movieId) {
@@ -962,6 +1007,8 @@ export default function LocalLibraryPage() {
             ["发布日期", selectedRecord.date],
             ["分辨率", selectedMediaInfo.width && selectedMediaInfo.height ? formatResolution(selectedMediaInfo) : ""],
             ["码率", selectedMediaInfo.bitrate ? formatBitrate(selectedMediaInfo.bitrate) : ""],
+            ["编码格式", selectedMediaInfo.codec ? formatCodec(selectedMediaInfo.codec) : ""],
+            ["封装格式", selectedMediaInfo.container ? formatContainer(selectedMediaInfo.container) : ""],
             ["制作商", selectedRecord.studio],
             ["发行商", selectedRecord.publisher],
             ["导演", selectedRecord.director],
@@ -1141,8 +1188,47 @@ export default function LocalLibraryPage() {
                         {(record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta"))}
                         {(record.stars || []).length > 6 && <Tag>+{record.stars.length - 6}</Tag>}
                     </Space>
-                    {renderMediaTags(primaryMediaInfo(record))}
                 </Space>
+            ),
+        },
+        {
+            title: "分辨率",
+            key: "resolution",
+            width: 110,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatResolution(primaryMediaInfo(record))}
+                </Text>
+            ),
+        },
+        {
+            title: "码率",
+            key: "bitrate",
+            width: 120,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatBitrate(primaryMediaInfo(record)?.bitrate)}
+                </Text>
+            ),
+        },
+        {
+            title: "编码",
+            key: "codec",
+            width: 110,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatCodec(primaryMediaInfo(record)?.codec)}
+                </Text>
+            ),
+        },
+        {
+            title: "封装",
+            key: "container",
+            width: 110,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatContainer(primaryMediaInfo(record)?.container)}
+                </Text>
             ),
         },
         {
@@ -1284,6 +1370,17 @@ export default function LocalLibraryPage() {
                         <Button icon={<Icon as={ReloadOutlined} />} onClick={loadLibrary} loading={loading}>
                             刷新
                         </Button>
+                        <Popconfirm
+                            title="清洗无效文件？"
+                            description="会重新读取分辨率和码率，删除仍读取不到媒体信息的本地视频文件。"
+                            okText="清洗"
+                            cancelText="取消"
+                            onConfirm={handleCleanInvalidFiles}
+                        >
+                            <Button danger icon={<Icon as={DeleteOutlined} />} loading={cleaningInvalidFiles} disabled={!library.total_files}>
+                                清洗无效文件
+                            </Button>
+                        </Popconfirm>
                         <Popconfirm title="确认清空影视库数据库？" onConfirm={handleClear} okText="清空" cancelText="取消">
                             <Button danger loading={loading}>清空</Button>
                         </Popconfirm>

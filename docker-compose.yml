@@ -17,10 +17,11 @@ services:
       # - JAVBUS_PROXY=http://127.0.0.1:7890
       # Optional request interval in seconds. 0 disables throttling.
       # - JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
+      # Runtime settings are persisted under the mounted data directory by default.
+      - JAVJAEGER_CONFIG_PATH=/app/data/config.json
       # Strongly recommended in real deployments
       - APP_SESSION_SECRET=change-this-session-secret
     volumes:
       # Persistent data directory
       - ./data:/app/data
-      # Optional: mount your runtime config file
-      # - ./config.json:/app/config.json:ro
+      # If you override JAVJAEGER_CONFIG_PATH, keep that path writable for the Settings page.

@@ -8,6 +8,8 @@ class DownloadItem(BaseModel):
     name: str
     is_directory: bool = False
     size: int = 0
+    source_type: str = "webdav"
+    pick_code: str = ""
 
 
 class AddDownloadsRequest(BaseModel):

@@ -57,7 +57,7 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
-更多 Docker 说明见 [DOCKER.md](DOCKER.md)。
+完整部署、验收和排障流程见 [DOCKER.md 部署 SOP](DOCKER.md#部署-sop)。
 
 ### 源码运行
 
@@ -169,6 +169,16 @@ Copy-Item config.example.json config.json
     "batch_interval_seconds": 25.0,
     "jitter_seconds": 5.0,
     "failure_backoff_seconds": [120.0, 600.0]
+  },
+  "magnet_health": {
+    "enabled": false,
+    "probe_with_aria2": false,
+    "min_seeders": 1,
+    "min_peers": 1,
+    "min_availability": 1.0,
+    "min_score": 1.0,
+    "probe_timeout_seconds": 20.0,
+    "allow_unknown": true
   }
 }
 ```
@@ -177,8 +187,10 @@ Copy-Item config.example.json config.json
 
 - `session_secret` 用于 FastAPI session 签名，生产环境必须替换。
 - `webdav.enabled`、`aria2.enabled`、`pikpak.enabled` 控制前端是否显示“使用配置连接/登录”能力。
+- `pan115.enabled` 和 `pan115.cookie` 允许网盘管理浏览 115 目录，并在服务端解析 115 下载地址后派发给 Aria2。
 - `webdav.auto_connect` 和 `aria2.auto_connect` 会在页面加载后尝试使用服务端配置连接。
 - `pikpak.auto_login` 会在页面加载后尝试使用服务端配置登录。
+- `magnet_health.enabled` 会在最佳磁力派发前按阈值剔除低健康度候选；`probe_with_aria2` 启用后会使用已配置 Aria2 做 metadata-only 探测并自动清理探测任务。
 - `/api/client-config` 只返回前端需要的脱敏默认值，不返回密码和 RPC secret。
 
 `scrapers.priority` 控制本地刮削的元数据 provider 顺序。配置结构参考 javinizer-go 的多 scraper 设计；当前 JavJaeger 已接入全部内置 provider：JavBus、R18.dev、DMM、LibreDMM、JAVLibrary、JavDB、JAV321、MGStage、TokyoHot、AVEntertainment、DLGetchu、Caribbeancom、FC2 和 JavStash。默认启用本环境实测可用的 JavBus、LibreDMM、JAV321、TokyoHot、DLGetchu 和 FC2；JavStash 需要配置 `api_key`，部分站点仍可能因地区、Cloudflare 或年龄验证拦截而在运行时不可达。
@@ -203,16 +215,20 @@ Docker compose 示例：
 ```yaml
 environment:
   - APP_SESSION_SECRET=change-this-session-secret
+  - JAVJAEGER_CONFIG_PATH=/app/data/config.json
   # - JAVBUS_PROXY=http://127.0.0.1:7890
 ```
 
-如需让容器读取本地 `config.json`：
+如需让容器读取并保存本地配置，请把配置文件放在持久化且可写的 `data/` 目录：
 
 ```yaml
+environment:
+  - JAVJAEGER_CONFIG_PATH=/app/data/config.json
 volumes:
   - ./data:/app/data
-  - ./config.json:/app/config.json:ro
 ```
+
+设置页会写入 `JAVJAEGER_CONFIG_PATH` 指向的文件。不要把该文件以只读方式挂载，否则保存设置和按测试结果启停刮削源会失败。
 
 ## 数据文件
 
@@ -225,6 +241,7 @@ volumes:
 | `data/local_actor_library.json` | 本地演员信息库索引 |
 | `data/actor_images/` | 本地演员头像文件 |
 | `data/automation_tasks.json` | 自动化任务和运行记录 |
+| `data/config.json` | Docker 默认可写运行配置 |
 
 Docker compose 默认挂载：
 
@@ -248,11 +265,11 @@ PikPak 需要手动登录，或在 `config.json` 中启用 `pikpak` 配置。115
 
 1. 打开网盘管理，添加或选择已保存的 WebDAV 网盘；如果已经配置 115 Cookie，也可以直接打开 115 网盘浏览目录。
 2. 打开下载管理并连接 Aria2，或使用 `config.json` 中的 Aria2 配置自动连接。
-3. 回到网盘管理浏览目录，选择 WebDAV 文件或目录。
+3. 回到网盘管理浏览目录，选择 WebDAV 或 115 网盘文件/目录。
 4. 按需开启“仅视频”和最小文件大小过滤。
 5. 单个或批量发送到 Aria2。
 
-115 网盘当前支持目录浏览；由于 115 文件直链不应通过浏览器侧拼接或泄露凭据，网盘管理中暂不支持把 115 文件直接派发给 Aria2。
+115 网盘文件通过服务端 Cookie 和 115 Android 下载接口换取下载地址后派发给当前浏览器会话的 Aria2；下载 URL 和 Cookie header 不会返回给浏览器。
 WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆盖另一个会话的下载器状态。
 
 ### 本地影片库
@@ -300,10 +317,14 @@ DELETE /api/movies/local-library
 DELETE /api/movies/local-library/{movie_id}
 GET    /api/movies/local-library/information/check
 POST   /api/movies/local-library/information/download
+POST   /api/movies/local-library/clean-invalid
 GET    /api/movies/local-library/actors
 GET    /api/movies/local-library/actors/{actor_key}/movies
 GET    /api/movies/local-library/actors/{actor_key}/avatar
+GET    /api/movies/local-library/actor-avatar/{movie_id}/{actor_name}
 GET    /api/movies/local-library/poster/{movie_id}
+GET    /api/movies/local-library/thumbnail/{movie_id}
+GET    /api/movies/local-library/{movie_id}/play
 GET    /api/movies/local-library/{movie_id}
 POST   /api/movies/local-scrape/preview
 POST   /api/movies/local-scrape/delete
@@ -356,7 +377,9 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/movies/local-library/information/check` 会检查元数据以及默认本地资料文件（NFO、本地封面）是否缺失，可通过逗号分隔的 `fields` 指定检查标准：`title`、`date`、`stars`、`genres`、`cover_url`、`nfo`、`poster_file`。`/api/movies/local-library/information/download` 支持传入同样的 `fields`，并支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
 
-本地影视库扫描、本地刮削入库，以及 `/api/movies/local-library/information/download` 补全 API 元数据时，后端会对可访问的视频文件运行 `ffprobe`，记录分辨率、码率、编码和时长等媒体信息。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回可展示的分辨率和码率。
+本地影视库扫描、本地刮削入库，以及 `/api/movies/local-library/information/download` 补全 API 元数据时，后端会对可访问的视频文件运行 `ffprobe`，记录分辨率、码率、编码、封装格式和时长等媒体信息。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回可展示的分辨率、码率、编码和封装格式。
+
+`/api/movies/local-library/clean-invalid` 会重新探测影视库索引中的本地视频文件；如果一个现存视频文件仍读取不到分辨率、码率等媒体信息，则删除该物理文件并同步移除影视库文件记录。若 `ffprobe` 不可用，接口会失败返回且不会删除文件。
 
 本地影视库在刮削或补全影片元数据时会同步维护 `data/local_actor_library.json`。演员以独立索引保存关联影片，头像保存在 `data/actor_images/`；如果演员已有本地头像，后续刮削会复用并跳过下载。
 
@@ -378,7 +401,7 @@ JavJaeger/
 │   ├── movies/              # movie list, detail, batch, recognition workflows
 │   ├── magnets/             # magnet lookup and selection policy
 │   ├── pikpak/              # PikPak login and download dispatch
-│   ├── pan115/              # 115 QR/Cookie offline download dispatch
+│   ├── pan115/              # 115 QR/Cookie, offline dispatch, direct-link resolution
 │   ├── webdav/              # WebDAV browsing, Aria2 dispatch, session state
 │   ├── automation/          # saved workflow tasks and scheduler
 │   └── proxy/               # final catch-all API route

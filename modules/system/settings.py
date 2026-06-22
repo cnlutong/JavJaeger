@@ -24,6 +24,13 @@ PAN115_SETTING_LIMITS = {
     "batch_interval_seconds": (0.0, 300.0),
     "jitter_seconds": (0.0, 60.0),
 }
+MAGNET_HEALTH_SETTING_LIMITS = {
+    "min_seeders": (0, 10000),
+    "min_peers": (0, 10000),
+    "min_availability": (0.0, 100.0),
+    "min_score": (0.0, 100000.0),
+    "probe_timeout_seconds": (3.0, 120.0),
+}
 
 
 def build_scrapers_settings_payload(scrapers_config: dict[str, Any]) -> dict[str, Any]:
@@ -57,6 +64,7 @@ def build_settings_payload() -> dict[str, Any]:
     aria2_config = runtime.get_aria2_config()
     pikpak_config = runtime.get_pikpak_config()
     pan115_config = runtime.get_pan115_config()
+    magnet_health_config = runtime.get_magnet_health_config()
     scrapers_config = runtime.get_scrapers_config()
     return {
         "javbus": {
@@ -98,6 +106,16 @@ def build_settings_payload() -> dict[str, Any]:
             "batch_interval_seconds": pan115_config.get("batch_interval_seconds") if pan115_config.get("batch_interval_seconds") is not None else 25.0,
             "jitter_seconds": pan115_config.get("jitter_seconds") if pan115_config.get("jitter_seconds") is not None else 5.0,
         },
+        "magnet_health": {
+            "enabled": bool(magnet_health_config.get("enabled")),
+            "probe_with_aria2": bool(magnet_health_config.get("probe_with_aria2")),
+            "min_seeders": int(magnet_health_config.get("min_seeders") or 0),
+            "min_peers": int(magnet_health_config.get("min_peers") or 0),
+            "min_availability": float(magnet_health_config.get("min_availability") or 0),
+            "min_score": float(magnet_health_config.get("min_score") or 0),
+            "probe_timeout_seconds": float(magnet_health_config.get("probe_timeout_seconds") or 0),
+            "allow_unknown": bool(magnet_health_config.get("allow_unknown", True)),
+        },
         "security": {
             "session_secret_configured": bool(os.getenv("APP_SESSION_SECRET") or runtime.config.get("session_secret")),
             "using_default_session_secret": runtime.SESSION_SECRET == "javjaeger-dev-session-secret",
@@ -110,6 +128,18 @@ def build_settings_payload() -> dict[str, Any]:
             }
         },
     }
+
+
+def config_save_error_response(exc: runtime.ConfigSaveError) -> HTTPException:
+    return HTTPException(
+        status_code=500,
+        detail={
+            "error": "config_save_failed",
+            "message": "配置文件写入失败，请检查部署环境中的配置文件路径和写入权限",
+            "path": exc.path,
+            "reason": exc.reason,
+        },
+    )
 
 
 def validate_javbus_settings(payload: dict[str, Any]) -> dict[str, Any]:
@@ -351,12 +381,39 @@ def validate_pan115_settings(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def validate_magnet_health_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="magnet_health_settings_required")
+
+    normalized: dict[str, Any] = {}
+    for key in ("enabled", "probe_with_aria2", "allow_unknown"):
+        value = _normalize_bool(payload, key)
+        if value is not None:
+            normalized[key] = value
+
+    for key, (minimum, maximum) in MAGNET_HEALTH_SETTING_LIMITS.items():
+        if key not in payload:
+            continue
+        try:
+            number = float(payload[key])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{key}_must_be_number")
+        if number < minimum or number > maximum:
+            raise HTTPException(status_code=400, detail=f"{key}_out_of_range")
+        normalized[key] = int(number) if key in {"min_seeders", "min_peers"} else number
+
+    return normalized
+
+
 async def update_javbus_settings(payload: dict[str, Any]) -> dict[str, Any]:
     updates = validate_javbus_settings(payload)
     if not updates:
         raise HTTPException(status_code=400, detail="no_supported_settings")
 
-    runtime.update_config_section("javbus", updates)
+    try:
+        runtime.update_config_section("javbus", updates)
+    except runtime.ConfigSaveError as exc:
+        raise config_save_error_response(exc)
     await javbus_api_service.reconfigure(runtime.get_javbus_config())
     return build_settings_payload()
 
@@ -372,6 +429,7 @@ async def update_system_settings(payload: dict[str, Any]) -> dict[str, Any]:
         "aria2": validate_aria2_settings,
         "pikpak": validate_pikpak_settings,
         "pan115": validate_pan115_settings,
+        "magnet_health": validate_magnet_health_settings,
     }
     updates_by_section: dict[str, dict[str, Any]] = {}
     for section, validator in validators.items():
@@ -384,8 +442,11 @@ async def update_system_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if not updates_by_section:
         raise HTTPException(status_code=400, detail="no_supported_settings")
 
-    for section, updates in updates_by_section.items():
-        runtime.update_config_section(section, updates)
+    try:
+        for section, updates in updates_by_section.items():
+            runtime.update_config_section(section, updates)
+    except runtime.ConfigSaveError as exc:
+        raise config_save_error_response(exc)
 
     if "javbus" in updates_by_section:
         await javbus_api_service.reconfigure(runtime.get_javbus_config())

@@ -9,6 +9,103 @@
 
 如果你使用仓库中的 `nginx.conf` 作为反向代理，上游后端也必须指向 `javjaeger:5000`。这一点已经与当前配置对齐。
 
+## 部署 SOP
+
+按下面顺序执行部署。不要跳过配置可写性检查；设置页保存、刮削源测试结果应用、下载服务配置都会写入运行配置。
+
+### 0. 部署前检查
+
+1. 确认当前目录是仓库根目录，并已拉取目标版本。
+2. 备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json` 和 `data/automation_tasks.json`。
+3. 确认宿主机 `./data` 目录存在且对 Docker 进程可写。
+4. 准备强随机 `APP_SESSION_SECRET`，不要使用示例值。
+5. 确认配置文件路径使用可写持久化路径：`JAVJAEGER_CONFIG_PATH=/app/data/config.json`。
+
+### 1. 配置 docker-compose.yml
+
+生产部署至少保留以下配置：
+
+```yaml
+services:
+  javjaeger:
+    ports:
+      - "8000:5000"
+    environment:
+      - APP_SESSION_SECRET=replace-with-a-strong-secret
+      - JAVJAEGER_CONFIG_PATH=/app/data/config.json
+      # - JAVBUS_PROXY=http://proxy.example:7890
+    volumes:
+      - ./data:/app/data
+```
+
+硬性要求：
+
+- 不要把配置文件挂载为只读，例如不要使用 `./config.json:/app/config.json:ro`。
+- 如果修改 `JAVJAEGER_CONFIG_PATH`，新路径必须在容器内可写，并且应该持久化。
+- 容器内端口固定按 `5000` 使用；反向代理上游指向 `javjaeger:5000`。
+
+### 2. 构建并启动
+
+```bash
+docker-compose up -d --build
+docker-compose ps
+docker-compose logs --tail=100 javjaeger
+```
+
+验收标准：
+
+- `docker-compose ps` 显示服务处于 running/up 状态。
+- 日志中没有启动异常、依赖导入异常或配置写入异常。
+
+### 3. 接口验收
+
+在宿主机执行：
+
+```bash
+curl -fsS http://127.0.0.1:8000/api/system/settings >/dev/null
+curl -fsS -X PUT http://127.0.0.1:8000/api/system/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"scrapers":{"javbus":{"enabled":true}}}' >/dev/null
+curl -fsS -X POST http://127.0.0.1:8000/api/movies/metadata-scrapers/test \
+  -H 'Content-Type: application/json' \
+  -d '{"providers":["javbus"],"concurrent":1}' >/dev/null
+```
+
+验收标准：
+
+- 三条命令都返回成功。
+- 如果第二条返回 `config_save_failed`，优先检查 `JAVJAEGER_CONFIG_PATH` 和 `./data` 写权限。
+- 如果第三条失败但保存成功，检查服务器到外部站点的网络、代理或 DNS。
+
+### 4. 页面验收
+
+1. 打开 `http://<host>:8000/`。
+2. 进入设置页，点击“保存全部”，应提示保存成功。
+3. 进入“刮削源”，点击“测试所有源”，应展示每个 provider 的测试结果。
+4. 如需按结果启停 provider，点击“按结果启停”，再点击“保存全部”复核配置可写。
+
+### 5. 回滚和排障
+
+回滚到上一版本：
+
+```bash
+git checkout <previous-release-or-commit>
+docker-compose up -d --build
+```
+
+常用排障命令：
+
+```bash
+docker-compose logs --tail=200 javjaeger
+docker-compose exec javjaeger sh -lc 'id && ls -ld /app/data && ls -l /app/data/config.json 2>/dev/null || true'
+docker-compose exec javjaeger sh -lc 'python - <<PY
+from modules.common import runtime
+print(runtime.CONFIG_PATH)
+PY'
+```
+
+如果页面提示保存失败，先看接口响应或日志里的 `config_save_failed`，它会给出实际写入路径和系统错误原因。
+
 ## 快速开始
 
 ### 1. 准备配置
@@ -23,6 +120,7 @@
 ```yaml
 environment:
   - APP_SESSION_SECRET=change-this-session-secret
+  - JAVJAEGER_CONFIG_PATH=/app/data/config.json
   # - JAVBUS_BASE_URL=https://www.javbus.com
   # - JAVBUS_PROXY=http://127.0.0.1:7890
   # - JAVBUS_REQUEST_INTERVAL_SECONDS=0.5
@@ -34,19 +132,21 @@ environment:
 - `JAVBUS_BASE_URL` 用于覆盖内置 provider 的 JavBus 原站地址
 - `JAVBUS_PROXY` 用于配置访问 JavBus 的代理
 - `JAVBUS_REQUEST_INTERVAL_SECONDS` 用于覆盖 JavBus 请求间隔；`0` 表示关闭限速
+- `JAVJAEGER_CONFIG_PATH` 用于指定可写配置文件；Docker 默认建议放在已持久化的 `/app/data/config.json`
 - 生产环境不要使用默认或弱会话密钥
 
 ### 2. 可选挂载 config.json
 
-如果你希望容器直接使用本地配置文件中的 WebDAV、Aria2、PikPak 默认配置，可以先复制 `config.example.json` 为 `config.json`，再在 `docker-compose.yml` 中打开只读挂载：
+如果你希望容器直接使用本地配置文件中的 WebDAV、Aria2、PikPak 默认配置，并且仍然允许设置页保存，请把配置文件放在持久化且可写的 `data/` 目录中：
 
 ```yaml
+environment:
+  - JAVJAEGER_CONFIG_PATH=/app/data/config.json
 volumes:
   - ./data:/app/data
-  - ./config.json:/app/config.json:ro
 ```
 
-推荐把以下内容写进 `config.json`：
+推荐把以下内容写进 `data/config.json`：
 
 ```json
 {
@@ -96,6 +196,7 @@ volumes:
 - 环境变量优先级高于 `config.json`
 - 前端不会收到密码或 secret，只会收到脱敏默认值
 - 只有对应模块设置了 `enabled: true`，页面才会显示“使用配置连接/登录”
+- 不要把 `/app/config.json` 以 `:ro` 方式挂载后再使用设置页保存；只读配置会导致 `/api/system/settings` 返回 `config_save_failed`
 
 ### 3. 构建并启动
 

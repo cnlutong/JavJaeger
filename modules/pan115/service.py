@@ -15,6 +15,11 @@ from modules.history.service import download_history_service, local_movie_librar
 
 from .schemas import DownloadRequest
 
+try:
+    from p115client import P115Client
+except ModuleNotFoundError:
+    P115Client = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +31,7 @@ PAN115_STATUS_CHECK_URL = "https://my.115.com/?ct=guide&ac=status"
 PAN115_OFFLINE_SPACE_URL = "https://115.com/"
 PAN115_WEB_OFFLINE_URL = "https://115.com/web/lixian/"
 PAN115_FILE_LIST_URL = "https://webapi.115.com/files"
+PAN115_DOWNLOAD_USER_AGENT = "JavJaeger/1.0"
 PAN115_LOGIN_APPS = {"web", "android", "ios", "tv", "alipaymini", "wechatmini", "qandroid"}
 PAN115_DEFAULT_BATCH_SIZE = 20
 PAN115_MAX_BATCH_SIZE = 50
@@ -33,6 +39,20 @@ PAN115_DEFAULT_BATCH_INTERVAL_SECONDS = 25.0
 PAN115_DEFAULT_JITTER_SECONDS = 5.0
 PAN115_DEFAULT_FAILURE_BACKOFF_SECONDS = [120.0, 600.0]
 PAN115_DIRECTORY_CACHE_TTL_SECONDS = 120.0
+PAN115_VIDEO_EXTENSIONS = {
+    ".mp4",
+    ".avi",
+    ".mkv",
+    ".mov",
+    ".wmv",
+    ".flv",
+    ".webm",
+    ".m4v",
+    ".ts",
+    ".mts",
+    ".mpeg",
+    ".mpg",
+}
 
 
 class Pan115Error(RuntimeError):
@@ -79,6 +99,15 @@ class QrSession:
     qrcode: str
     app: str
     created_at: float
+
+
+@dataclass(frozen=True)
+class Pan115ResolvedDownload:
+    name: str
+    url: str
+    headers: list[str]
+    size: int = 0
+    pick_code: str = ""
 
 
 class QrSessionStore:
@@ -271,6 +300,41 @@ class Pan115Client:
         directory_cache.set(cache_key, result)
         return result
 
+    async def resolve_direct_download(
+        self,
+        pick_code: str,
+        *,
+        fallback_name: str = "",
+        fallback_size: int = 0,
+    ) -> Pan115ResolvedDownload:
+        normalized_pick_code = str(pick_code or "").strip()
+        if not normalized_pick_code:
+            raise Pan115Error("pan115_pick_code_required", "115 pick code is required")
+
+        url = await self._resolve_android_download_url(normalized_pick_code)
+        if not url:
+            raise Pan115Error("pan115_download_url_empty", "115 download URL is empty")
+
+        return Pan115ResolvedDownload(
+            name=fallback_name or normalized_pick_code,
+            url=url,
+            headers=self.build_download_headers(),
+            size=fallback_size,
+            pick_code=normalized_pick_code,
+        )
+
+    async def _resolve_android_download_url(self, pick_code: str) -> str:
+        if P115Client is None:
+            raise Pan115Error("pan115_android_client_unavailable", "p115client is required for 115 large-file downloads")
+        client = P115Client(self.cookie)
+        url = await client.download_url(
+            pick_code,
+            headers={"user-agent": PAN115_DOWNLOAD_USER_AGENT},
+            app="android",
+            async_=True,
+        )
+        return str(url or "")
+
     async def _get_offline_sign(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
@@ -298,6 +362,14 @@ class Pan115Client:
             "Accept": "application/json, text/plain, */*",
             "Referer": "https://115.com/?tab=offline&mode=wangpan",
         }
+
+    def build_download_headers(self) -> list[str]:
+        headers = self._headers()
+        return [
+            f"Cookie: {headers['Cookie']}",
+            f"User-Agent: {headers['User-Agent']}",
+            f"Referer: {headers['Referer']}",
+        ]
 
     @property
     def user_id(self) -> str:
@@ -448,6 +520,18 @@ async def list_directory_from_config(cid: str = "0", offset: int = 0, limit: int
     return await Pan115Client(str(config.get("cookie"))).list_directory(cid, offset=offset, limit=limit)
 
 
+async def resolve_download_entries_from_config(
+    entries: list[Any],
+    video_filter: bool = False,
+    min_file_size_mb: int = 300,
+) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
+    config = get_pan115_config()
+    if not config.get("enabled") or not config.get("cookie"):
+        raise ValueError("pan115_not_configured")
+    client = Pan115Client(str(config.get("cookie")))
+    return await _resolve_download_entries(client, entries, video_filter, min_file_size_mb)
+
+
 def save_cookie(cookie: str, enabled: bool = True) -> dict[str, Any]:
     credential = Pan115Credential.from_cookie(cookie)
     updates = runtime.update_config_section(
@@ -535,6 +619,7 @@ def _normalize_directory_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "name": str(item.get("n") or ""),
                 "kind": "folder" if is_folder else str(item.get("ico") or "file"),
                 "size": item.get("s") or "",
+                "pick_code": "" if is_folder else str(item.get("pc") or item.get("pick_code") or ""),
             }
         )
     return {
@@ -542,6 +627,153 @@ def _normalize_directory_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "count": payload.get("count") or len(entries),
         "items": entries,
     }
+
+
+def _extract_download_url(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    direct = payload.get("file_url")
+    if direct:
+        return str(direct)
+    data = payload.get("data")
+    if isinstance(data, dict):
+        if data.get("file_url"):
+            return str(data["file_url"])
+        url_payload = data.get("url")
+        if isinstance(url_payload, dict) and url_payload.get("url"):
+            return str(url_payload["url"])
+    if isinstance(data, list) and data:
+        return _extract_download_url(data[0])
+    for value in payload.values():
+        if isinstance(value, dict) and value.get("url"):
+            url_payload = value.get("url")
+            if isinstance(url_payload, dict) and url_payload.get("url"):
+                return str(url_payload["url"])
+    return ""
+
+
+def _extract_download_name(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("file_name", "name", "n"):
+        if payload.get(key):
+            return str(payload[key])
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return _extract_download_name(data)
+    if isinstance(data, list) and data:
+        return _extract_download_name(data[0])
+    for value in payload.values():
+        if isinstance(value, dict):
+            name = _extract_download_name(value)
+            if name:
+                return name
+    return ""
+
+
+def _extract_download_size(payload: Any) -> int:
+    if not isinstance(payload, dict):
+        return 0
+    for key in ("file_size", "size", "s"):
+        if payload.get(key) is not None:
+            try:
+                return int(float(payload[key]))
+            except (TypeError, ValueError):
+                return 0
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return _extract_download_size(data)
+    if isinstance(data, list) and data:
+        return _extract_download_size(data[0])
+    for value in payload.values():
+        if isinstance(value, dict):
+            size = _extract_download_size(value)
+            if size:
+                return size
+    return 0
+
+
+def _legacy_web_download_requires_client(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    msg = str(payload.get("msg") or payload.get("message") or "")
+    try:
+        msg_code = int(payload.get("msg_code") or 0)
+    except (TypeError, ValueError):
+        msg_code = 0
+    return msg_code == 50028 or "文件大小超出限制" in msg or "115电脑端" in msg
+
+
+def _entry_value(entry: Any, name: str, default: Any = None) -> Any:
+    if isinstance(entry, dict):
+        return entry.get(name, default)
+    return getattr(entry, name, default)
+
+
+def _is_video_file(filename: str) -> bool:
+    if not filename:
+        return False
+    return any(str(filename).lower().endswith(extension) for extension in PAN115_VIDEO_EXTENSIONS)
+
+
+async def _resolve_download_entries(
+    client: Pan115Client,
+    entries: list[Any],
+    video_filter: bool,
+    min_file_size_mb: int,
+) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
+    downloads: list[Pan115ResolvedDownload] = []
+    skipped: list[dict[str, Any]] = []
+    min_bytes = max(0, int(min_file_size_mb or 0)) * 1024 * 1024
+
+    for entry in entries:
+        name = str(_entry_value(entry, "name", "") or "")
+        path = str(_entry_value(entry, "path", "") or "")
+        is_directory = bool(_entry_value(entry, "is_directory", False))
+        pick_code = str(_entry_value(entry, "pick_code", "") or "")
+        try:
+            size = int(float(_entry_value(entry, "size", 0) or 0))
+        except (TypeError, ValueError):
+            size = 0
+
+        if is_directory:
+            child_payload = await client.list_directory(path)
+            child_downloads, child_skipped = await _resolve_download_entries(
+                client,
+                [
+                    {
+                        "name": item.get("name") or "",
+                        "path": item.get("id") or "",
+                        "is_directory": item.get("kind") == "folder",
+                        "size": item.get("size") or 0,
+                        "pick_code": item.get("pick_code") or "",
+                    }
+                    for item in child_payload.get("items") or []
+                ],
+                video_filter,
+                min_file_size_mb,
+            )
+            downloads.extend(child_downloads)
+            skipped.extend(child_skipped)
+            continue
+
+        if video_filter and (not _is_video_file(name) or size < min_bytes):
+            skipped.append(
+                {
+                    "filename": name,
+                    "success": False,
+                    "message": f"不符合视频文件筛选条件（非视频文件或小于{min_file_size_mb}MB）",
+                }
+            )
+            continue
+
+        if not pick_code:
+            skipped.append({"filename": name, "success": False, "message": "115 文件缺少 pick_code"})
+            continue
+
+        downloads.append(await client.resolve_direct_download(pick_code, fallback_name=name, fallback_size=size))
+
+    return downloads, skipped
 
 
 def _resolve_credentials(request: DownloadRequest) -> tuple[str, str, int, float, float, list[float]]:
