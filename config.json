@@ -1,7 +1,7 @@
 {
   "javbus": {
     "base_url": "https://www.javbus.com",
-    "timeout_seconds": 8,
+    "timeout_seconds": 8.0,
     "proxy": "",
     "request_interval_seconds": 0.5,
     "cache_expire_seconds": 3600,
@@ -35,62 +35,74 @@
     "r18dev": {
       "enabled": false,
       "language": "en",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "dmm": {
-      "enabled": false,
+      "enabled": true,
       "language": "ja",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "libredmm": {
-      "enabled": false,
+      "enabled": true,
       "language": "ja",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "javlibrary": {
       "enabled": false,
       "language": "cn",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "javdb": {
       "enabled": false,
       "language": "zh",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "jav321": {
-      "enabled": false,
+      "enabled": true,
       "language": "zh",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "mgstage": {
       "enabled": false,
       "language": "ja",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "tokyohot": {
-      "enabled": false,
+      "enabled": true,
       "language": "zh",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "aventertainment": {
       "enabled": false,
       "language": "en",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "dlgetchu": {
-      "enabled": false,
+      "enabled": true,
       "language": "ja",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "caribbeancom": {
       "enabled": false,
       "language": "ja",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "fc2": {
-      "enabled": false,
+      "enabled": true,
       "language": "ja",
-      "request_delay": 1500
+      "request_delay": 1500,
+      "base_url": ""
     },
     "javstash": {
       "enabled": false,
@@ -123,7 +135,14 @@
     "enabled": true,
     "cookie": "UID=9770899_R1_1782078708;CID=bb0433e67f0eb418ff10623ef485bfb5;SEID=e66ea98dbb166b3f991d93ec213f6da5e9ebce713cea83e0c0e70c0adce2355a178d95d74cf17e5cdb7cc6356538aaadb211d2228b495dd974e980e1;KID=344176131b0d78f963ff4f2e449c0ee2",
     "save_dir_id": "0",
-    "login_app": "wechatmini"
+    "login_app": "wechatmini",
+    "batch_size": 20,
+    "batch_interval_seconds": 25.0,
+    "jitter_seconds": 5.0,
+    "failure_backoff_seconds": [
+      120.0,
+      600.0
+    ]
   },
   "version": {
     "version": "dev-d8400c4",

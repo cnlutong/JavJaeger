@@ -38,6 +38,26 @@ export const updateJavBusSettings = async (javbus) => fetchWithRetry(
     0
 );
 
+export const testMetadataScrapers = async (payload = {}) => fetchWithRetry(
+    "/api/movies/metadata-scrapers/test",
+    {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    },
+    0
+);
+
+export const applyMetadataScraperTestResults = async (results = []) => fetchWithRetry(
+    "/api/movies/metadata-scrapers/apply-test-results",
+    {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ results }),
+    },
+    0
+);
+
 export const fetchAutomationTasks = async () => fetchWithRetry("/api/automation/tasks", {}, 0);
 
 export const createAutomationTask = async (payload) => fetchWithRetry(

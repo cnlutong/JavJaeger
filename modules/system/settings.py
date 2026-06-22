@@ -43,7 +43,7 @@ def build_scrapers_settings_payload(scrapers_config: dict[str, Any]) -> dict[str
             "language": provider_config.get("language") or "",
             "request_delay": provider_config.get("request_delay"),
             "base_url": provider_config.get("base_url") or "",
-            "implemented": provider == "javbus",
+            "implemented": provider in runtime.IMPLEMENTED_SCRAPER_PROVIDER_NAMES,
         }
         if provider == "javstash":
             item["has_api_key"] = bool(provider_config.get("api_key"))

@@ -44,6 +44,14 @@ test("webdav resource manager supports local folders without dispatching local p
     assert.match(webDavPage, /本地文件不能发送到 Aria2/);
 });
 
+test("webdav resource manager can browse configured 115 net disk safely", () => {
+    assert.match(webDavPage, /pan115/);
+    assert.match(webDavPage, /\/api\/115\/files/);
+    assert.match(webDavPage, /115网盘/);
+    assert.match(webDavPage, /record\.source_type === "pan115"/);
+    assert.match(webDavPage, /115 网盘文件暂不支持直接派发到 Aria2/);
+});
+
 test("download management page owns aria2 connection and task controls", () => {
     assert.match(downloadManagementPage, /下载管理/);
     assert.match(downloadManagementPage, /Aria2下载器/);

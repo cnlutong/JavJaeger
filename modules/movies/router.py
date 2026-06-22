@@ -22,9 +22,12 @@ from .schemas import (
     LocalScrapeApplyRequest,
     LocalScrapeDeleteRequest,
     LocalScrapePreviewRequest,
+    MetadataScraperApplyTestResultsRequest,
+    MetadataScraperTestRequest,
     MovieCodeDownloadRequest,
     MovieRecognitionRequest,
 )
+from .metadata_scrapers import apply_metadata_scraper_test_results, test_metadata_scraper_providers
 from .service import (
     get_all_movies_payload,
     get_movie_detail,
@@ -200,6 +203,19 @@ async def get_local_movie_scrape_job(task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="local_scrape_task_not_found")
     return task
+
+
+@router.post("/api/movies/metadata-scrapers/test")
+async def test_movie_metadata_scrapers(request: MetadataScraperTestRequest):
+    try:
+        return await test_metadata_scraper_providers(request.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/movies/metadata-scrapers/apply-test-results")
+async def apply_movie_metadata_scraper_test_results(request: MetadataScraperApplyTestResultsRequest):
+    return apply_metadata_scraper_test_results(request.results)
 
 
 @router.get("/api/movies/{movie_id}")

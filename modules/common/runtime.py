@@ -27,6 +27,7 @@ SCRAPER_PROVIDER_NAMES = [
     "fc2",
     "javstash",
 ]
+IMPLEMENTED_SCRAPER_PROVIDER_NAMES = list(SCRAPER_PROVIDER_NAMES)
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -50,16 +51,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "r18dev": {"enabled": False, "language": "en", "request_delay": 1500},
         "dmm": {"enabled": False, "language": "ja", "request_delay": 1500},
-        "libredmm": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "libredmm": {"enabled": True, "language": "ja", "request_delay": 1500},
         "javlibrary": {"enabled": False, "language": "cn", "request_delay": 1500},
         "javdb": {"enabled": False, "language": "zh", "request_delay": 1500},
-        "jav321": {"enabled": False, "language": "zh", "request_delay": 1500},
+        "jav321": {"enabled": True, "language": "zh", "request_delay": 1500},
         "mgstage": {"enabled": False, "language": "ja", "request_delay": 1500},
-        "tokyohot": {"enabled": False, "language": "zh", "request_delay": 1500},
+        "tokyohot": {"enabled": True, "language": "zh", "request_delay": 1500},
         "aventertainment": {"enabled": False, "language": "en", "request_delay": 1500},
-        "dlgetchu": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "dlgetchu": {"enabled": True, "language": "ja", "request_delay": 1500},
         "caribbeancom": {"enabled": False, "language": "ja", "request_delay": 1500},
-        "fc2": {"enabled": False, "language": "ja", "request_delay": 1500},
+        "fc2": {"enabled": True, "language": "ja", "request_delay": 1500},
         "javstash": {
             "enabled": False,
             "language": "en",

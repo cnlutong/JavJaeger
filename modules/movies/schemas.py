@@ -97,3 +97,14 @@ class LocalLibraryInformationDownloadRequest(BaseModel):
     download_actor_images: bool = False
     download_list_thumbnail: bool = False
     overwrite_existing: bool = False
+
+
+class MetadataScraperTestRequest(BaseModel):
+    providers: Optional[list[str]] = None
+    movie_ids: Optional[dict[str, str]] = None
+    concurrent: int = 3
+    apply_results: bool = False
+
+
+class MetadataScraperApplyTestResultsRequest(BaseModel):
+    results: list[dict]

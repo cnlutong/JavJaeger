@@ -16,6 +16,7 @@ from modules.history import service as history_service_module
 from modules.common import runtime
 from modules.movies import local_scrape
 from modules.movies import local_library as movies_local_library
+from modules.movies import metadata_scrapers
 from modules.movies.local_scrape_tasks import LocalScrapeTaskManager
 from modules.movies import service as movies_service
 from modules.magnets import service as magnets_service
@@ -87,6 +88,15 @@ def test_local_library_information_routes_are_before_status_route():
     )
 
 
+def test_metadata_scraper_routes_are_before_movie_detail_route():
+    api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
+
+    assert api_paths.index("/api/movies/metadata-scrapers/test") < api_paths.index("/api/movies/{movie_id}")
+    assert api_paths.index("/api/movies/metadata-scrapers/apply-test-results") < api_paths.index(
+        "/api/movies/{movie_id}"
+    )
+
+
 def test_local_library_delete_movie_route_is_registered():
     movie_routes = [
         route for route in main.app.routes
@@ -154,6 +164,448 @@ def test_client_config_redacts_sensitive_values(monkeypatch):
 
 def test_javbus_default_request_interval_is_conservative():
     assert runtime.DEFAULT_CONFIG["javbus"]["request_interval_seconds"] == 0.5
+
+
+def test_all_builtin_metadata_providers_are_connected():
+    assert set(runtime.IMPLEMENTED_SCRAPER_PROVIDER_NAMES) == set(runtime.SCRAPER_PROVIDER_NAMES)
+    assert "javbus" not in metadata_scrapers.PROVIDER_FETCHERS
+    assert set(metadata_scrapers.PROVIDER_FETCHERS) == set(runtime.SCRAPER_PROVIDER_NAMES) - {"javbus"}
+    for provider, fetcher_name in metadata_scrapers.PROVIDER_FETCHERS.items():
+        assert callable(getattr(metadata_scrapers, fetcher_name)), provider
+
+
+def test_live_verified_metadata_providers_are_enabled_by_default():
+    scrapers = runtime.DEFAULT_CONFIG["scrapers"]
+    enabled_defaults = {
+        provider
+        for provider in runtime.SCRAPER_PROVIDER_NAMES
+        if bool(scrapers.get(provider, {}).get("enabled"))
+    }
+
+    assert enabled_defaults == {"javbus", "libredmm", "jav321", "tokyohot", "dlgetchu", "fc2"}
+
+
+def test_libredmm_metadata_adapter_maps_json_payload(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "application/json; charset=utf-8"}
+
+        def json(self):
+            return {
+                "actresses": [{"name": "Actor One", "image_url": "/actors/one.jpg"}],
+                "cover_image_url": "http://pics.dmm.co.jp/mono/movie/adult/118abp123/118abp123pl.jpg",
+                "date": "2014-04-01T00:00:00.000+00:00",
+                "description": "sample description",
+                "directors": ["Director One"],
+                "genres": ["Drama", "Featured Actress"],
+                "labels": ["Label One"],
+                "makers": ["Maker One"],
+                "normalized_id": "ABP-123",
+                "sample_image_urls": ["/samples/one.jpg", "https://example.test/two.jpg"],
+                "thumbnail_image_url": "https://example.test/thumb.jpg",
+                "title": "ABP-123 Provider Title",
+                "url": "https://www.libredmm.com/movies/ABP-123",
+                "volume": 7200,
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url):
+            captured["url"] = url
+            return FakeResponse()
+
+    monkeypatch.setattr(metadata_scrapers.httpx, "AsyncClient", FakeAsyncClient)
+
+    metadata = asyncio.run(
+        metadata_scrapers.fetch_libredmm_movie_detail(
+            "ABP-123",
+            {"base_url": "https://www.libredmm.com", "request_delay": 0},
+        )
+    )
+
+    assert captured["url"] == "https://www.libredmm.com/search?q=ABP-123&format=json"
+    assert metadata["id"] == "ABP-123"
+    assert metadata["title"] == "ABP-123 Provider Title"
+    assert metadata["date"] == "2014-04-01"
+    assert metadata["videoLength"] == 120
+    assert metadata["producer"] == {"id": "", "name": "Maker One"}
+    assert metadata["publisher"] == {"id": "", "name": "Label One"}
+    assert metadata["director"] == {"id": "", "name": "Director One"}
+    assert metadata["stars"] == [{"id": "", "name": "Actor One", "avatar": "https://www.libredmm.com/actors/one.jpg"}]
+    assert metadata["genres"] == [{"id": "", "name": "Drama"}, {"id": "", "name": "Featured Actress"}]
+    assert metadata["img"] == "https://pics.dmm.co.jp/mono/movie/adult/118abp123/118abp123pl.jpg"
+    assert metadata["samples"] == [
+        {
+            "id": "one",
+            "src": "https://www.libredmm.com/samples/one.jpg",
+            "thumbnail": "https://www.libredmm.com/samples/one.jpg",
+        },
+        {
+            "id": "two",
+            "src": "https://example.test/two.jpg",
+            "thumbnail": "https://example.test/two.jpg",
+        },
+    ]
+
+
+def test_javlibrary_metadata_adapter_maps_search_and_detail_html(monkeypatch):
+    captured = []
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+
+        def __init__(self, text):
+            self.text = text
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, **kwargs):
+            captured.append(url)
+            if "vl_searchbyid.php" in url:
+                return FakeResponse('<a href="/cn/?v=javli-abp123">ABP-123</a>')
+            return FakeResponse(
+                """
+                <html>
+                  <head><title>ABP-123 JAVLibrary Title - JAVLibrary</title></head>
+                  <body>
+                    <div id="video_id"><span class="text">ABP-123</span></div>
+                    <img id="video_jacket_img" src="//img.example.test/cover.jpg">
+                    <div id="video_date"><span class="text">2014-04-01</span></div>
+                    <div id="video_length"><span class="text">120 minutes</span></div>
+                    <div id="video_director"><a>Director One</a></div>
+                    <div id="video_maker"><a>Maker One</a></div>
+                    <div id="video_label"><a>Label One</a></div>
+                    <div id="video_series"><a>Series One</a></div>
+                    <span class="genre"><a>Drama</a></span>
+                    <span class="star"><a>Actor One</a></span>
+                    <a href="/sample/full.jpg"><img src="/sample/thumb.jpg"></a>
+                  </body>
+                </html>
+                """
+            )
+
+    monkeypatch.setattr(metadata_scrapers.httpx, "AsyncClient", FakeAsyncClient)
+
+    metadata = asyncio.run(
+        metadata_scrapers.fetch_javlibrary_movie_detail(
+            "ABP-123",
+            {"base_url": "https://www.javlibrary.com", "language": "cn", "request_delay": 0},
+        )
+    )
+
+    assert captured == [
+        "https://www.javlibrary.com/cn/vl_searchbyid.php?keyword=ABP-123",
+        "https://www.javlibrary.com/cn/?v=javli-abp123",
+    ]
+    assert metadata["id"] == "ABP-123"
+    assert metadata["title"] == "JAVLibrary Title"
+    assert metadata["date"] == "2014-04-01"
+    assert metadata["videoLength"] == 120
+    assert metadata["director"] == {"id": "", "name": "Director One"}
+    assert metadata["producer"] == {"id": "", "name": "Maker One"}
+    assert metadata["publisher"] == {"id": "", "name": "Label One"}
+    assert metadata["series"] == {"id": "", "name": "Series One"}
+    assert metadata["genres"] == [{"id": "", "name": "Drama"}]
+    assert metadata["stars"] == [{"id": "", "name": "Actor One"}]
+    assert metadata["img"] == "https://img.example.test/cover.jpg"
+
+
+def test_fc2_metadata_adapter_maps_direct_article_html(monkeypatch):
+    captured = []
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+        text = """
+        <html>
+          <head>
+            <meta property="og:title" content="FC2 PPV 1234567 - FC2 Title | FC2">
+            <meta property="og:image" content="//adult.contents.fc2.com/thumb.jpg">
+            <meta property="og:description" content="FC2 PPV 1234567 - Description">
+          </head>
+          <body>
+            <div class="items_article_headerInfo"><a href="/users/1">Maker One</a></div>
+            <div class="items_article_MainitemThumb">
+              <img src="/cover.jpg">
+              <div class="items_article_info">01:30:15</div>
+            </div>
+            <div class="items_article_softDevice"><p>Release: 2024/01/02</p></div>
+            <div class="items_article_TagArea"><a class="tagTag">Genre A</a></div>
+            <div class="items_article_SampleImagesArea"><a href="/sample1.jpg"></a></div>
+          </body>
+        </html>
+        """
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, **kwargs):
+            captured.append(url)
+            return FakeResponse()
+
+    monkeypatch.setattr(metadata_scrapers.httpx, "AsyncClient", FakeAsyncClient)
+
+    metadata = asyncio.run(
+        metadata_scrapers.fetch_fc2_movie_detail(
+            "FC2-PPV-1234567",
+            {"base_url": "https://adult.contents.fc2.com", "request_delay": 0},
+        )
+    )
+
+    assert captured == ["https://adult.contents.fc2.com/article/1234567/"]
+    assert metadata["id"] == "FC2-PPV-1234567"
+    assert metadata["title"] == "FC2 Title"
+    assert metadata["date"] == "2024-01-02"
+    assert metadata["videoLength"] == 90
+    assert metadata["producer"] == {"id": "", "name": "Maker One"}
+    assert metadata["genres"] == [{"id": "", "name": "Genre A"}]
+    assert metadata["samples"] == [
+        {
+            "id": "sample1",
+            "src": "https://adult.contents.fc2.com/sample1.jpg",
+            "thumbnail": "https://adult.contents.fc2.com/sample1.jpg",
+        }
+    ]
+
+
+def test_javstash_metadata_adapter_posts_graphql_and_maps_payload(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {
+                "data": {
+                    "searchScene": [
+                        {
+                            "id": "scene-1",
+                            "code": "ABP-123",
+                            "title": "GraphQL Title",
+                            "release_date": "2024-01-02",
+                            "duration": 7200,
+                            "director": "Director One",
+                            "details": "Description",
+                            "studio": {"id": "studio-1", "name": "Studio One"},
+                            "performers": [{"performer": {"id": "actor-1", "name": "Actor One"}}],
+                            "tags": [{"id": "tag-1", "name": "Genre A"}],
+                            "images": [{"id": "image-1", "url": "https://img.example.test/poster.jpg"}],
+                            "urls": [{"url": "https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=abp00123/"}],
+                        }
+                    ]
+                }
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured["headers"] = kwargs.get("headers")
+            captured["json"] = kwargs.get("json")
+            return FakeResponse()
+
+    monkeypatch.setattr(metadata_scrapers.httpx, "AsyncClient", FakeAsyncClient)
+
+    metadata = asyncio.run(
+        metadata_scrapers.fetch_javstash_movie_detail(
+            "ABP-123",
+            {"base_url": "https://javstash.org/graphql", "api_key": "secret-key", "request_delay": 0},
+        )
+    )
+
+    assert captured["url"] == "https://javstash.org/graphql"
+    assert captured["headers"]["ApiKey"] == "secret-key"
+    assert captured["json"]["variables"] == {"term": "ABP-123", "limit": 5}
+    assert metadata["id"] == "ABP-123"
+    assert metadata["title"] == "GraphQL Title"
+    assert metadata["date"] == "2024-01-02"
+    assert metadata["videoLength"] == 120
+    assert metadata["director"] == {"id": "", "name": "Director One"}
+    assert metadata["producer"] == {"id": "studio-1", "name": "Studio One"}
+    assert metadata["genres"] == [{"id": "tag-1", "name": "Genre A"}]
+    assert metadata["stars"] == [{"id": "actor-1", "name": "Actor One"}]
+    assert metadata["source_url"] == "https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=abp00123/"
+
+
+def test_metadata_scraper_chain_uses_implemented_non_javbus_provider(monkeypatch):
+    monkeypatch.setattr(
+        metadata_scrapers.runtime,
+        "get_scrapers_config",
+        lambda: {
+            "priority": ["r18dev", "libredmm"],
+            "r18dev": {"enabled": True, "request_delay": 0},
+            "libredmm": {"enabled": True, "request_delay": 0},
+        },
+    )
+
+    async def fake_r18dev(movie_id, provider_config):
+        raise RuntimeError("r18dev blocked")
+
+    async def fake_libredmm(movie_id, provider_config):
+        return {"id": movie_id, "title": "LibreDMM Title"}
+
+    monkeypatch.setattr(metadata_scrapers, "fetch_r18dev_movie_detail", fake_r18dev)
+    monkeypatch.setattr(metadata_scrapers, "fetch_libredmm_movie_detail", fake_libredmm)
+
+    result = asyncio.run(metadata_scrapers.metadata_scraper_service.get_movie_detail("ABP-123"))
+
+    assert result["source"] == "libredmm"
+    assert result["metadata"]["title"] == "LibreDMM Title"
+    assert any(entry["provider"] == "r18dev" and entry["level"] == "error" for entry in result["logs"])
+    assert any(entry["provider"] == "libredmm" and "matched" in entry["message"] for entry in result["logs"])
+
+
+def test_metadata_scraper_availability_test_reports_success_and_failure(monkeypatch):
+    async def fake_javbus(movie_id):
+        return {"id": movie_id, "title": "JavBus OK"}
+
+    async def fake_libredmm(movie_id, provider_config):
+        return {"id": movie_id, "title": "LibreDMM OK", "source_url": "https://example.test/libredmm"}
+
+    async def fake_javdb(movie_id, provider_config):
+        raise RuntimeError("blocked")
+
+    monkeypatch.setattr(metadata_scrapers.javbus_api_service, "get_movie_detail", fake_javbus)
+    monkeypatch.setattr(metadata_scrapers, "fetch_libredmm_movie_detail", fake_libredmm)
+    monkeypatch.setattr(metadata_scrapers, "fetch_javdb_movie_detail", fake_javdb)
+    monkeypatch.setattr(
+        metadata_scrapers.runtime,
+        "get_scrapers_config",
+        lambda: {
+            "javbus": {"enabled": True},
+            "libredmm": {"enabled": False, "request_delay": 0},
+            "javdb": {"enabled": False, "request_delay": 0},
+        },
+    )
+
+    result = asyncio.run(
+        metadata_scrapers.test_metadata_scraper_providers(
+            {
+                "providers": ["javbus", "libredmm", "javdb"],
+                "movie_ids": {"javbus": "ABP-123", "libredmm": "ABP-124", "javdb": "ABP-125"},
+                "concurrent": 2,
+            }
+        )
+    )
+
+    by_provider = {item["provider"]: item for item in result["results"]}
+    assert result["summary"] == {"total": 3, "success": 2, "failed": 1, "config_required": 0}
+    assert by_provider["javbus"]["success"] is True
+    assert by_provider["libredmm"]["title"] == "LibreDMM OK"
+    assert by_provider["javdb"]["success"] is False
+    assert by_provider["javdb"]["status"] == "error"
+    assert by_provider["javdb"]["error_message"] == "blocked"
+
+
+def test_metadata_scraper_apply_test_results_persists_enabled_flags(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "scrapers": {
+                "priority": ["javbus", "libredmm", "javdb"],
+                "javbus": {"enabled": False, "language": "zh"},
+                "libredmm": {"enabled": False, "language": "ja", "base_url": "https://libredmm.example.test"},
+                "javdb": {"enabled": True, "language": "zh"},
+            }
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+    monkeypatch.setattr(runtime, "CONFIG_PATH", str(config_path))
+
+    result = metadata_scrapers.apply_metadata_scraper_test_results(
+        [
+            {"provider": "javbus", "success": True},
+            {"provider": "libredmm", "success": True},
+            {"provider": "javdb", "success": False},
+            {"provider": "unknown", "success": True},
+        ]
+    )
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert result["applied"] == [
+        {"provider": "javbus", "enabled": True},
+        {"provider": "libredmm", "enabled": True},
+        {"provider": "javdb", "enabled": False},
+    ]
+    assert saved["scrapers"]["javbus"]["enabled"] is True
+    assert saved["scrapers"]["libredmm"]["enabled"] is True
+    assert saved["scrapers"]["libredmm"]["base_url"] == "https://libredmm.example.test"
+    assert saved["scrapers"]["javdb"]["enabled"] is False
+    assert saved["scrapers"]["priority"] == ["javbus", "libredmm", "javdb"]
+
+
+def test_metadata_scraper_test_route_can_apply_results(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.json"
+    test_config = runtime.merge_config(
+        runtime.DEFAULT_CONFIG,
+        {
+            "scrapers": {
+                "javbus": {"enabled": False},
+                "libredmm": {"enabled": False},
+            }
+        },
+    )
+    monkeypatch.setattr(runtime, "config", test_config)
+    monkeypatch.setattr(runtime, "CONFIG_PATH", str(config_path))
+
+    async def fake_javbus(movie_id):
+        return {"id": movie_id, "title": "JavBus OK"}
+
+    async def fake_libredmm(movie_id, provider_config):
+        return None
+
+    monkeypatch.setattr(metadata_scrapers.javbus_api_service, "get_movie_detail", fake_javbus)
+    monkeypatch.setattr(metadata_scrapers, "fetch_libredmm_movie_detail", fake_libredmm)
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/api/movies/metadata-scrapers/test",
+        json={"providers": ["javbus", "libredmm"], "apply_results": True, "concurrent": 1},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert payload["applied"] is True
+    assert payload["summary"] == {"total": 2, "success": 1, "failed": 1, "config_required": 0}
+    assert saved["scrapers"]["javbus"]["enabled"] is True
+    assert saved["scrapers"]["libredmm"]["enabled"] is False
 
 
 def test_system_settings_update_persists_and_reconfigures_javbus(tmp_path, monkeypatch):
@@ -259,6 +711,7 @@ def test_system_settings_payload_groups_user_config_and_redacts_secrets(monkeypa
     assert payload["scrapers"]["priority"] == ["javbus", "r18dev", "javstash"]
     assert payload["scrapers"]["javbus"]["enabled"] is True
     assert payload["scrapers"]["r18dev"]["enabled"] is True
+    assert payload["scrapers"]["r18dev"]["implemented"] is True
     assert payload["scrapers"]["javstash"]["has_api_key"] is True
     assert "api_key" not in payload["scrapers"]["javstash"]
     assert payload["webdav"]["url"] == "https://dav.example.test/"

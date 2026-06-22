@@ -26,6 +26,24 @@
     },
     0
   );
+  var testMetadataScrapers = async (payload = {}) => fetchWithRetry(
+    "/api/movies/metadata-scrapers/test",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    },
+    0
+  );
+  var applyMetadataScraperTestResults = async (results = []) => fetchWithRetry(
+    "/api/movies/metadata-scrapers/apply-test-results",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ results })
+    },
+    0
+  );
   var fetchAutomationTasks = async () => fetchWithRetry("/api/automation/tasks", {}, 0);
   var createAutomationTask = async (payload) => fetchWithRetry(
     "/api/automation/tasks",
@@ -296,6 +314,7 @@
   var { Title, Text: Text2 } = Typography2;
   var NET_DISK_PUBLIC_KEY = "webdavNetDisksPublic";
   var NET_DISK_SECRET_KEY = "webdavNetDisksSecret";
+  var PAN115_PROFILE_ID = "pan115::config";
   var parseJson2 = (value, fallback) => {
     if (!value) return fallback;
     try {
@@ -309,7 +328,9 @@
   var saveNetDiskProfiles = (profiles) => {
     window.localStorage.setItem(
       NET_DISK_PUBLIC_KEY,
-      JSON.stringify(profiles.map(({ id, type, name, url, username, path }) => ({ id, type, name, url, username, path })))
+      JSON.stringify(
+        profiles.filter((profile) => profile.type !== "pan115").map(({ id, type, name, url, username, path }) => ({ id, type, name, url, username, path }))
+      )
     );
   };
   var saveNetDiskSecret = (profileId, password) => {
@@ -319,6 +340,17 @@
   };
   var buildProfileId = (url, username) => `webdav::${url || ""}::${username || ""}`;
   var buildLocalFolderId = (path) => `localFolder::${path || ""}`;
+  var buildPan115Profile = () => ({
+    id: PAN115_PROFILE_ID,
+    type: "pan115",
+    name: "115\u7F51\u76D8"
+  });
+  var ensurePan115Profile = (profiles) => {
+    if (profiles.some((item) => item.id === PAN115_PROFILE_ID || item.type === "pan115")) {
+      return profiles.map((item) => item.type === "pan115" ? { ...buildPan115Profile(), ...item, id: PAN115_PROFILE_ID } : item);
+    }
+    return [buildPan115Profile(), ...profiles];
+  };
   var upsertNetDiskProfile = (profiles, values) => {
     const url = values.url || "";
     const username = values.username || "";
@@ -361,6 +393,7 @@
     const [aria2Connected, setAria2Connected] = React2.useState(false);
     const [webdavLoading, setWebdavLoading] = React2.useState(false);
     const [currentPath, setCurrentPath] = React2.useState("/");
+    const [pan115Breadcrumbs, setPan115Breadcrumbs] = React2.useState([{ cid: "0", name: "\u6839\u76EE\u5F55" }]);
     const [files, setFiles] = React2.useState([]);
     const [filesLoading, setFilesLoading] = React2.useState(false);
     const [selectedRowKeys, setSelectedRowKeys] = React2.useState([]);
@@ -377,7 +410,7 @@
     React2.useEffect(() => {
       const savedWebdav = loadWebDavSettings();
       const savedProfiles = loadNetDiskProfiles();
-      const derivedProfiles = savedProfiles.length > 0 ? savedProfiles.map((profile) => ({
+      const derivedProfiles = savedProfiles.length > 0 ? savedProfiles.filter((profile) => profile.type !== "pan115").map((profile) => ({
         type: "webdav",
         ...profile,
         id: profile.type === "localFolder" ? profile.id || buildLocalFolderId(profile.path) : profile.id?.startsWith("webdav::") ? profile.id : buildProfileId(profile.url, profile.username || "")
@@ -403,6 +436,9 @@
       try {
         const config = await fetchClientConfig();
         setClientConfig(config);
+        if (config.pan115?.configured) {
+          setNetDisks((profiles) => ensurePan115Profile(profiles));
+        }
         if (!webdavForm.getFieldValue("url") && config.webdav?.url) {
           webdavForm.setFieldsValue({ url: config.webdav.url });
         }
@@ -431,7 +467,7 @@
           loadWebDavFiles("/");
         } else {
           const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
-          if (!activeProfile || activeProfile.type !== "localFolder") {
+          if (!activeProfile || activeProfile.type !== "localFolder" && activeProfile.type !== "pan115") {
             setFiles([]);
           }
         }
@@ -528,6 +564,12 @@
         await loadLocalFiles(profile.path);
         return;
       }
+      if (profile.type === "pan115") {
+        setActiveNetDiskId(PAN115_PROFILE_ID);
+        setWebdavConnected(false);
+        await loadPan115Files("0");
+        return;
+      }
       const secrets = loadNetDiskSecrets();
       webdavForm.setFieldsValue({
         name: profile.name,
@@ -558,6 +600,17 @@
       setLocalFolderModalOpen(false);
       await loadLocalFiles(profile.path);
     };
+    const handlePan115ConnectFromConfig = async () => {
+      if (!clientConfig.pan115?.configured) {
+        message2.warning("\u8BF7\u5148\u5728\u8BBE\u7F6E\u6216\u4E0B\u8F7D\u5DE5\u5177\u4E2D\u767B\u5F55 115 \u7F51\u76D8");
+        return;
+      }
+      const nextProfiles = ensurePan115Profile(netDisks);
+      setNetDisks(nextProfiles);
+      setActiveNetDiskId(PAN115_PROFILE_ID);
+      setWebdavConnected(false);
+      await loadPan115Files("0");
+    };
     const openNetDiskModal = () => {
       webdavForm.setFieldsValue({ name: "", url: "", username: "", password: "" });
       setNetDiskModalOpen(true);
@@ -583,7 +636,7 @@
     };
     const applyFileList = (entries, path, sourceType) => {
       const parentRows = [];
-      if (path !== "/" && path !== "") {
+      if (sourceType !== "pan115" && path !== "/" && path !== "") {
         const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
         const isLocalRoot = activeProfile?.type === "localFolder" && activeProfile.path === path;
         if (!isLocalRoot) {
@@ -645,10 +698,53 @@
         setFilesLoading(false);
       }
     };
-    const loadFiles = async (path) => {
+    const loadPan115Files = async (cid = "0", folderName = "") => {
+      setFilesLoading(true);
+      try {
+        const res = await fetch(`/api/115/files?cid=${encodeURIComponent(cid || "0")}`);
+        const result = await res.json();
+        if (res.ok && result.items) {
+          const currentCid = String(result.cid || cid || "0");
+          const entries = (result.items || []).map((item) => {
+            const isDirectory = item.kind === "folder";
+            const size = Number(item.size || 0);
+            return {
+              name: item.name || "",
+              path: item.id || "",
+              parent_id: item.parent_id || currentCid,
+              is_directory: isDirectory,
+              size: Number.isFinite(size) ? size : 0
+            };
+          });
+          setPan115Breadcrumbs((breadcrumbs) => {
+            if (currentCid === "0") {
+              return [{ cid: "0", name: "\u6839\u76EE\u5F55" }];
+            }
+            const existingIndex = breadcrumbs.findIndex((item) => item.cid === currentCid);
+            if (existingIndex >= 0) {
+              return breadcrumbs.slice(0, existingIndex + 1);
+            }
+            const base = breadcrumbs.length > 0 ? breadcrumbs : [{ cid: "0", name: "\u6839\u76EE\u5F55" }];
+            return [...base, { cid: currentCid, name: folderName || currentCid }];
+          });
+          applyFileList(entries, currentCid, "pan115");
+        } else {
+          message2.error(result.detail || result.message || "\u52A0\u8F7D 115 \u7F51\u76D8\u6587\u4EF6\u5931\u8D25");
+        }
+      } catch (error) {
+        message2.error("\u52A0\u8F7D 115 \u7F51\u76D8\u6587\u4EF6\u5F02\u5E38");
+      } finally {
+        setFilesLoading(false);
+      }
+    };
+    const loadFiles = async (path, record = null) => {
       const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
       if (activeProfile?.type === "localFolder") {
         await loadLocalFiles(path);
+        return;
+      }
+      if (activeProfile?.type === "pan115") {
+        await loadPan115Files(path || "0", record?.name || "");
         return;
       }
       await loadWebDavFiles(path);
@@ -673,6 +769,10 @@
     const submitDownloads = async (rows) => {
       if (rows.some((row) => row.source_type === "local")) {
         message2.warning("\u672C\u5730\u6587\u4EF6\u4E0D\u80FD\u53D1\u9001\u5230 Aria2");
+        return null;
+      }
+      if (rows.some((row) => row.source_type === "pan115")) {
+        message2.warning("115 \u7F51\u76D8\u6587\u4EF6\u6682\u4E0D\u652F\u6301\u76F4\u63A5\u6D3E\u53D1\u5230 Aria2");
         return null;
       }
       const ready = await ensureAria2Ready();
@@ -755,7 +855,7 @@
           return /* @__PURE__ */ React2.createElement("div", { style: { display: "flex", alignItems: "center", width: "100%" } }, /* @__PURE__ */ React2.createElement("div", { style: { flexShrink: 0 } }, iconNode), /* @__PURE__ */ React2.createElement(
             "a",
             {
-              onClick: () => record.is_directory && loadFiles(record.path),
+              onClick: () => record.is_directory && loadFiles(record.path, record),
               style: {
                 color: "inherit",
                 fontWeight: isLargeVideo ? 600 : "normal",
@@ -801,8 +901,8 @@
             ghost: true,
             icon: /* @__PURE__ */ React2.createElement(DownloadOutlined, null),
             size: "small",
-            disabled: record.source_type === "local",
-            title: record.source_type === "local" ? "\u672C\u5730\u6587\u4EF6\u4E0D\u80FD\u53D1\u9001\u5230 Aria2" : "\u4E0B\u8F7D",
+            disabled: record.source_type === "local" || record.source_type === "pan115",
+            title: record.source_type === "local" ? "\u672C\u5730\u6587\u4EF6\u4E0D\u80FD\u53D1\u9001\u5230 Aria2" : record.source_type === "pan115" ? "115 \u7F51\u76D8\u6587\u4EF6\u6682\u4E0D\u652F\u6301\u76F4\u63A5\u6D3E\u53D1\u5230 Aria2" : "\u4E0B\u8F7D",
             onClick: (event) => {
               event.stopPropagation();
               downloadSingleFile(record);
@@ -811,17 +911,22 @@
         ) : null
       }
     ];
-    const breadcrumbItems = currentPath.split("/").filter(Boolean).reduce((acc, part) => {
+    const activeNetDisk = netDisks.find((item) => item.id === activeNetDiskId);
+    const isLocalSource = activeNetDisk?.type === "localFolder";
+    const isPan115Source = activeNetDisk?.type === "pan115";
+    const resourceReady = isLocalSource || isPan115Source || webdavConnected;
+    const rootPath = isPan115Source ? "0" : "/";
+    const breadcrumbItems = isPan115Source ? pan115Breadcrumbs.slice(1).map((item) => ({
+      title: /* @__PURE__ */ React2.createElement("a", { onClick: () => loadPan115Files(item.cid) }, item.name),
+      path: item.cid
+    })) : currentPath.split("/").filter(Boolean).reduce((acc, part) => {
       const path = acc.length === 0 ? `/${part}` : `${acc[acc.length - 1].path}/${part}`;
       acc.push({ title: /* @__PURE__ */ React2.createElement("a", { onClick: () => loadFiles(path) }, part), path });
       return acc;
     }, []);
-    const activeNetDisk = netDisks.find((item) => item.id === activeNetDiskId);
-    const isLocalSource = activeNetDisk?.type === "localFolder";
-    const resourceReady = isLocalSource || webdavConnected;
     const normalizedFileNameFilter = fileNameFilter.trim().toLowerCase();
     const visibleFiles = normalizedFileNameFilter ? files.filter((item) => item.isParent || item.name.toLowerCase().includes(normalizedFileNameFilter)) : files;
-    return /* @__PURE__ */ React2.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React2.createElement("div", { className: "webdav-page-header webdav-page-header-compact" }, /* @__PURE__ */ React2.createElement("div", null, /* @__PURE__ */ React2.createElement(Title, { level: 3, style: { marginBottom: 4 } }, "\u7F51\u76D8\u7BA1\u7406"), /* @__PURE__ */ React2.createElement(Text2, { type: "secondary" }, resourceReady ? activeNetDisk?.name || "\u5F53\u524D\u6765\u6E90" : "\u9009\u62E9 WebDAV \u7F51\u76D8\u6216\u672C\u5730\u6587\u4EF6\u5939\u5F00\u59CB\u6D4F\u89C8")), /* @__PURE__ */ React2.createElement(Space2, { wrap: true }, /* @__PURE__ */ React2.createElement(Badge, { status: resourceReady ? "success" : "default", text: resourceReady ? "\u5DF2\u9009\u62E9" : "\u672A\u9009\u62E9" }), /* @__PURE__ */ React2.createElement(Button2, { type: "primary", icon: /* @__PURE__ */ React2.createElement(PlusOutlined, null), onClick: openNetDiskModal }, "\u65B0\u589E\u7F51\u76D8"), /* @__PURE__ */ React2.createElement(Button2, { icon: /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, null), onClick: openLocalFolderModal }, "\u65B0\u589E\u672C\u5730\u6587\u4EF6\u5939"))), /* @__PURE__ */ React2.createElement(Content, null, /* @__PURE__ */ React2.createElement(Row, { gutter: [24, 24] }, /* @__PURE__ */ React2.createElement(Col, { xs: 24, lg: 7, xl: 6 }, /* @__PURE__ */ React2.createElement(
+    return /* @__PURE__ */ React2.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React2.createElement("div", { className: "webdav-page-header webdav-page-header-compact" }, /* @__PURE__ */ React2.createElement("div", null, /* @__PURE__ */ React2.createElement(Title, { level: 3, style: { marginBottom: 4 } }, "\u7F51\u76D8\u7BA1\u7406"), /* @__PURE__ */ React2.createElement(Text2, { type: "secondary" }, resourceReady ? activeNetDisk?.name || "\u5F53\u524D\u6765\u6E90" : "\u9009\u62E9 WebDAV\u3001115\u7F51\u76D8\u6216\u672C\u5730\u6587\u4EF6\u5939\u5F00\u59CB\u6D4F\u89C8")), /* @__PURE__ */ React2.createElement(Space2, { wrap: true }, /* @__PURE__ */ React2.createElement(Badge, { status: resourceReady ? "success" : "default", text: resourceReady ? "\u5DF2\u9009\u62E9" : "\u672A\u9009\u62E9" }), /* @__PURE__ */ React2.createElement(Button2, { type: "primary", icon: /* @__PURE__ */ React2.createElement(PlusOutlined, null), onClick: openNetDiskModal }, "\u65B0\u589E\u7F51\u76D8"), clientConfig.pan115?.configured && /* @__PURE__ */ React2.createElement(Button2, { icon: /* @__PURE__ */ React2.createElement(CloudOutlined, null), onClick: handlePan115ConnectFromConfig }, "\u6253\u5F00 115\u7F51\u76D8"), /* @__PURE__ */ React2.createElement(Button2, { icon: /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, null), onClick: openLocalFolderModal }, "\u65B0\u589E\u672C\u5730\u6587\u4EF6\u5939"))), /* @__PURE__ */ React2.createElement(Content, null, /* @__PURE__ */ React2.createElement(Row, { gutter: [24, 24] }, /* @__PURE__ */ React2.createElement(Col, { xs: 24, lg: 7, xl: 6 }, /* @__PURE__ */ React2.createElement(
       Card,
       {
         className: "webdav-work-card webdav-netdisk-card",
@@ -833,10 +938,11 @@
         {
           className: "webdav-netdisk-list",
           dataSource: netDisks,
-          renderItem: (item) => /* @__PURE__ */ React2.createElement(List2.Item, { className: activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder") ? "is-active" : "" }, /* @__PURE__ */ React2.createElement("button", { type: "button", className: "webdav-netdisk-row", onClick: () => handleProfileConnect(item) }, item.type === "localFolder" ? /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, { className: "webdav-netdisk-icon" }) : /* @__PURE__ */ React2.createElement(CloudOutlined, { className: "webdav-netdisk-icon" }), /* @__PURE__ */ React2.createElement("span", { className: "webdav-netdisk-copy" }, /* @__PURE__ */ React2.createElement(Text2, { strong: true, ellipsis: true }, item.name || item.path || item.url), /* @__PURE__ */ React2.createElement(Text2, { type: "secondary", ellipsis: true }, item.type === "localFolder" ? `\u672C\u5730\u6587\u4EF6\u5939 \xB7 ${item.path}` : item.username ? `WebDAV \xB7 ${item.username} @ ${item.url}` : `WebDAV \xB7 ${item.url}`)), activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder") && /* @__PURE__ */ React2.createElement(Badge, { status: "success" })), /* @__PURE__ */ React2.createElement(Popconfirm, { title: "\u5220\u9664\u8BE5\u7F51\u76D8?", onConfirm: () => handleRemoveProfile(item.id) }, /* @__PURE__ */ React2.createElement(Button2, { type: "text", size: "small", danger: true, icon: /* @__PURE__ */ React2.createElement(DeleteOutlined, null), title: "\u5220\u9664" })))
+          renderItem: (item) => /* @__PURE__ */ React2.createElement(List2.Item, { className: activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder" || item.type === "pan115") ? "is-active" : "" }, /* @__PURE__ */ React2.createElement("button", { type: "button", className: "webdav-netdisk-row", onClick: () => handleProfileConnect(item) }, item.type === "localFolder" ? /* @__PURE__ */ React2.createElement(FolderOpenOutlined2, { className: "webdav-netdisk-icon" }) : /* @__PURE__ */ React2.createElement(CloudOutlined, { className: "webdav-netdisk-icon" }), /* @__PURE__ */ React2.createElement("span", { className: "webdav-netdisk-copy" }, /* @__PURE__ */ React2.createElement(Text2, { strong: true, ellipsis: true }, item.name || item.path || item.url), /* @__PURE__ */ React2.createElement(Text2, { type: "secondary", ellipsis: true }, item.type === "localFolder" ? `\u672C\u5730\u6587\u4EF6\u5939 \xB7 ${item.path}` : item.type === "pan115" ? "115\u7F51\u76D8 \xB7 \u4F7F\u7528\u670D\u52A1\u7AEF\u914D\u7F6E" : item.username ? `WebDAV \xB7 ${item.username} @ ${item.url}` : `WebDAV \xB7 ${item.url}`)), activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder" || item.type === "pan115") && /* @__PURE__ */ React2.createElement(Badge, { status: "success" })), /* @__PURE__ */ React2.createElement(Popconfirm, { title: "\u5220\u9664\u8BE5\u7F51\u76D8?", onConfirm: () => handleRemoveProfile(item.id) }, /* @__PURE__ */ React2.createElement(Button2, { type: "text", size: "small", danger: true, icon: /* @__PURE__ */ React2.createElement(DeleteOutlined, null), title: "\u5220\u9664" })))
         }
       ),
-      clientConfig.webdav.configured && /* @__PURE__ */ React2.createElement(Button2, { block: true, icon: /* @__PURE__ */ React2.createElement(ApiOutlined, null), onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u8FDE\u63A5\u914D\u7F6E\u7F51\u76D8")
+      clientConfig.webdav.configured && /* @__PURE__ */ React2.createElement(Button2, { block: true, icon: /* @__PURE__ */ React2.createElement(ApiOutlined, null), onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u8FDE\u63A5\u914D\u7F6E\u7F51\u76D8"),
+      clientConfig.pan115?.configured && /* @__PURE__ */ React2.createElement(Button2, { block: true, icon: /* @__PURE__ */ React2.createElement(CloudOutlined, null), onClick: handlePan115ConnectFromConfig }, "\u6253\u5F00\u914D\u7F6E 115\u7F51\u76D8")
     )), /* @__PURE__ */ React2.createElement(Col, { xs: 24, lg: 17, xl: 18 }, /* @__PURE__ */ React2.createElement(
       Card,
       {
@@ -847,7 +953,7 @@
           {
             type: "primary",
             icon: /* @__PURE__ */ React2.createElement(DownloadOutlined, null),
-            disabled: selectedRowKeys.length === 0 || selectedRows.some((row) => row.source_type === "local"),
+            disabled: selectedRowKeys.length === 0 || selectedRows.some((row) => row.source_type === "local" || row.source_type === "pan115"),
             onClick: handleDownloadSelected,
             loading: downloadingSelection
           },
@@ -856,7 +962,7 @@
           ")"
         ))
       },
-      !resourceReady ? /* @__PURE__ */ React2.createElement(Empty2, { description: "\u8BF7\u9009\u62E9 WebDAV \u7F51\u76D8\u6216\u672C\u5730\u6587\u4EF6\u5939" }) : /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement("div", { className: "webdav-explorer-topbar" }, /* @__PURE__ */ React2.createElement(Breadcrumb, null, /* @__PURE__ */ React2.createElement(Breadcrumb.Item, null, /* @__PURE__ */ React2.createElement("a", { onClick: () => loadFiles("/") }, "\u6839\u76EE\u5F55")), breadcrumbItems.map((item, idx) => /* @__PURE__ */ React2.createElement(Breadcrumb.Item, { key: idx }, idx === breadcrumbItems.length - 1 ? item.title.props.children : item.title))), /* @__PURE__ */ React2.createElement(
+      !resourceReady ? /* @__PURE__ */ React2.createElement(Empty2, { description: "\u8BF7\u9009\u62E9 WebDAV\u3001115\u7F51\u76D8\u6216\u672C\u5730\u6587\u4EF6\u5939" }) : /* @__PURE__ */ React2.createElement(React2.Fragment, null, /* @__PURE__ */ React2.createElement("div", { className: "webdav-explorer-topbar" }, /* @__PURE__ */ React2.createElement(Breadcrumb, null, /* @__PURE__ */ React2.createElement(Breadcrumb.Item, null, /* @__PURE__ */ React2.createElement("a", { onClick: () => loadFiles(rootPath) }, "\u6839\u76EE\u5F55")), breadcrumbItems.map((item, idx) => /* @__PURE__ */ React2.createElement(Breadcrumb.Item, { key: idx }, idx === breadcrumbItems.length - 1 ? item.title.props.children : item.title))), /* @__PURE__ */ React2.createElement(
         Input2,
         {
           allowClear: true,
@@ -880,7 +986,7 @@
               setSelectedRowKeys(newSelectedRowKeys);
               setSelectedRows(newSelectedRows);
             },
-            getCheckboxProps: (record) => ({ disabled: record.isParent || record.source_type === "local" })
+            getCheckboxProps: (record) => ({ disabled: record.isParent || record.source_type === "local" || record.source_type === "pan115" })
           },
           rowClassName: (record) => {
             const isLargeVideo = !record.is_directory && isVideoFile(record.name) && record.size >= minFileSizeMb * 1024 * 1024;
@@ -3850,7 +3956,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const [form] = Form5.useForm();
     const [loading, setLoading] = React6.useState(true);
     const [saving, setSaving] = React6.useState(false);
+    const [scraperTesting, setScraperTesting] = React6.useState(false);
+    const [scraperApplying, setScraperApplying] = React6.useState(false);
+    const [scraperTestResult, setScraperTestResult] = React6.useState(null);
     const [settings, setSettings] = React6.useState(null);
+    const scraperPriority = Form5.useWatch(["scrapers", "priority"], form) || [];
     const loadSettings = async () => {
       setLoading(true);
       try {
@@ -3879,12 +3989,68 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         setSaving(false);
       }
     };
+    const runScraperTests = async () => {
+      setScraperTesting(true);
+      try {
+        const values = form.getFieldsValue(true);
+        const saved = await updateSystemSettings(buildSettingsPayload(values));
+        setSettings(saved);
+        form.setFieldsValue(withSecretPlaceholders(saved));
+        const result = await testMetadataScrapers({
+          providers: SCRAPER_OPTIONS.map((option) => option.value)
+        });
+        setScraperTestResult(result);
+        message6.success(`\u6D4B\u8BD5\u5B8C\u6210\uFF1A${result.summary?.success || 0}/${result.summary?.total || 0} \u53EF\u7528`);
+      } catch (error) {
+        message6.error("\u6D4B\u8BD5\u522E\u524A\u6E90\u5931\u8D25");
+      } finally {
+        setScraperTesting(false);
+      }
+    };
+    const applyScraperTestResults = async () => {
+      if (!scraperTestResult?.results?.length) {
+        message6.warning("\u8BF7\u5148\u6D4B\u8BD5\u522E\u524A\u6E90");
+        return;
+      }
+      setScraperApplying(true);
+      try {
+        await applyMetadataScraperTestResults(scraperTestResult.results);
+        await loadSettings();
+        message6.success("\u5DF2\u6309\u6D4B\u8BD5\u7ED3\u679C\u66F4\u65B0\u542F\u7528\u72B6\u6001");
+      } catch (error) {
+        message6.error("\u5E94\u7528\u6D4B\u8BD5\u7ED3\u679C\u5931\u8D25");
+      } finally {
+        setScraperApplying(false);
+      }
+    };
+    const moveScraperPriority = (provider, direction) => {
+      const current = [...form.getFieldValue(["scrapers", "priority"]) || []];
+      const index = current.indexOf(provider);
+      if (index < 0) {
+        form.setFieldValue(["scrapers", "priority"], [...current, provider]);
+        return;
+      }
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) {
+        return;
+      }
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      form.setFieldValue(["scrapers", "priority"], next);
+    };
     const resetForm = () => {
       form.setFieldsValue(withSecretPlaceholders(settings || {}));
     };
     const envOverrides = settings?.environment_overrides?.javbus || {};
     const hasEnvOverrides = Object.values(envOverrides).some(Boolean);
     const security = settings?.security || {};
+    const scraperTestByProvider = React6.useMemo(() => {
+      const entries = {};
+      for (const item of scraperTestResult?.results || []) {
+        entries[item.provider] = item;
+      }
+      return entries;
+    }, [scraperTestResult]);
     return /* @__PURE__ */ React6.createElement("div", { className: "webdav-page" }, /* @__PURE__ */ React6.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 3, style: { marginBottom: 4 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u6309\u7C7B\u522B\u7BA1\u7406\u53EF\u70ED\u66F4\u65B0\u7684\u8FD0\u884C\u914D\u7F6E")), /* @__PURE__ */ React6.createElement(Space6, null, hasEnvOverrides && /* @__PURE__ */ React6.createElement(Tag5, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon4, { as: ReloadOutlined4 }), onClick: loadSettings, loading }, "\u5237\u65B0"))), /* @__PURE__ */ React6.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React6.createElement(Form5, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React6.createElement(Row2, { gutter: [24, 24] }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 14 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: ApiOutlined3 }), " JavBus API") }, hasEnvOverrides && /* @__PURE__ */ React6.createElement(
       Alert3,
       {
@@ -3936,34 +4102,94 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         extra: "\u7B2C 2 \u6B21\u8D77\u6309\u8BE5\u503C\u9012\u589E\u7B49\u5F85\uFF1B\u8BBE\u4E3A 0 \u8868\u793A\u4E0D\u7B49\u5F85"
       },
       /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 10, step: 0.05, precision: 2, style: { width: "100%" } })
-    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 14 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SettingOutlined2 }), " \u522E\u524A\u5458") }, /* @__PURE__ */ React6.createElement(
-      Form5.Item,
+    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 14 }, /* @__PURE__ */ React6.createElement(
+      Card5,
       {
-        name: ["scrapers", "priority"],
-        label: "Priority",
-        extra: "Inspired by javinizer-go: enabled providers are tried in this order."
+        className: "webdav-connection-card",
+        title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SettingOutlined2 }), " \u522E\u524A\u5458"),
+        extra: /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(
+          Button6,
+          {
+            size: "small",
+            onClick: runScraperTests,
+            loading: scraperTesting,
+            disabled: saving || scraperApplying
+          },
+          "\u6D4B\u8BD5\u6240\u6709\u6E90"
+        ), /* @__PURE__ */ React6.createElement(
+          Button6,
+          {
+            size: "small",
+            type: "primary",
+            onClick: applyScraperTestResults,
+            loading: scraperApplying,
+            disabled: scraperTesting || !scraperTestResult?.results?.length
+          },
+          "\u6309\u7ED3\u679C\u542F\u505C"
+        ))
       },
-      /* @__PURE__ */ React6.createElement(Select3, { mode: "multiple", options: SCRAPER_OPTIONS, optionFilterProp: "label" })
-    ), /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, SCRAPER_OPTIONS.map((provider) => /* @__PURE__ */ React6.createElement(
-      "div",
-      {
-        key: provider.value,
-        style: {
-          border: "1px solid #f0f0f0",
-          borderRadius: 8,
-          padding: 12
+      scraperTestResult?.summary && /* @__PURE__ */ React6.createElement(
+        Alert3,
+        {
+          showIcon: true,
+          type: scraperTestResult.summary.failed ? "warning" : "success",
+          style: { marginBottom: 16 },
+          message: `\u53EF\u7528 ${scraperTestResult.summary.success}/${scraperTestResult.summary.total}\uFF0C\u5931\u8D25 ${scraperTestResult.summary.failed}`
         }
-      },
-      /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "small", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, provider.label), /* @__PURE__ */ React6.createElement(Tag5, { color: settings?.scrapers?.[provider.value]?.implemented ? "success" : "default" }, settings?.scrapers?.[provider.value]?.implemented ? "active" : "configured")), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "enabled"], label: "Enabled", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "language"], label: "Language" }, /* @__PURE__ */ React6.createElement(Select3, { options: SCRAPER_LANGUAGE_OPTIONS }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "request_delay"], label: "Delay ms" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 6e4, step: 100, precision: 0, style: { width: "100%" } })))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "base_url"], label: "Base URL" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "url" })), provider.value === "javstash" && /* @__PURE__ */ React6.createElement(
+      ),
+      /* @__PURE__ */ React6.createElement(
         Form5.Item,
         {
-          name: ["scrapers", "javstash", "api_key"],
-          label: "JavStash API Key",
-          extra: settings?.scrapers?.javstash?.has_api_key ? "has_api_key: true; leave blank to keep the saved key" : "GraphQL API key is optional unless JavStash is enabled."
+          name: ["scrapers", "priority"],
+          label: "Priority",
+          extra: "Inspired by javinizer-go: enabled providers are tried in this order."
         },
-        /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password" })
-      ))
-    ))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 10 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SettingOutlined2 }), " \u8FD0\u884C\u4E0E\u5B89\u5168") }, /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "session_secret"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React6.createElement(Tag5, { color: security.session_secret_configured ? "success" : "warning" }, security.session_secret_configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Tag5, { color: security.using_default_session_secret ? "error" : "success" }, security.using_default_session_secret ? "\u4F7F\u7528\u9ED8\u8BA4\u503C" : "\u975E\u9ED8\u8BA4\u503C"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D JavBus \u8BF7\u6C42\u95F4\u9694"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.request_interval_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D JavBus \u7F13\u5B58\u5BB9\u91CF"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.cache_max_size ?? "-", " \u6761"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D\u56FE\u7247\u4E0B\u8F7D\u91CD\u8BD5"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.image_retry_attempts ?? "-", " \u6B21\uFF0C \u9000\u907F ", settings?.javbus?.image_retry_backoff_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, Object.entries(envOverrides).map(([key, active]) => /* @__PURE__ */ React6.createElement(Tag5, { key, color: active ? "warning" : "default" }, key, ": ", active ? "\u662F" : "\u5426"))))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: CloudOutlined2 }), " WebDAV") }, /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "auto_connect"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null)))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "url"], label: "WebDAV \u5730\u5740" }, /* @__PURE__ */ React6.createElement(Input6, { placeholder: "https://dav.example.com/", autoComplete: "url" })), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "username"], label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "username" }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
+        /* @__PURE__ */ React6.createElement(Select3, { mode: "multiple", options: SCRAPER_OPTIONS, optionFilterProp: "label" })
+      ),
+      /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, SCRAPER_OPTIONS.map((provider) => /* @__PURE__ */ React6.createElement(
+        "div",
+        {
+          key: provider.value,
+          style: {
+            border: "1px solid #f0f0f0",
+            borderRadius: 8,
+            padding: 12
+          }
+        },
+        /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "small", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, provider.label), /* @__PURE__ */ React6.createElement(Tag5, { color: settings?.scrapers?.[provider.value]?.implemented ? "success" : "default" }, settings?.scrapers?.[provider.value]?.implemented ? "active" : "configured"), scraperPriority.includes(provider.value) && /* @__PURE__ */ React6.createElement(Tag5, { color: "processing" }, "#", scraperPriority.indexOf(provider.value) + 1), scraperTestByProvider[provider.value] && /* @__PURE__ */ React6.createElement(Tag5, { color: scraperTestByProvider[provider.value].success ? "success" : "error" }, scraperTestByProvider[provider.value].status), scraperTestByProvider[provider.value]?.duration_ms != null && /* @__PURE__ */ React6.createElement(Tag5, null, scraperTestByProvider[provider.value].duration_ms, " ms")), /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(
+          Button6,
+          {
+            size: "small",
+            onClick: () => moveScraperPriority(provider.value, -1),
+            disabled: !scraperPriority.includes(provider.value) || scraperPriority.indexOf(provider.value) === 0
+          },
+          "\u4E0A\u79FB"
+        ), /* @__PURE__ */ React6.createElement(
+          Button6,
+          {
+            size: "small",
+            onClick: () => moveScraperPriority(provider.value, 1),
+            disabled: !scraperPriority.includes(provider.value) || scraperPriority.indexOf(provider.value) === scraperPriority.length - 1
+          },
+          "\u4E0B\u79FB"
+        ), !scraperPriority.includes(provider.value) && /* @__PURE__ */ React6.createElement(Button6, { size: "small", onClick: () => moveScraperPriority(provider.value, 0) }, "\u52A0\u5165\u4F18\u5148\u7EA7")), scraperTestByProvider[provider.value] && /* @__PURE__ */ React6.createElement(
+          Text6,
+          {
+            type: scraperTestByProvider[provider.value].success ? "secondary" : "danger",
+            ellipsis: { tooltip: scraperTestByProvider[provider.value].error_message || scraperTestByProvider[provider.value].title }
+          },
+          scraperTestByProvider[provider.value].success ? `${scraperTestByProvider[provider.value].id || "-"} ${scraperTestByProvider[provider.value].title || ""}` : scraperTestByProvider[provider.value].error_message || "no metadata returned"
+        ), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "enabled"], label: "Enabled", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "language"], label: "Language" }, /* @__PURE__ */ React6.createElement(Select3, { options: SCRAPER_LANGUAGE_OPTIONS }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "request_delay"], label: "Delay ms" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 6e4, step: 100, precision: 0, style: { width: "100%" } })))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["scrapers", provider.value, "base_url"], label: "Base URL" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "url" })), provider.value === "javstash" && /* @__PURE__ */ React6.createElement(
+          Form5.Item,
+          {
+            name: ["scrapers", "javstash", "api_key"],
+            label: "JavStash API Key",
+            extra: settings?.scrapers?.javstash?.has_api_key ? "has_api_key: true; leave blank to keep the saved key" : "GraphQL API key is optional unless JavStash is enabled."
+          },
+          /* @__PURE__ */ React6.createElement(Input6.Password, { autoComplete: "new-password" })
+        ))
+      )))
+    )), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, xl: 10 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SettingOutlined2 }), " \u8FD0\u884C\u4E0E\u5B89\u5168") }, /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "session_secret"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React6.createElement(Tag5, { color: security.session_secret_configured ? "success" : "warning" }, security.session_secret_configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Tag5, { color: security.using_default_session_secret ? "error" : "success" }, security.using_default_session_secret ? "\u4F7F\u7528\u9ED8\u8BA4\u503C" : "\u975E\u9ED8\u8BA4\u503C"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D JavBus \u8BF7\u6C42\u95F4\u9694"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.request_interval_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D JavBus \u7F13\u5B58\u5BB9\u91CF"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.cache_max_size ?? "-", " \u6761"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u5F53\u524D\u56FE\u7247\u4E0B\u8F7D\u91CD\u8BD5"), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { strong: true }, settings?.javbus?.image_retry_attempts ?? "-", " \u6B21\uFF0C \u9000\u907F ", settings?.javbus?.image_retry_backoff_seconds ?? "-", " \u79D2"))), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, Object.entries(envOverrides).map(([key, active]) => /* @__PURE__ */ React6.createElement(Tag5, { key, color: active ? "warning" : "default" }, key, ": ", active ? "\u662F" : "\u5426"))))))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, lg: 12 }, /* @__PURE__ */ React6.createElement(Card5, { className: "webdav-connection-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: CloudOutlined2 }), " WebDAV") }, /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "enabled"], label: "\u542F\u7528\u914D\u7F6E\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "auto_connect"], label: "\u9875\u9762\u52A0\u8F7D\u540E\u81EA\u52A8\u8FDE\u63A5", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null)))), /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "url"], label: "WebDAV \u5730\u5740" }, /* @__PURE__ */ React6.createElement(Input6, { placeholder: "https://dav.example.com/", autoComplete: "url" })), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["webdav", "username"], label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React6.createElement(Input6, { autoComplete: "username" }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 12 }, /* @__PURE__ */ React6.createElement(
       Form5.Item,
       {
         name: ["webdav", "password"],

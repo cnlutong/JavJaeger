@@ -22,6 +22,7 @@ const { Title, Text } = Typography;
 
 const NET_DISK_PUBLIC_KEY = "webdavNetDisksPublic";
 const NET_DISK_SECRET_KEY = "webdavNetDisksSecret";
+const PAN115_PROFILE_ID = "pan115::config";
 
 const parseJson = (value, fallback) => {
     if (!value) return fallback;
@@ -38,7 +39,11 @@ const loadNetDiskSecrets = () => parseJson(window.sessionStorage.getItem(NET_DIS
 const saveNetDiskProfiles = (profiles) => {
     window.localStorage.setItem(
         NET_DISK_PUBLIC_KEY,
-        JSON.stringify(profiles.map(({ id, type, name, url, username, path }) => ({ id, type, name, url, username, path }))),
+        JSON.stringify(
+            profiles
+                .filter((profile) => profile.type !== "pan115")
+                .map(({ id, type, name, url, username, path }) => ({ id, type, name, url, username, path })),
+        ),
     );
 };
 
@@ -50,6 +55,19 @@ const saveNetDiskSecret = (profileId, password) => {
 
 const buildProfileId = (url, username) => `webdav::${url || ""}::${username || ""}`;
 const buildLocalFolderId = (path) => `localFolder::${path || ""}`;
+
+const buildPan115Profile = () => ({
+    id: PAN115_PROFILE_ID,
+    type: "pan115",
+    name: "115网盘",
+});
+
+const ensurePan115Profile = (profiles) => {
+    if (profiles.some((item) => item.id === PAN115_PROFILE_ID || item.type === "pan115")) {
+        return profiles.map((item) => item.type === "pan115" ? { ...buildPan115Profile(), ...item, id: PAN115_PROFILE_ID } : item);
+    }
+    return [buildPan115Profile(), ...profiles];
+};
 
 const upsertNetDiskProfile = (profiles, values) => {
     const url = values.url || "";
@@ -97,6 +115,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
     const [aria2Connected, setAria2Connected] = React.useState(false);
     const [webdavLoading, setWebdavLoading] = React.useState(false);
     const [currentPath, setCurrentPath] = React.useState("/");
+    const [pan115Breadcrumbs, setPan115Breadcrumbs] = React.useState([{ cid: "0", name: "根目录" }]);
     const [files, setFiles] = React.useState([]);
     const [filesLoading, setFilesLoading] = React.useState(false);
     const [selectedRowKeys, setSelectedRowKeys] = React.useState([]);
@@ -115,7 +134,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
         const savedWebdav = loadWebDavSettings();
         const savedProfiles = loadNetDiskProfiles();
         const derivedProfiles = savedProfiles.length > 0
-            ? savedProfiles.map((profile) => ({
+            ? savedProfiles.filter((profile) => profile.type !== "pan115").map((profile) => ({
                 type: "webdav",
                 ...profile,
                 id: profile.type === "localFolder"
@@ -156,6 +175,9 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
         try {
             const config = await fetchClientConfig();
             setClientConfig(config);
+            if (config.pan115?.configured) {
+                setNetDisks((profiles) => ensurePan115Profile(profiles));
+            }
             if (!webdavForm.getFieldValue("url") && config.webdav?.url) {
                 webdavForm.setFieldsValue({ url: config.webdav.url });
             }
@@ -185,7 +207,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                 loadWebDavFiles("/");
             } else {
                 const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
-                if (!activeProfile || activeProfile.type !== "localFolder") {
+                if (!activeProfile || (activeProfile.type !== "localFolder" && activeProfile.type !== "pan115")) {
                     setFiles([]);
                 }
             }
@@ -287,6 +309,12 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
             await loadLocalFiles(profile.path);
             return;
         }
+        if (profile.type === "pan115") {
+            setActiveNetDiskId(PAN115_PROFILE_ID);
+            setWebdavConnected(false);
+            await loadPan115Files("0");
+            return;
+        }
 
         const secrets = loadNetDiskSecrets();
         webdavForm.setFieldsValue({
@@ -320,6 +348,18 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
         await loadLocalFiles(profile.path);
     };
 
+    const handlePan115ConnectFromConfig = async () => {
+        if (!clientConfig.pan115?.configured) {
+            message.warning("请先在设置或下载工具中登录 115 网盘");
+            return;
+        }
+        const nextProfiles = ensurePan115Profile(netDisks);
+        setNetDisks(nextProfiles);
+        setActiveNetDiskId(PAN115_PROFILE_ID);
+        setWebdavConnected(false);
+        await loadPan115Files("0");
+    };
+
     const openNetDiskModal = () => {
         webdavForm.setFieldsValue({ name: "", url: "", username: "", password: "" });
         setNetDiskModalOpen(true);
@@ -348,7 +388,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
 
     const applyFileList = (entries, path, sourceType) => {
         const parentRows = [];
-        if (path !== "/" && path !== "") {
+        if (sourceType !== "pan115" && path !== "/" && path !== "") {
             const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
             const isLocalRoot = activeProfile?.type === "localFolder" && activeProfile.path === path;
             if (!isLocalRoot) {
@@ -419,10 +459,54 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
         }
     };
 
-    const loadFiles = async (path) => {
+    const loadPan115Files = async (cid = "0", folderName = "") => {
+        setFilesLoading(true);
+        try {
+            const res = await fetch(`/api/115/files?cid=${encodeURIComponent(cid || "0")}`);
+            const result = await res.json();
+            if (res.ok && result.items) {
+                const currentCid = String(result.cid || cid || "0");
+                const entries = (result.items || []).map((item) => {
+                    const isDirectory = item.kind === "folder";
+                    const size = Number(item.size || 0);
+                    return {
+                        name: item.name || "",
+                        path: item.id || "",
+                        parent_id: item.parent_id || currentCid,
+                        is_directory: isDirectory,
+                        size: Number.isFinite(size) ? size : 0,
+                    };
+                });
+                setPan115Breadcrumbs((breadcrumbs) => {
+                    if (currentCid === "0") {
+                        return [{ cid: "0", name: "根目录" }];
+                    }
+                    const existingIndex = breadcrumbs.findIndex((item) => item.cid === currentCid);
+                    if (existingIndex >= 0) {
+                        return breadcrumbs.slice(0, existingIndex + 1);
+                    }
+                    const base = breadcrumbs.length > 0 ? breadcrumbs : [{ cid: "0", name: "根目录" }];
+                    return [...base, { cid: currentCid, name: folderName || currentCid }];
+                });
+                applyFileList(entries, currentCid, "pan115");
+            } else {
+                message.error(result.detail || result.message || "加载 115 网盘文件失败");
+            }
+        } catch (error) {
+            message.error("加载 115 网盘文件异常");
+        } finally {
+            setFilesLoading(false);
+        }
+    };
+
+    const loadFiles = async (path, record = null) => {
         const activeProfile = netDisks.find((item) => item.id === activeNetDiskId);
         if (activeProfile?.type === "localFolder") {
             await loadLocalFiles(path);
+            return;
+        }
+        if (activeProfile?.type === "pan115") {
+            await loadPan115Files(path || "0", record?.name || "");
             return;
         }
         await loadWebDavFiles(path);
@@ -449,6 +533,10 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
     const submitDownloads = async (rows) => {
         if (rows.some((row) => row.source_type === "local")) {
             message.warning("本地文件不能发送到 Aria2");
+            return null;
+        }
+        if (rows.some((row) => row.source_type === "pan115")) {
+            message.warning("115 网盘文件暂不支持直接派发到 Aria2");
             return null;
         }
         const ready = await ensureAria2Ready();
@@ -538,7 +626,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                     <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
                         <div style={{ flexShrink: 0 }}>{iconNode}</div>
                         <a
-                            onClick={() => record.is_directory && loadFiles(record.path)}
+                            onClick={() => record.is_directory && loadFiles(record.path, record)}
                             style={{
                                 color: "inherit",
                                 fontWeight: isLargeVideo ? 600 : "normal",
@@ -588,8 +676,14 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                     ghost
                     icon={<DownloadOutlined />}
                     size="small"
-                    disabled={record.source_type === "local"}
-                    title={record.source_type === "local" ? "本地文件不能发送到 Aria2" : "下载"}
+                    disabled={record.source_type === "local" || record.source_type === "pan115"}
+                    title={
+                        record.source_type === "local"
+                            ? "本地文件不能发送到 Aria2"
+                            : record.source_type === "pan115"
+                                ? "115 网盘文件暂不支持直接派发到 Aria2"
+                                : "下载"
+                    }
                     onClick={(event) => {
                         event.stopPropagation();
                         downloadSingleFile(record);
@@ -599,15 +693,21 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
         },
     ];
 
-    const breadcrumbItems = currentPath.split("/").filter(Boolean).reduce((acc, part) => {
-        const path = acc.length === 0 ? `/${part}` : `${acc[acc.length - 1].path}/${part}`;
-        acc.push({ title: <a onClick={() => loadFiles(path)}>{part}</a>, path });
-        return acc;
-    }, []);
-
     const activeNetDisk = netDisks.find((item) => item.id === activeNetDiskId);
     const isLocalSource = activeNetDisk?.type === "localFolder";
-    const resourceReady = isLocalSource || webdavConnected;
+    const isPan115Source = activeNetDisk?.type === "pan115";
+    const resourceReady = isLocalSource || isPan115Source || webdavConnected;
+    const rootPath = isPan115Source ? "0" : "/";
+    const breadcrumbItems = isPan115Source
+        ? pan115Breadcrumbs.slice(1).map((item) => ({
+            title: <a onClick={() => loadPan115Files(item.cid)}>{item.name}</a>,
+            path: item.cid,
+        }))
+        : currentPath.split("/").filter(Boolean).reduce((acc, part) => {
+            const path = acc.length === 0 ? `/${part}` : `${acc[acc.length - 1].path}/${part}`;
+            acc.push({ title: <a onClick={() => loadFiles(path)}>{part}</a>, path });
+            return acc;
+        }, []);
     const normalizedFileNameFilter = fileNameFilter.trim().toLowerCase();
     const visibleFiles = normalizedFileNameFilter
         ? files.filter((item) => item.isParent || item.name.toLowerCase().includes(normalizedFileNameFilter))
@@ -618,11 +718,14 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
             <div className="webdav-page-header webdav-page-header-compact">
                 <div>
                     <Title level={3} style={{ marginBottom: 4 }}>网盘管理</Title>
-                    <Text type="secondary">{resourceReady ? activeNetDisk?.name || "当前来源" : "选择 WebDAV 网盘或本地文件夹开始浏览"}</Text>
+                    <Text type="secondary">{resourceReady ? activeNetDisk?.name || "当前来源" : "选择 WebDAV、115网盘或本地文件夹开始浏览"}</Text>
                 </div>
                 <Space wrap>
                     <Badge status={resourceReady ? "success" : "default"} text={resourceReady ? "已选择" : "未选择"} />
                     <Button type="primary" icon={<PlusOutlined />} onClick={openNetDiskModal}>新增网盘</Button>
+                    {clientConfig.pan115?.configured && (
+                        <Button icon={<CloudOutlined />} onClick={handlePan115ConnectFromConfig}>打开 115网盘</Button>
+                    )}
                     <Button icon={<FolderOpenOutlined />} onClick={openLocalFolderModal}>新增本地文件夹</Button>
                 </Space>
             </div>
@@ -647,16 +750,20 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                                     className="webdav-netdisk-list"
                                     dataSource={netDisks}
                                     renderItem={(item) => (
-                                        <List.Item className={activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder") ? "is-active" : ""}>
+                                        <List.Item className={activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder" || item.type === "pan115") ? "is-active" : ""}>
                                             <button type="button" className="webdav-netdisk-row" onClick={() => handleProfileConnect(item)}>
                                                 {item.type === "localFolder" ? <FolderOpenOutlined className="webdav-netdisk-icon" /> : <CloudOutlined className="webdav-netdisk-icon" />}
                                                 <span className="webdav-netdisk-copy">
                                                     <Text strong ellipsis>{item.name || item.path || item.url}</Text>
                                                     <Text type="secondary" ellipsis>
-                                                        {item.type === "localFolder" ? `本地文件夹 · ${item.path}` : item.username ? `WebDAV · ${item.username} @ ${item.url}` : `WebDAV · ${item.url}`}
+                                                        {item.type === "localFolder"
+                                                            ? `本地文件夹 · ${item.path}`
+                                                            : item.type === "pan115"
+                                                                ? "115网盘 · 使用服务端配置"
+                                                                : item.username ? `WebDAV · ${item.username} @ ${item.url}` : `WebDAV · ${item.url}`}
                                                     </Text>
                                                 </span>
-                                                {activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder") && <Badge status="success" />}
+                                                {activeNetDiskId === item.id && (webdavConnected || item.type === "localFolder" || item.type === "pan115") && <Badge status="success" />}
                                             </button>
                                             <Popconfirm title="删除该网盘?" onConfirm={() => handleRemoveProfile(item.id)}>
                                                 <Button type="text" size="small" danger icon={<DeleteOutlined />} title="删除" />
@@ -668,6 +775,11 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                             {clientConfig.webdav.configured && (
                                 <Button block icon={<ApiOutlined />} onClick={() => handleWebdavConnectFromConfig()} loading={webdavLoading}>
                                     连接配置网盘
+                                </Button>
+                            )}
+                            {clientConfig.pan115?.configured && (
+                                <Button block icon={<CloudOutlined />} onClick={handlePan115ConnectFromConfig}>
+                                    打开配置 115网盘
                                 </Button>
                             )}
                         </Card>
@@ -689,7 +801,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                                     <Button
                                         type="primary"
                                         icon={<DownloadOutlined />}
-                                        disabled={selectedRowKeys.length === 0 || selectedRows.some((row) => row.source_type === "local")}
+                                        disabled={selectedRowKeys.length === 0 || selectedRows.some((row) => row.source_type === "local" || row.source_type === "pan115")}
                                         onClick={handleDownloadSelected}
                                         loading={downloadingSelection}
                                     >
@@ -699,12 +811,12 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                             }
                         >
                             {!resourceReady ? (
-                                <Empty description="请选择 WebDAV 网盘或本地文件夹" />
+                                <Empty description="请选择 WebDAV、115网盘或本地文件夹" />
                             ) : (
                                 <>
                                     <div className="webdav-explorer-topbar">
                                         <Breadcrumb>
-                                            <Breadcrumb.Item><a onClick={() => loadFiles("/")}>根目录</a></Breadcrumb.Item>
+                                            <Breadcrumb.Item><a onClick={() => loadFiles(rootPath)}>根目录</a></Breadcrumb.Item>
                                             {breadcrumbItems.map((item, idx) => (
                                                 <Breadcrumb.Item key={idx}>{idx === breadcrumbItems.length - 1 ? item.title.props.children : item.title}</Breadcrumb.Item>
                                             ))}
@@ -731,7 +843,7 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
                                                 setSelectedRowKeys(newSelectedRowKeys);
                                                 setSelectedRows(newSelectedRows);
                                             },
-                                            getCheckboxProps: (record) => ({ disabled: record.isParent || record.source_type === "local" }),
+                                            getCheckboxProps: (record) => ({ disabled: record.isParent || record.source_type === "local" || record.source_type === "pan115" }),
                                         }}
                                         rowClassName={(record) => {
                                             const isLargeVideo = !record.is_directory && isVideoFile(record.name) && record.size >= minFileSizeMb * 1024 * 1024;

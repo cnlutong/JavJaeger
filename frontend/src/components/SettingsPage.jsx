@@ -1,4 +1,9 @@
-import { fetchSystemSettings, updateSystemSettings } from "../utils/api.js";
+import {
+    applyMetadataScraperTestResults,
+    fetchSystemSettings,
+    testMetadataScrapers,
+    updateSystemSettings,
+} from "../utils/api.js";
 
 const React = window.React;
 const antd = window.antd;
@@ -106,7 +111,11 @@ export default function SettingsPage() {
     const [form] = Form.useForm();
     const [loading, setLoading] = React.useState(true);
     const [saving, setSaving] = React.useState(false);
+    const [scraperTesting, setScraperTesting] = React.useState(false);
+    const [scraperApplying, setScraperApplying] = React.useState(false);
+    const [scraperTestResult, setScraperTestResult] = React.useState(null);
     const [settings, setSettings] = React.useState(null);
+    const scraperPriority = Form.useWatch(["scrapers", "priority"], form) || [];
 
     const loadSettings = async () => {
         setLoading(true);
@@ -139,6 +148,58 @@ export default function SettingsPage() {
         }
     };
 
+    const runScraperTests = async () => {
+        setScraperTesting(true);
+        try {
+            const values = form.getFieldsValue(true);
+            const saved = await updateSystemSettings(buildSettingsPayload(values));
+            setSettings(saved);
+            form.setFieldsValue(withSecretPlaceholders(saved));
+            const result = await testMetadataScrapers({
+                providers: SCRAPER_OPTIONS.map((option) => option.value),
+            });
+            setScraperTestResult(result);
+            message.success(`测试完成：${result.summary?.success || 0}/${result.summary?.total || 0} 可用`);
+        } catch (error) {
+            message.error("测试刮削源失败");
+        } finally {
+            setScraperTesting(false);
+        }
+    };
+
+    const applyScraperTestResults = async () => {
+        if (!scraperTestResult?.results?.length) {
+            message.warning("请先测试刮削源");
+            return;
+        }
+        setScraperApplying(true);
+        try {
+            await applyMetadataScraperTestResults(scraperTestResult.results);
+            await loadSettings();
+            message.success("已按测试结果更新启用状态");
+        } catch (error) {
+            message.error("应用测试结果失败");
+        } finally {
+            setScraperApplying(false);
+        }
+    };
+
+    const moveScraperPriority = (provider, direction) => {
+        const current = [...(form.getFieldValue(["scrapers", "priority"]) || [])];
+        const index = current.indexOf(provider);
+        if (index < 0) {
+            form.setFieldValue(["scrapers", "priority"], [...current, provider]);
+            return;
+        }
+        const nextIndex = index + direction;
+        if (nextIndex < 0 || nextIndex >= current.length) {
+            return;
+        }
+        const next = [...current];
+        [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+        form.setFieldValue(["scrapers", "priority"], next);
+    };
+
     const resetForm = () => {
         form.setFieldsValue(withSecretPlaceholders(settings || {}));
     };
@@ -146,6 +207,13 @@ export default function SettingsPage() {
     const envOverrides = settings?.environment_overrides?.javbus || {};
     const hasEnvOverrides = Object.values(envOverrides).some(Boolean);
     const security = settings?.security || {};
+    const scraperTestByProvider = React.useMemo(() => {
+        const entries = {};
+        for (const item of scraperTestResult?.results || []) {
+            entries[item.provider] = item;
+        }
+        return entries;
+    }, [scraperTestResult]);
 
     return (
         <div className="webdav-page">
@@ -248,7 +316,39 @@ export default function SettingsPage() {
                         </Col>
 
                         <Col xs={24} xl={14}>
-                            <Card className="webdav-connection-card" title={<><Icon as={SettingOutlined} /> 刮削员</>}>
+                            <Card
+                                className="webdav-connection-card"
+                                title={<><Icon as={SettingOutlined} /> 刮削员</>}
+                                extra={(
+                                    <Space wrap>
+                                        <Button
+                                            size="small"
+                                            onClick={runScraperTests}
+                                            loading={scraperTesting}
+                                            disabled={saving || scraperApplying}
+                                        >
+                                            测试所有源
+                                        </Button>
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            onClick={applyScraperTestResults}
+                                            loading={scraperApplying}
+                                            disabled={scraperTesting || !scraperTestResult?.results?.length}
+                                        >
+                                            按结果启停
+                                        </Button>
+                                    </Space>
+                                )}
+                            >
+                                {scraperTestResult?.summary && (
+                                    <Alert
+                                        showIcon
+                                        type={scraperTestResult.summary.failed ? "warning" : "success"}
+                                        style={{ marginBottom: 16 }}
+                                        message={`可用 ${scraperTestResult.summary.success}/${scraperTestResult.summary.total}，失败 ${scraperTestResult.summary.failed}`}
+                                    />
+                                )}
                                 <Form.Item
                                     name={["scrapers", "priority"]}
                                     label="Priority"
@@ -273,7 +373,49 @@ export default function SettingsPage() {
                                                     <Tag color={settings?.scrapers?.[provider.value]?.implemented ? "success" : "default"}>
                                                         {settings?.scrapers?.[provider.value]?.implemented ? "active" : "configured"}
                                                     </Tag>
+                                                    {scraperPriority.includes(provider.value) && (
+                                                        <Tag color="processing">#{scraperPriority.indexOf(provider.value) + 1}</Tag>
+                                                    )}
+                                                    {scraperTestByProvider[provider.value] && (
+                                                        <Tag color={scraperTestByProvider[provider.value].success ? "success" : "error"}>
+                                                            {scraperTestByProvider[provider.value].status}
+                                                        </Tag>
+                                                    )}
+                                                    {scraperTestByProvider[provider.value]?.duration_ms != null && (
+                                                        <Tag>{scraperTestByProvider[provider.value].duration_ms} ms</Tag>
+                                                    )}
                                                 </Space>
+                                                <Space wrap>
+                                                    <Button
+                                                        size="small"
+                                                        onClick={() => moveScraperPriority(provider.value, -1)}
+                                                        disabled={!scraperPriority.includes(provider.value) || scraperPriority.indexOf(provider.value) === 0}
+                                                    >
+                                                        上移
+                                                    </Button>
+                                                    <Button
+                                                        size="small"
+                                                        onClick={() => moveScraperPriority(provider.value, 1)}
+                                                        disabled={!scraperPriority.includes(provider.value) || scraperPriority.indexOf(provider.value) === scraperPriority.length - 1}
+                                                    >
+                                                        下移
+                                                    </Button>
+                                                    {!scraperPriority.includes(provider.value) && (
+                                                        <Button size="small" onClick={() => moveScraperPriority(provider.value, 0)}>
+                                                            加入优先级
+                                                        </Button>
+                                                    )}
+                                                </Space>
+                                                {scraperTestByProvider[provider.value] && (
+                                                    <Text
+                                                        type={scraperTestByProvider[provider.value].success ? "secondary" : "danger"}
+                                                        ellipsis={{ tooltip: scraperTestByProvider[provider.value].error_message || scraperTestByProvider[provider.value].title }}
+                                                    >
+                                                        {scraperTestByProvider[provider.value].success
+                                                            ? `${scraperTestByProvider[provider.value].id || "-"} ${scraperTestByProvider[provider.value].title || ""}`
+                                                            : scraperTestByProvider[provider.value].error_message || "no metadata returned"}
+                                                    </Text>
+                                                )}
                                                 <Row gutter={16}>
                                                     <Col xs={24} md={8}>
                                                         <Form.Item name={["scrapers", provider.value, "enabled"]} label="Enabled" valuePropName="checked">
