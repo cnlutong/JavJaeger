@@ -1334,9 +1334,9 @@ def test_webdav_download_dispatches_pan115_rows_to_session_aria2_without_webdav(
             SimpleNamespace(
                 name="movie.mp4",
                 url="https://download.115.test/movie.mp4",
-                headers=["Cookie: UID=secret;CID=secret;SEID=secret", "User-Agent: Mozilla/5.0 JavJaeger/1.0"],
+                headers=[],
             )
-        ], []
+        ], [{"filename": "ad.txt", "success": False, "message": "filtered"}]
 
     monkeypatch.setattr(webdav_router, "session_store", FakeSessionStore())
     monkeypatch.setattr(webdav_service.pan115_service, "resolve_download_entries_from_config", fake_resolve_downloads)
@@ -1363,11 +1363,13 @@ def test_webdav_download_dispatches_pan115_rows_to_session_aria2_without_webdav(
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert payload["results"] == [{"filename": "movie.mp4", "success": True, "gid": "gid-1", "message": "添加成功"}]
+    assert payload["results"][0]["filename"] == "movie.mp4"
+    assert payload["results"][0]["success"] is True
+    assert payload["results"][1] == {"filename": "ad.txt", "success": False, "message": "filtered", "skipped": True}
     assert fake_aria2_client.calls == [
         (
             "https://download.115.test/movie.mp4",
-            {"out": "movie.mp4", "header": ["Cookie: UID=secret;CID=secret;SEID=secret", "User-Agent: Mozilla/5.0 JavJaeger/1.0"]},
+            {"out": "movie.mp4", "user-agent": pan115_service_module.PAN115_DOWNLOAD_USER_AGENT},
         )
     ]
     assert "UID=secret" not in json.dumps(payload)
@@ -1857,7 +1859,7 @@ def test_pan115_direct_download_uses_android_client(monkeypatch):
     assert info.url == "https://download.115.test/movie.mp4"
     assert info.name == "movie.mp4"
     assert info.size == 1024
-    assert "Cookie: UID=uid;CID=cid;SEID=seid;KID=kid" in info.headers
+    assert info.headers == []
 
 
 def test_pan115_direct_download_uses_android_client_for_large_files(monkeypatch):

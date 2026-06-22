@@ -364,12 +364,10 @@ class Pan115Client:
         }
 
     def build_download_headers(self) -> list[str]:
-        headers = self._headers()
-        return [
-            f"Cookie: {headers['Cookie']}",
-            f"User-Agent: {headers['User-Agent']}",
-            f"Referer: {headers['Referer']}",
-        ]
+        # The Android API returns a signed CDN URL. Passing the 115 Cookie or
+        # Referer to an external Aria2 server can both leak secrets and make the
+        # CDN reject the request.
+        return []
 
     @property
     def user_id(self) -> str:

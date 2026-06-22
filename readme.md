@@ -269,7 +269,7 @@ PikPak 需要手动登录，或在 `config.json` 中启用 `pikpak` 配置。115
 4. 按需开启“仅视频”和最小文件大小过滤。
 5. 单个或批量发送到 Aria2。
 
-115 网盘文件通过服务端 Cookie 和 115 Android 下载接口换取下载地址后派发给当前浏览器会话的 Aria2；下载 URL 和 Cookie header 不会返回给浏览器。
+115 网盘文件通过服务端 Cookie 和 115 Android 下载接口换取签名下载地址后派发给当前浏览器会话的 Aria2；115 Cookie 不会返回给浏览器，也不会作为 Aria2 请求 header 下发。
 WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆盖另一个会话的下载器状态。
 
 ### 本地影片库

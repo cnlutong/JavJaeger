@@ -568,11 +568,14 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
             if (!result) return;
             if (result.success) {
                 const successCount = result.results.filter((item) => item.success).length;
-                const failCount = result.results.filter((item) => !item.success).length;
+                const skippedCount = result.results.filter((item) => item.skipped).length;
+                const failCount = result.results.filter((item) => !item.success && !item.skipped).length;
                 if (successCount > 0) {
-                    message.success(`成功添加 ${successCount} 个下载任务${failCount > 0 ? `，${failCount} 个失败` : ""}`);
+                    message.success(`成功添加 ${successCount} 个下载任务${skippedCount > 0 ? `，跳过 ${skippedCount} 个不符合筛选的文件` : ""}${failCount > 0 ? `，${failCount} 个失败` : ""}`);
                 } else if (failCount > 0) {
                     message.error(`${failCount} 个文件下载失败`);
+                } else if (skippedCount > 0) {
+                    message.warning(`没有添加下载任务，已跳过 ${skippedCount} 个不符合筛选的文件`);
                 }
                 setSelectedRowKeys([]);
                 setSelectedRows([]);

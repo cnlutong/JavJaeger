@@ -62,6 +62,12 @@ test("webdav resource manager allows selecting 115 rows for aria2 dispatch", () 
     assert.doesNotMatch(webDavPage, /getCheckboxProps:[\s\S]*record\.source_type === "pan115"/);
 });
 
+test("webdav batch download reports filtered 115 entries as skipped instead of failures", () => {
+    assert.match(webDavPage, /const skippedCount = result\.results\.filter\(\(item\) => item\.skipped\)\.length;/);
+    assert.match(webDavPage, /const failCount = result\.results\.filter\(\(item\) => !item\.success && !item\.skipped\)\.length;/);
+    assert.match(webDavPage, /跳过 \$\{skippedCount\} 个不符合筛选的文件/);
+});
+
 test("download management page owns aria2 connection and task controls", () => {
     assert.match(downloadManagementPage, /下载管理/);
     assert.match(downloadManagementPage, /Aria2下载器/);

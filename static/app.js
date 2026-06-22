@@ -806,11 +806,14 @@
         if (!result) return;
         if (result.success) {
           const successCount = result.results.filter((item) => item.success).length;
-          const failCount = result.results.filter((item) => !item.success).length;
+          const skippedCount = result.results.filter((item) => item.skipped).length;
+          const failCount = result.results.filter((item) => !item.success && !item.skipped).length;
           if (successCount > 0) {
-            message2.success(`\u6210\u529F\u6DFB\u52A0 ${successCount} \u4E2A\u4E0B\u8F7D\u4EFB\u52A1${failCount > 0 ? `\uFF0C${failCount} \u4E2A\u5931\u8D25` : ""}`);
+            message2.success(`\u6210\u529F\u6DFB\u52A0 ${successCount} \u4E2A\u4E0B\u8F7D\u4EFB\u52A1${skippedCount > 0 ? `\uFF0C\u8DF3\u8FC7 ${skippedCount} \u4E2A\u4E0D\u7B26\u5408\u7B5B\u9009\u7684\u6587\u4EF6` : ""}${failCount > 0 ? `\uFF0C${failCount} \u4E2A\u5931\u8D25` : ""}`);
           } else if (failCount > 0) {
             message2.error(`${failCount} \u4E2A\u6587\u4EF6\u4E0B\u8F7D\u5931\u8D25`);
+          } else if (skippedCount > 0) {
+            message2.warning(`\u6CA1\u6709\u6DFB\u52A0\u4E0B\u8F7D\u4EFB\u52A1\uFF0C\u5DF2\u8DF3\u8FC7 ${skippedCount} \u4E2A\u4E0D\u7B26\u5408\u7B5B\u9009\u7684\u6587\u4EF6`);
           }
           setSelectedRowKeys([]);
           setSelectedRows([]);

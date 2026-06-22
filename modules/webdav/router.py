@@ -133,6 +133,7 @@ def download_folder_recursive(
                 {
                     "filename": file.name,
                     "success": False,
+                    "skipped": True,
                     "message": f"不符合视频文件筛选条件（非视频文件或小于{min_file_size_mb}MB）",
                 }
             )
@@ -315,6 +316,7 @@ async def add_downloads(request: Request, payload: AddDownloadsRequest):
                     {
                         "filename": file_info.name,
                         "success": False,
+                        "skipped": True,
                         "message": f"不符合视频文件筛选条件（非视频文件或小于{payload.min_file_size_mb}MB）",
                     }
                 )
@@ -328,7 +330,9 @@ async def add_downloads(request: Request, payload: AddDownloadsRequest):
             logger.error("添加 WebDAV 下载任务失败: %s", exc)
             results.append({"filename": file_info.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
 
-    return {"success": any(item.get("success") for item in results), "results": results}
+    has_success = any(item.get("success") for item in results)
+    has_real_failure = any(not item.get("success") and not item.get("skipped") for item in results)
+    return {"success": has_success or (bool(results) and not has_real_failure), "results": results}
 
 
 @router.get("/api/aria2/status")

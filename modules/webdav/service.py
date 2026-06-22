@@ -25,14 +25,17 @@ async def dispatch_pan115_downloads_to_aria2(
     results: list[dict[str, Any]] = []
     for item in downloads:
         try:
+            options: dict[str, Any] = {"out": item.name, "user-agent": pan115_service.PAN115_DOWNLOAD_USER_AGENT}
+            if item.headers:
+                options["header"] = item.headers
             gid = await asyncio.to_thread(
                 aria2_client.add_download,
                 item.url,
-                {"out": item.name, "header": item.headers},
+                options,
             )
             results.append({"filename": item.name, "success": True, "gid": gid, "message": "添加成功"})
         except Exception as exc:
             logger.error("添加 115 文件到 Aria2 失败: %s", exc)
             results.append({"filename": item.name, "success": False, "error": "pan115_aria2_add_failed", "message": "添加失败"})
 
-    return results + skipped
+    return results + [{**item, "skipped": True} for item in skipped]
