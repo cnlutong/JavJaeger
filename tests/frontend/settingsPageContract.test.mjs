@@ -11,7 +11,7 @@ test("settings page exposes categorized user configuration sections", () => {
     assert.match(settingsPage, /Aria2/);
     assert.match(settingsPage, /PikPak/);
     assert.match(settingsPage, /115网盘/);
-    assert.match(settingsPage, /刮削员/);
+    assert.match(settingsPage, /刮削源/);
     assert.match(settingsPage, /session_secret/);
 });
 

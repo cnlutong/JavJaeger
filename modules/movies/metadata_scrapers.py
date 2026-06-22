@@ -1032,7 +1032,20 @@ def _dmm_content_id_variants(movie_id: str) -> list[str]:
     return _dedupe_strings(variants)
 
 
+def _dmm_block_error(html: str) -> str:
+    text = _clean_text(_html_doc(html).get_text(" "))
+    lowered = text.lower()
+    if "お住まいの地域からご利用になれません" in text:
+        return "DMM access blocked by region"
+    if "not available in your region" in lowered or "not available from your region" in lowered:
+        return "DMM access blocked by region"
+    return ""
+
+
 def _parse_dmm_detail(html: str, source_url: str, movie_id: str) -> dict[str, Any] | None:
+    blocked = _dmm_block_error(html)
+    if blocked:
+        raise RuntimeError(blocked)
     doc = _html_doc(html)
     jsonld: dict[str, Any] = {}
     for node in doc.select("script[type='application/ld+json']"):
