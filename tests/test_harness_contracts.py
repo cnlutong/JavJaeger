@@ -34,6 +34,17 @@ from starlette.datastructures import QueryParams
 from modules.proxy import router as proxy_router
 
 
+class FakeMetadataScraperService:
+    def __init__(self, fetcher):
+        self.fetcher = fetcher
+
+    async def get_movie_detail(self, movie_id):
+        detail = await self.fetcher(movie_id)
+        if isinstance(detail, dict) and ("metadata" in detail or "source" in detail or "error" in detail):
+            return detail
+        return {"source": "test", "metadata": detail, "logs": []}
+
+
 def test_proxy_router_is_registered_after_concrete_api_routes():
     api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
 
@@ -2344,7 +2355,7 @@ def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
-    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
     monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fake_probe_video_metadata)
 
     payload = asyncio.run(
@@ -2416,7 +2427,7 @@ def test_local_library_information_download_refreshes_video_media_metadata(tmp_p
         }
 
     monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
-    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
     monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fake_probe_video_metadata)
     monkeypatch.setattr(local_scrape, "_probe_video_metadata", fake_probe_video_metadata)
 
@@ -2722,6 +2733,127 @@ def test_local_scrape_apply_supports_conflict_resolution_and_bitrate_strategies(
     assert higher_bitrate["results"][0]["kept"] == "target"
     assert source_video.exists()
     assert target_video.read_bytes() == b"target-bitrate"
+
+
+def test_local_scrape_apply_supports_auto_best_conflict_resolution(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    metadata = {
+        "id": "ABP-123",
+        "title": "ABP-123 Remote Title",
+        "raw": {"id": "ABP-123"},
+    }
+
+    media_by_content = {
+        b"source-resolution": {"resolution_pixels": 1920 * 1080, "bitrate": 1_000_000},
+        b"target-resolution": {"resolution_pixels": 1280 * 720, "bitrate": 4_000_000},
+        b"source-bitrate": {"bitrate": 1_000_000},
+        b"target-bitrate": {"bitrate": 2_000_000},
+    }
+
+    def fake_probe(path):
+        return media_by_content.get(Path(path).read_bytes(), {})
+
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", fake_probe)
+
+    async def run_auto(source_bytes, target_bytes, source_mtime=100, target_mtime=200):
+        source_video = source_dir / "ABP-123.mp4"
+        target_video = target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4"
+        target_video.parent.mkdir(parents=True, exist_ok=True)
+        source_video.write_bytes(source_bytes)
+        target_video.write_bytes(target_bytes)
+        os.utime(source_video, (source_mtime, source_mtime))
+        os.utime(target_video, (target_mtime, target_mtime))
+        result = await local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(source_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": "auto_best",
+                    }
+                ],
+                target_directory=str(target_dir),
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+        return result, source_video, target_video
+
+    higher_resolution, source_video, target_video = asyncio.run(
+        run_auto(b"source-resolution", b"target-resolution")
+    )
+    assert higher_resolution["results"][0]["kept"] == "source"
+    assert not source_video.exists()
+    assert target_video.read_bytes() == b"source-resolution"
+
+    higher_bitrate, source_video, target_video = asyncio.run(
+        run_auto(b"source-bitrate", b"target-bitrate")
+    )
+    assert higher_bitrate["results"][0]["skipped"] is True
+    assert higher_bitrate["results"][0]["kept"] == "target"
+    assert source_video.exists()
+    assert target_video.read_bytes() == b"target-bitrate"
+
+    unresolved, source_video, target_video = asyncio.run(
+        run_auto(b"same", b"same", 300, 300)
+    )
+    assert unresolved["success"] is True
+    assert unresolved["results"][0]["skipped"] is True
+    assert unresolved["results"][0]["kept"] == "target"
+    assert source_video.exists()
+    assert target_video.read_bytes() == b"same"
+
+
+def test_local_scrape_apply_rejects_duplicate_targets_in_same_request(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    first_video = source_dir / "ABP-123-a.mp4"
+    second_video = source_dir / "ABP-123-b.mp4"
+    first_video.write_bytes(b"first")
+    second_video.write_bytes(b"second")
+    metadata = {
+        "id": "ABP-123",
+        "title": "ABP-123 Remote Title",
+        "raw": {"id": "ABP-123"},
+    }
+
+    result = asyncio.run(
+        local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(first_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": "auto_best",
+                    },
+                    {
+                        "source_path": str(second_video),
+                        "code": "ABP-123",
+                        "metadata": metadata,
+                        "conflict_resolution": "auto_best",
+                    },
+                ],
+                target_directory=str(target_dir),
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+    )
+
+    assert result["success"] is False
+    assert result["success_count"] == 0
+    assert result["failed_count"] == 2
+    assert {item["error"] for item in result["results"]} == {"target_duplicate"}
+    assert first_video.exists()
+    assert second_video.exists()
+    assert not (target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4").exists()
 
 
 def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_path, monkeypatch):
@@ -3461,15 +3593,19 @@ def test_local_library_information_download_refreshes_only_missing_records(tmp_p
     async def fake_get_movie_detail(movie_id):
         fetched_ids.append(movie_id)
         return {
-            "id": movie_id,
-            "title": f"{movie_id} Remote Title",
-            "date": "2024-03-04",
-            "img": "https://www.javbus.com/pics/remote.jpg",
-            "stars": [{"name": "Actor One"}],
-            "genres": [{"name": "Genre A"}],
+            "source": "r18dev",
+            "metadata": {
+                "id": movie_id,
+                "title": f"{movie_id} Remote Title",
+                "date": "2024-03-04",
+                "img": "https://www.javbus.com/pics/remote.jpg",
+                "stars": [{"name": "Actor One"}],
+                "genres": [{"name": "Genre A"}],
+            },
+            "logs": [{"provider": "r18dev", "level": "info", "message": "matched"}],
         }
 
-    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
 
     async def exercise():
         service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
@@ -3564,7 +3700,7 @@ def test_local_library_information_download_supports_scrape_asset_options(tmp_pa
         nfo.write_text("nfo", encoding="utf-8")
         return nfo
 
-    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
     monkeypatch.setattr(movies_local_library, "_write_images", fake_write_images)
     monkeypatch.setattr(movies_local_library, "_write_actor_images", fake_write_actor_images)
     monkeypatch.setattr(movies_local_library, "_write_list_thumbnail", fake_write_list_thumbnail)
@@ -3635,7 +3771,7 @@ def test_local_library_information_download_uses_existing_metadata_for_asset_onl
         nfo.write_text("nfo", encoding="utf-8")
         return nfo
 
-    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
     monkeypatch.setattr(movies_local_library, "_write_images", fake_write_images)
     monkeypatch.setattr(movies_local_library, "_write_nfo", fake_write_nfo)
 
@@ -3712,7 +3848,7 @@ def test_local_library_information_download_reports_failed_poster_asset(tmp_path
         nfo.write_text("nfo", encoding="utf-8")
         return nfo
 
-    monkeypatch.setattr(movies_local_library.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
     monkeypatch.setattr(movies_local_library, "_write_images", fake_write_images)
     monkeypatch.setattr(movies_local_library, "_write_nfo", fake_write_nfo)
 

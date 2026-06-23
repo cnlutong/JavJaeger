@@ -629,6 +629,20 @@ def _choose_conflict_keep_side(source_path: Path, target_path: Path, resolution:
         return "source"
     if resolution in {"skip", "keep_target"}:
         return "target"
+    if resolution == "auto_best":
+        source_media = _probe_video_metadata(source_path)
+        target_media = _probe_video_metadata(target_path)
+        comparisons = [
+            (source_media.get("resolution_pixels") or 0, target_media.get("resolution_pixels") or 0),
+            (source_media.get("bitrate") or 0, target_media.get("bitrate") or 0),
+            (_file_size(source_path), _file_size(target_path)),
+            (_file_mtime(source_path), _file_mtime(target_path)),
+        ]
+        for source_value, target_value in comparisons:
+            if source_value <= 0 or target_value <= 0 or source_value == target_value:
+                continue
+            return "source" if source_value > target_value else "target"
+        return "target"
     if resolution == "keep_newer":
         source_value = _file_mtime(source_path)
         target_value = _file_mtime(target_path)
@@ -653,6 +667,28 @@ def _choose_conflict_keep_side(source_path: Path, target_path: Path, resolution:
     if source_value <= 0 or target_value <= 0 or source_value == target_value:
         return None
     return "source" if source_value > target_value else "target"
+
+
+def _build_apply_target_counts(request: LocalScrapeApplyRequest) -> Counter[str]:
+    target_counts: Counter[str] = Counter()
+    for item in request.items:
+        try:
+            source_path = resolve_existing_file(item.source_path)
+        except UserPathError:
+            continue
+        metadata = _build_metadata(item.metadata, item.code, source_path.stem)
+        if not metadata.get("id") and item.code:
+            metadata["id"] = item.code
+        _, target_video, _ = _build_target_paths(
+            source_path,
+            metadata,
+            request.organize,
+            request.target_directory,
+            request.naming_template,
+            request.folder_template,
+        )
+        target_counts[str(target_video.resolve()).lower()] += 1
+    return target_counts
 
 
 def _safe_relative_path(path: Path, root: Path) -> str:
@@ -698,6 +734,92 @@ def _build_library_record_for_applied_video(
     }
     record.update(_probe_video_metadata(current_video))
     return record
+
+
+async def scrape_movie_metadata(movie_id: str, source_stem: str | None = None) -> dict[str, Any]:
+    normalized_id = str(movie_id or "").strip().upper()
+    stem = source_stem or normalized_id
+    if not normalized_id:
+        metadata = _build_metadata(None, None, stem)
+        return {
+            "metadata": metadata,
+            "scrape_status": "unrecognized",
+            "scrape_error": "missing_movie_id",
+            "scrape_source": None,
+            "scrape_error_message": "",
+            "scrape_logs": [],
+            "source": None,
+            "error": "missing_movie_id",
+            "error_message": "",
+            "logs": [],
+            "full_text": _metadata_full_text("", metadata),
+        }
+
+    try:
+        scrape_result = await metadata_scraper_service.get_movie_detail(normalized_id)
+        movie_detail = None
+        scrape_source = None
+        scrape_error = None
+        scrape_error_message = ""
+        scrape_logs: list[dict[str, Any]] = []
+        if isinstance(scrape_result, dict):
+            movie_detail = scrape_result.get("metadata")
+            scrape_source = scrape_result.get("source")
+            scrape_error = scrape_result.get("error")
+            scrape_error_message = str(scrape_result.get("error_message") or "")
+            scrape_logs = [entry for entry in (scrape_result.get("logs") or []) if isinstance(entry, dict)]
+        else:
+            movie_detail = scrape_result
+            scrape_source = "javbus"
+
+        scrape_status = "found" if movie_detail and movie_detail.get("id") else "not_found"
+        if scrape_status == "not_found" and scrape_error:
+            scrape_status = "failed"
+        metadata = _build_metadata(movie_detail, normalized_id, stem)
+        return {
+            "metadata": metadata,
+            "scrape_status": scrape_status,
+            "scrape_error": str(scrape_error) if scrape_error else None,
+            "scrape_source": scrape_source,
+            "scrape_error_message": scrape_error_message,
+            "scrape_logs": scrape_logs,
+            "source": scrape_source,
+            "error": str(scrape_error) if scrape_error else None,
+            "error_message": scrape_error_message,
+            "logs": scrape_logs,
+            "full_text": _metadata_full_text(normalized_id, metadata),
+        }
+    except Exception as exc:
+        logger.warning("Local scrape metadata fetch failed for %s: %s", normalized_id, exc)
+        metadata = _build_metadata(None, normalized_id, stem)
+        return {
+            "metadata": metadata,
+            "scrape_status": "failed",
+            "scrape_error": "metadata_fetch_failed",
+            "scrape_source": None,
+            "scrape_error_message": str(exc),
+            "scrape_logs": [],
+            "source": None,
+            "error": "metadata_fetch_failed",
+            "error_message": str(exc),
+            "logs": [],
+            "full_text": _metadata_full_text(normalized_id, metadata),
+        }
+
+
+async def scrape_movie_metadata_map(movie_ids: list[str], concurrent: int) -> dict[str, dict[str, Any]]:
+    semaphore = asyncio.Semaphore(max(1, min(concurrent, 5)))
+    results: dict[str, dict[str, Any]] = {}
+
+    async def fetch(movie_id: str) -> None:
+        normalized_id = str(movie_id or "").strip().upper()
+        if not normalized_id:
+            return
+        async with semaphore:
+            results[normalized_id] = await scrape_movie_metadata(normalized_id, normalized_id)
+
+    await asyncio.gather(*[fetch(movie_id) for movie_id in movie_ids])
+    return results
 
 
 async def preview_local_scrape(
@@ -752,6 +874,7 @@ async def preview_local_scrape(
         scrape_status = "skipped"
         error = None
         scrape_reason = ""
+        metadata = _build_metadata(None, candidate.code, candidate.path.stem)
         scrape_logs = [
             _scrape_diagnostic_log(f"开始处理文件：{candidate.path.name}"),
         ]
@@ -769,13 +892,13 @@ async def preview_local_scrape(
             scrape_logs.append(_scrape_diagnostic_log(f"识别到番号：{candidate.code}"))
             async with semaphore:
                 try:
-                    scrape_result = await metadata_scraper_service.get_movie_detail(candidate.code)
+                    scrape_result = await scrape_movie_metadata(candidate.code, candidate.path.stem)
                     if isinstance(scrape_result, dict):
                         movie_detail = scrape_result.get("metadata")
                         scrape_source = scrape_result.get("source")
                         scrape_error = scrape_result.get("error")
                         scrape_error_message = str(scrape_result.get("error_message") or "")
-                        for entry in scrape_result.get("logs") or []:
+                        for entry in scrape_result.get("logs") or scrape_result.get("scrape_logs") or []:
                             if not isinstance(entry, dict):
                                 continue
                             provider = entry.get("provider")
@@ -787,11 +910,16 @@ async def preview_local_scrape(
                     else:
                         movie_detail = scrape_result
                         scrape_source = "javbus"
-                    scrape_status = "found" if movie_detail and movie_detail.get("id") else "not_found"
+                    scrape_status = (
+                        str(scrape_result.get("scrape_status") or "")
+                        if isinstance(scrape_result, dict)
+                        else ""
+                    ) or ("found" if movie_detail and movie_detail.get("id") else "not_found")
                     if scrape_status == "not_found" and scrape_error:
                         scrape_status = "failed"
                         error = str(scrape_error)
                     if scrape_status == "failed":
+                        error = str(scrape_error or "metadata_fetch_failed")
                         detail = f": {scrape_error_message}" if scrape_error_message else ""
                         scrape_reason = f"Metadata fetch failed for {candidate.code}{detail}"
                         scrape_logs.append(_scrape_diagnostic_log(scrape_reason, "error"))
@@ -1157,6 +1285,8 @@ async def apply_local_scrape(
                 "results": [],
             }
 
+    target_counts = _build_apply_target_counts(request)
+
     for index, item in enumerate(request.items, start=1):
         _emit_progress(
             progress_callback,
@@ -1198,6 +1328,30 @@ async def apply_local_scrape(
         )
 
         try:
+            target_key = str(target_video.resolve()).lower()
+            if target_counts[target_key] > 1:
+                results.append(
+                    {
+                        "source_path": item.source_path,
+                        "success": False,
+                        "error": "target_duplicate",
+                        "target_video_path": str(target_video),
+                        "target_dir": str(target_dir),
+                        "message": "multiple_apply_items_share_target_path",
+                    }
+                )
+                _emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "apply",
+                        "message": f"目标重复 {index}/{total_items}: {target_video.name}",
+                        "completed": index,
+                        "total": total_items,
+                        "current": str(target_video),
+                    },
+                )
+                continue
+
             target_dir.mkdir(parents=True, exist_ok=True)
             current_video = source_path
             moved_assets: list[str] = []

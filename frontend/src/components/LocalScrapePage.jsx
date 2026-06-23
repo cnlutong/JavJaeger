@@ -192,6 +192,7 @@ export default function LocalScrapePage() {
         label: template.name,
     }));
     const conflictResolutionLabels = {
+        auto_best: "自动保留最佳",
         skip: "跳过",
         keep_newer: "保留新的",
         keep_older: "保留老的",
@@ -202,6 +203,7 @@ export default function LocalScrapePage() {
         keep_target: "保留目标文件",
     };
     const conflictResolutionOptions = [
+        { value: "auto_best", label: "自动保留最佳" },
         { value: "skip", label: "跳过" },
         { value: "keep_newer", label: "保留新的" },
         { value: "keep_older", label: "保留老的" },
@@ -209,7 +211,8 @@ export default function LocalScrapePage() {
         { value: "keep_higher_resolution", label: "保留分辨率高的" },
         { value: "keep_higher_bitrate", label: "保留码率高的" },
     ];
-    const selectedConflictItems = selectedVisibleItems.filter((item) => item.source_path && item.target_exists);
+    const selectedConflictItems = selectedVisibleItems.filter((item) => item.source_path && item.target_exists && !item.target_duplicate);
+    const allConflictItems = allItems.filter((item) => item.source_path && item.target_exists && !item.target_duplicate && isConformingLocalScrapeItem(item));
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "文件夹模板" : "文件命名模板";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
 
@@ -616,6 +619,11 @@ export default function LocalScrapePage() {
             message.warning("请先补全刮削设置");
             return;
         }
+        const duplicateTargetConflicts = selectedItems.filter((item) => item.target_duplicate);
+        if (duplicateTargetConflicts.length > 0) {
+            message.warning("请先调整命名模板或移除目标重复项；同一目标路径不能一次处理多个源文件");
+            return;
+        }
         const unresolvedConflicts = selectedItems.filter((item) => (
             isResolvableConflict(item)
             && !overwriteExisting
@@ -657,6 +665,33 @@ export default function LocalScrapePage() {
             selectedConflictItems,
             `已按「${conflictResolutionLabels[bulkConflictResolution]}」批量处理 ${selectedConflictItems.length} 个冲突文件`,
             bulkConflictResolution,
+        );
+    };
+
+    const handleAutoResolveAllConflicts = async () => {
+        if (allConflictItems.length === 0) {
+            message.info("当前预览没有需要处理的冲突文件");
+            return;
+        }
+        let values;
+        try {
+            values = await form.validateFields();
+        } catch (error) {
+            message.warning("请先补全刮削设置");
+            return;
+        }
+        setConflictResolutions((current) => {
+            const next = { ...current };
+            allConflictItems.forEach((item) => {
+                next[item.source_path] = "auto_best";
+            });
+            return next;
+        });
+        await startApplyForItems(
+            values,
+            allConflictItems,
+            `已开始一键处理 ${allConflictItems.length} 个冲突文件`,
+            "auto_best",
         );
     };
 
@@ -1153,6 +1188,23 @@ export default function LocalScrapePage() {
                                     icon={<Icon as={PlayCircleOutlined} />}
                                 >
                                     执行选中项
+                                </Button>
+                            </Popconfirm>
+                            <Popconfirm
+                                title={`确认一键处理 ${allConflictItems.length} 个冲突文件？`}
+                                description="将按分辨率、码率、文件大小、修改时间依次选择更优文件；无法判断时保留目标文件。"
+                                okText="确认执行"
+                                cancelText="取消"
+                                disabled={allConflictItems.length === 0 || loadingApply}
+                                onConfirm={handleAutoResolveAllConflicts}
+                            >
+                                <Button
+                                    type="primary"
+                                    disabled={!preview || allConflictItems.length === 0}
+                                    loading={loadingApply}
+                                    icon={<Icon as={PlayCircleOutlined} />}
+                                >
+                                    一键处理冲突 ({allConflictItems.length})
                                 </Button>
                             </Popconfirm>
                             <Space.Compact>

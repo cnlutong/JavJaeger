@@ -1,5 +1,4 @@
 import datetime
-import asyncio
 import logging
 import os
 import shutil
@@ -12,7 +11,6 @@ from modules.history.service import (
     local_movie_library_service,
     normalize_local_library_information_fields,
 )
-from modules.javbus_api import javbus_api_service
 from .local_scrape import (
     _build_metadata,
     _file_size,
@@ -25,6 +23,7 @@ from .local_scrape import (
     _write_list_thumbnail,
     _write_nfo,
     recognize_designation,
+    scrape_movie_metadata_map,
 )
 from .schemas import LocalLibraryInformationDownloadRequest, LocalLibraryScanRequest
 
@@ -68,32 +67,7 @@ def _has_readable_video_media(media_info: dict[str, Any]) -> bool:
 
 
 async def _scrape_metadata(movie_ids: list[str], concurrent: int) -> dict[str, dict[str, Any]]:
-    semaphore = asyncio.Semaphore(max(1, min(concurrent, 5)))
-    results: dict[str, dict[str, Any]] = {}
-
-    async def fetch(movie_id: str) -> None:
-        async with semaphore:
-            try:
-                detail = await javbus_api_service.get_movie_detail(movie_id)
-                metadata = _build_metadata(detail, movie_id, movie_id)
-                results[movie_id] = {
-                    "metadata": metadata,
-                    "scrape_status": "found" if detail and detail.get("id") else "not_found",
-                    "scrape_error": None,
-                    "full_text": _metadata_full_text(movie_id, metadata),
-                }
-            except Exception as exc:
-                logger.warning("Local library metadata fetch failed for %s: %s", movie_id, exc)
-                metadata = _build_metadata(None, movie_id, movie_id)
-                results[movie_id] = {
-                    "metadata": metadata,
-                    "scrape_status": "failed",
-                    "scrape_error": "metadata_fetch_failed",
-                    "full_text": _metadata_full_text(movie_id, metadata),
-                }
-
-    await asyncio.gather(*[fetch(movie_id) for movie_id in movie_ids])
-    return results
+    return await scrape_movie_metadata_map(movie_ids, concurrent)
 
 
 async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]:

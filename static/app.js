@@ -1479,6 +1479,7 @@
       label: template.name
     }));
     const conflictResolutionLabels = {
+      auto_best: "\u81EA\u52A8\u4FDD\u7559\u6700\u4F73",
       skip: "\u8DF3\u8FC7",
       keep_newer: "\u4FDD\u7559\u65B0\u7684",
       keep_older: "\u4FDD\u7559\u8001\u7684",
@@ -1489,6 +1490,7 @@
       keep_target: "\u4FDD\u7559\u76EE\u6807\u6587\u4EF6"
     };
     const conflictResolutionOptions = [
+      { value: "auto_best", label: "\u81EA\u52A8\u4FDD\u7559\u6700\u4F73" },
       { value: "skip", label: "\u8DF3\u8FC7" },
       { value: "keep_newer", label: "\u4FDD\u7559\u65B0\u7684" },
       { value: "keep_older", label: "\u4FDD\u7559\u8001\u7684" },
@@ -1496,7 +1498,8 @@
       { value: "keep_higher_resolution", label: "\u4FDD\u7559\u5206\u8FA8\u7387\u9AD8\u7684" },
       { value: "keep_higher_bitrate", label: "\u4FDD\u7559\u7801\u7387\u9AD8\u7684" }
     ];
-    const selectedConflictItems = selectedVisibleItems.filter((item) => item.source_path && item.target_exists);
+    const selectedConflictItems = selectedVisibleItems.filter((item) => item.source_path && item.target_exists && !item.target_duplicate);
+    const allConflictItems = allItems.filter((item) => item.source_path && item.target_exists && !item.target_duplicate && isConformingLocalScrapeItem(item));
     const templateDesignerTitle = templateDesignerTarget === "folderTemplate" ? "\u6587\u4EF6\u5939\u6A21\u677F" : "\u6587\u4EF6\u547D\u540D\u6A21\u677F";
     const templateDesignerPreview = buildTemplateFromParts(templateDesignerParts, { allowEmpty: true });
     React3.useEffect(() => {
@@ -1840,6 +1843,11 @@
         message3.warning("\u8BF7\u5148\u8865\u5168\u522E\u524A\u8BBE\u7F6E");
         return;
       }
+      const duplicateTargetConflicts = selectedItems.filter((item) => item.target_duplicate);
+      if (duplicateTargetConflicts.length > 0) {
+        message3.warning("\u8BF7\u5148\u8C03\u6574\u547D\u540D\u6A21\u677F\u6216\u79FB\u9664\u76EE\u6807\u91CD\u590D\u9879\uFF1B\u540C\u4E00\u76EE\u6807\u8DEF\u5F84\u4E0D\u80FD\u4E00\u6B21\u5904\u7406\u591A\u4E2A\u6E90\u6587\u4EF6");
+        return;
+      }
       const unresolvedConflicts = selectedItems.filter((item) => isResolvableConflict(item) && !overwriteExisting && !getConflictResolution(item));
       if (unresolvedConflicts.length > 0) {
         message3.warning("\u8BF7\u5148\u6BD4\u8F83\u51B2\u7A81\u6587\u4EF6\uFF0C\u5E76\u9009\u62E9\u8DF3\u8FC7\u3001\u65B0\u65E7\u3001\u4F53\u79EF\u3001\u5206\u8FA8\u7387\u6216\u7801\u7387\u7B56\u7565");
@@ -1876,6 +1884,32 @@
         selectedConflictItems,
         `\u5DF2\u6309\u300C${conflictResolutionLabels[bulkConflictResolution]}\u300D\u6279\u91CF\u5904\u7406 ${selectedConflictItems.length} \u4E2A\u51B2\u7A81\u6587\u4EF6`,
         bulkConflictResolution
+      );
+    };
+    const handleAutoResolveAllConflicts = async () => {
+      if (allConflictItems.length === 0) {
+        message3.info("\u5F53\u524D\u9884\u89C8\u6CA1\u6709\u9700\u8981\u5904\u7406\u7684\u51B2\u7A81\u6587\u4EF6");
+        return;
+      }
+      let values;
+      try {
+        values = await form.validateFields();
+      } catch (error) {
+        message3.warning("\u8BF7\u5148\u8865\u5168\u522E\u524A\u8BBE\u7F6E");
+        return;
+      }
+      setConflictResolutions((current) => {
+        const next = { ...current };
+        allConflictItems.forEach((item) => {
+          next[item.source_path] = "auto_best";
+        });
+        return next;
+      });
+      await startApplyForItems(
+        values,
+        allConflictItems,
+        `\u5DF2\u5F00\u59CB\u4E00\u952E\u5904\u7406 ${allConflictItems.length} \u4E2A\u51B2\u7A81\u6587\u4EF6`,
+        "auto_best"
       );
     };
     const handleSelectNonConforming = () => {
@@ -2230,6 +2264,28 @@
           icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined })
         },
         "\u6267\u884C\u9009\u4E2D\u9879"
+      )
+    ), /* @__PURE__ */ React3.createElement(
+      Popconfirm2,
+      {
+        title: `\u786E\u8BA4\u4E00\u952E\u5904\u7406 ${allConflictItems.length} \u4E2A\u51B2\u7A81\u6587\u4EF6\uFF1F`,
+        description: "\u5C06\u6309\u5206\u8FA8\u7387\u3001\u7801\u7387\u3001\u6587\u4EF6\u5927\u5C0F\u3001\u4FEE\u6539\u65F6\u95F4\u4F9D\u6B21\u9009\u62E9\u66F4\u4F18\u6587\u4EF6\uFF1B\u65E0\u6CD5\u5224\u65AD\u65F6\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\u3002",
+        okText: "\u786E\u8BA4\u6267\u884C",
+        cancelText: "\u53D6\u6D88",
+        disabled: allConflictItems.length === 0 || loadingApply,
+        onConfirm: handleAutoResolveAllConflicts
+      },
+      /* @__PURE__ */ React3.createElement(
+        Button3,
+        {
+          type: "primary",
+          disabled: !preview || allConflictItems.length === 0,
+          loading: loadingApply,
+          icon: /* @__PURE__ */ React3.createElement(Icon2, { as: PlayCircleOutlined })
+        },
+        "\u4E00\u952E\u5904\u7406\u51B2\u7A81 (",
+        allConflictItems.length,
+        ")"
       )
     ), /* @__PURE__ */ React3.createElement(Space3.Compact, null, /* @__PURE__ */ React3.createElement(
       Select,
