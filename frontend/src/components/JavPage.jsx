@@ -5,6 +5,7 @@ import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
+import { buildMagnetDataMapFromResults } from "../utils/magnets.mjs";
 import {
     clearPikPakSession,
     loadAria2Settings,
@@ -600,23 +601,6 @@ export default function JavPage() {
 
     const isLatestMagnetRequestVersion = (key, version) => magnetRequestVersionRef.current[key] === version;
 
-    const buildMagnetDataMapFromResults = (magnetResults = []) => {
-        const nextMap = {};
-        magnetResults.forEach((result) => {
-            if (!result || !result.movie_id || !result.link) {
-                return;
-            }
-            nextMap[result.movie_id] = [{
-                link: result.link,
-                title: result.title || `${result.movie_id} - 最佳资源`,
-                size: result.size || '未知',
-                shareDate: result.shareDate || null,
-                hasSubtitle: !!result.hasSubtitle
-            }];
-        });
-        return nextMap;
-    };
-
     const searchMovie = async (values) => {
         setLoading(true);
         setLastMagnetSearchValues(null);
@@ -854,9 +838,12 @@ export default function JavPage() {
             if (data.error) {
                 message.error(`错误: ${data.error}`);
             } else {
+                const recognizedMovies = Array.isArray(data.movies) ? data.movies : [];
                 setMoviesData(data); // Expecting data.movies, data.magnet_results, data.download_result
-                if (data.magnet_results) {
-                    setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
+                if (Array.isArray(data.magnet_results)) {
+                    setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results, recognizedMovies));
+                } else if (recognizedMovies.length > 0) {
+                    loadMovieResources(recognizedMovies);
                 }
                 message.success('识别完成');
                 if (shouldAutoDownload && downloadTool !== 'pikpak' && data.magnet_results?.length > 0) {
@@ -914,8 +901,8 @@ export default function JavPage() {
                 status: movie.status
             }));
             setMoviesData({ movies, magnet_results: data.magnet_results || [], download_result: data.download_result, not_found_codes: data.not_found_codes || [] });
-            if (data.magnet_results) {
-                setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
+            if (Array.isArray(data.magnet_results)) {
+                setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results, movies));
             }
             message.success(data.message || '处理完成');
             if (shouldAutoDownload && downloadTool !== 'pikpak' && data.magnet_results?.length > 0) {

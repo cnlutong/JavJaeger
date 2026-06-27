@@ -2269,7 +2269,7 @@
       Popconfirm2,
       {
         title: `\u786E\u8BA4\u4E00\u952E\u5904\u7406 ${allConflictItems.length} \u4E2A\u51B2\u7A81\u6587\u4EF6\uFF1F`,
-        description: "\u5C06\u6309\u5206\u8FA8\u7387\u3001\u7801\u7387\u3001\u6587\u4EF6\u5927\u5C0F\u3001\u4FEE\u6539\u65F6\u95F4\u4F9D\u6B21\u9009\u62E9\u66F4\u4F18\u6587\u4EF6\uFF1B\u65E0\u6CD5\u5224\u65AD\u65F6\u4FDD\u7559\u76EE\u6807\u6587\u4EF6\u3002",
+        description: "\u5C06\u6309\u5206\u8FA8\u7387\u3001\u7801\u7387\u3001\u6587\u4EF6\u5927\u5C0F\u3001\u4FEE\u6539\u65F6\u95F4\u4F9D\u6B21\u9009\u62E9\u66F4\u4F18\u6587\u4EF6\uFF1B\u76EE\u6807\u66F4\u4F18\u65F6\u5220\u9664\u6E90\u6587\u4EF6\uFF0C\u65E0\u6CD5\u5224\u65AD\u65F6\u624D\u4FDD\u7559\u6E90\u6587\u4EF6\u3002",
         okText: "\u786E\u8BA4\u6267\u884C",
         cancelText: "\u53D6\u6D88",
         disabled: allConflictItems.length === 0 || loadingApply,
@@ -5446,6 +5446,34 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     )))));
   }
 
+  // frontend/src/utils/magnets.mjs
+  var buildMagnetDataMapFromResults = (magnetResults = [], movies = []) => {
+    const nextMap = {};
+    if (Array.isArray(movies)) {
+      movies.forEach((movie) => {
+        if (movie?.id) {
+          nextMap[movie.id] = [];
+        }
+      });
+    }
+    if (!Array.isArray(magnetResults)) {
+      return nextMap;
+    }
+    magnetResults.forEach((result) => {
+      if (!result || !result.movie_id || !result.link) {
+        return;
+      }
+      nextMap[result.movie_id] = [{
+        link: result.link,
+        title: result.title || `${result.movie_id} - \u6700\u4F73\u8D44\u6E90`,
+        size: result.size || "\u672A\u77E5",
+        shareDate: result.shareDate || null,
+        hasSubtitle: !!result.hasSubtitle
+      }];
+    });
+    return nextMap;
+  };
+
   // frontend/src/components/JavPage.jsx
   var React8 = window.React;
   var antd8 = window.antd;
@@ -5960,22 +5988,6 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       return nextVersion;
     };
     const isLatestMagnetRequestVersion = (key, version) => magnetRequestVersionRef.current[key] === version;
-    const buildMagnetDataMapFromResults = (magnetResults = []) => {
-      const nextMap = {};
-      magnetResults.forEach((result) => {
-        if (!result || !result.movie_id || !result.link) {
-          return;
-        }
-        nextMap[result.movie_id] = [{
-          link: result.link,
-          title: result.title || `${result.movie_id} - \u6700\u4F73\u8D44\u6E90`,
-          size: result.size || "\u672A\u77E5",
-          shareDate: result.shareDate || null,
-          hasSubtitle: !!result.hasSubtitle
-        }];
-      });
-      return nextMap;
-    };
     const searchMovie = async (values) => {
       setLoading(true);
       setLastMagnetSearchValues(null);
@@ -6188,9 +6200,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (data.error) {
           message8.error(`\u9519\u8BEF: ${data.error}`);
         } else {
+          const recognizedMovies = Array.isArray(data.movies) ? data.movies : [];
           setMoviesData(data);
-          if (data.magnet_results) {
-            setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
+          if (Array.isArray(data.magnet_results)) {
+            setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results, recognizedMovies));
+          } else if (recognizedMovies.length > 0) {
+            loadMovieResources(recognizedMovies);
           }
           message8.success("\u8BC6\u522B\u5B8C\u6210");
           if (shouldAutoDownload && downloadTool !== "pikpak" && data.magnet_results?.length > 0) {
@@ -6244,8 +6259,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           status: movie.status
         }));
         setMoviesData({ movies, magnet_results: data.magnet_results || [], download_result: data.download_result, not_found_codes: data.not_found_codes || [] });
-        if (data.magnet_results) {
-          setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results));
+        if (Array.isArray(data.magnet_results)) {
+          setMagnetDataMap(buildMagnetDataMapFromResults(data.magnet_results, movies));
         }
         message8.success(data.message || "\u5904\u7406\u5B8C\u6210");
         if (shouldAutoDownload && downloadTool !== "pikpak" && data.magnet_results?.length > 0) {

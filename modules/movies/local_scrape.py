@@ -642,7 +642,7 @@ def _choose_conflict_keep_side(source_path: Path, target_path: Path, resolution:
             if source_value <= 0 or target_value <= 0 or source_value == target_value:
                 continue
             return "source" if source_value > target_value else "target"
-        return "target"
+        return None
     if resolution == "keep_newer":
         source_value = _file_mtime(source_path)
         target_value = _file_mtime(target_path)
@@ -1360,6 +1360,7 @@ async def apply_local_scrape(
             conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
             conflict_resolution = str(item.conflict_resolution or "").strip()
             keep_side = _choose_conflict_keep_side(source_path, target_video, conflict_resolution) if conflict else None
+            unresolved_auto_best = bool(conflict and conflict_resolution == "auto_best" and keep_side is None)
             if conflict and not request.overwrite_existing and not conflict_resolution:
                 results.append(
                     {
@@ -1381,7 +1382,7 @@ async def apply_local_scrape(
                     },
                 )
                 continue
-            if conflict and not request.overwrite_existing and keep_side is None:
+            if conflict and not request.overwrite_existing and keep_side is None and not unresolved_auto_best:
                 results.append(
                     {
                         "source_path": item.source_path,
@@ -1404,12 +1405,17 @@ async def apply_local_scrape(
                 continue
             overwrite_target = request.overwrite_existing or keep_side == "source"
             if conflict and not request.overwrite_existing and keep_side != "source":
+                deleted_source = False
+                if conflict_resolution == "auto_best" and keep_side == "target":
+                    source_path.unlink()
+                    deleted_source = True
                 success_count += 1
                 message = "skipped_conflict" if conflict_resolution == "skip" else "kept_existing_target"
-                kept = "target" if keep_side == "target" else None
-                results.append(
-                    _conflict_skip_result(item, metadata, target_video, target_dir, message, kept)
-                )
+                kept = "target" if keep_side == "target" or unresolved_auto_best else None
+                result = _conflict_skip_result(item, metadata, target_video, target_dir, message, kept)
+                if deleted_source:
+                    result["deleted_source"] = True
+                results.append(result)
                 _emit_progress(
                     progress_callback,
                     {

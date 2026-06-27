@@ -2795,7 +2795,8 @@ def test_local_scrape_apply_supports_auto_best_conflict_resolution(tmp_path, mon
     )
     assert higher_bitrate["results"][0]["skipped"] is True
     assert higher_bitrate["results"][0]["kept"] == "target"
-    assert source_video.exists()
+    assert higher_bitrate["results"][0]["deleted_source"] is True
+    assert not source_video.exists()
     assert target_video.read_bytes() == b"target-bitrate"
 
     unresolved, source_video, target_video = asyncio.run(

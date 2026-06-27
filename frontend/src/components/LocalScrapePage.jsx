@@ -1192,7 +1192,7 @@ export default function LocalScrapePage() {
                             </Popconfirm>
                             <Popconfirm
                                 title={`确认一键处理 ${allConflictItems.length} 个冲突文件？`}
-                                description="将按分辨率、码率、文件大小、修改时间依次选择更优文件；无法判断时保留目标文件。"
+                                description="将按分辨率、码率、文件大小、修改时间依次选择更优文件；目标更优时删除源文件，无法判断时才保留源文件。"
                                 okText="确认执行"
                                 cancelText="取消"
                                 disabled={allConflictItems.length === 0 || loadingApply}
