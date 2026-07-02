@@ -121,6 +121,7 @@ export default function JavPage() {
     const [movieDetailMap, setMovieDetailMap] = React.useState({});
     const [webdavConnected, setWebdavConnected] = React.useState(false);
     const [historyData, setHistoryData] = React.useState(null);
+    const [checkingHistoryLibrary, setCheckingHistoryLibrary] = React.useState(false);
     const [currentPage, setCurrentPage] = React.useState(1);
     const [lastFilterValues, setLastFilterValues] = React.useState(null);
     const [lastMagnetSearchValues, setLastMagnetSearchValues] = React.useState(null);
@@ -1190,6 +1191,28 @@ export default function JavPage() {
         }
     };
 
+    const handleCheckHistoryLocalLibrary = async () => {
+        setCheckingHistoryLibrary(true);
+        try {
+            const response = await fetch('/api/history/check-local-library', { method: 'POST' });
+            const result = await response.json();
+            if (result.success) {
+                setHistoryData(result.records || []);
+                if (result.missing_count > 0) {
+                    message.warning(result.message || `发现 ${result.missing_count} 条历史记录未进入影视库`);
+                } else {
+                    message.success(result.message || '历史记录均已入库');
+                }
+            } else {
+                message.error('核对入库状态失败: ' + (result.message || '未知错误'));
+            }
+        } catch (error) {
+            message.error('请求核对入库状态失败');
+        } finally {
+            setCheckingHistoryLibrary(false);
+        }
+    };
+
     // ---- Render Helpers ----
     const renderContent = () => {
         if (viewMode === 'history') {
@@ -1329,6 +1352,14 @@ export default function JavPage() {
                 <div className="jav-section-header">
                     <Title level={4} style={{ margin: 0 }}>历史下载记录</Title>
                     <Space>
+                        <Button
+                            icon={<Icon as={SafetyCertificateOutlined} />}
+                            disabled={!historyData || historyData.length === 0}
+                            loading={checkingHistoryLibrary}
+                            onClick={handleCheckHistoryLocalLibrary}
+                        >
+                            核对入库状态
+                        </Button>
                         <Popconfirm
                             title="确定要清空所有历史记录吗？"
                             onConfirm={handleClearHistory}
@@ -1345,23 +1376,43 @@ export default function JavPage() {
                     dataSource={historyData || []}
                     rowKey="movie_id"
                     pagination={{ pageSize: 20 }}
+                    scroll={{ x: 1100 }}
+                    tableLayout="fixed"
                     columns={[
                         {
                             title: '影片番号',
                             dataIndex: 'movie_id',
                             key: 'movie_id',
-                            render: text => <Text strong>{text}</Text>
+                            width: 170,
+                            render: text => <Text strong ellipsis={{ tooltip: text }} style={{ maxWidth: 150 }}>{text}</Text>
+                        },
+                        {
+                            title: '入库状态',
+                            dataIndex: 'download_status',
+                            key: 'download_status',
+                            width: 160,
+                            render: (_, record) => {
+                                if (record.in_local_library) {
+                                    return <Tag color="purple">已入库</Tag>;
+                                }
+                                if (record.needs_reselect) {
+                                    return <Tag color="orange">未入库，需重选链接</Tag>;
+                                }
+                                return <Tag>未核对</Tag>;
+                            }
                         },
                         {
                             title: '影片名',
                             dataIndex: 'title',
                             key: 'title',
+                            width: 220,
                             render: text => text ? <Text ellipsis={{ tooltip: text }} style={{ maxWidth: 200 }}>{text}</Text> : '-'
                         },
                         {
                             title: '演员',
                             dataIndex: 'stars',
                             key: 'stars',
+                            width: 160,
                             render: tags => (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                     {tags && Array.isArray(tags) ? tags.map(tag => (
@@ -1376,6 +1427,7 @@ export default function JavPage() {
                             title: '类型',
                             dataIndex: 'genres',
                             key: 'genres',
+                            width: 160,
                             render: tags => (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                                     {tags && Array.isArray(tags) ? tags.map(tag => (
@@ -1390,12 +1442,14 @@ export default function JavPage() {
                             title: '发布时间',
                             dataIndex: 'date',
                             key: 'date',
+                            width: 110,
                             render: text => text || '-'
                         },
                         {
                             title: '下载时间',
                             dataIndex: 'download_time',
                             key: 'download_time',
+                            width: 170,
                             render: text => {
                                 if (!text) return '未知时间';
                                 const d = new Date(text);
@@ -1405,12 +1459,13 @@ export default function JavPage() {
                         {
                             title: '操作',
                             key: 'action',
+                            width: 110,
                             render: (_, record) => (
                                 <Button type="primary" size="small" onClick={() => {
                                     setViewMode('search');
                                     searchMovie({ keyword: record.movie_id });
                                 }}>
-                                    详情搜索
+                                    {record.needs_reselect ? '重新查找' : '详情搜索'}
                                 </Button>
                             )
                         }

@@ -321,6 +321,50 @@ class DownloadHistoryService:
             "download_resources": await self.get_downloaded_magnet_resources(normalized),
         }
 
+    async def check_against_local_library(self, library_service: Any | None = None) -> dict[str, Any]:
+        records = await self.get_history()
+        service = library_service or local_movie_library_service
+        library_records = await service.load_records()
+        local_movie_ids = {_normalize_movie_id(movie_id) for movie_id in library_records.keys()}
+
+        checked_records: list[dict[str, Any]] = []
+        for record in records:
+            movie_id = _normalize_movie_id(record.get("movie_id"))
+            download_resources = _extract_download_resources(record)
+            in_local_library = movie_id in local_movie_ids
+            checked_record = dict(record)
+            checked_record["movie_id"] = movie_id
+            checked_record["download_resources"] = download_resources
+            checked_record["download_links"] = [resource["link"] for resource in download_resources]
+            checked_record["in_local_library"] = in_local_library
+            checked_record["needs_reselect"] = not in_local_library
+            checked_record["attempted_link_count"] = len(download_resources)
+            checked_record["download_status"] = (
+                "in_local_library" if in_local_library else "missing_from_local_library"
+            )
+            checked_record["status_message"] = (
+                "已在影视库中，下载可视为成功"
+                if in_local_library
+                else "未进入影视库，旧链接会保留为已尝试链接，重新查找时会避开"
+            )
+            checked_records.append(checked_record)
+
+        missing_records = [record for record in checked_records if record["needs_reselect"]]
+        return {
+            "success": True,
+            "total_count": len(checked_records),
+            "in_library_count": len(checked_records) - len(missing_records),
+            "missing_count": len(missing_records),
+            "missing_movie_ids": [record["movie_id"] for record in missing_records],
+            "records": checked_records,
+            "missing_records": missing_records,
+            "message": (
+                f"发现 {len(missing_records)} 条历史记录未进入影视库"
+                if missing_records
+                else "下载历史中的影片均已进入影视库"
+            ),
+        }
+
 
 download_history_service = DownloadHistoryService()
 

@@ -55,6 +55,7 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
 
     assert "/api/system/info" in api_paths
     assert "/api/movies" in api_paths
+    assert "/api/history/check-local-library" in api_paths
     assert "/api/automation/tasks" in api_paths
     assert "/api/115/qrcode/start" in api_paths
     assert "/api/115/download" in api_paths
@@ -64,6 +65,7 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
     assert api_paths.index("/api/115/download") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/115/download-jobs") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/115/files") < api_paths.index("/api/{path:path}")
+    assert api_paths.index("/api/history/check-local-library") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/automation/tasks") < api_paths.index("/api/{path:path}")
     assert "/api/{path:path}" == api_paths[-1]
 
@@ -104,6 +106,59 @@ def test_download_history_records_and_checks_magnet_links(tmp_path, monkeypatch)
     assert asyncio.run(service.is_magnet_downloaded("ABP-123", "magnet:?xt=urn:btih:abc")) is True
     assert asyncio.run(service.is_magnet_downloaded("ABP-123", "magnet:?xt=urn:btih:missing")) is False
     assert asyncio.run(service.get_magnet_source("ABP-123", "magnet:?xt=urn:btih:def")) == "yhg007"
+
+
+def test_download_history_can_be_checked_against_local_library(tmp_path, monkeypatch):
+    history_service = history_service_module.DownloadHistoryService(str(tmp_path / "downloaded_movies.json"))
+    library_service = history_service_module.LocalMovieLibraryService(str(tmp_path / "local_library.json"))
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": f"{movie_id} title",
+            "date": "2024-05-17",
+            "stars": [{"name": "Actor One"}],
+            "genres": [{"name": "Genre One"}],
+            "img": "https://example.test/cover.jpg",
+        }
+
+    monkeypatch.setattr(history_service_module.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+
+    async def exercise():
+        await history_service.save_movies(
+            ["ABP-123", "ABP-124"],
+            ["magnet:?xt=urn:btih:success", "magnet:?xt=urn:btih:dead"],
+            ["javbus", "cilisousuo"],
+        )
+        await library_service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(tmp_path / "ABP-123.mp4"),
+                    "relative_path": "ABP-123.mp4",
+                    "file_name": "ABP-123.mp4",
+                    "size": 123,
+                },
+            ],
+        )
+        return await history_service.check_against_local_library(library_service)
+
+    result = asyncio.run(exercise())
+    records = {record["movie_id"]: record for record in result["records"]}
+
+    assert result["success"] is True
+    assert result["total_count"] == 2
+    assert result["in_library_count"] == 1
+    assert result["missing_count"] == 1
+    assert result["missing_movie_ids"] == ["ABP-124"]
+    assert records["ABP-123"]["in_local_library"] is True
+    assert records["ABP-123"]["needs_reselect"] is False
+    assert records["ABP-124"]["in_local_library"] is False
+    assert records["ABP-124"]["needs_reselect"] is True
+    assert records["ABP-124"]["download_resources"] == [
+        {"link": "magnet:?xt=urn:btih:dead", "source": "cilisousuo"}
+    ]
 
 
 def test_movie_workflow_existing_status_ignores_history_movie_id(monkeypatch):

@@ -281,6 +281,7 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 - Docker 运行：填写容器内路径，例如把宿主机目录挂载到 `/media/JAV` 后，在页面中填写 `/media/JAV`
 
 如果服务端运行在 Docker 或 Linux 中，不能直接填写宿主机 Windows 路径，除非该路径已经通过 volume、SMB、NFS 或 WSL 等方式挂载到服务端可见的位置。
+历史记录页可核对下载历史中的影片是否已经进入本地影片库；未入库记录会保留旧资源链接作为“已尝试”链接，重新查找最佳磁力时会避开这些旧链接。
 
 ### 自动模式
 
@@ -335,6 +336,7 @@ GET    /api/stars/{star_id}
 
 GET    /api/history
 DELETE /api/history
+POST   /api/history/check-local-library
 GET    /api/downloaded-movies
 GET    /api/downloaded-movies/{movie_id}
 

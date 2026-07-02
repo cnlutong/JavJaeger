@@ -5576,6 +5576,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const [movieDetailMap, setMovieDetailMap] = React8.useState({});
     const [webdavConnected, setWebdavConnected] = React8.useState(false);
     const [historyData, setHistoryData] = React8.useState(null);
+    const [checkingHistoryLibrary, setCheckingHistoryLibrary] = React8.useState(false);
     const [currentPage, setCurrentPage] = React8.useState(1);
     const [lastFilterValues, setLastFilterValues] = React8.useState(null);
     const [lastMagnetSearchValues, setLastMagnetSearchValues] = React8.useState(null);
@@ -6540,6 +6541,27 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         setLoading(false);
       }
     };
+    const handleCheckHistoryLocalLibrary = async () => {
+      setCheckingHistoryLibrary(true);
+      try {
+        const response = await fetch("/api/history/check-local-library", { method: "POST" });
+        const result = await response.json();
+        if (result.success) {
+          setHistoryData(result.records || []);
+          if (result.missing_count > 0) {
+            message8.warning(result.message || `\u53D1\u73B0 ${result.missing_count} \u6761\u5386\u53F2\u8BB0\u5F55\u672A\u8FDB\u5165\u5F71\u89C6\u5E93`);
+          } else {
+            message8.success(result.message || "\u5386\u53F2\u8BB0\u5F55\u5747\u5DF2\u5165\u5E93");
+          }
+        } else {
+          message8.error("\u6838\u5BF9\u5165\u5E93\u72B6\u6001\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
+        }
+      } catch (error) {
+        message8.error("\u8BF7\u6C42\u6838\u5BF9\u5165\u5E93\u72B6\u6001\u5931\u8D25");
+      } finally {
+        setCheckingHistoryLibrary(false);
+      }
+    };
     const renderContent = () => {
       if (viewMode === "history") {
         return renderHistory();
@@ -6618,6 +6640,15 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const renderHistory = () => {
       return /* @__PURE__ */ React8.createElement("div", null, /* @__PURE__ */ React8.createElement("div", { className: "jav-section-header" }, /* @__PURE__ */ React8.createElement(Title7, { level: 4, style: { margin: 0 } }, "\u5386\u53F2\u4E0B\u8F7D\u8BB0\u5F55"), /* @__PURE__ */ React8.createElement(Space8, null, /* @__PURE__ */ React8.createElement(
+        Button8,
+        {
+          icon: /* @__PURE__ */ React8.createElement(Icon6, { as: SafetyCertificateOutlined2 }),
+          disabled: !historyData || historyData.length === 0,
+          loading: checkingHistoryLibrary,
+          onClick: handleCheckHistoryLocalLibrary
+        },
+        "\u6838\u5BF9\u5165\u5E93\u72B6\u6001"
+      ), /* @__PURE__ */ React8.createElement(
         Popconfirm6,
         {
           title: "\u786E\u5B9A\u8981\u6E05\u7A7A\u6240\u6709\u5386\u53F2\u8BB0\u5F55\u5417\uFF1F",
@@ -6632,41 +6663,64 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           dataSource: historyData || [],
           rowKey: "movie_id",
           pagination: { pageSize: 20 },
+          scroll: { x: 1100 },
+          tableLayout: "fixed",
           columns: [
             {
               title: "\u5F71\u7247\u756A\u53F7",
               dataIndex: "movie_id",
               key: "movie_id",
-              render: (text) => /* @__PURE__ */ React8.createElement(Text8, { strong: true }, text)
+              width: 170,
+              render: (text) => /* @__PURE__ */ React8.createElement(Text8, { strong: true, ellipsis: { tooltip: text }, style: { maxWidth: 150 } }, text)
+            },
+            {
+              title: "\u5165\u5E93\u72B6\u6001",
+              dataIndex: "download_status",
+              key: "download_status",
+              width: 160,
+              render: (_, record) => {
+                if (record.in_local_library) {
+                  return /* @__PURE__ */ React8.createElement(Tag7, { color: "purple" }, "\u5DF2\u5165\u5E93");
+                }
+                if (record.needs_reselect) {
+                  return /* @__PURE__ */ React8.createElement(Tag7, { color: "orange" }, "\u672A\u5165\u5E93\uFF0C\u9700\u91CD\u9009\u94FE\u63A5");
+                }
+                return /* @__PURE__ */ React8.createElement(Tag7, null, "\u672A\u6838\u5BF9");
+              }
             },
             {
               title: "\u5F71\u7247\u540D",
               dataIndex: "title",
               key: "title",
+              width: 220,
               render: (text) => text ? /* @__PURE__ */ React8.createElement(Text8, { ellipsis: { tooltip: text }, style: { maxWidth: 200 } }, text) : "-"
             },
             {
               title: "\u6F14\u5458",
               dataIndex: "stars",
               key: "stars",
+              width: 160,
               render: (tags) => /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px" } }, tags && Array.isArray(tags) ? tags.map((tag) => /* @__PURE__ */ React8.createElement(Tag7, { color: "magenta", key: tag }, tag)) : "-")
             },
             {
               title: "\u7C7B\u578B",
               dataIndex: "genres",
               key: "genres",
+              width: 160,
               render: (tags) => /* @__PURE__ */ React8.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "4px" } }, tags && Array.isArray(tags) ? tags.map((tag) => /* @__PURE__ */ React8.createElement(Tag7, { color: "cyan", key: tag }, tag)) : "-")
             },
             {
               title: "\u53D1\u5E03\u65F6\u95F4",
               dataIndex: "date",
               key: "date",
+              width: 110,
               render: (text) => text || "-"
             },
             {
               title: "\u4E0B\u8F7D\u65F6\u95F4",
               dataIndex: "download_time",
               key: "download_time",
+              width: 170,
               render: (text) => {
                 if (!text) return "\u672A\u77E5\u65F6\u95F4";
                 const d = new Date(text);
@@ -6676,10 +6730,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             {
               title: "\u64CD\u4F5C",
               key: "action",
+              width: 110,
               render: (_, record) => /* @__PURE__ */ React8.createElement(Button8, { type: "primary", size: "small", onClick: () => {
                 setViewMode("search");
                 searchMovie({ keyword: record.movie_id });
-              } }, "\u8BE6\u60C5\u641C\u7D22")
+              } }, record.needs_reselect ? "\u91CD\u65B0\u67E5\u627E" : "\u8BE6\u60C5\u641C\u7D22")
             }
           ]
         }
