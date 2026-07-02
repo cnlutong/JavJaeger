@@ -80,6 +80,7 @@ DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     (re.compile(r"(?i)(\d{3}[A-Z]{2,6})-(\d{3,5})"), 95),
     (re.compile(r"(?i)([A-Z]{2,6})-(\d{3,5})"), 90),
     (re.compile(r"(?i)([A-Z]+\d+)-(\d{3,5})"), 85),
+    (re.compile(r"(?i)([A-Z]{2,6})(0+\d{3,5})(?=[A-Z]{1,4}(?:[^A-Z0-9]|$))"), 82),
     (re.compile(r"(?i)([A-Z]{2,6})(\d{3,5})(?:[^A-Z0-9]|$)"), 80),
     (re.compile(r"(?i)(\d{6})[_-](\d{3,5})"), 70),
 ]
@@ -97,11 +98,36 @@ class LocalFileCandidate:
     recognition_message: str
 
 
+def _normalize_designation_number(prefix: str, number: str) -> str:
+    if prefix.upper() == "FC2":
+        return number
+    stripped = number.lstrip("0")
+    if not stripped:
+        return "000"
+    if stripped != number:
+        return stripped.zfill(3)
+    return number
+
+
+def _is_resolution_noise(filename: str, match: re.Match[str], number: str) -> bool:
+    if number not in RESOLUTION_NUMBERS:
+        return False
+    next_char = filename[match.end() : match.end() + 1].lower()
+    if next_char == "p":
+        return True
+    raw_match = match.group(0)
+    return "-" not in raw_match and "_" not in raw_match
+
+
 def recognize_designation(filename: str) -> str | None:
     candidates: list[tuple[str, int, int]] = []
     for pattern, priority in DESIGNATION_PATTERNS:
         for match in pattern.finditer(filename):
-            designation = f"{match.group(1)}-{match.group(2)}"
+            prefix = match.group(1)
+            number = _normalize_designation_number(prefix, match.group(2))
+            if _is_resolution_noise(filename, match, number):
+                continue
+            designation = f"{prefix}-{number}"
             candidates.append((designation, priority, match.start()))
 
     candidates.sort(key=lambda item: (item[1], item[2]), reverse=True)
@@ -113,8 +139,6 @@ def recognize_designation(filename: str) -> str | None:
         valid_alpha_prefix = 2 <= len(prefix) <= 6
         valid_numeric_brand_prefix = bool(re.fullmatch(r"(?i)\d{3}[A-Z]{2,6}", prefix))
         if not ((valid_alpha_prefix or valid_numeric_brand_prefix) and 3 <= len(number) <= 8):
-            continue
-        if number in RESOLUTION_NUMBERS:
             continue
         return designation.upper()
     return None
@@ -446,6 +470,56 @@ def _source_part_marker(source_stem: str) -> str | None:
     return f"{kind}{number}"
 
 
+def _record_movie_id(metadata: dict[str, Any] | None, code: str | None = None) -> str:
+    metadata = metadata or {}
+    movie_id = str(metadata.get("id") or code or "").strip().upper()
+    if movie_id:
+        return movie_id
+    raw = metadata.get("raw")
+    if isinstance(raw, dict):
+        return str(raw.get("id") or "").strip().upper()
+    return ""
+
+
+def _numbered_target_path(target_video: Path, number: int) -> Path:
+    return target_video.with_name(f"{target_video.stem}-{number}{target_video.suffix}")
+
+
+def _target_key(path: Path) -> str:
+    return str(path.resolve()).lower()
+
+
+def _number_same_movie_duplicate_target_records(records: list[dict[str, Any]]) -> None:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        target_video = record.get("target_video")
+        if isinstance(target_video, Path):
+            groups[_target_key(target_video)].append(record)
+
+    for group in groups.values():
+        if len(group) <= 1:
+            continue
+        movie_ids = {
+            movie_id
+            for movie_id in (_record_movie_id(record.get("metadata"), record.get("code")) for record in group)
+            if movie_id
+        }
+        if len(movie_ids) != 1:
+            continue
+        ordered = sorted(
+            group,
+            key=lambda record: (
+                int(record.get("file_size") or _file_size(record["source_path"])),
+                str(record.get("file_name") or record["source_path"].name).lower(),
+                str(record["source_path"]).lower(),
+            ),
+        )
+        for number, record in enumerate(ordered, start=1):
+            target_video = _numbered_target_path(record["target_video"], number)
+            record["target_video"] = target_video
+            record["target_stem"] = target_video.stem
+
+
 def _subtitle_matches(video_path: Path, candidate: Path) -> bool:
     if candidate.suffix.lower() not in SUBTITLE_EXTENSIONS:
         return False
@@ -669,9 +743,11 @@ def _choose_conflict_keep_side(source_path: Path, target_path: Path, resolution:
     return "source" if source_value > target_value else "target"
 
 
-def _build_apply_target_counts(request: LocalScrapeApplyRequest) -> Counter[str]:
-    target_counts: Counter[str] = Counter()
-    for item in request.items:
+def _build_apply_target_plan(
+    request: LocalScrapeApplyRequest,
+) -> tuple[Counter[str], dict[int, tuple[Path, Path, str]]]:
+    records: list[dict[str, Any]] = []
+    for index, item in enumerate(request.items):
         try:
             source_path = resolve_existing_file(item.source_path)
         except UserPathError:
@@ -679,7 +755,7 @@ def _build_apply_target_counts(request: LocalScrapeApplyRequest) -> Counter[str]
         metadata = _build_metadata(item.metadata, item.code, source_path.stem)
         if not metadata.get("id") and item.code:
             metadata["id"] = item.code
-        _, target_video, _ = _build_target_paths(
+        target_dir, target_video, target_stem = _build_target_paths(
             source_path,
             metadata,
             request.organize,
@@ -687,8 +763,26 @@ def _build_apply_target_counts(request: LocalScrapeApplyRequest) -> Counter[str]
             request.naming_template,
             request.folder_template,
         )
-        target_counts[str(target_video.resolve()).lower()] += 1
-    return target_counts
+        records.append(
+            {
+                "index": index,
+                "source_path": source_path,
+                "file_name": source_path.name,
+                "file_size": _file_size(source_path),
+                "metadata": metadata,
+                "code": item.code,
+                "target_dir": target_dir,
+                "target_video": target_video,
+                "target_stem": target_stem,
+            }
+        )
+    _number_same_movie_duplicate_target_records(records)
+    target_counts: Counter[str] = Counter(_target_key(record["target_video"]) for record in records)
+    target_plan = {
+        int(record["index"]): (record["target_dir"], record["target_video"], record["target_stem"])
+        for record in records
+    }
+    return target_counts, target_plan
 
 
 def _safe_relative_path(path: Path, root: Path) -> str:
@@ -1004,6 +1098,34 @@ async def preview_local_scrape(
         return item
 
     items = await asyncio.gather(*[enrich(candidate) for candidate in candidates])
+    target_records: list[dict[str, Any]] = []
+    for item in items:
+        source_path = Path(str(item.get("source_path") or ""))
+        target_video = Path(str(item.get("target_video_path") or ""))
+        target_records.append(
+            {
+                "item": item,
+                "source_path": source_path,
+                "file_name": item.get("file_name") or source_path.name,
+                "file_size": item.get("file_size") or _file_size(source_path),
+                "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
+                "code": item.get("code"),
+                "target_video": target_video,
+                "target_stem": item.get("target_stem") or target_video.stem,
+            }
+        )
+    _number_same_movie_duplicate_target_records(target_records)
+    for record in target_records:
+        item = record["item"]
+        source_path = record["source_path"]
+        target_video = record["target_video"]
+        conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
+        item["target_video_path"] = str(target_video)
+        item["target_stem"] = record["target_stem"]
+        item["target_exists"] = conflict
+        item["target_file"] = _file_detail(target_video, target_video.exists(), include_media=True) if conflict else None
+        item["will_move"] = str(target_video.resolve()) != str(source_path.resolve())
+
     target_counts = Counter(str(item.get("target_video_path") or "").lower() for item in items)
     for item in items:
         target_key = str(item.get("target_video_path") or "").lower()
@@ -1284,7 +1406,7 @@ async def apply_local_scrape(
                 "results": [],
             }
 
-    target_counts = _build_apply_target_counts(request)
+    target_counts, target_plan = _build_apply_target_plan(request)
 
     for index, item in enumerate(request.items, start=1):
         _emit_progress(
@@ -1317,17 +1439,21 @@ async def apply_local_scrape(
         if not metadata.get("id") and item.code:
             metadata["id"] = item.code
 
-        target_dir, target_video, target_stem = _build_target_paths(
-            source_path,
-            metadata,
-            request.organize,
-            request.target_directory,
-            request.naming_template,
-            request.folder_template,
-        )
+        planned_target = target_plan.get(index - 1)
+        if planned_target:
+            target_dir, target_video, target_stem = planned_target
+        else:
+            target_dir, target_video, target_stem = _build_target_paths(
+                source_path,
+                metadata,
+                request.organize,
+                request.target_directory,
+                request.naming_template,
+                request.folder_template,
+            )
 
         try:
-            target_key = str(target_video.resolve()).lower()
+            target_key = _target_key(target_video)
             if target_counts[target_key] > 1:
                 results.append(
                     {

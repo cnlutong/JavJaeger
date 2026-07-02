@@ -2408,6 +2408,10 @@ def test_automation_service_dispatches_to_pan115(tmp_path, monkeypatch):
     assert results == [{"success": True}]
 
 
+def test_local_scrape_recognizes_padded_designation_with_site_suffix():
+    assert local_scrape.recognize_designation("c800.me@ssni00048hhb") == "SSNI-048"
+
+
 def test_local_scrape_target_paths_support_custom_folder_templates():
     source_path = Path(r"D:\incoming\ABP-123.mp4")
     metadata = local_scrape._build_metadata(
@@ -2551,7 +2555,7 @@ def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatc
     assert item["target_file"]["bitrate"] == 4_000_000
 
 
-def test_local_scrape_preview_does_not_report_duplicate_targets_as_existing_files(tmp_path, monkeypatch):
+def test_local_scrape_preview_numbers_same_movie_duplicate_targets_by_size(tmp_path, monkeypatch):
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
     source_dir.mkdir()
@@ -2575,6 +2579,7 @@ def test_local_scrape_preview_does_not_report_duplicate_targets_as_existing_file
             local_scrape.LocalScrapePreviewRequest(
                 directory=str(source_dir),
                 target_directory=str(target_dir),
+                folder_template="{code}",
                 naming_template="{code}",
                 scrape=True,
                 download_images=False,
@@ -2582,13 +2587,64 @@ def test_local_scrape_preview_does_not_report_duplicate_targets_as_existing_file
         )
     )
 
+    items_by_name = {item["file_name"]: item for item in payload["items"]}
+
     assert payload["success"] is True
     assert payload["conflict_count"] == 0
-    assert payload["target_duplicate_count"] == 2
-    assert {item["target_duplicate"] for item in payload["items"]} == {True}
+    assert payload["target_duplicate_count"] == 0
+    assert items_by_name["ABP-123-a.mp4"]["target_video_path"] == str(target_dir / "ABP-123" / "ABP-123-1.mp4")
+    assert items_by_name["ABP-123-b.mp4"]["target_video_path"] == str(target_dir / "ABP-123" / "ABP-123-2.mp4")
+    assert {item["target_duplicate"] for item in payload["items"]} == {False}
     assert {item["target_exists"] for item in payload["items"]} == {False}
     assert {item["target_file"] for item in payload["items"]} == {None}
-    assert not (target_dir / "ABP-123 Remote Title" / "ABP-123.mp4").exists()
+    assert not (target_dir / "ABP-123" / "ABP-123-1.mp4").exists()
+
+
+def test_local_scrape_preview_numbers_vr_multi_file_targets_by_size(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    largest = source_dir / "VRKM-821-c.mp4"
+    smallest = source_dir / "VRKM-821-a.mp4"
+    middle = source_dir / "VRKM-821-b.mp4"
+    largest.write_bytes(b"ccc")
+    smallest.write_bytes(b"a")
+    middle.write_bytes(b"bb")
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": "VRKM-821 VR Remote Title",
+            "genres": ["VR専用"],
+            "series": "VR Series",
+        }
+
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
+
+    payload = asyncio.run(
+        local_scrape.preview_local_scrape(
+            local_scrape.LocalScrapePreviewRequest(
+                directory=str(source_dir),
+                target_directory=str(target_dir),
+                folder_template="{code}",
+                naming_template="{code}",
+                scrape=True,
+                download_images=False,
+            )
+        )
+    )
+
+    items_by_name = {item["file_name"]: item for item in payload["items"]}
+
+    assert payload["success"] is True
+    assert payload["conflict_count"] == 0
+    assert payload["target_duplicate_count"] == 0
+    assert items_by_name["VRKM-821-a.mp4"]["target_video_path"] == str(target_dir / "VRKM-821" / "VRKM-821-1.mp4")
+    assert items_by_name["VRKM-821-b.mp4"]["target_video_path"] == str(target_dir / "VRKM-821" / "VRKM-821-2.mp4")
+    assert items_by_name["VRKM-821-c.mp4"]["target_video_path"] == str(target_dir / "VRKM-821" / "VRKM-821-3.mp4")
+    assert {item["target_duplicate"] for item in payload["items"]} == {False}
+    assert {item["target_exists"] for item in payload["items"]} == {False}
 
 
 def test_local_scrape_nfo_writes_video_stream_details(tmp_path, monkeypatch):
@@ -3112,7 +3168,7 @@ def test_local_scrape_apply_supports_auto_best_conflict_resolution(tmp_path, mon
     assert target_video.read_bytes() == b"same"
 
 
-def test_local_scrape_apply_rejects_duplicate_targets_in_same_request(tmp_path):
+def test_local_scrape_apply_numbers_same_movie_duplicate_targets_by_size(tmp_path):
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
     source_dir.mkdir()
@@ -3145,6 +3201,55 @@ def test_local_scrape_apply_rejects_duplicate_targets_in_same_request(tmp_path):
                     },
                 ],
                 target_directory=str(target_dir),
+                folder_template="{code}",
+                naming_template="{code}",
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+    )
+
+    first_target = target_dir / "ABP-123" / "ABP-123-1.mp4"
+    second_target = target_dir / "ABP-123" / "ABP-123-2.mp4"
+
+    assert result["success"] is True
+    assert result["success_count"] == 2
+    assert result["failed_count"] == 0
+    assert first_target.read_bytes() == b"first"
+    assert second_target.read_bytes() == b"second"
+    assert not first_video.exists()
+    assert not second_video.exists()
+    assert {item["target_video_path"] for item in result["results"]} == {str(first_target), str(second_target)}
+
+
+def test_local_scrape_apply_rejects_duplicate_targets_for_different_movies(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    first_video = source_dir / "ABP-123.mp4"
+    second_video = source_dir / "IPX-456.mp4"
+    first_video.write_bytes(b"first")
+    second_video.write_bytes(b"second")
+
+    result = asyncio.run(
+        local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(first_video),
+                        "code": "ABP-123",
+                        "metadata": {"id": "ABP-123", "title": "ABP-123", "raw": {"id": "ABP-123"}},
+                    },
+                    {
+                        "source_path": str(second_video),
+                        "code": "IPX-456",
+                        "metadata": {"id": "IPX-456", "title": "IPX-456", "raw": {"id": "IPX-456"}},
+                    },
+                ],
+                target_directory=str(target_dir),
+                folder_template="",
+                naming_template="movie",
                 write_nfo=False,
                 download_images=False,
             )
@@ -3157,7 +3262,75 @@ def test_local_scrape_apply_rejects_duplicate_targets_in_same_request(tmp_path):
     assert {item["error"] for item in result["results"]} == {"target_duplicate"}
     assert first_video.exists()
     assert second_video.exists()
-    assert not (target_dir / "ABP-123 Remote Title" / "ABP-123 Remote Title.mp4").exists()
+    assert not (target_dir / "movie.mp4").exists()
+
+
+def test_local_scrape_apply_numbers_vr_multi_file_targets_by_size(tmp_path):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    largest = source_dir / "VRKM-821-c.mp4"
+    smallest = source_dir / "VRKM-821-a.mp4"
+    middle = source_dir / "VRKM-821-b.mp4"
+    largest.write_bytes(b"ccc")
+    smallest.write_bytes(b"a")
+    middle.write_bytes(b"bb")
+    metadata = {
+        "id": "VRKM-821",
+        "title": "VRKM-821 VR Remote Title",
+        "genres": ["VR専用"],
+        "series": "VR Series",
+        "raw": {"id": "VRKM-821"},
+    }
+
+    result = asyncio.run(
+        local_scrape.apply_local_scrape(
+            local_scrape.LocalScrapeApplyRequest(
+                items=[
+                    {
+                        "source_path": str(largest),
+                        "code": "VRKM-821",
+                        "metadata": metadata,
+                    },
+                    {
+                        "source_path": str(smallest),
+                        "code": "VRKM-821",
+                        "metadata": metadata,
+                    },
+                    {
+                        "source_path": str(middle),
+                        "code": "VRKM-821",
+                        "metadata": metadata,
+                    },
+                ],
+                target_directory=str(target_dir),
+                folder_template="{code}",
+                naming_template="{code}",
+                write_nfo=False,
+                download_images=False,
+            )
+        )
+    )
+
+    first_target = target_dir / "VRKM-821" / "VRKM-821-1.mp4"
+    second_target = target_dir / "VRKM-821" / "VRKM-821-2.mp4"
+    third_target = target_dir / "VRKM-821" / "VRKM-821-3.mp4"
+
+    assert result["success"] is True
+    assert result["success_count"] == 3
+    assert result["failed_count"] == 0
+    assert first_target.read_bytes() == b"a"
+    assert second_target.read_bytes() == b"bb"
+    assert third_target.read_bytes() == b"ccc"
+    assert not smallest.exists()
+    assert not middle.exists()
+    assert not largest.exists()
+    assert {item["target_video_path"] for item in result["results"]} == {
+        str(first_target),
+        str(second_target),
+        str(third_target),
+    }
 
 
 def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_path, monkeypatch):
