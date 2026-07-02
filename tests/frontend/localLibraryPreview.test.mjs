@@ -166,6 +166,17 @@ test("local library list mode renders media metadata as separate columns", () =>
     assert.doesNotMatch(infoColumnBlock, /renderMediaTags\(primaryMediaInfo\(record\)\)/);
 });
 
+test("local library file column only lists file count, size, and names", () => {
+    const columnsBlock = localLibraryPage.match(/const columns = \[[\s\S]*?\n    \];/)?.[0] || "";
+    const fileColumnBlock = columnsBlock.match(/title:\s*"文件"[\s\S]*?title:\s*"操作"/)?.[0] || "";
+
+    assert.match(fileColumnBlock, /record\.file_count \|\| 0/);
+    assert.match(fileColumnBlock, /formatBytes\(record\.total_size\)/);
+    assert.match(fileColumnBlock, /file\.file_name/);
+    assert.doesNotMatch(fileColumnBlock, /renderMediaTags\(file\)/);
+    assert.doesNotMatch(fileColumnBlock, /formatResolution|formatBitrate|formatCodec/);
+});
+
 test("local library actor and genre tags filter from list, grid, and preview", () => {
     assert.match(localLibraryPage, /handleFilterTagClick/);
     assert.match(localLibraryPage, /event\?\.stopPropagation\?\.\(\)/);

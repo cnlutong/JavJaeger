@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PikPakCredentials(BaseModel):
@@ -9,7 +9,8 @@ class PikPakCredentials(BaseModel):
 
 
 class DownloadRequest(BaseModel):
-    magnet_links: list[str]
-    movie_ids: list[str]
+    magnet_links: list[str] = Field(default_factory=list)
+    movie_ids: list[str] = Field(default_factory=list)
+    magnet_sources: list[str] = Field(default_factory=list)
     username: Optional[str] = None
     password: Optional[str] = None

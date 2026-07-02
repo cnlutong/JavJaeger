@@ -19,6 +19,7 @@ from modules.common import paths as common_paths
 from modules.movies import local_scrape
 from modules.movies import local_library as movies_local_library
 from modules.movies import metadata_scrapers
+from modules.movies import workflows as movies_workflows
 from modules.movies.local_scrape_tasks import LocalScrapeTaskManager
 from modules.movies import service as movies_service
 from modules.magnets import service as magnets_service
@@ -45,6 +46,10 @@ class FakeMetadataScraperService:
         return {"source": "test", "metadata": detail, "logs": []}
 
 
+async def _async_empty_list(*_args, **_kwargs):
+    return []
+
+
 def test_proxy_router_is_registered_after_concrete_api_routes():
     api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
 
@@ -61,6 +66,58 @@ def test_proxy_router_is_registered_after_concrete_api_routes():
     assert api_paths.index("/api/115/files") < api_paths.index("/api/{path:path}")
     assert api_paths.index("/api/automation/tasks") < api_paths.index("/api/{path:path}")
     assert "/api/{path:path}" == api_paths[-1]
+
+
+def test_download_history_records_and_checks_magnet_links(tmp_path, monkeypatch):
+    service = history_service_module.DownloadHistoryService(str(tmp_path / "downloaded_movies.json"))
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": f"{movie_id} title",
+            "date": "2024-05-17",
+            "stars": [{"name": "Actor One"}],
+            "genres": [{"name": "Genre One"}],
+            "img": "https://example.test/cover.jpg",
+        }
+
+    monkeypatch.setattr(history_service_module.javbus_api_service, "get_movie_detail", fake_get_movie_detail)
+
+    async def exercise():
+        await service.save_movies(["abp-123"], ["magnet:?xt=urn:btih:ABC"], ["cilisousuo"])
+        await service.save_movies(["ABP-123"], ["MAGNET:?XT=URN:BTIH:ABC"], ["cilisousuo"])
+        await service.save_movies(["ABP-123"], ["magnet:?xt=urn:btih:DEF"], ["yhg007"])
+        return await service.get_history()
+
+    records = asyncio.run(exercise())
+
+    assert len(records) == 1
+    assert records[0]["movie_id"] == "ABP-123"
+    assert records[0]["download_links"] == [
+        "magnet:?xt=urn:btih:ABC",
+        "magnet:?xt=urn:btih:DEF",
+    ]
+    assert records[0]["download_resources"] == [
+        {"link": "magnet:?xt=urn:btih:ABC", "source": "cilisousuo"},
+        {"link": "magnet:?xt=urn:btih:DEF", "source": "yhg007"},
+    ]
+    assert asyncio.run(service.is_magnet_downloaded("ABP-123", "magnet:?xt=urn:btih:abc")) is True
+    assert asyncio.run(service.is_magnet_downloaded("ABP-123", "magnet:?xt=urn:btih:missing")) is False
+    assert asyncio.run(service.get_magnet_source("ABP-123", "magnet:?xt=urn:btih:def")) == "yhg007"
+
+
+def test_movie_workflow_existing_status_ignores_history_movie_id(monkeypatch):
+    async def fake_is_movie_downloaded(movie_id):
+        return True
+
+    async def fake_is_movie_present(movie_id):
+        return False
+
+    monkeypatch.setattr(movies_workflows.download_history_service, "is_movie_downloaded", fake_is_movie_downloaded)
+    monkeypatch.setattr(movies_workflows.local_movie_library_service, "is_movie_present", fake_is_movie_present)
+
+    assert asyncio.run(movies_workflows.known_movie_status("ABP-123")) is None
+    assert asyncio.run(movies_workflows.is_movie_known("ABP-123")) is False
 
 
 def test_resolve_user_path_wraps_filesystem_os_errors(monkeypatch):
@@ -1263,6 +1320,45 @@ def test_movies_payload_can_exclude_vr_movies_by_genre_and_title(monkeypatch):
     assert payload["pagination"]["total"] == 1
 
 
+def test_movies_payload_applies_subtitle_filter_to_movie_identifiers(monkeypatch):
+    class FakeRequest:
+        query_params = QueryParams({"hasSubtitle": "false", "magnet": "exist", "type": "normal"})
+
+    class FakeJavBusService:
+        def __init__(self):
+            self.page_queries = []
+            self.detail_calls = []
+
+        async def get_movies_by_page(self, query):
+            self.page_queries.append(query)
+            return {
+                "movies": [
+                    {"id": "SNOS-213-C", "title": "SNOS-213-C sample"},
+                    {"id": "IPX-811", "title": "\u3010\u65e0\u7801\u7834\u89e3-4K\u4e2d\u6587\u3011 IPX-811"},
+                    {"id": "MIDA-614", "title": "2048.hk@MIDA-614 sample"},
+                    {"id": "KEEP-001", "title": "Regular Movie"},
+                ],
+                "pagination": {"total": 4},
+            }
+
+        async def get_movie_detail(self, movie_id):
+            self.detail_calls.append(movie_id)
+            return {}
+
+    fake_service = FakeJavBusService()
+    monkeypatch.setattr(movies_service, "javbus_api_service", fake_service)
+
+    payload = asyncio.run(movies_service.get_movies_payload(FakeRequest()))
+
+    assert fake_service.page_queries == [{"magnet": "exist", "type": "normal"}]
+    assert fake_service.detail_calls == []
+    assert payload["movies"] == [
+        {"id": "MIDA-614", "title": "2048.hk@MIDA-614 sample"},
+        {"id": "KEEP-001", "title": "Regular Movie"},
+    ]
+    assert payload["pagination"]["total"] == 2
+
+
 def test_download_magnets_to_aria2_routes_success_and_failures(monkeypatch):
     class FakeAria2Client:
         def __init__(self):
@@ -1280,26 +1376,62 @@ def test_download_magnets_to_aria2_routes_success_and_failures(monkeypatch):
         async def get_state(self, _request):
             return SimpleNamespace(aria2_client=fake_aria2_client)
 
+    saved_downloads = []
+    fallback_calls = []
+
+    async def fake_is_movie_present(movie_id):
+        return movie_id == "M2"
+
+    async def fake_is_magnet_downloaded(movie_id, magnet_link):
+        return magnet_link == "magnet:tried"
+
+    async def fake_save_movies(movie_ids, magnet_links=None, magnet_sources=None):
+        saved_downloads.extend(zip(movie_ids, magnet_links or [], magnet_sources or []))
+
+    async def fake_get_same_source_replacement_magnet_payload(movie_id, magnet_link, magnet_source=None):
+        fallback_calls.append((movie_id, magnet_link, magnet_source))
+        return {"link": "magnet:fresh", "source": magnet_source, "title": "fresh fallback"}
+
     monkeypatch.setattr(webdav_router, "session_store", FakeSessionStore())
+    monkeypatch.setattr(webdav_service.local_movie_library_service, "is_movie_present", fake_is_movie_present)
+    monkeypatch.setattr(webdav_service.download_history_service, "is_magnet_downloaded", fake_is_magnet_downloaded)
+    monkeypatch.setattr(webdav_service.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(
+        webdav_service,
+        "get_same_source_replacement_magnet_payload",
+        fake_get_same_source_replacement_magnet_payload,
+    )
 
     client = TestClient(main.app)
     response = client.post(
         "/api/aria2/download-magnets",
         json={
-            "magnet_links": ["magnet:ok1", "", "magnet:fail", "magnet:ok2"],
-            "movie_ids": ["M1", "M2", "M3", "M4"],
+            "magnet_links": ["magnet:ok1", "", "magnet:tried", "magnet:fail", "magnet:ok2"],
+            "movie_ids": ["M1", "M2", "M3", "M4", "M5"],
+            "magnet_sources": ["javbus", "javbus", "cilisousuo", "yhg007", "javbus"],
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert payload["success_count"] == 2
+    assert payload["success_count"] == 3
     assert payload["results"][0]["success"] is True
     assert payload["results"][1]["success"] is False
-    assert payload["results"][1]["message"] == "磁力链接为空"
-    assert payload["results"][2]["success"] is False
-    assert payload["results"][2]["error"] == "aria2_add_failed"
+    assert payload["results"][1]["reason"] == "already_exists"
+    assert payload["results"][2]["success"] is True
+    assert payload["results"][2]["magnet"] == "magnet:fresh"
+    assert payload["results"][2]["original_magnet"] == "magnet:tried"
+    assert payload["results"][2]["source"] == "cilisousuo"
+    assert payload["results"][3]["success"] is False
+    assert payload["results"][3]["error"] == "aria2_add_failed"
+    assert fake_aria2_client.calls == ["magnet:ok1", "magnet:fresh", "magnet:fail", "magnet:ok2"]
+    assert saved_downloads == [
+        ("M1", "magnet:ok1", "javbus"),
+        ("M3", "magnet:fresh", "cilisousuo"),
+        ("M5", "magnet:ok2", "javbus"),
+    ]
+    assert fallback_calls == [("M3", "magnet:tried", "cilisousuo")]
 
 
 def test_download_magnets_to_aria2_requires_connection(monkeypatch):
@@ -1416,6 +1548,77 @@ def test_yhg007_parser_extracts_magnet_rows():
     assert results[0]["hot"] == "42"
 
 
+def test_chinese_subtitle_detection_covers_common_release_markers():
+    from cilisousuo_cli import SearchResult, result_has_chinese_subtitle
+
+    positives = [
+        SearchResult(
+            title="\u3010\u65e0\u7801\u7834\u89e3-4K\u4e2d\u6587\u3011 IPX-811",
+            filename="IPX-811.mp4",
+            size="2 GB",
+            detail_url="",
+            detail_path="",
+        ),
+        SearchResult(
+            title="ABP-123C",
+            filename="ABP-123C.mp4",
+            size="2 GB",
+            detail_url="",
+            detail_path="",
+        ),
+    ]
+    negatives = [
+        SearchResult(
+            title="ABP-123 chunk",
+            filename="ABP-123 chunk.mp4",
+            size="2 GB",
+            detail_url="",
+            detail_path="",
+        ),
+        SearchResult(
+            title="ABC-123-CARIB",
+            filename="ABC-123-CARIB.mp4",
+            size="2 GB",
+            detail_url="",
+            detail_path="",
+        ),
+        SearchResult(
+            title="2048.hk@MIDA-614 \u5bb6\u306b\u4f4f\u307f\u6191\u304f",
+            filename="MIDA-614.mp4",
+            size="2 GB",
+            detail_url="",
+            detail_path="",
+        ),
+    ]
+
+    assert all(result_has_chinese_subtitle(result) for result in positives)
+    assert not any(result_has_chinese_subtitle(result) for result in negatives)
+
+
+def test_javbus_subtitle_filter_rechecks_filename_markers():
+    candidates = [
+        {
+            "title": "IPX-811",
+            "filename": "\u3010\u65e0\u7801\u7834\u89e3-4K\u4e2d\u6587\u3011 IPX-811.mp4",
+            "link": "magnet:subtitled",
+            "hasSubtitle": False,
+        },
+        {
+            "title": "IPX-811 clean",
+            "filename": "IPX-811 clean.mp4",
+            "link": "magnet:clean",
+            "hasSubtitle": False,
+        },
+    ]
+
+    without_subtitles = magnets_service._filter_javbus_magnet_candidates(candidates, "false")
+    with_subtitles = magnets_service._filter_javbus_magnet_candidates(candidates, "true")
+
+    assert [item["link"] for item in without_subtitles] == ["magnet:clean"]
+    assert [item["link"] for item in with_subtitles] == ["magnet:subtitled"]
+    assert with_subtitles[0]["hasSubtitle"] is True
+
+
 def test_yhg007_best_resource_prefers_hottest_within_twenty_percent_of_largest_size():
     results = [
         {"title": "largest but colder", "size": "10 GB", "hot": "100", "link": "magnet:largest"},
@@ -1457,12 +1660,35 @@ def test_javbus_best_magnet_retries_after_unhealthy_candidate(monkeypatch):
 
     monkeypatch.setattr(magnets_service, "get_movie_detail", fake_get_movie_detail)
     monkeypatch.setattr(magnets_service, "fetch_javbus_magnet_data", fake_fetch_javbus)
+    monkeypatch.setattr(magnets_service.download_history_service, "get_downloaded_magnet_links", _async_empty_list)
 
     best = asyncio.run(magnets_service.get_best_magnet_payload("ABP-123", magnet_source="javbus"))
 
     assert best["link"] == "magnet:healthy"
     assert best["health"]["status"] == "healthy"
     assert best["health"]["seeders"] == 2
+
+
+def test_best_magnet_skips_links_already_recorded_in_history(monkeypatch):
+    async def fake_get_movie_detail(movie_id):
+        return {"id": movie_id, "gid": "1", "uc": "2"}
+
+    async def fake_fetch_javbus(movie_id, movie_data):
+        return [
+            {"title": "largest already tried", "link": "magnet:tried", "size": "10 GB"},
+            {"title": "next best", "link": "magnet:fresh", "size": "8 GB"},
+        ]
+
+    async def fake_history_links(movie_id):
+        return ["MAGNET:TRIED"]
+
+    monkeypatch.setattr(magnets_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(magnets_service, "fetch_javbus_magnet_data", fake_fetch_javbus)
+    monkeypatch.setattr(magnets_service.download_history_service, "get_downloaded_magnet_links", fake_history_links)
+
+    best = asyncio.run(magnets_service.get_best_magnet_payload("ABP-123", magnet_source="javbus"))
+
+    assert best["link"] == "magnet:fresh"
 
 
 def test_javbus_best_magnet_returns_none_when_all_candidates_unhealthy(monkeypatch):
@@ -1491,6 +1717,7 @@ def test_javbus_best_magnet_returns_none_when_all_candidates_unhealthy(monkeypat
 
     monkeypatch.setattr(magnets_service, "get_movie_detail", fake_get_movie_detail)
     monkeypatch.setattr(magnets_service, "fetch_javbus_magnet_data", fake_fetch_javbus)
+    monkeypatch.setattr(magnets_service.download_history_service, "get_downloaded_magnet_links", _async_empty_list)
 
     best = asyncio.run(magnets_service.get_best_magnet_payload("ABP-123", magnet_source="javbus"))
 
@@ -1509,6 +1736,7 @@ def test_get_magnets_payload_uses_yhg007_without_javbus_params(monkeypatch):
 
     monkeypatch.setattr(magnets_service, "fetch_yhg007_magnet_data", fake_fetch_yhg007)
     monkeypatch.setattr(magnets_service, "get_movie_detail", fail_get_movie_detail)
+    monkeypatch.setattr(magnets_service.download_history_service, "get_downloaded_magnet_links", _async_empty_list)
 
     payload = asyncio.run(
         magnets_service.get_magnets_payload(
@@ -1535,8 +1763,13 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
         async def add_offline_tasks(self, urls, save_dir_id="0"):
             self.calls.append((urls, save_dir_id))
             return [
-                {"url": "magnet:ok", "success": True, "info_hash": "hash-ok"},
-                {"url": "magnet:fail", "success": False, "error": "pan115_add_failed", "message": "failed"},
+                {
+                    "magnet": url,
+                    "url": url,
+                    "success": url != "magnet:fail",
+                    **({"info_hash": f"hash-{url}"} if url != "magnet:fail" else {"error": "pan115_add_failed", "message": "failed"}),
+                }
+                for url in urls
             ]
 
     clients = []
@@ -1546,21 +1779,31 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
         clients.append(client)
         return client
 
-    saved_ids = []
-
-    async def fake_is_movie_downloaded(movie_id):
-        return movie_id == "M-SKIP"
+    saved_downloads = []
+    fallback_calls = []
 
     async def fake_is_movie_present(movie_id):
-        return False
+        return movie_id == "M-SKIP"
 
-    async def fake_save_movies(movie_ids):
-        saved_ids.extend(movie_ids)
+    async def fake_is_magnet_downloaded(movie_id, magnet_link):
+        return magnet_link == "magnet:tried"
+
+    async def fake_save_movies(movie_ids, magnet_links=None, magnet_sources=None):
+        saved_downloads.extend(zip(movie_ids, magnet_links or [], magnet_sources or []))
+
+    async def fake_get_same_source_replacement_magnet_payload(movie_id, magnet_link, magnet_source=None):
+        fallback_calls.append((movie_id, magnet_link, magnet_source))
+        return {"link": "magnet:fresh", "source": magnet_source, "title": "fresh fallback"}
 
     monkeypatch.setattr(pan115_service_module, "Pan115Client", fake_client)
-    monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_is_movie_downloaded)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_is_magnet_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_is_movie_present)
     monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(
+        pan115_service_module,
+        "get_same_source_replacement_magnet_payload",
+        fake_get_same_source_replacement_magnet_payload,
+    )
     monkeypatch.setattr(
         pan115_service_module,
         "get_pan115_config",
@@ -1574,20 +1817,28 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
     result = asyncio.run(
         pan115_service_module.download(
             Pan115DownloadRequest(
-                magnet_links=["magnet:ok", "magnet:skip", "magnet:fail"],
-                movie_ids=["M-OK", "M-SKIP", "M-FAIL"],
+                magnet_links=["magnet:ok", "magnet:skip", "magnet:tried", "magnet:fail"],
+                movie_ids=["M-OK", "M-SKIP", "M-TRIED", "M-FAIL"],
+                magnet_sources=["javbus", "javbus", "cilisousuo", "yhg007"],
             )
         )
     )
 
     assert clients[0].cookie == "UID=uid;CID=cid;SEID=seid;KID=kid"
-    assert clients[0].calls == [(["magnet:ok", "magnet:fail"], "555")]
+    assert clients[0].calls == [(["magnet:ok", "magnet:fresh", "magnet:fail"], "555")]
     assert result["success"] is True
-    assert result["success_count"] == 1
+    assert result["success_count"] == 2
     assert result["skipped_count"] == 1
     assert result["results"][0]["movie_id"] == "M-SKIP"
     assert result["results"][0]["skipped"] is True
-    assert saved_ids == ["M-OK"]
+    assert result["results"][2]["movie_id"] == "M-TRIED"
+    assert result["results"][2]["magnet"] == "magnet:fresh"
+    assert result["results"][2]["original_magnet"] == "magnet:tried"
+    assert saved_downloads == [
+        ("M-OK", "magnet:ok", "javbus"),
+        ("M-TRIED", "magnet:fresh", "cilisousuo"),
+    ]
+    assert fallback_calls == [("M-TRIED", "magnet:tried", "cilisousuo")]
 
 
 def test_pan115_download_batches_large_dispatches_with_configured_pause(monkeypatch):
@@ -1608,7 +1859,10 @@ def test_pan115_download_batches_large_dispatches_with_configured_pause(monkeypa
     async def fake_not_exists(_movie_id):
         return False
 
-    async def fake_save_movies(movie_ids):
+    async def fake_magnet_not_downloaded(_movie_id, _magnet_link):
+        return False
+
+    async def fake_save_movies(movie_ids, magnet_links=None, magnet_sources=None):
         saved_ids.extend(movie_ids)
 
     async def fake_sleep(seconds):
@@ -1617,6 +1871,7 @@ def test_pan115_download_batches_large_dispatches_with_configured_pause(monkeypa
     monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
     monkeypatch.setattr(pan115_service_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_magnet_not_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
     monkeypatch.setattr(
@@ -1668,7 +1923,10 @@ def test_pan115_download_deduplicates_links_and_applies_jitter(monkeypatch):
     async def fake_not_exists(_movie_id):
         return False
 
-    async def fake_save_movies(_movie_ids):
+    async def fake_magnet_not_downloaded(_movie_id, _magnet_link):
+        return False
+
+    async def fake_save_movies(_movie_ids, magnet_links=None, magnet_sources=None):
         return None
 
     async def fake_sleep(seconds):
@@ -1678,6 +1936,7 @@ def test_pan115_download_deduplicates_links_and_applies_jitter(monkeypatch):
     monkeypatch.setattr(pan115_service_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(pan115_service_module.random, "uniform", lambda _low, _high: -3.0)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_magnet_not_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
     monkeypatch.setattr(
@@ -1724,7 +1983,10 @@ def test_pan115_download_retries_failed_batches_with_backoff(monkeypatch):
     async def fake_not_exists(_movie_id):
         return False
 
-    async def fake_save_movies(_movie_ids):
+    async def fake_magnet_not_downloaded(_movie_id, _magnet_link):
+        return False
+
+    async def fake_save_movies(_movie_ids, magnet_links=None, magnet_sources=None):
         return None
 
     async def fake_sleep(seconds):
@@ -1733,6 +1995,7 @@ def test_pan115_download_retries_failed_batches_with_backoff(monkeypatch):
     monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
     monkeypatch.setattr(pan115_service_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_magnet_not_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
     monkeypatch.setattr(
@@ -2286,6 +2549,46 @@ def test_local_scrape_preview_reports_conflict_file_details(tmp_path, monkeypatc
     assert item["target_file"]["height"] == 720
     assert item["target_file"]["resolution_pixels"] == 1280 * 720
     assert item["target_file"]["bitrate"] == 4_000_000
+
+
+def test_local_scrape_preview_does_not_report_duplicate_targets_as_existing_files(tmp_path, monkeypatch):
+    source_dir = tmp_path / "source"
+    target_dir = tmp_path / "target"
+    source_dir.mkdir()
+    target_dir.mkdir()
+    first_video = source_dir / "ABP-123-a.mp4"
+    second_video = source_dir / "ABP-123-b.mp4"
+    first_video.write_bytes(b"first")
+    second_video.write_bytes(b"second")
+
+    async def fake_get_movie_detail(movie_id):
+        return {
+            "id": movie_id,
+            "title": "ABP-123 Remote Title",
+            "date": "2024-01-02",
+        }
+
+    monkeypatch.setattr(local_scrape, "metadata_scraper_service", FakeMetadataScraperService(fake_get_movie_detail))
+
+    payload = asyncio.run(
+        local_scrape.preview_local_scrape(
+            local_scrape.LocalScrapePreviewRequest(
+                directory=str(source_dir),
+                target_directory=str(target_dir),
+                naming_template="{code}",
+                scrape=True,
+                download_images=False,
+            )
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["conflict_count"] == 0
+    assert payload["target_duplicate_count"] == 2
+    assert {item["target_duplicate"] for item in payload["items"]} == {True}
+    assert {item["target_exists"] for item in payload["items"]} == {False}
+    assert {item["target_file"] for item in payload["items"]} == {None}
+    assert not (target_dir / "ABP-123 Remote Title" / "ABP-123.mp4").exists()
 
 
 def test_local_scrape_nfo_writes_video_stream_details(tmp_path, monkeypatch):
@@ -3943,6 +4246,7 @@ def test_automation_task_crud_persists(tmp_path):
 
 def test_automation_service_dispatches_best_magnets(tmp_path, monkeypatch):
     dispatched = []
+    dispatched_sources = []
 
     async def fake_get_movies_by_keyword_and_page(keyword, page="1", magnet=None, movie_type=None):
         return {
@@ -3956,16 +4260,14 @@ def test_automation_service_dispatches_best_magnets(tmp_path, monkeypatch):
     async def fake_get_best_magnet_payload(movie_id, **kwargs):
         if movie_id == "ABP-124":
             return None
-        return {"link": "magnet:?xt=urn:btih:abc", "title": "ABP-123 best", "size": "2 GB"}
-
-    async def fake_is_movie_downloaded(movie_id):
-        return False
+        return {"link": "magnet:?xt=urn:btih:abc", "title": "ABP-123 best", "size": "2 GB", "source": "javbus"}
 
     async def fake_is_movie_present(movie_id):
         return False
 
     async def fake_pikpak_download(request):
         dispatched.extend(request.magnet_links)
+        dispatched_sources.extend(request.magnet_sources)
         return {"success": True, "success_count": len(request.magnet_links), "results": [{"success": True}]}
 
     monkeypatch.setattr(
@@ -3974,11 +4276,6 @@ def test_automation_service_dispatches_best_magnets(tmp_path, monkeypatch):
         fake_get_movies_by_keyword_and_page,
     )
     monkeypatch.setattr(automation_service_module, "get_best_magnet_payload", fake_get_best_magnet_payload)
-    monkeypatch.setattr(
-        automation_service_module.download_history_service,
-        "is_movie_downloaded",
-        fake_is_movie_downloaded,
-    )
     monkeypatch.setattr(
         automation_service_module.local_movie_library_service,
         "is_movie_present",
@@ -4026,6 +4323,7 @@ def test_automation_service_dispatches_best_magnets(tmp_path, monkeypatch):
     run = asyncio.run(exercise())
 
     assert dispatched == ["magnet:?xt=urn:btih:abc"]
+    assert dispatched_sources == ["javbus"]
     assert run.status == "success"
     assert run.found_count == 2
     assert run.magnet_count == 1

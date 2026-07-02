@@ -15,14 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 async def is_movie_known(movie_id: str) -> bool:
-    return await download_history_service.is_movie_downloaded(movie_id) or await local_movie_library_service.is_movie_present(movie_id)
+    return await local_movie_library_service.is_movie_present(movie_id)
 
 
 async def known_movie_status(movie_id: str) -> str | None:
     if await local_movie_library_service.is_movie_present(movie_id):
         return "local_exists"
-    if await download_history_service.is_movie_downloaded(movie_id):
-        return "already_downloaded"
     return None
 
 
@@ -123,6 +121,7 @@ async def recognize_movies_payload(request: MovieRecognitionRequest) -> dict[str
                         "size": best_magnet.get("size", ""),
                         "shareDate": best_magnet.get("shareDate"),
                         "hasSubtitle": best_magnet.get("hasSubtitle", False),
+                        "source": best_magnet.get("source") or request.magnet_source,
                     }
                 )
             except Exception:
@@ -140,6 +139,7 @@ async def recognize_movies_payload(request: MovieRecognitionRequest) -> dict[str
                 DownloadRequest(
                     magnet_links=[result["link"] for result in magnet_results],
                     movie_ids=[result["movie_id"] for result in magnet_results],
+                    magnet_sources=[result.get("source") or request.magnet_source for result in magnet_results],
                     username=request.username,
                     password=request.password,
                 )
@@ -240,6 +240,7 @@ async def download_movies_by_codes_payload(request: MovieCodeDownloadRequest) ->
                         "title": best_magnet.get("title", ""),
                         "size": best_magnet.get("size", ""),
                         "shareDate": best_magnet.get("shareDate"),
+                        "source": best_magnet.get("source") or request.magnet_source,
                     }
                 )
             except Exception:
@@ -259,6 +260,7 @@ async def download_movies_by_codes_payload(request: MovieCodeDownloadRequest) ->
                 DownloadRequest(
                     magnet_links=[result["link"] for result in magnet_results],
                     movie_ids=[result["movie_id"] for result in magnet_results],
+                    magnet_sources=[result.get("source") or request.magnet_source for result in magnet_results],
                     username=request.username,
                     password=request.password,
                 )

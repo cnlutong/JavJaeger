@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import Request
 
+from modules.common.subtitles import has_chinese_subtitle
 from modules.javbus_api import javbus_api_service
 from .schemas import BatchMoviesRequest
 
@@ -56,6 +57,11 @@ def _parse_bool_query(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalize_subtitle_filter(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"true", "false"} else None
+
+
 def _iter_detail_values(value: Any) -> list[str]:
     if value is None:
         return []
@@ -75,6 +81,30 @@ def _iter_detail_values(value: Any) -> list[str]:
         return values
     normalized = _normalize_filter_value(value)
     return [normalized] if normalized else []
+
+
+def _movie_has_chinese_subtitle(*movie_payloads: dict[str, Any] | None) -> bool:
+    for payload in movie_payloads:
+        if not payload:
+            continue
+        for field_name in ("id", "title", "full_title", "name"):
+            if has_chinese_subtitle(payload.get(field_name)):
+                return True
+        for value in _iter_detail_values(payload.get("tags")):
+            if has_chinese_subtitle(value):
+                return True
+    return False
+
+
+def _movie_matches_subtitle_filter(
+    movie: dict[str, Any],
+    has_subtitle_filter: str | None,
+    movie_detail: dict[str, Any] | None = None,
+) -> bool:
+    if has_subtitle_filter not in {"true", "false"}:
+        return True
+    expected = has_subtitle_filter == "true"
+    return _movie_has_chinese_subtitle(movie, movie_detail) == expected
 
 
 def _parse_filter_conditions(query_params: Any) -> list[dict[str, str]]:
@@ -165,25 +195,32 @@ async def _filter_movies_by_detail(
     filter_conditions: list[dict[str, str]],
     actor_count_filter: str | None,
     exclude_vr: bool,
+    has_subtitle_filter: str | None,
     semaphore_size: int,
 ) -> list[dict[str, Any]]:
-    if not movies or (len(filter_conditions) <= 1 and not actor_count_filter and not exclude_vr):
+    effective_has_subtitle_filter = _normalize_subtitle_filter(has_subtitle_filter)
+    needs_detail = len(filter_conditions) > 1 or bool(actor_count_filter) or exclude_vr
+    if not movies or (not needs_detail and not effective_has_subtitle_filter):
         return movies
 
     semaphore = asyncio.Semaphore(semaphore_size)
 
     async def check_movie_filters(movie: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            movie_detail = await get_movie_detail(movie["id"])
-            if not movie_detail:
-                return None
-            if exclude_vr and _movie_detail_is_vr(movie_detail):
-                return None
-            if actor_count_filter and not _matches_actor_count_filter(len(movie_detail.get("stars") or []), actor_count_filter):
-                return None
-            if filter_conditions and not all(
-                _movie_detail_matches_filter(movie_detail, condition) for condition in filter_conditions
-            ):
+            movie_detail = None
+            if needs_detail:
+                movie_detail = await get_movie_detail(movie["id"])
+                if not movie_detail:
+                    return None
+                if exclude_vr and _movie_detail_is_vr(movie_detail):
+                    return None
+                if actor_count_filter and not _matches_actor_count_filter(len(movie_detail.get("stars") or []), actor_count_filter):
+                    return None
+                if len(filter_conditions) > 1 and not all(
+                    _movie_detail_matches_filter(movie_detail, condition) for condition in filter_conditions
+                ):
+                    return None
+            if not _movie_matches_subtitle_filter(movie, effective_has_subtitle_filter, movie_detail):
                 return None
             return movie
         except Exception as exc:
@@ -203,14 +240,23 @@ async def filter_movies_by_detail_conditions(
     filter_conditions: list[dict[str, str]],
     actor_count_filter: str | None = None,
     exclude_vr: bool = False,
+    has_subtitle_filter: str | None = None,
     semaphore_size: int = 3,
 ) -> list[dict[str, Any]]:
-    return await _filter_movies_by_detail(movies, filter_conditions, actor_count_filter, exclude_vr, semaphore_size)
+    return await _filter_movies_by_detail(
+        movies,
+        filter_conditions,
+        actor_count_filter,
+        exclude_vr,
+        has_subtitle_filter,
+        semaphore_size,
+    )
 
 
 async def get_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
     exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
+    has_subtitle_filter = _normalize_subtitle_filter(request.query_params.get("hasSubtitle"))
     filter_conditions = _parse_filter_conditions(request.query_params)
 
     query_params = _build_list_query_params(request.query_params, filter_conditions)
@@ -221,7 +267,14 @@ async def get_movies_payload(request: Request) -> dict[str, Any]:
         return {"error": "获取影片列表失败", "message": "API请求失败"}
 
     if data.get("movies"):
-        filtered_movies = await _filter_movies_by_detail(data["movies"], filter_conditions, actor_count_filter, exclude_vr, 3)
+        filtered_movies = await _filter_movies_by_detail(
+            data["movies"],
+            filter_conditions,
+            actor_count_filter,
+            exclude_vr,
+            has_subtitle_filter,
+            3,
+        )
         data["movies"] = filtered_movies
         if "pagination" in data:
             data["pagination"]["total"] = len(filtered_movies)
@@ -232,6 +285,7 @@ async def get_movies_payload(request: Request) -> dict[str, Any]:
 async def get_all_movies_payload(request: Request) -> dict[str, Any]:
     actor_count_filter = request.query_params.get("actorCountFilter")
     exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
+    has_subtitle_filter = _normalize_subtitle_filter(request.query_params.get("hasSubtitle"))
     filter_conditions = _parse_filter_conditions(request.query_params)
     query_params = _build_list_query_params(request.query_params, filter_conditions)
     query_params.pop("page", None)
@@ -273,7 +327,16 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
         batch_size = 50
         for index in range(0, len(all_movies), batch_size):
             batch = all_movies[index : index + batch_size]
-            filtered_movies.extend(await _filter_movies_by_detail(batch, filter_conditions, actor_count_filter, exclude_vr, 5))
+            filtered_movies.extend(
+                await _filter_movies_by_detail(
+                    batch,
+                    filter_conditions,
+                    actor_count_filter,
+                    exclude_vr,
+                    has_subtitle_filter,
+                    5,
+                )
+            )
 
         all_movies = filtered_movies
 
@@ -296,13 +359,21 @@ async def get_movies_search_payload(request: Request) -> dict[str, Any]:
     magnet = request.query_params.get("magnet") or "exist"
     movie_type = request.query_params.get("type")
     exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
+    has_subtitle_filter = _normalize_subtitle_filter(request.query_params.get("hasSubtitle"))
     if not keyword:
         return {"error": "`keyword` is required", "messages": ["`keyword` is required"]}
 
     try:
         data = await javbus_api_service.get_movies_by_keyword_and_page(keyword, page, magnet, movie_type)
-        if exclude_vr and data.get("movies"):
-            filtered_movies = await _filter_movies_by_detail(data["movies"], [], None, True, 3)
+        if (exclude_vr or has_subtitle_filter) and data.get("movies"):
+            filtered_movies = await _filter_movies_by_detail(
+                data["movies"],
+                [],
+                None,
+                exclude_vr,
+                has_subtitle_filter,
+                3,
+            )
             data["movies"] = filtered_movies
             if "pagination" in data:
                 data["pagination"]["total"] = len(filtered_movies)

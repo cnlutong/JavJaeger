@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from modules.common.runtime import get_aria2_config
-from modules.history.service import download_history_service, local_movie_library_service
+from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from modules.magnets.service import get_best_magnet_payload
 from modules.movies.service import filter_movies_by_detail_conditions
@@ -16,6 +16,7 @@ from modules.pikpak.service import download as pikpak_download
 from modules.pan115.schemas import DownloadRequest as Pan115DownloadRequest
 from modules.pan115.service import download as pan115_download
 from modules.webdav.clients import Aria2Client
+from modules.webdav.service import dispatch_magnet_downloads_to_aria2
 
 from .schemas import (
     AutomationEdge,
@@ -337,40 +338,32 @@ class AutomationService:
         tool = config.get("tool", "pikpak")
         magnet_links = [item["magnet"]["link"] for item in prepared]
         movie_ids = [item["movie_id"] for item in prepared]
+        magnet_sources = [item["magnet"].get("source") or "" for item in prepared]
         if tool == "aria2":
-            return await self._dispatch_to_aria2(magnet_links, movie_ids)
+            return await self._dispatch_to_aria2(magnet_links, movie_ids, magnet_sources)
         if tool in {"115", "pan115"}:
-            payload = await pan115_download(Pan115DownloadRequest(magnet_links=magnet_links, movie_ids=movie_ids))
+            payload = await pan115_download(Pan115DownloadRequest(magnet_links=magnet_links, movie_ids=movie_ids, magnet_sources=magnet_sources))
             results = payload.get("results") if isinstance(payload, dict) else []
             return list(results or [])
 
-        payload = await pikpak_download(DownloadRequest(magnet_links=magnet_links, movie_ids=movie_ids))
+        payload = await pikpak_download(DownloadRequest(magnet_links=magnet_links, movie_ids=movie_ids, magnet_sources=magnet_sources))
         results = payload.get("results") if isinstance(payload, dict) else []
         return list(results or [])
 
-    async def _dispatch_to_aria2(self, magnet_links: list[str], movie_ids: list[str]) -> list[dict[str, Any]]:
+    async def _dispatch_to_aria2(
+        self,
+        magnet_links: list[str],
+        movie_ids: list[str],
+        magnet_sources: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         config = get_aria2_config()
         if not config.get("enabled") or not config.get("url"):
             raise AutomationError("aria2_not_configured", "Aria2 未在设置中启用")
         client = Aria2Client(str(config.get("url")), secret=str(config.get("secret") or ""))
-        results = []
-        successful_ids = []
-        for index, magnet_link in enumerate(magnet_links):
-            movie_id = movie_ids[index] if index < len(movie_ids) else ""
-            try:
-                gid = client.add_download(magnet_link)
-                results.append({"success": True, "gid": gid, "movie_id": movie_id})
-                if movie_id:
-                    successful_ids.append(movie_id)
-            except Exception as exc:
-                logger.error("自动任务 Aria2 派发失败: %s", exc)
-                results.append({"success": False, "error": "aria2_add_failed", "movie_id": movie_id})
-        if successful_ids:
-            await download_history_service.save_movies(successful_ids)
-        return results
+        return await dispatch_magnet_downloads_to_aria2(client, magnet_links, movie_ids, magnet_sources or [])
 
     async def _movie_exists(self, movie_id: str) -> bool:
-        return await download_history_service.is_movie_downloaded(movie_id) or await local_movie_library_service.is_movie_present(movie_id)
+        return await local_movie_library_service.is_movie_present(movie_id)
 
     async def _record_run(self, task_id: str, run: AutomationRun) -> None:
         async with self._lock:

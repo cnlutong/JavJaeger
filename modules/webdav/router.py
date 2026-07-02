@@ -8,7 +8,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from modules.common.runtime import get_aria2_config, get_webdav_config
 from .clients import Aria2Client, WebDavClient, WebDavFile
 from .schemas import AddDownloadsRequest, MagnetDownloadRequest
-from .service import dispatch_pan115_downloads_to_aria2
+from .service import dispatch_magnet_downloads_to_aria2, dispatch_pan115_downloads_to_aria2
 from .session_state import session_store
 
 
@@ -366,44 +366,19 @@ async def add_aria2_magnets(request: Request, payload: MagnetDownloadRequest):
     if not state.aria2_client:
         raise HTTPException(status_code=400, detail="请先连接 Aria2")
 
-    results: list[dict[str, Any]] = []
-    for index, magnet_link in enumerate(payload.magnet_links):
-        movie_id = payload.movie_ids[index] if index < len(payload.movie_ids) else ""
-        if not magnet_link:
-            results.append(
-                {
-                    "movie_id": movie_id,
-                    "success": False,
-                    "message": "磁力链接为空",
-                }
-            )
-            continue
-
-        try:
-            gid = await asyncio.to_thread(state.aria2_client.add_download, magnet_link)
-            results.append(
-                {
-                    "movie_id": movie_id,
-                    "success": True,
-                    "gid": gid,
-                    "message": "已添加到 Aria2",
-                }
-            )
-        except Exception as exc:
-            logger.error("添加 Aria2 磁力链接失败: %s", exc)
-            results.append(
-                {
-                    "movie_id": movie_id,
-                    "success": False,
-                    "error": "aria2_add_failed",
-                    "message": "添加失败",
-                }
-            )
+    results = await dispatch_magnet_downloads_to_aria2(
+        state.aria2_client,
+        payload.magnet_links,
+        payload.movie_ids,
+        payload.magnet_sources,
+    )
 
     success_count = sum(1 for item in results if item["success"])
+    skipped_count = sum(1 for item in results if item.get("skipped"))
     return {
-        "success": success_count > 0,
+        "success": success_count > 0 or skipped_count > 0,
         "success_count": success_count,
+        "skipped_count": skipped_count,
         "message": f"添加磁力链接 {success_count}/{len(results)} 个到 Aria2",
         "results": results,
     }

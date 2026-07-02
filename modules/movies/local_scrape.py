@@ -1009,8 +1009,6 @@ async def preview_local_scrape(
         target_key = str(item.get("target_video_path") or "").lower()
         target_duplicate = bool(target_key and target_counts[target_key] > 1)
         item["target_duplicate"] = target_duplicate
-        if target_duplicate:
-            item["target_exists"] = True
     payload = {
         "success": True,
         "directory": str(directory.resolve()),
@@ -1019,6 +1017,7 @@ async def preview_local_scrape(
         "found_count": sum(1 for item in items if item.get("scrape_status") == "found"),
         "already_scraped_count": sum(1 for item in items if item.get("already_scraped")),
         "conflict_count": sum(1 for item in items if item.get("target_exists")),
+        "target_duplicate_count": sum(1 for item in items if item.get("target_duplicate")),
         "items": items,
     }
     _emit_progress(

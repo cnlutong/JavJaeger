@@ -8,7 +8,6 @@ from urllib.parse import urljoin
 import httpx
 from bs4 import BeautifulSoup
 from cilisousuo_cli import (
-    _has_chinese_subtitle,
     filter_4k_results as cilisousuo_filter_4k_results,
     filter_results_by_subtitle as cilisousuo_filter_results_by_subtitle,
     is_4k_resource,
@@ -18,6 +17,7 @@ from cilisousuo_cli import (
 )
 
 from modules.common import runtime
+from modules.common.subtitles import has_chinese_subtitle
 from modules.history.service import download_history_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from modules.movies.service import get_movie_detail
@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 YHG007_BASE_URL = "https://yhg007.com"
 DIRECT_SEARCH_MAGNET_SOURCES = {"cilisousuo", "yhg007"}
+MAGNET_SOURCES = {"javbus", *DIRECT_SEARCH_MAGNET_SOURCES}
 MAGNET_HEALTH_SEEDER_KEYS = ("seeders", "seeder", "seeds", "seed", "numSeeders")
 MAGNET_HEALTH_PEER_KEYS = ("peers", "peer", "leechers", "leeches", "connections")
 MAGNET_HEALTH_AVAILABILITY_KEYS = ("availability", "available")
@@ -35,6 +36,35 @@ MAGNET_HEALTH_SCORE_KEYS = ("health_score", "score", "hot", "heat")
 
 def _candidate_identity(magnet: dict[str, Any]) -> tuple[str, str]:
     return (str(magnet.get("link") or ""), str(magnet.get("id") or ""))
+
+
+def _normalize_magnet_link_key(link: Any) -> str:
+    return str(link or "").strip().lower()
+
+
+def _normalize_magnet_source_name(source: Any) -> str:
+    normalized = str(source or "").strip().lower()
+    return normalized if normalized in MAGNET_SOURCES else ""
+
+
+def _filter_excluded_magnet_links(
+    candidates: list[dict[str, Any]],
+    excluded_links: list[str] | set[str] | tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    excluded_keys = {_normalize_magnet_link_key(link) for link in (excluded_links or []) if _normalize_magnet_link_key(link)}
+    if not excluded_keys:
+        return candidates
+    return [
+        candidate
+        for candidate in candidates
+        if _normalize_magnet_link_key(candidate.get("link")) not in excluded_keys
+    ]
+
+
+async def _history_excluded_magnet_links(movie_id: str, extra_links: list[str] | None = None) -> list[str]:
+    links = list(extra_links or [])
+    links.extend(await download_history_service.get_downloaded_magnet_links(movie_id))
+    return links
 
 
 def _parse_float(value: Any) -> float | None:
@@ -269,7 +299,7 @@ def _filter_javbus_magnet_candidates(
     if not magnet_data:
         return []
 
-    candidates = list(magnet_data)
+    candidates = [_with_inferred_subtitle_flag(magnet) for magnet in magnet_data]
     if exclude_4k:
         filtered_data = [magnet for magnet in candidates if not is_4k_resource(magnet.get("title", ""))]
         if filtered_data:
@@ -283,9 +313,7 @@ def _filter_javbus_magnet_candidates(
 
     filtered_magnets: list[dict[str, Any]] = []
     for magnet in candidates:
-        magnet_has_subtitle = magnet.get("hasSubtitle", False)
-        if not magnet_has_subtitle and _has_chinese_subtitle(magnet.get("title", "")):
-            magnet_has_subtitle = True
+        magnet_has_subtitle = bool(magnet.get("hasSubtitle"))
 
         if has_subtitle_filter == "true" and magnet_has_subtitle:
             filtered_magnets.append(magnet)
@@ -341,6 +369,22 @@ def has_valid_javbus_movie_params(movie_data: dict[str, Any] | None) -> bool:
     return bool(movie_data and movie_data.get("gid") and movie_data.get("uc") is not None)
 
 
+def _magnet_has_chinese_subtitle(magnet: dict[str, Any]) -> bool:
+    if bool(magnet.get("hasSubtitle")):
+        return True
+    return any(
+        has_chinese_subtitle(str(magnet.get(field) or ""))
+        for field in ("title", "filename", "name")
+    )
+
+
+def _with_inferred_subtitle_flag(magnet: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(magnet)
+    normalized["hasSubtitle"] = _magnet_has_chinese_subtitle(normalized)
+    normalized.setdefault("source", "javbus")
+    return normalized
+
+
 async def fetch_javbus_magnet_data(movie_id: str, movie_data: dict[str, Any]) -> Any | None:
     if not has_valid_javbus_movie_params(movie_data):
         return None
@@ -358,6 +402,7 @@ async def get_cilisousuo_best_magnet_payload(
     movie_id: str,
     has_subtitle_filter: str | None = None,
     exclude_4k: bool = False,
+    excluded_links: list[str] | None = None,
 ) -> dict[str, Any] | None:
     results = await search_cilisousuo(movie_id, resolve_detail=True, allow_chinese_subtitles=has_subtitle_filter != "false")
     results = cilisousuo_filter_results_by_subtitle(results, has_subtitle_filter)
@@ -369,7 +414,7 @@ async def get_cilisousuo_best_magnet_payload(
         return None
 
     def to_payload(result: Any) -> dict[str, Any]:
-        has_subtitle = _has_chinese_subtitle(result.title) or _has_chinese_subtitle(result.filename)
+        has_subtitle = has_chinese_subtitle(result.title) or has_chinese_subtitle(result.filename)
         title = result.title or result.filename or f"{movie_id} - 最佳资源"
         return {
             "link": result.magnet,
@@ -381,7 +426,12 @@ async def get_cilisousuo_best_magnet_payload(
             "source": "cilisousuo",
         }
 
-    candidates = [to_payload(result) for result in results if getattr(result, "magnet", None)]
+    candidates = _filter_excluded_magnet_links(
+        [to_payload(result) for result in results if getattr(result, "magnet", None)],
+        excluded_links,
+    )
+    if not candidates:
+        return None
     payload_by_link = {payload["link"]: payload for payload in candidates}
 
     def select_best_payload(remaining: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -458,7 +508,7 @@ def parse_yhg007_search_results(html: str) -> list[dict[str, Any]]:
                 "size": size or "未知",
                 "date": date or "未知",
                 "shareDate": date or "",
-                "hasSubtitle": _has_chinese_subtitle(combined_text),
+                "hasSubtitle": has_chinese_subtitle(combined_text),
                 "source": "yhg007",
                 "hot": sbar_fields.get("hot") or "",
             }
@@ -564,6 +614,7 @@ async def get_yhg007_best_magnet_payload(
     movie_id: str,
     has_subtitle_filter: str | None = None,
     exclude_4k: bool = False,
+    excluded_links: list[str] | None = None,
 ) -> dict[str, Any] | None:
     results = await fetch_yhg007_magnet_data(
         movie_id,
@@ -572,6 +623,7 @@ async def get_yhg007_best_magnet_payload(
         sort_by="size",
         sort_order="desc",
     )
+    results = _filter_excluded_magnet_links(results, excluded_links)
     return await select_healthy_best_magnet(results, select_yhg007_best_magnet)
 
 
@@ -583,6 +635,8 @@ async def get_best_magnet_payload(
     allow_chinese_subtitles: bool | None = None,
     allow_param_present: bool = False,
     movie_data: dict[str, Any] | None = None,
+    excluded_links: list[str] | None = None,
+    exclude_history_links: bool = True,
 ) -> dict[str, Any] | None:
     effective_has_subtitle_filter = normalize_subtitle_filter_for_source(
         magnet_source=magnet_source,
@@ -590,18 +644,25 @@ async def get_best_magnet_payload(
         allow_chinese_subtitles=allow_chinese_subtitles,
         allow_param_present=allow_param_present,
     )
+    blocked_links = (
+        await _history_excluded_magnet_links(movie_id, excluded_links)
+        if exclude_history_links
+        else list(excluded_links or [])
+    )
 
     if magnet_source == "cilisousuo":
         return await get_cilisousuo_best_magnet_payload(
             movie_id,
             has_subtitle_filter=effective_has_subtitle_filter,
             exclude_4k=exclude_4k,
+            excluded_links=blocked_links,
         )
     if magnet_source == "yhg007":
         return await get_yhg007_best_magnet_payload(
             movie_id,
             has_subtitle_filter=effective_has_subtitle_filter,
             exclude_4k=exclude_4k,
+            excluded_links=blocked_links,
         )
 
     if movie_data is None:
@@ -611,7 +672,32 @@ async def get_best_magnet_payload(
 
     magnet_data = await fetch_javbus_magnet_data(movie_id, movie_data)
     candidates = _filter_javbus_magnet_candidates(magnet_data, effective_has_subtitle_filter, exclude_4k)
+    candidates = _filter_excluded_magnet_links(candidates, blocked_links)
     return await select_healthy_best_magnet(candidates, lambda remaining: remaining[0])
+
+
+async def get_same_source_replacement_magnet_payload(
+    movie_id: str,
+    magnet_link: str,
+    magnet_source: str | None = None,
+) -> dict[str, Any] | None:
+    source = _normalize_magnet_source_name(magnet_source)
+    if not source:
+        source = _normalize_magnet_source_name(
+            await download_history_service.get_magnet_source(movie_id, magnet_link)
+        )
+    source = source or "javbus"
+
+    replacement = await get_best_magnet_payload(
+        movie_id,
+        magnet_source=source,
+        excluded_links=[magnet_link],
+        exclude_history_links=True,
+    )
+    if replacement and replacement.get("link"):
+        replacement.setdefault("source", source)
+        return replacement
+    return None
 
 
 async def build_movie_with_best_magnet_result(
@@ -642,7 +728,8 @@ async def build_movie_with_best_magnet_result(
         "success": True,
         "title": movie_data.get("title", movie_id) if movie_data else movie_id,
         "date": movie_data.get("date", "未知") if movie_data else "未知",
-        "is_downloaded": await download_history_service.is_movie_downloaded(movie_id) or in_local_library,
+        "is_downloaded": in_local_library,
+        "has_download_history": await download_history_service.is_movie_downloaded(movie_id),
         "in_local_library": in_local_library,
         "best_magnet": best_magnet,
     }
@@ -653,6 +740,7 @@ async def get_magnets_payload(movie_id: str, request_query: dict[str, str]) -> A
     allow_chinese_subtitles = request_query.get("allowChineseSubtitles", "false").lower() == "true"
     has_subtitle_filter = request_query.get("hasSubtitle")
     exclude_4k = request_query.get("exclude4k", "false").lower() == "true"
+    history_excluded_links = await _history_excluded_magnet_links(movie_id)
 
     if magnet_source == "cilisousuo":
         best_magnet = await get_best_magnet_payload(
@@ -672,6 +760,7 @@ async def get_magnets_payload(movie_id: str, request_query: dict[str, str]) -> A
             sort_by=request_query.get("sortBy") or "size",
             sort_order=request_query.get("sortOrder") or "desc",
         )
+        results = _filter_excluded_magnet_links(results, history_excluded_links)
         if runtime.get_magnet_health_config().get("enabled"):
             best_magnet = await select_healthy_best_magnet(results, select_yhg007_best_magnet)
             return [best_magnet] if best_magnet else []
@@ -700,27 +789,9 @@ async def get_magnets_payload(movie_id: str, request_query: dict[str, str]) -> A
     if data is None:
         return {"error": "获取磁力链接失败", "message": "API请求失败"}
 
-    if exclude_4k and data:
-        filtered_data = [magnet for magnet in data if not is_4k_resource(magnet.get("title", ""))]
-        if filtered_data:
-            logger.info("排除4K后剩余 %s 个磁力链接", len(filtered_data))
-            data = filtered_data
-        else:
-            logger.warning("排除4K后没有可用的磁力链接，将返回原始列表")
-
-    if has_subtitle_filter and data:
-        filtered_data: list[dict[str, Any]] = []
-        for magnet in data:
-            magnet_has_subtitle = magnet.get("hasSubtitle", False)
-            if not magnet_has_subtitle and _has_chinese_subtitle(magnet.get("title", "")):
-                magnet_has_subtitle = True
-
-            if has_subtitle_filter == "true" and magnet_has_subtitle:
-                filtered_data.append(magnet)
-            elif has_subtitle_filter == "false" and not magnet_has_subtitle:
-                filtered_data.append(magnet)
-
-        data = filtered_data
+    effective_has_subtitle_filter = has_subtitle_filter if has_subtitle_filter in ("true", "false") else None
+    data = _filter_javbus_magnet_candidates(data, effective_has_subtitle_filter, exclude_4k)
+    data = _filter_excluded_magnet_links(data, history_excluded_links)
 
     if runtime.get_magnet_health_config().get("enabled"):
         candidates = _filter_javbus_magnet_candidates(data, None, False)

@@ -23,6 +23,7 @@ export const buildMagnetDataMapFromResults = (magnetResults = [], movies = []) =
             size: result.size || "未知",
             shareDate: result.shareDate || null,
             hasSubtitle: !!result.hasSubtitle,
+            source: result.source || "",
         }];
     });
 

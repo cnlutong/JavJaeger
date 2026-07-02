@@ -108,7 +108,9 @@ const formatResolution = (file) => {
 
 const statusTag = (item, onInspect = null) => {
     let tag;
-    if (item.target_exists) {
+    if (item.target_duplicate) {
+        tag = <Tag color="red" icon={<Icon as={WarningOutlined} />}>目标重复</Tag>;
+    } else if (item.target_exists) {
         tag = <Tag color="red" icon={<Icon as={WarningOutlined} />}>冲突</Tag>;
     } else if (item.scrape_status === "found") {
         tag = <Tag color="green" icon={<Icon as={CheckCircleOutlined} />}>已匹配</Tag>;
@@ -730,6 +732,7 @@ export default function LocalScrapePage() {
                     found_count: remainingItems.filter(isConformingLocalScrapeItem).length,
                     already_scraped_count: remainingItems.filter((item) => item.already_scraped).length,
                     conflict_count: remainingItems.filter((item) => item.target_exists).length,
+                    target_duplicate_count: remainingItems.filter((item) => item.target_duplicate).length,
                     items: remainingItems,
                 };
             });
@@ -890,6 +893,9 @@ export default function LocalScrapePage() {
                 <Space direction="vertical" size={0}>
                     <Text copyable ellipsis={{ tooltip: path }} style={{ maxWidth: 520 }}>{path}</Text>
                     {item.already_scraped && <Text type="secondary" style={{ fontSize: 12 }}>已有 NFO 和封面</Text>}
+                    {item.target_duplicate && (
+                        <Text type="danger" style={{ fontSize: 12 }}>同批次目标路径重复</Text>
+                    )}
                     {item.target_exists && (
                         <Space size={6} wrap>
                             <Text type="danger" style={{ fontSize: 12 }}>目标文件已存在</Text>
@@ -906,13 +912,20 @@ export default function LocalScrapePage() {
             key: "conflict_action",
             width: 150,
             render: (_, item) => {
-                if (!item.target_exists) {
+                if (!item.target_exists && !item.target_duplicate) {
                     return <Text type="secondary">-</Text>;
+                }
+                if (item.target_duplicate) {
+                    return (
+                        <Space direction="vertical" size={4}>
+                            <Tag color="red">目标重复</Tag>
+                            <Text type="secondary" style={{ fontSize: 12 }}>调整命名模板或移除重复项</Text>
+                        </Space>
+                    );
                 }
                 const resolution = getConflictResolution(item);
                 return (
                     <Space direction="vertical" size={4}>
-                        {item.target_duplicate && <Tag color="red">目标重复</Tag>}
                         <Button type="primary" size="small" onClick={() => setConflictCompareItem(item)}>
                             {resolution ? "修改策略" : "选择策略"}
                         </Button>
@@ -1260,6 +1273,11 @@ export default function LocalScrapePage() {
                                 <span className="jav-kpi-label">冲突</span>
                                 <strong>{preview.conflict_count}</strong>
                                 <span className="jav-kpi-note">目标已存在</span>
+                            </div>
+                            <div className="jav-kpi-card">
+                                <span className="jav-kpi-label">重复</span>
+                                <strong>{preview.target_duplicate_count || 0}</strong>
+                                <span className="jav-kpi-note">同批次目标路径</span>
                             </div>
                         </div>
                     )}

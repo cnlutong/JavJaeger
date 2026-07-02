@@ -21,6 +21,7 @@ class AddDownloadsRequest(BaseModel):
 class MagnetDownloadRequest(BaseModel):
     magnet_links: list[str]
     movie_ids: list[str] = Field(default_factory=list)
+    magnet_sources: list[str] = Field(default_factory=list)
 
 
 class OperationResult(BaseModel):

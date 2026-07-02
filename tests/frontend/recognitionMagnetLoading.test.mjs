@@ -29,6 +29,7 @@ test("recognized movies without returned magnets are marked as loaded empty resu
             size: "2 GB",
             shareDate: "2026-01-02",
             hasSubtitle: true,
+            source: "",
         },
     ]);
     assert.deepEqual(map["IPX-456"], []);

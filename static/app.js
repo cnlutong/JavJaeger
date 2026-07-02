@@ -1414,7 +1414,9 @@
   };
   var statusTag = (item, onInspect = null) => {
     let tag;
-    if (item.target_exists) {
+    if (item.target_duplicate) {
+      tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "red", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: WarningOutlined }) }, "\u76EE\u6807\u91CD\u590D");
+    } else if (item.target_exists) {
       tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "red", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: WarningOutlined }) }, "\u51B2\u7A81");
     } else if (item.scrape_status === "found") {
       tag = /* @__PURE__ */ React3.createElement(Tag2, { color: "green", icon: /* @__PURE__ */ React3.createElement(Icon2, { as: CheckCircleOutlined }) }, "\u5DF2\u5339\u914D");
@@ -1944,6 +1946,7 @@
             found_count: remainingItems.filter(isConformingLocalScrapeItem).length,
             already_scraped_count: remainingItems.filter((item) => item.already_scraped).length,
             conflict_count: remainingItems.filter((item) => item.target_exists).length,
+            target_duplicate_count: remainingItems.filter((item) => item.target_duplicate).length,
             items: remainingItems
           };
         });
@@ -2032,18 +2035,21 @@
         title: "\u76EE\u6807\u8DEF\u5F84",
         dataIndex: "target_video_path",
         key: "target_video_path",
-        render: (path, item) => /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 0 }, /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: path }, style: { maxWidth: 520 } }, path), item.already_scraped && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u5DF2\u6709 NFO \u548C\u5C01\u9762"), item.target_exists && /* @__PURE__ */ React3.createElement(Space3, { size: 6, wrap: true }, /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728"), getConflictResolution(item) && /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[getConflictResolution(item)])))
+        render: (path, item) => /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 0 }, /* @__PURE__ */ React3.createElement(Text3, { copyable: true, ellipsis: { tooltip: path }, style: { maxWidth: 520 } }, path), item.already_scraped && /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u5DF2\u6709 NFO \u548C\u5C01\u9762"), item.target_duplicate && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u540C\u6279\u6B21\u76EE\u6807\u8DEF\u5F84\u91CD\u590D"), item.target_exists && /* @__PURE__ */ React3.createElement(Space3, { size: 6, wrap: true }, /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u76EE\u6807\u6587\u4EF6\u5DF2\u5B58\u5728"), getConflictResolution(item) && /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[getConflictResolution(item)])))
       },
       {
         title: "\u51B2\u7A81\u5904\u7406",
         key: "conflict_action",
         width: 150,
         render: (_, item) => {
-          if (!item.target_exists) {
+          if (!item.target_exists && !item.target_duplicate) {
             return /* @__PURE__ */ React3.createElement(Text3, { type: "secondary" }, "-");
           }
+          if (item.target_duplicate) {
+            return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4 }, /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u76EE\u6807\u91CD\u590D"), /* @__PURE__ */ React3.createElement(Text3, { type: "secondary", style: { fontSize: 12 } }, "\u8C03\u6574\u547D\u540D\u6A21\u677F\u6216\u79FB\u9664\u91CD\u590D\u9879"));
+          }
           const resolution = getConflictResolution(item);
-          return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4 }, item.target_duplicate && /* @__PURE__ */ React3.createElement(Tag2, { color: "red" }, "\u76EE\u6807\u91CD\u590D"), /* @__PURE__ */ React3.createElement(Button3, { type: "primary", size: "small", onClick: () => setConflictCompareItem(item) }, resolution ? "\u4FEE\u6539\u7B56\u7565" : "\u9009\u62E9\u7B56\u7565"), resolution ? /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[resolution]) : !overwriteExisting && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u672A\u9009\u62E9\u7B56\u7565"));
+          return /* @__PURE__ */ React3.createElement(Space3, { direction: "vertical", size: 4 }, /* @__PURE__ */ React3.createElement(Button3, { type: "primary", size: "small", onClick: () => setConflictCompareItem(item) }, resolution ? "\u4FEE\u6539\u7B56\u7565" : "\u9009\u62E9\u7B56\u7565"), resolution ? /* @__PURE__ */ React3.createElement(Tag2, { color: "gold" }, conflictResolutionLabels[resolution]) : !overwriteExisting && /* @__PURE__ */ React3.createElement(Text3, { type: "danger", style: { fontSize: 12 } }, "\u672A\u9009\u62E9\u7B56\u7565"));
         }
       }
     ];
@@ -2317,7 +2323,7 @@
         },
         "\u6279\u91CF\u5904\u7406\u51B2\u7A81"
       )
-    )))), renderActiveTaskPanel(), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
+    )))), renderActiveTaskPanel(), preview && /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-grid jav-local-kpis" }, /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u89C6\u9891"), /* @__PURE__ */ React3.createElement("strong", null, preview.total_files), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u626B\u63CF\u7ED3\u679C")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u8BC6\u522B"), /* @__PURE__ */ React3.createElement("strong", null, preview.recognized_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u756A\u53F7\u5339\u914D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u522E\u524A"), /* @__PURE__ */ React3.createElement("strong", null, preview.found_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u5143\u6570\u636E\u547D\u4E2D")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u51B2\u7A81"), /* @__PURE__ */ React3.createElement("strong", null, preview.conflict_count), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u76EE\u6807\u5DF2\u5B58\u5728")), /* @__PURE__ */ React3.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-label" }, "\u91CD\u590D"), /* @__PURE__ */ React3.createElement("strong", null, preview.target_duplicate_count || 0), /* @__PURE__ */ React3.createElement("span", { className: "jav-kpi-note" }, "\u540C\u6279\u6B21\u76EE\u6807\u8DEF\u5F84"))), /* @__PURE__ */ React3.createElement(Divider, { className: "jav-section-divider" }), /* @__PURE__ */ React3.createElement(
       Table2,
       {
         rowKey: "source_path",
@@ -3692,7 +3698,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         title: "\u6587\u4EF6",
         key: "files",
         width: 340,
-        render: (_, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 2 }, /* @__PURE__ */ React5.createElement(Text5, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React5.createElement(Text5, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name, renderMediaTags(file))), (record.files || []).length > 3 && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
+        render: (_, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 2 }, /* @__PURE__ */ React5.createElement(Text5, null, record.file_count || 0, " \u4E2A\u6587\u4EF6 \xB7 ", formatBytes2(record.total_size)), (record.files || []).slice(0, 3).map((file) => /* @__PURE__ */ React5.createElement(Text5, { key: file.path, type: "secondary", ellipsis: { tooltip: file.path }, style: { maxWidth: 320 } }, file.file_name)), (record.files || []).length > 3 && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "+", record.files.length - 3, " \u4E2A\u6587\u4EF6"))
       },
       {
         title: "\u64CD\u4F5C",
@@ -5468,7 +5474,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         title: result.title || `${result.movie_id} - \u6700\u4F73\u8D44\u6E90`,
         size: result.size || "\u672A\u77E5",
         shareDate: result.shareDate || null,
-        hasSubtitle: !!result.hasSubtitle
+        hasSubtitle: !!result.hasSubtitle,
+        source: result.source || ""
       }];
     });
     return nextMap;
@@ -5859,6 +5866,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const dispatchMagnetDownloads = async (payload, tool = downloadTool) => {
       const magnetLinks = Array.isArray(payload) ? payload.map((item) => item.link).filter(Boolean) : [];
       const movieIds = Array.isArray(payload) ? payload.map((item) => item.movie_id).filter(Boolean) : [];
+      const magnetSources = Array.isArray(payload) ? payload.map((item) => item.source || currentMagnetSource) : [];
       if (magnetLinks.length === 0) {
         message8.warning("\u6CA1\u6709\u53EF\u7528\u7684\u78C1\u529B\u94FE\u63A5");
         return { success: false, message: "no_magnet" };
@@ -5890,7 +5898,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             magnet_links: magnetLinks,
-            movie_ids: movieIds
+            movie_ids: movieIds,
+            magnet_sources: magnetSources
           })
         });
         const job = await jobResponse.json();
@@ -5907,6 +5916,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           body: JSON.stringify({
             magnet_links: magnetLinks,
             movie_ids: movieIds,
+            magnet_sources: magnetSources,
             ...config.tool === "pikpak" ? buildPikPakAuthPayload() : {}
           })
         }
@@ -6313,6 +6323,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }
       const magnetLinks = [];
       const movieIds = [];
+      const magnetSources = [];
       for (const movie of moviesData.movies) {
         if (movie.status === "local_exists" || movie.status === "already_downloaded" || movie.is_downloaded || movie.in_local_library) {
           continue;
@@ -6324,6 +6335,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           if (link) {
             magnetLinks.push(link);
             movieIds.push(movie.id);
+            magnetSources.push(best.source || currentMagnetSource);
           }
         }
       }
@@ -6334,7 +6346,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       try {
         setLoading(true);
         const result = await dispatchMagnetDownloads(
-          magnetLinks.map((link, index) => ({ link, movie_id: movieIds[index] })),
+          magnetLinks.map((link, index) => ({ link, movie_id: movieIds[index], source: magnetSources[index] })),
           downloadTool
         );
         if (result.success) {
@@ -6483,7 +6495,10 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }
       setDownloadingMovieIds((prev) => ({ ...prev, [movie.id]: true }));
       try {
-        const result = await dispatchMagnetDownloads([{ link: bestMagnet.link, movie_id: movie.id }], downloadTool);
+        const result = await dispatchMagnetDownloads(
+          [{ link: bestMagnet.link, movie_id: movie.id, source: bestMagnet.source || currentMagnetSource }],
+          downloadTool
+        );
         if (result.success) {
           message8.success(result.message || `${movie.id} \u5DF2\u6DFB\u52A0\u4E0B\u8F7D\u4EFB\u52A1`);
         } else {

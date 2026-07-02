@@ -1241,7 +1241,6 @@ export default function LocalLibraryPage() {
                     {(record.files || []).slice(0, 3).map((file) => (
                         <Text key={file.path} type="secondary" ellipsis={{ tooltip: file.path }} style={{ maxWidth: 320 }}>
                             {file.file_name}
-                            {renderMediaTags(file)}
                         </Text>
                     ))}
                     {(record.files || []).length > 3 && <Text type="secondary">+{record.files.length - 3} 个文件</Text>}

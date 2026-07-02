@@ -40,6 +40,94 @@ def normalize_local_library_information_fields(field_names: list[str] | tuple[st
     return tuple(normalized) if normalized else LOCAL_LIBRARY_INFORMATION_CHECK_FIELDS
 
 
+def _normalize_movie_id(movie_id: Any) -> str:
+    return str(movie_id or "").strip().upper()
+
+
+def _normalize_download_link_key(link: Any) -> str:
+    return str(link or "").strip().lower()
+
+
+def _normalize_magnet_source(source: Any) -> str:
+    return str(source or "").strip().lower()
+
+
+def _append_download_resource(
+    resources: list[dict[str, str]],
+    seen: dict[str, int],
+    link: Any,
+    source: Any = "",
+) -> None:
+    normalized_link = str(link or "").strip()
+    link_key = _normalize_download_link_key(normalized_link)
+    if not link_key:
+        return
+
+    normalized_source = _normalize_magnet_source(source)
+    if link_key in seen:
+        existing = resources[seen[link_key]]
+        if normalized_source and not existing.get("source"):
+            existing["source"] = normalized_source
+        return
+
+    seen[link_key] = len(resources)
+    resources.append({"link": normalized_link, "source": normalized_source})
+
+
+def _extract_download_resources(record: dict[str, Any]) -> list[dict[str, str]]:
+    resources: list[dict[str, str]] = []
+    seen: dict[str, int] = {}
+
+    for field_name in ("download_resources", "magnet_resources", "resources"):
+        value = record.get(field_name)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, dict):
+                link = item.get("link") or item.get("magnet") or item.get("download_link") or item.get("magnet_link")
+                source = item.get("source") or item.get("magnet_source") or item.get("download_source")
+                _append_download_resource(resources, seen, link, source)
+            else:
+                _append_download_resource(resources, seen, item)
+
+    fallback_sources: list[Any] = []
+    for source_field_name in ("download_sources", "magnet_sources"):
+        source_value = record.get(source_field_name)
+        if isinstance(source_value, list):
+            fallback_sources = source_value
+            break
+    single_source = record.get("download_source") or record.get("magnet_source") or record.get("source")
+
+    for field_name in ("download_links", "magnet_links"):
+        value = record.get(field_name)
+        if not isinstance(value, list):
+            continue
+        for index, link in enumerate(value):
+            source = fallback_sources[index] if index < len(fallback_sources) else single_source
+            _append_download_resource(resources, seen, link, source)
+
+    for field_name in ("download_link", "magnet_link", "link", "magnet"):
+        if record.get(field_name):
+            _append_download_resource(resources, seen, record[field_name], single_source)
+
+    return resources
+
+
+def _extract_download_links(record: dict[str, Any]) -> list[str]:
+    return [resource["link"] for resource in _extract_download_resources(record)]
+
+
+def _normalize_history_record(record: dict[str, Any]) -> dict[str, Any] | None:
+    movie_id = _normalize_movie_id(record.get("movie_id"))
+    if not movie_id:
+        return None
+    normalized = dict(record)
+    normalized["movie_id"] = movie_id
+    normalized["download_resources"] = _extract_download_resources(normalized)
+    normalized["download_links"] = [resource["link"] for resource in normalized["download_resources"]]
+    return normalized
+
+
 class DownloadHistoryService:
     def __init__(self, file_path: str = "data/downloaded_movies.json") -> None:
         self.file_path = file_path
@@ -52,11 +140,24 @@ class DownloadHistoryService:
             if self._loaded:
                 return list(self._cache.values())
 
-            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+            parent_dir = os.path.dirname(self.file_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
             if os.path.exists(self.file_path):
                 with open(self.file_path, "r", encoding="utf-8") as file:
                     data = json.load(file)
-                    self._cache = {record["movie_id"]: record for record in data}
+                    if isinstance(data, dict):
+                        source_records = data.get("movies") or data.get("records") or []
+                    else:
+                        source_records = data
+                    self._cache = {}
+                    if isinstance(source_records, list):
+                        for record in source_records:
+                            if not isinstance(record, dict):
+                                continue
+                            normalized = _normalize_history_record(record)
+                            if normalized:
+                                self._cache[normalized["movie_id"]] = normalized
                     logger.info("已加载 %s 条下载记录", len(self._cache))
             else:
                 with open(self.file_path, "w", encoding="utf-8") as file:
@@ -74,7 +175,9 @@ class DownloadHistoryService:
 
     async def clear(self) -> dict[str, Any]:
         async with self._lock:
-            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+            parent_dir = os.path.dirname(self.file_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
             with open(self.file_path, "w", encoding="utf-8") as file:
                 json.dump([], file, ensure_ascii=False)
             self._cache.clear()
@@ -83,15 +186,61 @@ class DownloadHistoryService:
 
     async def is_movie_downloaded(self, movie_id: str) -> bool:
         await self.load_records()
-        return movie_id in self._cache
+        return _normalize_movie_id(movie_id) in self._cache
 
-    async def save_movies(self, movie_ids: list[str]) -> None:
+    async def is_magnet_downloaded(self, movie_id: str, magnet_link: str) -> bool:
+        if not movie_id or not magnet_link:
+            return False
+        await self.load_records()
+        record = self._cache.get(_normalize_movie_id(movie_id))
+        if not record:
+            return False
+        target_key = _normalize_download_link_key(magnet_link)
+        return any(
+            _normalize_download_link_key(resource.get("link")) == target_key
+            for resource in _extract_download_resources(record)
+        )
+
+    async def get_magnet_source(self, movie_id: str, magnet_link: str) -> str:
+        if not movie_id or not magnet_link:
+            return ""
+        await self.load_records()
+        record = self._cache.get(_normalize_movie_id(movie_id))
+        if not record:
+            return ""
+        target_key = _normalize_download_link_key(magnet_link)
+        for resource in _extract_download_resources(record):
+            if _normalize_download_link_key(resource.get("link")) == target_key:
+                return _normalize_magnet_source(resource.get("source"))
+        return ""
+
+    async def get_downloaded_magnet_links(self, movie_id: str) -> list[str]:
+        await self.load_records()
+        record = self._cache.get(_normalize_movie_id(movie_id))
+        if not record:
+            return []
+        return [resource["link"] for resource in _extract_download_resources(record)]
+
+    async def get_downloaded_magnet_resources(self, movie_id: str) -> list[dict[str, str]]:
+        await self.load_records()
+        record = self._cache.get(_normalize_movie_id(movie_id))
+        if not record:
+            return []
+        return _extract_download_resources(record)
+
+    async def save_movies(
+        self,
+        movie_ids: list[str],
+        magnet_links: list[str] | None = None,
+        magnet_sources: list[str] | None = None,
+    ) -> None:
         await self.load_records()
         async with self._lock:
             current_time = datetime.datetime.now().isoformat()
 
-            for movie_id in movie_ids:
-                if movie_id in self._cache and "title" in self._cache[movie_id]:
+            for index, raw_movie_id in enumerate(movie_ids):
+                movie_id = _normalize_movie_id(raw_movie_id)
+                if not movie_id:
                     continue
 
                 try:
@@ -107,6 +256,9 @@ class DownloadHistoryService:
                         "download_time": current_time,
                     },
                 )
+                record["movie_id"] = movie_id
+                record.setdefault("download_time", current_time)
+                record["updated_at"] = current_time
                 record["title"] = movie_data.get("title", "")
                 record["date"] = movie_data.get("date", "")
 
@@ -117,10 +269,35 @@ class DownloadHistoryService:
                 record["genres"] = [genre.get("name", "") for genre in genres] if isinstance(genres, list) else []
 
                 record["img"] = movie_data.get("img", "")
+                download_resources = _extract_download_resources(record)
+                resource_indexes = {
+                    _normalize_download_link_key(resource.get("link")): resource
+                    for resource in download_resources
+                    if _normalize_download_link_key(resource.get("link"))
+                }
+                if magnet_links is not None and index < len(magnet_links):
+                    link = str(magnet_links[index] or "").strip()
+                    link_key = _normalize_download_link_key(link)
+                    source = (
+                        _normalize_magnet_source(magnet_sources[index])
+                        if magnet_sources is not None and index < len(magnet_sources)
+                        else ""
+                    )
+                    if link_key and link_key not in resource_indexes:
+                        resource = {"link": link, "source": source}
+                        download_resources.append(resource)
+                        resource_indexes[link_key] = resource
+                    elif link_key and source and not resource_indexes[link_key].get("source"):
+                        resource_indexes[link_key]["source"] = source
+                record["download_resources"] = download_resources
+                record["download_links"] = [resource["link"] for resource in download_resources]
                 self._cache[movie_id] = record
 
             downloaded_movies = list(self._cache.values())
             downloaded_movies.sort(key=lambda item: item.get("download_time", ""), reverse=True)
+            parent_dir = os.path.dirname(self.file_path)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
             with open(self.file_path, "w", encoding="utf-8") as file:
                 json.dump(downloaded_movies, file, ensure_ascii=False, indent=2)
 
@@ -135,10 +312,13 @@ class DownloadHistoryService:
         }
 
     async def get_downloaded_movie_status(self, movie_id: str) -> dict[str, Any]:
+        normalized = _normalize_movie_id(movie_id)
         return {
             "success": True,
-            "movie_id": movie_id,
-            "is_downloaded": await self.is_movie_downloaded(movie_id),
+            "movie_id": normalized,
+            "is_downloaded": await self.is_movie_downloaded(normalized),
+            "download_links": await self.get_downloaded_magnet_links(normalized),
+            "download_resources": await self.get_downloaded_magnet_resources(normalized),
         }
 
 

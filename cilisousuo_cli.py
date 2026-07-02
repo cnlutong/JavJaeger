@@ -10,6 +10,8 @@ from typing import List, Optional, Pattern, Tuple
 import httpx
 from bs4 import BeautifulSoup
 
+from modules.common.subtitles import has_chinese_subtitle
+
 
 BASE_URL = "https://cilisousuo.cc"
 
@@ -111,52 +113,9 @@ def _looks_like_4k(text: str) -> bool:
 def _has_chinese_subtitle(text: str) -> bool:
     """
     判断文本是否包含中文字幕相关标识
-    关键词示例：中文字幕、简中、繁中、chs、cht、ch、-c、chinese subtitle
+    关键词示例：中文字幕、中文、简中、繁中、chs、cht、ch、-c、chinese subtitle
     """
-    if not text:
-        return False
-    t = text.lower()
-    
-    # 明确的中文字幕标识
-    chinese_subtitle_keywords = [
-        "中文字幕",
-        "中文 字幕",
-        "简中",
-        "繁中",
-        "简体中文",
-        "繁体中文",
-        "chs",  # Chinese Simplified
-        "cht",  # Chinese Traditional
-        "chinese subtitle",
-        "chinese sub",
-        "chinese srt",
-        "中文 srt",
-        "简中字幕",
-        "繁中字幕",
-        "中字",
-        "内嵌中字",
-        "内封中字",
-        "内挂中字",
-    ]
-    
-    for keyword in chinese_subtitle_keywords:
-        if keyword in t:
-            return True
-    
-    # 检查 "chinese" 后跟 "sub" 或 "srt" 的情况
-    if re.search(r"chinese\s+(sub|srt|subtitle)", t):
-        return True
-    
-    # 检查独立的 "ch" 标记（作为单词边界，避免误匹配 "chunk" 等）
-    if re.search(r"(?<![a-z])ch(?![a-z])", t):
-        return True
-    
-    # 检查 "-c" 标记（通常出现在文件名中，如 "xxx-c.mp4", "xxx_c.mkv", "xxx-C"）
-    # 使用正则表达式匹配 -c 或 _c，并且后面跟着非字母数字字符（如 .、空格或者字符串结尾）
-    if re.search(r"[-_\s]c(?![a-z0-9])", t):
-        return True
-    
-    return False
+    return has_chinese_subtitle(text)
 
 
 def is_relevant(result: 'SearchResult', query: str, allow_chinese_subtitles: bool = False) -> bool:

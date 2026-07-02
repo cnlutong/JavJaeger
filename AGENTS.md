@@ -76,7 +76,7 @@ Use this as the source-of-truth ownership map.
 - `modules/system/`
   - diagnostics and system info APIs
 - `modules/history/`
-  - download history persistence and APIs
+  - download history persistence and APIs for attempted resource links and sources
   - local movie library persistence used to avoid duplicate downloads
   - actor information library persistence and local actor avatar index
   - scraped local movie metadata and full-text persistence
@@ -296,9 +296,11 @@ Current approved backend cross-module dependencies:
 - `history` -> `javbus_api`
 - `system` -> `javbus_api`
 - `pikpak` -> `history`
+- `pikpak` -> `magnets`
 - `pan115` -> `history`
+- `pan115` -> `magnets`
 - `pan115` -> `common`
-- `webdav` -> `pan115`
+- `webdav` -> `pan115`, `history`, `magnets`
 - `automation` -> `javbus_api`, `movies`, `magnets`, `pikpak`, `pan115`, `webdav`, `history`
 
 If a new module is needed, define its ownership and allowed imports before writing code.

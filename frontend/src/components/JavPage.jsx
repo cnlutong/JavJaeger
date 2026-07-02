@@ -459,6 +459,7 @@ export default function JavPage() {
         const movieIds = Array.isArray(payload)
             ? payload.map(item => item.movie_id).filter(Boolean)
             : [];
+        const magnetSources = Array.isArray(payload) ? payload.map(item => item.source || currentMagnetSource) : [];
         if (magnetLinks.length === 0) {
             message.warning('没有可用的磁力链接');
             return { success: false, message: 'no_magnet' };
@@ -493,6 +494,7 @@ export default function JavPage() {
                 body: JSON.stringify({
                     magnet_links: magnetLinks,
                     movie_ids: movieIds,
+                    magnet_sources: magnetSources,
                 }),
             });
             const job = await jobResponse.json();
@@ -509,6 +511,7 @@ export default function JavPage() {
                 body: JSON.stringify({
                     magnet_links: magnetLinks,
                     movie_ids: movieIds,
+                    magnet_sources: magnetSources,
                     ...(config.tool === 'pikpak' ? buildPikPakAuthPayload() : {}),
                 }),
             }
@@ -958,6 +961,7 @@ export default function JavPage() {
 
         const magnetLinks = [];
         const movieIds = [];
+        const magnetSources = [];
         for (const movie of moviesData.movies) {
             if (movie.status === 'local_exists' || movie.status === 'already_downloaded' || movie.is_downloaded || movie.in_local_library) {
                 continue;
@@ -969,6 +973,7 @@ export default function JavPage() {
                 if (link) {
                     magnetLinks.push(link);
                     movieIds.push(movie.id);
+                    magnetSources.push(best.source || currentMagnetSource);
                 }
             }
         }
@@ -981,7 +986,7 @@ export default function JavPage() {
         try {
             setLoading(true);
             const result = await dispatchMagnetDownloads(
-                magnetLinks.map((link, index) => ({ link, movie_id: movieIds[index] })),
+                magnetLinks.map((link, index) => ({ link, movie_id: movieIds[index], source: magnetSources[index] })),
                 downloadTool
             );
             if (result.success) {
@@ -1137,7 +1142,10 @@ export default function JavPage() {
 
         setDownloadingMovieIds(prev => ({ ...prev, [movie.id]: true }));
         try {
-            const result = await dispatchMagnetDownloads([{ link: bestMagnet.link, movie_id: movie.id }], downloadTool);
+            const result = await dispatchMagnetDownloads(
+                [{ link: bestMagnet.link, movie_id: movie.id, source: bestMagnet.source || currentMagnetSource }],
+                downloadTool
+            );
             if (result.success) {
                 message.success(result.message || `${movie.id} 已添加下载任务`);
             } else {

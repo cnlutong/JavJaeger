@@ -89,6 +89,13 @@ test("local scrape conflict actions are visible in their own table column", () =
     assert.match(localScrapePage, /getConflictTargetFile\(conflictCompareItem\)/);
 });
 
+test("local scrape duplicate targets are shown separately from file conflicts", () => {
+    assert.match(localScrapePage, /item\.target_duplicate && \(/);
+    assert.match(localScrapePage, /if \(item\.target_duplicate\) \{/);
+    assert.match(localScrapePage, /!item\.target_exists && !item\.target_duplicate/);
+    assert.match(localScrapePage, /target_duplicate_count/);
+});
+
 test("local scrape supports batch conflict execution for selected rows", () => {
     assert.match(localScrapePage, /const \[bulkConflictResolution, setBulkConflictResolution\] = React\.useState\(""\)/);
     assert.match(localScrapePage, /const selectedConflictItems = selectedVisibleItems\.filter/);
