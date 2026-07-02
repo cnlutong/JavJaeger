@@ -7,6 +7,7 @@ const {
     Button,
     Card,
     Checkbox,
+    ConfigProvider,
     Divider,
     Drawer,
     Form,
@@ -31,15 +32,19 @@ const {
     DeleteOutlined,
     DownloadOutlined,
     FilterOutlined,
+    MoonOutlined,
     PlayCircleOutlined,
     ReloadOutlined,
     SearchOutlined,
+    SunOutlined,
     UnorderedListOutlined,
     UserOutlined,
 } = icons;
+const antTheme = antd.theme || {};
 
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
 const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
+const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
 const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
 const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
 const LOCAL_LIBRARY_SORT_OPTIONS = [
@@ -66,6 +71,28 @@ const INFORMATION_CHECK_FIELD_OPTIONS = [
     { label: "本地封面", value: "poster_file" },
 ];
 const DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
+const LOCAL_LIBRARY_THEME_OPTIONS = [
+    { label: <span><Icon as={SunOutlined} /> 浅色</span>, value: "light" },
+    { label: <span><Icon as={MoonOutlined} /> 暗黑</span>, value: "dark" },
+];
+
+const normalizeLocalLibraryTheme = (theme) => theme === "dark" ? "dark" : "light";
+
+const loadLocalLibraryTheme = () => {
+    try {
+        return normalizeLocalLibraryTheme(window.localStorage.getItem(LOCAL_LIBRARY_THEME_STORAGE_KEY));
+    } catch (error) {
+        return "light";
+    }
+};
+
+const saveLocalLibraryTheme = (theme) => {
+    try {
+        window.localStorage.setItem(LOCAL_LIBRARY_THEME_STORAGE_KEY, normalizeLocalLibraryTheme(theme));
+    } catch (error) {
+        /* ignore storage errors */
+    }
+};
 
 const normalizeInformationCheckFields = (fields, fallback = DEFAULT_INFORMATION_CHECK_FIELDS) => {
     const allowed = new Set(DEFAULT_INFORMATION_CHECK_FIELDS);
@@ -462,10 +489,12 @@ export default function LocalLibraryPage() {
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React.useState(0);
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React.useState({});
     const [viewMode, setViewMode] = React.useState("list");
+    const [libraryTheme, setLibraryTheme] = React.useState(() => loadLocalLibraryTheme());
     const [sortRule, setSortRule] = React.useState("date_desc");
     const [gridPage, setGridPage] = React.useState(1);
     const [gridPageLoading, setGridPageLoading] = React.useState(false);
     const [listPage, setListPage] = React.useState(1);
+    const [listPageLoading, setListPageLoading] = React.useState(false);
     const [listPageSize, setListPageSize] = React.useState(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
     const [listPosterSize, setListPosterSize] = React.useState(56);
     const [gridPosterSize, setGridPosterSize] = React.useState(156);
@@ -483,6 +512,50 @@ export default function LocalLibraryPage() {
     const [informationCheckForm] = Form.useForm();
     const [informationDownloadForm] = Form.useForm();
     const gridPageLoadingTimerRef = React.useRef(null);
+    const listPageLoadingTimerRef = React.useRef(null);
+    const gridAutoLoadSentinelRef = React.useRef(null);
+    const listAutoLoadSentinelRef = React.useRef(null);
+    const gridAutoLoadLockedRef = React.useRef(false);
+    const listAutoLoadLockedRef = React.useRef(false);
+    const isDarkMode = libraryTheme === "dark";
+    const libraryThemeConfig = React.useMemo(() => {
+        if (!isDarkMode) {
+            return {};
+        }
+        return {
+            algorithm: antTheme.darkAlgorithm,
+            token: {
+                colorPrimary: "#4096ff",
+                colorInfo: "#4096ff",
+                colorSuccess: "#34d399",
+                colorWarning: "#fbbf24",
+                colorError: "#f87171",
+                colorBgLayout: "#141414",
+                colorBgContainer: "#1f1f1f",
+                colorBgElevated: "#262626",
+                colorBorder: "#3a3a3a",
+                colorText: "#f5f5f5",
+                colorTextSecondary: "#bfbfbf",
+                borderRadius: 6,
+            },
+            components: {
+                Card: {
+                    colorBgContainer: "#1f1f1f",
+                    colorBorderSecondary: "#3a3a3a",
+                },
+                Table: {
+                    headerBg: "#262626",
+                    headerColor: "#f5f5f5",
+                    rowHoverBg: "#2f2f2f",
+                    borderColor: "#3a3a3a",
+                },
+                Segmented: {
+                    itemSelectedBg: "#3a3a3a",
+                    itemSelectedColor: "#ffffff",
+                },
+            },
+        };
+    }, [isDarkMode]);
 
     const records = library.records || [];
     const actors = actorLibrary.actors || [];
@@ -536,8 +609,14 @@ export default function LocalLibraryPage() {
         });
     }, [records, filters]);
     const sortedRecords = React.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
-    const gridStartIndex = (gridPage - 1) * LOCAL_LIBRARY_GRID_PAGE_SIZE;
-    const visibleGridRecords = React.useMemo(() => sortedRecords.slice(gridStartIndex, gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE), [sortedRecords, gridStartIndex]);
+    const maxGridPage = Math.max(1, Math.ceil(sortedRecords.length / LOCAL_LIBRARY_GRID_PAGE_SIZE));
+    const gridVisibleCount = Math.min(gridPage * LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length);
+    const visibleGridRecords = React.useMemo(() => sortedRecords.slice(0, gridVisibleCount), [sortedRecords, gridVisibleCount]);
+    const maxListPage = Math.max(1, Math.ceil(sortedRecords.length / listPageSize));
+    const listVisibleCount = Math.min(listPage * listPageSize, sortedRecords.length);
+    const visibleListRecords = React.useMemo(() => sortedRecords.slice(0, listVisibleCount), [sortedRecords, listVisibleCount]);
+    const hasMoreGridRecords = gridVisibleCount < sortedRecords.length;
+    const hasMoreListRecords = listVisibleCount < sortedRecords.length;
 
     React.useEffect(() => {
         setGridPage(1);
@@ -548,19 +627,106 @@ export default function LocalLibraryPage() {
         if (gridPageLoadingTimerRef.current) {
             window.clearTimeout(gridPageLoadingTimerRef.current);
         }
+        if (listPageLoadingTimerRef.current) {
+            window.clearTimeout(listPageLoadingTimerRef.current);
+        }
     }, []);
 
-    const handleGridPageChange = (page) => {
-        setGridPage(page);
+    const startGridPageLoading = React.useCallback(() => {
         setGridPageLoading(true);
         if (gridPageLoadingTimerRef.current) {
             window.clearTimeout(gridPageLoadingTimerRef.current);
         }
         gridPageLoadingTimerRef.current = window.setTimeout(() => {
             setGridPageLoading(false);
+            gridAutoLoadLockedRef.current = false;
         }, 220);
+    }, []);
+
+    const startListPageLoading = React.useCallback(() => {
+        setListPageLoading(true);
+        if (listPageLoadingTimerRef.current) {
+            window.clearTimeout(listPageLoadingTimerRef.current);
+        }
+        listPageLoadingTimerRef.current = window.setTimeout(() => {
+            setListPageLoading(false);
+            listAutoLoadLockedRef.current = false;
+        }, 160);
+    }, []);
+
+    const handleGridPageChange = (page) => {
+        const nextPage = Math.max(1, Math.min(Number(page) || 1, maxGridPage));
+        setGridPage(nextPage);
+        startGridPageLoading();
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
+
+    const handleListPageChange = (page, size = listPageSize) => {
+        const nextPageSize = Number(size) || LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE;
+        const nextMaxPage = Math.max(1, Math.ceil(sortedRecords.length / nextPageSize));
+        setListPageSize(nextPageSize);
+        setListPage(Math.max(1, Math.min(Number(page) || 1, nextMaxPage)));
+        startListPageLoading();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const handleListPageSizeChange = (_, size) => {
+        setListPage(1);
+        setListPageSize(Number(size) || LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
+        startListPageLoading();
+    };
+
+    const loadNextGridPage = React.useCallback(() => {
+        if (!hasMoreGridRecords || gridAutoLoadLockedRef.current) {
+            return;
+        }
+        gridAutoLoadLockedRef.current = true;
+        setGridPage((page) => Math.min(page + 1, maxGridPage));
+        startGridPageLoading();
+    }, [hasMoreGridRecords, maxGridPage, startGridPageLoading]);
+
+    const loadNextListPage = React.useCallback(() => {
+        if (!hasMoreListRecords || listAutoLoadLockedRef.current) {
+            return;
+        }
+        listAutoLoadLockedRef.current = true;
+        setListPage((page) => Math.min(page + 1, maxListPage));
+        startListPageLoading();
+    }, [hasMoreListRecords, maxListPage, startListPageLoading]);
+
+    React.useEffect(() => {
+        if (viewMode !== "grid" || !hasMoreGridRecords || selectedRecord) {
+            return undefined;
+        }
+        const sentinel = gridAutoLoadSentinelRef.current;
+        if (!sentinel || !window.IntersectionObserver) {
+            return undefined;
+        }
+        const observer = new window.IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                loadNextGridPage();
+            }
+        }, { root: null, rootMargin: "420px 0px", threshold: 0.01 });
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [viewMode, hasMoreGridRecords, selectedRecord, loadNextGridPage]);
+
+    React.useEffect(() => {
+        if (viewMode !== "list" || !hasMoreListRecords || selectedRecord) {
+            return undefined;
+        }
+        const sentinel = listAutoLoadSentinelRef.current;
+        if (!sentinel || !window.IntersectionObserver) {
+            return undefined;
+        }
+        const observer = new window.IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                loadNextListPage();
+            }
+        }, { root: null, rootMargin: "420px 0px", threshold: 0.01 });
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [viewMode, hasMoreListRecords, selectedRecord, loadNextListPage]);
 
     const handleKeywordSearch = () => {
         setFilters((prev) => ({ ...prev, keyword: keywordDraft.trim() }));
@@ -569,6 +735,12 @@ export default function LocalLibraryPage() {
     const handleKeywordClear = () => {
         setKeywordDraft("");
         setFilters((prev) => ({ ...prev, keyword: "" }));
+    };
+
+    const handleLibraryThemeChange = (nextTheme) => {
+        const normalizedTheme = normalizeLocalLibraryTheme(nextTheme);
+        setLibraryTheme(normalizedTheme);
+        saveLocalLibraryTheme(nextTheme);
     };
 
     const clearFilters = () => {
@@ -939,6 +1111,24 @@ export default function LocalLibraryPage() {
         );
     };
 
+    const renderAutoLoadFooter = ({ visibleCount, total, hasMore, loading: footerLoading, onLoadMore, sentinelRef }) => (
+        <div className="jav-library-auto-load-footer" ref={sentinelRef} aria-live="polite">
+            <Text type="secondary">已显示 {visibleCount} / {total}</Text>
+            {hasMore ? (
+                <Button
+                    size="small"
+                    icon={<Icon as={ReloadOutlined} />}
+                    loading={footerLoading}
+                    onClick={onLoadMore}
+                >
+                    加载更多
+                </Button>
+            ) : (
+                <Text type="secondary">已全部显示</Text>
+            )}
+        </div>
+    );
+
     const renderActorList = (record, variant = "compact") => {
         const actors = normalizeActors(record);
         if (!actors.length) {
@@ -1282,28 +1472,31 @@ export default function LocalLibraryPage() {
             ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` }
             : undefined;
         return (
-            <div className="jav-local-scrape jav-library-page is-previewing">
-                <div
-                    className="jav-library-preview-backdrop"
-                    style={previewBackdropStyle}
-                    onClick={closeRecordPreview}
-                >
-                    <section
-                        className="jav-local-results jav-library-results jav-library-preview-surface"
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label="影片沉浸式预览"
-                        onClick={(event) => event.stopPropagation()}
+            <ConfigProvider theme={libraryThemeConfig}>
+                <div className={`jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}`}>
+                    <div
+                        className="jav-library-preview-backdrop"
+                        style={previewBackdropStyle}
+                        onClick={closeRecordPreview}
                     >
-                        {renderRecordPreview()}
-                    </section>
+                        <section
+                            className="jav-local-results jav-library-results jav-library-preview-surface"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label="影片沉浸式预览"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            {renderRecordPreview()}
+                        </section>
+                    </div>
                 </div>
-            </div>
+            </ConfigProvider>
         );
     }
 
     return (
-        <div className="jav-local-scrape jav-library-page">
+        <ConfigProvider theme={libraryThemeConfig}>
+        <div className={`jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}`}>
             <div className="jav-library-layout">
                 <section className="jav-local-results jav-library-results">
                     <div className="jav-results-header">
@@ -1348,6 +1541,12 @@ export default function LocalLibraryPage() {
                             onChange={setSortRule}
                             options={LOCAL_LIBRARY_SORT_OPTIONS}
                             aria-label="影视库排序"
+                        />
+                        <Segmented
+                            className="jav-library-theme-toggle"
+                            value={libraryTheme}
+                            onChange={handleLibraryThemeChange}
+                            options={LOCAL_LIBRARY_THEME_OPTIONS}
                         />
                         {viewMode !== "actors" && <div className="jav-library-size-control">
                             <Text type="secondary">大小</Text>
@@ -1446,7 +1645,7 @@ export default function LocalLibraryPage() {
                             <>
                                 <div className="jav-library-grid-toolbar">
                                     <Text type="secondary">
-                                        {gridStartIndex + 1}-{Math.min(gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length)} / {sortedRecords.length}
+                                        {gridVisibleCount > 0 ? `1-${gridVisibleCount}` : 0} / {sortedRecords.length}
                                     </Text>
                                     <Pagination
                                         current={gridPage}
@@ -1520,6 +1719,14 @@ export default function LocalLibraryPage() {
                                     showSizeChanger={false}
                                     onChange={handleGridPageChange}
                                 />
+                                {renderAutoLoadFooter({
+                                    visibleCount: gridVisibleCount,
+                                    total: sortedRecords.length,
+                                    hasMore: hasMoreGridRecords,
+                                    loading: gridPageLoading,
+                                    onLoadMore: loadNextGridPage,
+                                    sentinelRef: gridAutoLoadSentinelRef,
+                                })}
                             </>
                         ) : (
                             <div className="jav-state-panel jav-library-empty-state">
@@ -1527,32 +1734,43 @@ export default function LocalLibraryPage() {
                             </div>
                         )
                     ) : (
+                        <>
                         <Table
                             rowKey="movie_id"
                             size="small"
-                            dataSource={sortedRecords}
+                            dataSource={visibleListRecords}
                             columns={columns}
                             loading={loading}
-                            pagination={{
-                                current: listPage,
-                                pageSize: listPageSize,
-                                showSizeChanger: true,
-                                pageSizeOptions: [10, 20, 30, 50, 100],
-                                showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
-                                onShowSizeChange: (_, size) => {
-                                    setListPage(1);
-                                    setListPageSize(size);
-                                },
-                                onChange: (page, size) => {
-                                    setListPage(page);
-                                    setListPageSize(size);
-                                },
-                            }}
+                            pagination={false}
                             onRow={(record) => ({
                                 onClick: () => openRecordPreview(record),
                             })}
                             locale={{ emptyText: "暂无影视库记录，请先扫描目录" }}
                         />
+                        {sortedRecords.length > 0 && (
+                            <>
+                                <Pagination
+                                    className="jav-library-list-pagination-bottom"
+                                    current={listPage}
+                                    pageSize={listPageSize}
+                                    total={sortedRecords.length}
+                                    showSizeChanger
+                                    pageSizeOptions={[10, 20, 30, 50, 100]}
+                                    showTotal={(total) => `${listVisibleCount} / ${total}`}
+                                    onShowSizeChange={handleListPageSizeChange}
+                                    onChange={handleListPageChange}
+                                />
+                                {renderAutoLoadFooter({
+                                    visibleCount: listVisibleCount,
+                                    total: sortedRecords.length,
+                                    hasMore: hasMoreListRecords,
+                                    loading: listPageLoading,
+                                    onLoadMore: loadNextListPage,
+                                    sentinelRef: listAutoLoadSentinelRef,
+                                })}
+                            </>
+                        )}
+                        </>
                     )}
                     <Drawer
                         title="检查信息"
@@ -1560,6 +1778,7 @@ export default function LocalLibraryPage() {
                         width={460}
                         open={informationCheckOpen}
                         onClose={() => setInformationCheckOpen(false)}
+                        rootClassName={isDarkMode ? "jav-library-dark-surface" : ""}
                     >
                         <div className="jav-library-filter-help">
                             <Text type="secondary">先设置本次检查标准，再开始检查。默认检查全部信息项，保存后下次会自动沿用。</Text>
@@ -1689,6 +1908,7 @@ export default function LocalLibraryPage() {
                         width={420}
                         open={filterOpen}
                         onClose={() => setFilterOpen(false)}
+                        rootClassName={isDarkMode ? "jav-library-dark-surface" : ""}
                         extra={<Button type="link" onClick={clearFilters}>清除全部</Button>}
                     >
                         <div className="jav-library-filter-help">
@@ -1707,5 +1927,6 @@ export default function LocalLibraryPage() {
                 </section>
             </div>
         </div>
+        </ConfigProvider>
     );
 }

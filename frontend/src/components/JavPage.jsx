@@ -5,6 +5,7 @@ import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
+import { buildHistoryRedispatchPayload } from "../utils/historyRedispatch.mjs";
 import { buildMagnetDataMapFromResults } from "../utils/magnets.mjs";
 import {
     clearPikPakSession,
@@ -1191,17 +1192,102 @@ export default function JavPage() {
         }
     };
 
+    const fetchHistoryFallbackMagnet = async (record, fallbackSource) => {
+        const movieId = String(record?.movie_id || '').trim();
+        if (!movieId) {
+            return null;
+        }
+
+        const { exclude4k } = getMagnetSettings();
+        const source = fallbackSource || currentMagnetSource || 'javbus';
+        const queryParams = new URLSearchParams();
+        queryParams.append('source', source);
+        queryParams.append('sortBy', 'size');
+        queryParams.append('sortOrder', 'desc');
+        if (exclude4k) {
+            queryParams.append('exclude4k', 'true');
+        }
+        const hasSubtitle = filterForm.getFieldValue('hasSubtitle');
+        if (hasSubtitle) {
+            queryParams.append('hasSubtitle', hasSubtitle);
+        }
+
+        const data = await fetchWithRetry(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);
+        const candidates = Array.isArray(data) ? data : [];
+        const best = candidates.find((item) => item?.link);
+        if (!best) {
+            return null;
+        }
+        return {
+            link: best.link,
+            movie_id: movieId,
+            source: best.source || source,
+        };
+    };
+
     const handleCheckHistoryLocalLibrary = async () => {
         setCheckingHistoryLibrary(true);
+        const messageKey = 'history-library-check';
         try {
             const response = await fetch('/api/history/check-local-library', { method: 'POST' });
             const result = await response.json();
             if (result.success) {
-                setHistoryData(result.records || []);
-                if (result.missing_count > 0) {
-                    message.warning(result.message || `发现 ${result.missing_count} 条历史记录未进入影视库`);
-                } else {
+                const checkedRecords = result.records || [];
+                const missingRecords = result.missing_records || checkedRecords.filter((record) => record.needs_reselect);
+                setHistoryData(checkedRecords);
+                if (missingRecords.length === 0) {
                     message.success(result.message || '历史记录均已入库');
+                    return;
+                }
+
+                if (!await isDownloadToolReady(downloadTool)) {
+                    message.warning(`发现 ${missingRecords.length} 条历史记录未进入影视库，请先准备下载工具后再重新下载`);
+                    return;
+                }
+
+                const { magnetSource } = getMagnetSettings();
+                const attemptedPayload = buildHistoryRedispatchPayload(missingRecords, magnetSource);
+                const attemptedMovieIds = new Set(attemptedPayload.map((item) => item.movie_id));
+                const recordsWithoutLinks = missingRecords.filter((record) => !attemptedMovieIds.has(String(record.movie_id || '').trim()));
+                const fallbackPayload = [];
+                const fallbackFailures = [];
+                await runWithConcurrency(recordsWithoutLinks, RESOURCE_REQUEST_CONCURRENCY, async (record) => {
+                    try {
+                        const fallback = await fetchHistoryFallbackMagnet(record, magnetSource);
+                        if (fallback) {
+                            fallbackPayload.push(fallback);
+                        } else {
+                            fallbackFailures.push(record.movie_id);
+                        }
+                    } catch (error) {
+                        fallbackFailures.push(record.movie_id);
+                    }
+                });
+
+                const redispatchPayload = [...attemptedPayload, ...fallbackPayload];
+                if (redispatchPayload.length === 0) {
+                    message.warning('未找到可重新派发的磁力链接');
+                    return;
+                }
+
+                message.loading({ key: messageKey, content: `正在重新派发 ${redispatchPayload.length} 个未入库影片...` });
+                const dispatchResult = await dispatchMagnetDownloads(redispatchPayload, downloadTool);
+                const dispatchResults = Array.isArray(dispatchResult?.results) ? dispatchResult.results : [];
+                const successCount = Number.isFinite(Number(dispatchResult?.success_count))
+                    ? Number(dispatchResult.success_count)
+                    : dispatchResults.filter((item) => item?.success).length;
+                const skippedCount = Number.isFinite(Number(dispatchResult?.skipped_count))
+                    ? Number(dispatchResult.skipped_count)
+                    : dispatchResults.filter((item) => item?.skipped).length;
+                if (successCount > 0) {
+                    message.success({ key: messageKey, content: `已自动重新派发 ${successCount}/${missingRecords.length} 个未入库影片` });
+                } else if (skippedCount > 0) {
+                    message.warning({ key: messageKey, content: `未派发新任务，${skippedCount} 个影片被跳过` });
+                } else {
+                    message.error({ key: messageKey, content: dispatchResult?.message || '未能重新派发下载任务' });
+                }
+                if (fallbackFailures.length > 0) {
+                    message.warning(`有 ${fallbackFailures.length} 个影片未找到可替换磁力`);
                 }
             } else {
                 message.error('核对入库状态失败: ' + (result.message || '未知错误'));
@@ -1358,7 +1444,7 @@ export default function JavPage() {
                             loading={checkingHistoryLibrary}
                             onClick={handleCheckHistoryLocalLibrary}
                         >
-                            核对入库状态
+                            核对并重新下载
                         </Button>
                         <Popconfirm
                             title="确定要清空所有历史记录吗？"
@@ -1396,7 +1482,7 @@ export default function JavPage() {
                                     return <Tag color="purple">已入库</Tag>;
                                 }
                                 if (record.needs_reselect) {
-                                    return <Tag color="orange">未入库，需重选链接</Tag>;
+                                    return <Tag color="orange">未入库，需重新下载</Tag>;
                                 }
                                 return <Tag>未核对</Tag>;
                             }
@@ -1465,7 +1551,7 @@ export default function JavPage() {
                                     setViewMode('search');
                                     searchMovie({ keyword: record.movie_id });
                                 }}>
-                                    {record.needs_reselect ? '重新查找' : '详情搜索'}
+                                    {record.needs_reselect ? '手动查找' : '详情搜索'}
                                 </Button>
                             )
                         }

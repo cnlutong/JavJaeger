@@ -53,12 +53,29 @@ test("local library list and card modes paginate visible records", () => {
     assert.match(localLibraryPage, /const \[gridPage, setGridPage\] = React\.useState\(1\)/);
     assert.match(localLibraryPage, /const \[listPage, setListPage\] = React\.useState\(1\)/);
     assert.match(localLibraryPage, /const \[listPageSize, setListPageSize\] = React\.useState\(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE\)/);
-    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(gridStartIndex, gridStartIndex \+ LOCAL_LIBRARY_GRID_PAGE_SIZE\)/);
+    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(0, gridVisibleCount\)/);
+    assert.match(localLibraryPage, /const visibleListRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(0, listVisibleCount\)/);
     assert.match(localLibraryPage, /<Pagination[\s\S]*current=\{gridPage\}[\s\S]*pageSize=\{LOCAL_LIBRARY_GRID_PAGE_SIZE\}[\s\S]*showSizeChanger=\{false\}/);
     assert.match(localLibraryPage, /className="jav-library-grid-loading"/);
-    assert.match(localLibraryPage, /dataSource=\{sortedRecords\}[\s\S]*pagination=\{\{[\s\S]*current: listPage[\s\S]*pageSize: listPageSize[\s\S]*showSizeChanger: true[\s\S]*onShowSizeChange: \(_, size\) => \{[\s\S]*setListPage\(1\);[\s\S]*setListPageSize\(size\);[\s\S]*onChange: \(page, size\) => \{[\s\S]*setListPage\(page\);[\s\S]*setListPageSize\(size\);/);
+    assert.match(localLibraryPage, /dataSource=\{visibleListRecords\}[\s\S]*pagination=\{false\}/);
+    assert.match(localLibraryPage, /className="jav-library-list-pagination-bottom"[\s\S]*current=\{listPage\}[\s\S]*pageSize=\{listPageSize\}[\s\S]*showSizeChanger[\s\S]*onShowSizeChange=\{handleListPageSizeChange\}[\s\S]*onChange=\{handleListPageChange\}/);
     assert.doesNotMatch(localLibraryPage, /filteredRecords\.map\(\(record\) => \(/);
     assert.doesNotMatch(localLibraryPage, /pagination=\{\{ pageSize: 12, showSizeChanger: true \}\}/);
+});
+
+test("local library list and poster modes auto-load more records near the page bottom", () => {
+    assert.match(localLibraryPage, /const \[listPageLoading, setListPageLoading\] = React\.useState\(false\)/);
+    assert.match(localLibraryPage, /const gridAutoLoadSentinelRef = React\.useRef\(null\)/);
+    assert.match(localLibraryPage, /const listAutoLoadSentinelRef = React\.useRef\(null\)/);
+    assert.match(localLibraryPage, /new window\.IntersectionObserver/);
+    assert.match(localLibraryPage, /rootMargin:\s*"420px 0px"/);
+    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(0, gridVisibleCount\)/);
+    assert.match(localLibraryPage, /const visibleListRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(0, listVisibleCount\)/);
+    assert.match(localLibraryPage, /dataSource=\{visibleListRecords\}/);
+    assert.match(localLibraryPage, /pagination=\{false\}/);
+    assert.match(localLibraryPage, /renderAutoLoadFooter\(\{[\s\S]*sentinelRef: gridAutoLoadSentinelRef/);
+    assert.match(localLibraryPage, /renderAutoLoadFooter\(\{[\s\S]*sentinelRef: listAutoLoadSentinelRef/);
+    assert.match(css, /\.jav-library-auto-load-footer\s*\{/);
 });
 
 test("local library list and card modes support multiple sort rules", () => {
@@ -70,9 +87,9 @@ test("local library list and card modes support multiple sort rules", () => {
     assert.match(localLibraryPage, /const sortLocalLibraryRecords = \(records, sortRule\) =>/);
     assert.match(localLibraryPage, /const \[sortRule, setSortRule\] = React\.useState\("date_desc"\)/);
     assert.match(localLibraryPage, /const sortedRecords = React\.useMemo\(\(\) => sortLocalLibraryRecords\(filteredRecords, sortRule\), \[filteredRecords, sortRule\]\)/);
-    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(gridStartIndex, gridStartIndex \+ LOCAL_LIBRARY_GRID_PAGE_SIZE\)/);
+    assert.match(localLibraryPage, /const visibleGridRecords = React\.useMemo\(\(\) => sortedRecords\.slice\(0, gridVisibleCount\)/);
     assert.match(localLibraryPage, /<Select[\s\S]*value=\{sortRule\}[\s\S]*onChange=\{setSortRule\}[\s\S]*options=\{LOCAL_LIBRARY_SORT_OPTIONS\}/);
-    assert.match(localLibraryPage, /dataSource=\{sortedRecords\}/);
+    assert.match(localLibraryPage, /dataSource=\{visibleListRecords\}/);
     assert.match(localLibraryPage, /total=\{sortedRecords\.length\}/);
 });
 
@@ -188,6 +205,20 @@ test("local library actor and genre tags filter from list, grid, and preview", (
     assert.match(css, /\.jav-library-filter-tag\.ant-tag\s*\{[\s\S]*cursor:\s*pointer;/);
 });
 
+test("local library exposes a persistent scoped dark mode", () => {
+    assert.match(localLibraryPage, /LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger\.localLibrary\.theme"/);
+    assert.match(localLibraryPage, /const \[libraryTheme, setLibraryTheme\] = React\.useState\(\(\) => loadLocalLibraryTheme\(\)\)/);
+    assert.match(localLibraryPage, /const isDarkMode = libraryTheme === "dark";/);
+    assert.match(localLibraryPage, /const libraryThemeConfig = React\.useMemo/);
+    assert.match(localLibraryPage, /<ConfigProvider theme=\{libraryThemeConfig\}>/);
+    assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page \$\{isDarkMode \? "is-dark" : ""\}`\}/);
+    assert.match(localLibraryPage, /className="jav-library-theme-toggle"/);
+    assert.match(localLibraryPage, /saveLocalLibraryTheme\(nextTheme\)/);
+    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*background:\s*#141414;/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-results\s*\{[\s\S]*background:\s*#1f1f1f\s*!important;[\s\S]*border-color:\s*#3a3a3a\s*!important;/);
+    assert.match(css, /\.jav-page-workspace:has\(\.jav-library-page\.is-dark\)/);
+});
+
 test("local library preview shows actors with avatars below the poster", () => {
     assert.match(localLibraryPage, /normalizeActors/);
     assert.match(localLibraryPage, /ActorPill/);
@@ -218,7 +249,7 @@ test("local library exposes an actor-indexed browsing view", () => {
 });
 
 test("local library immersive preview uses dark backdrop and closes from background clicks", () => {
-    assert.match(localLibraryPage, /className="jav-local-scrape jav-library-page is-previewing"/);
+    assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page is-previewing \$\{isDarkMode \? "is-dark" : ""\}`\}/);
     assert.match(localLibraryPage, /className="jav-library-preview-backdrop"/);
     assert.match(localLibraryPage, /previewBackdropStyle/);
     assert.match(localLibraryPage, /--jav-library-preview-backdrop/);

@@ -2737,6 +2737,7 @@
     Button: Button5,
     Card: Card4,
     Checkbox: Checkbox2,
+    ConfigProvider,
     Divider: Divider2,
     Drawer: Drawer2,
     Form: Form4,
@@ -2761,14 +2762,18 @@
     DeleteOutlined: DeleteOutlined4,
     DownloadOutlined: DownloadOutlined2,
     FilterOutlined,
+    MoonOutlined,
     PlayCircleOutlined: PlayCircleOutlined3,
     ReloadOutlined: ReloadOutlined3,
     SearchOutlined: SearchOutlined2,
+    SunOutlined,
     UnorderedListOutlined,
     UserOutlined
   } = icons5;
+  var antTheme = antd5.theme || {};
   var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React5.createElement(Component, null) : null;
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
+  var LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
   var LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
   var LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
   var LOCAL_LIBRARY_SORT_OPTIONS = [
@@ -2795,6 +2800,24 @@
     { label: "\u672C\u5730\u5C01\u9762", value: "poster_file" }
   ];
   var DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
+  var LOCAL_LIBRARY_THEME_OPTIONS = [
+    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: SunOutlined }), " \u6D45\u8272"), value: "light" },
+    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: MoonOutlined }), " \u6697\u9ED1"), value: "dark" }
+  ];
+  var normalizeLocalLibraryTheme = (theme) => theme === "dark" ? "dark" : "light";
+  var loadLocalLibraryTheme = () => {
+    try {
+      return normalizeLocalLibraryTheme(window.localStorage.getItem(LOCAL_LIBRARY_THEME_STORAGE_KEY));
+    } catch (error) {
+      return "light";
+    }
+  };
+  var saveLocalLibraryTheme = (theme) => {
+    try {
+      window.localStorage.setItem(LOCAL_LIBRARY_THEME_STORAGE_KEY, normalizeLocalLibraryTheme(theme));
+    } catch (error) {
+    }
+  };
   var normalizeInformationCheckFields = (fields, fallback = DEFAULT_INFORMATION_CHECK_FIELDS) => {
     const allowed = new Set(DEFAULT_INFORMATION_CHECK_FIELDS);
     const normalized = (Array.isArray(fields) ? fields : []).map((field) => String(field || "").trim()).filter((field, index, source) => allowed.has(field) && source.indexOf(field) === index);
@@ -3112,10 +3135,12 @@
     const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React5.useState(0);
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React5.useState({});
     const [viewMode, setViewMode] = React5.useState("list");
+    const [libraryTheme, setLibraryTheme] = React5.useState(() => loadLocalLibraryTheme());
     const [sortRule, setSortRule] = React5.useState("date_desc");
     const [gridPage, setGridPage] = React5.useState(1);
     const [gridPageLoading, setGridPageLoading] = React5.useState(false);
     const [listPage, setListPage] = React5.useState(1);
+    const [listPageLoading, setListPageLoading] = React5.useState(false);
     const [listPageSize, setListPageSize] = React5.useState(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
     const [listPosterSize, setListPosterSize] = React5.useState(56);
     const [gridPosterSize, setGridPosterSize] = React5.useState(156);
@@ -3133,6 +3158,50 @@
     const [informationCheckForm] = Form4.useForm();
     const [informationDownloadForm] = Form4.useForm();
     const gridPageLoadingTimerRef = React5.useRef(null);
+    const listPageLoadingTimerRef = React5.useRef(null);
+    const gridAutoLoadSentinelRef = React5.useRef(null);
+    const listAutoLoadSentinelRef = React5.useRef(null);
+    const gridAutoLoadLockedRef = React5.useRef(false);
+    const listAutoLoadLockedRef = React5.useRef(false);
+    const isDarkMode = libraryTheme === "dark";
+    const libraryThemeConfig = React5.useMemo(() => {
+      if (!isDarkMode) {
+        return {};
+      }
+      return {
+        algorithm: antTheme.darkAlgorithm,
+        token: {
+          colorPrimary: "#4096ff",
+          colorInfo: "#4096ff",
+          colorSuccess: "#34d399",
+          colorWarning: "#fbbf24",
+          colorError: "#f87171",
+          colorBgLayout: "#141414",
+          colorBgContainer: "#1f1f1f",
+          colorBgElevated: "#262626",
+          colorBorder: "#3a3a3a",
+          colorText: "#f5f5f5",
+          colorTextSecondary: "#bfbfbf",
+          borderRadius: 6
+        },
+        components: {
+          Card: {
+            colorBgContainer: "#1f1f1f",
+            colorBorderSecondary: "#3a3a3a"
+          },
+          Table: {
+            headerBg: "#262626",
+            headerColor: "#f5f5f5",
+            rowHoverBg: "#2f2f2f",
+            borderColor: "#3a3a3a"
+          },
+          Segmented: {
+            itemSelectedBg: "#3a3a3a",
+            itemSelectedColor: "#ffffff"
+          }
+        }
+      };
+    }, [isDarkMode]);
     const records = library.records || [];
     const actors = actorLibrary.actors || [];
     const missingInformationByMovieId = React5.useMemo(() => {
@@ -3174,8 +3243,14 @@ ${record.full_text || ""}`.toLowerCase();
       });
     }, [records, filters]);
     const sortedRecords = React5.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
-    const gridStartIndex = (gridPage - 1) * LOCAL_LIBRARY_GRID_PAGE_SIZE;
-    const visibleGridRecords = React5.useMemo(() => sortedRecords.slice(gridStartIndex, gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE), [sortedRecords, gridStartIndex]);
+    const maxGridPage = Math.max(1, Math.ceil(sortedRecords.length / LOCAL_LIBRARY_GRID_PAGE_SIZE));
+    const gridVisibleCount = Math.min(gridPage * LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length);
+    const visibleGridRecords = React5.useMemo(() => sortedRecords.slice(0, gridVisibleCount), [sortedRecords, gridVisibleCount]);
+    const maxListPage = Math.max(1, Math.ceil(sortedRecords.length / listPageSize));
+    const listVisibleCount = Math.min(listPage * listPageSize, sortedRecords.length);
+    const visibleListRecords = React5.useMemo(() => sortedRecords.slice(0, listVisibleCount), [sortedRecords, listVisibleCount]);
+    const hasMoreGridRecords = gridVisibleCount < sortedRecords.length;
+    const hasMoreListRecords = listVisibleCount < sortedRecords.length;
     React5.useEffect(() => {
       setGridPage(1);
       setListPage(1);
@@ -3184,24 +3259,108 @@ ${record.full_text || ""}`.toLowerCase();
       if (gridPageLoadingTimerRef.current) {
         window.clearTimeout(gridPageLoadingTimerRef.current);
       }
+      if (listPageLoadingTimerRef.current) {
+        window.clearTimeout(listPageLoadingTimerRef.current);
+      }
     }, []);
-    const handleGridPageChange = (page) => {
-      setGridPage(page);
+    const startGridPageLoading = React5.useCallback(() => {
       setGridPageLoading(true);
       if (gridPageLoadingTimerRef.current) {
         window.clearTimeout(gridPageLoadingTimerRef.current);
       }
       gridPageLoadingTimerRef.current = window.setTimeout(() => {
         setGridPageLoading(false);
+        gridAutoLoadLockedRef.current = false;
       }, 220);
+    }, []);
+    const startListPageLoading = React5.useCallback(() => {
+      setListPageLoading(true);
+      if (listPageLoadingTimerRef.current) {
+        window.clearTimeout(listPageLoadingTimerRef.current);
+      }
+      listPageLoadingTimerRef.current = window.setTimeout(() => {
+        setListPageLoading(false);
+        listAutoLoadLockedRef.current = false;
+      }, 160);
+    }, []);
+    const handleGridPageChange = (page) => {
+      const nextPage = Math.max(1, Math.min(Number(page) || 1, maxGridPage));
+      setGridPage(nextPage);
+      startGridPageLoading();
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
+    const handleListPageChange = (page, size = listPageSize) => {
+      const nextPageSize = Number(size) || LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE;
+      const nextMaxPage = Math.max(1, Math.ceil(sortedRecords.length / nextPageSize));
+      setListPageSize(nextPageSize);
+      setListPage(Math.max(1, Math.min(Number(page) || 1, nextMaxPage)));
+      startListPageLoading();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    const handleListPageSizeChange = (_, size) => {
+      setListPage(1);
+      setListPageSize(Number(size) || LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
+      startListPageLoading();
+    };
+    const loadNextGridPage = React5.useCallback(() => {
+      if (!hasMoreGridRecords || gridAutoLoadLockedRef.current) {
+        return;
+      }
+      gridAutoLoadLockedRef.current = true;
+      setGridPage((page) => Math.min(page + 1, maxGridPage));
+      startGridPageLoading();
+    }, [hasMoreGridRecords, maxGridPage, startGridPageLoading]);
+    const loadNextListPage = React5.useCallback(() => {
+      if (!hasMoreListRecords || listAutoLoadLockedRef.current) {
+        return;
+      }
+      listAutoLoadLockedRef.current = true;
+      setListPage((page) => Math.min(page + 1, maxListPage));
+      startListPageLoading();
+    }, [hasMoreListRecords, maxListPage, startListPageLoading]);
+    React5.useEffect(() => {
+      if (viewMode !== "grid" || !hasMoreGridRecords || selectedRecord) {
+        return void 0;
+      }
+      const sentinel = gridAutoLoadSentinelRef.current;
+      if (!sentinel || !window.IntersectionObserver) {
+        return void 0;
+      }
+      const observer = new window.IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextGridPage();
+        }
+      }, { root: null, rootMargin: "420px 0px", threshold: 0.01 });
+      observer.observe(sentinel);
+      return () => observer.disconnect();
+    }, [viewMode, hasMoreGridRecords, selectedRecord, loadNextGridPage]);
+    React5.useEffect(() => {
+      if (viewMode !== "list" || !hasMoreListRecords || selectedRecord) {
+        return void 0;
+      }
+      const sentinel = listAutoLoadSentinelRef.current;
+      if (!sentinel || !window.IntersectionObserver) {
+        return void 0;
+      }
+      const observer = new window.IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadNextListPage();
+        }
+      }, { root: null, rootMargin: "420px 0px", threshold: 0.01 });
+      observer.observe(sentinel);
+      return () => observer.disconnect();
+    }, [viewMode, hasMoreListRecords, selectedRecord, loadNextListPage]);
     const handleKeywordSearch = () => {
       setFilters((prev) => ({ ...prev, keyword: keywordDraft.trim() }));
     };
     const handleKeywordClear = () => {
       setKeywordDraft("");
       setFilters((prev) => ({ ...prev, keyword: "" }));
+    };
+    const handleLibraryThemeChange = (nextTheme) => {
+      const normalizedTheme = normalizeLocalLibraryTheme(nextTheme);
+      setLibraryTheme(normalizedTheme);
+      saveLocalLibraryTheme(nextTheme);
     };
     const clearFilters = () => {
       setKeywordDraft("");
@@ -3535,6 +3694,16 @@ ${record.full_text || ""}`.toLowerCase();
       }
       return /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true }, values.map((value) => filterKey ? renderFilterTag(filterKey, value, color) : /* @__PURE__ */ React5.createElement(Tag4, { color, key: value }, value)));
     };
+    const renderAutoLoadFooter = ({ visibleCount, total, hasMore, loading: footerLoading, onLoadMore, sentinelRef }) => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-auto-load-footer", ref: sentinelRef, "aria-live": "polite" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5DF2\u663E\u793A ", visibleCount, " / ", total), hasMore ? /* @__PURE__ */ React5.createElement(
+      Button5,
+      {
+        size: "small",
+        icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ReloadOutlined3 }),
+        loading: footerLoading,
+        onClick: onLoadMore
+      },
+      "\u52A0\u8F7D\u66F4\u591A"
+    ) : /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5DF2\u5168\u90E8\u663E\u793A"));
     const renderActorList = (record, variant = "compact") => {
       const actors2 = normalizeActors(record);
       if (!actors2.length) {
@@ -3733,7 +3902,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     if (selectedRecord) {
       const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
       const previewBackdropStyle = previewBackdropSource ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` } : void 0;
-      return /* @__PURE__ */ React5.createElement("div", { className: "jav-local-scrape jav-library-page is-previewing" }, /* @__PURE__ */ React5.createElement(
+      return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement(
         "div",
         {
           className: "jav-library-preview-backdrop",
@@ -3751,9 +3920,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           },
           renderRecordPreview()
         )
-      ));
+      )));
     }
-    return /* @__PURE__ */ React5.createElement("div", { className: "jav-local-scrape jav-library-page" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
+    return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
       Input5,
       {
         allowClear: true,
@@ -3781,6 +3950,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         onChange: setSortRule,
         options: LOCAL_LIBRARY_SORT_OPTIONS,
         "aria-label": "\u5F71\u89C6\u5E93\u6392\u5E8F"
+      }
+    ), /* @__PURE__ */ React5.createElement(
+      Segmented,
+      {
+        className: "jav-library-theme-toggle",
+        value: libraryTheme,
+        onChange: handleLibraryThemeChange,
+        options: LOCAL_LIBRARY_THEME_OPTIONS
       }
     ), viewMode !== "actors" && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-size-control" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5927\u5C0F"), /* @__PURE__ */ React5.createElement(
       Slider,
@@ -3819,7 +3996,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         message: `\u4FE1\u606F\u68C0\u67E5\uFF1A\u5B8C\u6574 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`,
         description: informationCheck.incomplete_count > 0 ? `\u7F3A\u5931 ${informationCheck.incomplete_count} \u90E8\uFF0C\u53EF\u5728\u201C\u68C0\u67E5\u4FE1\u606F\u201D\u7A97\u53E3\u4E2D\u4E0B\u8F7D\u7F3A\u5931\u4FE1\u606F\u3002` : "\u5F53\u524D\u5DF2\u5165\u5E93\u5F71\u7247\u4FE1\u606F\u548C\u672C\u5730\u8D44\u6599\u5B8C\u6574\u3002"
       }
-    ), /* @__PURE__ */ React5.createElement(Divider2, { className: "jav-section-divider" }), viewMode === "actors" ? renderActorLibraryView() : viewMode === "grid" ? sortedRecords.length ? /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-grid-toolbar" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, gridStartIndex + 1, "-", Math.min(gridStartIndex + LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length), " / ", sortedRecords.length), /* @__PURE__ */ React5.createElement(
+    ), /* @__PURE__ */ React5.createElement(Divider2, { className: "jav-section-divider" }), viewMode === "actors" ? renderActorLibraryView() : viewMode === "grid" ? sortedRecords.length ? /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-grid-toolbar" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, gridVisibleCount > 0 ? `1-${gridVisibleCount}` : 0, " / ", sortedRecords.length), /* @__PURE__ */ React5.createElement(
       Pagination,
       {
         current: gridPage,
@@ -3883,42 +4060,56 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         showSizeChanger: false,
         onChange: handleGridPageChange
       }
-    )) : /* @__PURE__ */ React5.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React5.createElement(
+    ), renderAutoLoadFooter({
+      visibleCount: gridVisibleCount,
+      total: sortedRecords.length,
+      hasMore: hasMoreGridRecords,
+      loading: gridPageLoading,
+      onLoadMore: loadNextGridPage,
+      sentinelRef: gridAutoLoadSentinelRef
+    })) : /* @__PURE__ */ React5.createElement("div", { className: "jav-state-panel jav-library-empty-state" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55")) : /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(
       Table4,
       {
         rowKey: "movie_id",
         size: "small",
-        dataSource: sortedRecords,
+        dataSource: visibleListRecords,
         columns,
         loading,
-        pagination: {
-          current: listPage,
-          pageSize: listPageSize,
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 30, 50, 100],
-          showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
-          onShowSizeChange: (_, size) => {
-            setListPage(1);
-            setListPageSize(size);
-          },
-          onChange: (page, size) => {
-            setListPage(page);
-            setListPageSize(size);
-          }
-        },
+        pagination: false,
         onRow: (record) => ({
           onClick: () => openRecordPreview(record)
         }),
         locale: { emptyText: "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55" }
       }
-    ), /* @__PURE__ */ React5.createElement(
+    ), sortedRecords.length > 0 && /* @__PURE__ */ React5.createElement(React5.Fragment, null, /* @__PURE__ */ React5.createElement(
+      Pagination,
+      {
+        className: "jav-library-list-pagination-bottom",
+        current: listPage,
+        pageSize: listPageSize,
+        total: sortedRecords.length,
+        showSizeChanger: true,
+        pageSizeOptions: [10, 20, 30, 50, 100],
+        showTotal: (total) => `${listVisibleCount} / ${total}`,
+        onShowSizeChange: handleListPageSizeChange,
+        onChange: handleListPageChange
+      }
+    ), renderAutoLoadFooter({
+      visibleCount: listVisibleCount,
+      total: sortedRecords.length,
+      hasMore: hasMoreListRecords,
+      loading: listPageLoading,
+      onLoadMore: loadNextListPage,
+      sentinelRef: listAutoLoadSentinelRef
+    }))), /* @__PURE__ */ React5.createElement(
       Drawer2,
       {
         title: "\u68C0\u67E5\u4FE1\u606F",
         placement: "right",
         width: 460,
         open: informationCheckOpen,
-        onClose: () => setInformationCheckOpen(false)
+        onClose: () => setInformationCheckOpen(false),
+        rootClassName: isDarkMode ? "jav-library-dark-surface" : ""
       },
       /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u5148\u8BBE\u7F6E\u672C\u6B21\u68C0\u67E5\u6807\u51C6\uFF0C\u518D\u5F00\u59CB\u68C0\u67E5\u3002\u9ED8\u8BA4\u68C0\u67E5\u5168\u90E8\u4FE1\u606F\u9879\uFF0C\u4FDD\u5B58\u540E\u4E0B\u6B21\u4F1A\u81EA\u52A8\u6CBF\u7528\u3002")),
       /* @__PURE__ */ React5.createElement(
@@ -3999,11 +4190,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         width: 420,
         open: filterOpen,
         onClose: () => setFilterOpen(false),
+        rootClassName: isDarkMode ? "jav-library-dark-surface" : "",
         extra: /* @__PURE__ */ React5.createElement(Button5, { type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")
       },
       /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u540C\u4E00\u5B57\u6BB5\u5185\u4E3A\u201C\u4EFB\u4E00\u5339\u914D\u201D\uFF0C\u4E0D\u540C\u5B57\u6BB5\u4E4B\u95F4\u4E3A\u201C\u540C\u65F6\u6EE1\u8DB3\u201D\u3002")),
       /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filters" }, filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
-    ))));
+    )))));
   }
 
   // frontend/src/components/SettingsPage.jsx
@@ -5452,6 +5644,57 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     )))));
   }
 
+  // frontend/src/utils/historyRedispatch.mjs
+  var normalizeSource = (source, fallbackSource = "") => {
+    const value = String(source || "").trim().toLowerCase();
+    return value || String(fallbackSource || "").trim().toLowerCase();
+  };
+  var normalizeLink = (link) => String(link || "").trim();
+  var selectHistoryRedispatchResource = (record, fallbackSource = "") => {
+    const resources = Array.isArray(record?.download_resources) ? record.download_resources : [];
+    for (let index = resources.length - 1; index >= 0; index -= 1) {
+      const resource = resources[index];
+      const link = normalizeLink(resource?.link || resource?.magnet || resource?.download_link || resource?.magnet_link);
+      if (link) {
+        return {
+          link,
+          source: normalizeSource(resource?.source || resource?.magnet_source || resource?.download_source, fallbackSource)
+        };
+      }
+    }
+    const links = Array.isArray(record?.download_links) ? record.download_links : [];
+    for (let index = links.length - 1; index >= 0; index -= 1) {
+      const link = normalizeLink(links[index]);
+      if (link) {
+        return {
+          link,
+          source: normalizeSource(record?.source || record?.magnet_source || record?.download_source, fallbackSource)
+        };
+      }
+    }
+    const singleLink = normalizeLink(record?.download_link || record?.magnet_link || record?.link || record?.magnet);
+    if (singleLink) {
+      return {
+        link: singleLink,
+        source: normalizeSource(record?.source || record?.magnet_source || record?.download_source, fallbackSource)
+      };
+    }
+    return null;
+  };
+  var buildHistoryRedispatchPayload = (records, fallbackSource = "") => {
+    return (Array.isArray(records) ? records : []).filter((record) => record?.needs_reselect && record?.movie_id).map((record) => {
+      const resource = selectHistoryRedispatchResource(record, fallbackSource);
+      if (!resource?.link) {
+        return null;
+      }
+      return {
+        link: resource.link,
+        movie_id: String(record.movie_id || "").trim(),
+        source: resource.source || normalizeSource("", fallbackSource)
+      };
+    }).filter(Boolean);
+  };
+
   // frontend/src/utils/magnets.mjs
   var buildMagnetDataMapFromResults = (magnetResults = [], movies = []) => {
     const nextMap = {};
@@ -5500,7 +5743,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     Divider: Divider5,
     List: List4,
     Tag: Tag7,
-    ConfigProvider,
+    ConfigProvider: ConfigProvider2,
     Segmented: Segmented2,
     Popconfirm: Popconfirm6
   } = antd8;
@@ -6541,17 +6784,91 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         setLoading(false);
       }
     };
+    const fetchHistoryFallbackMagnet = async (record, fallbackSource) => {
+      const movieId = String(record?.movie_id || "").trim();
+      if (!movieId) {
+        return null;
+      }
+      const { exclude4k } = getMagnetSettings();
+      const source = fallbackSource || currentMagnetSource || "javbus";
+      const queryParams = new URLSearchParams();
+      queryParams.append("source", source);
+      queryParams.append("sortBy", "size");
+      queryParams.append("sortOrder", "desc");
+      if (exclude4k) {
+        queryParams.append("exclude4k", "true");
+      }
+      const hasSubtitle = filterForm.getFieldValue("hasSubtitle");
+      if (hasSubtitle) {
+        queryParams.append("hasSubtitle", hasSubtitle);
+      }
+      const data = await fetchWithRetry(`/api/magnets/${encodeURIComponent(movieId)}?${queryParams.toString()}`);
+      const candidates = Array.isArray(data) ? data : [];
+      const best = candidates.find((item) => item?.link);
+      if (!best) {
+        return null;
+      }
+      return {
+        link: best.link,
+        movie_id: movieId,
+        source: best.source || source
+      };
+    };
     const handleCheckHistoryLocalLibrary = async () => {
       setCheckingHistoryLibrary(true);
+      const messageKey = "history-library-check";
       try {
         const response = await fetch("/api/history/check-local-library", { method: "POST" });
         const result = await response.json();
         if (result.success) {
-          setHistoryData(result.records || []);
-          if (result.missing_count > 0) {
-            message8.warning(result.message || `\u53D1\u73B0 ${result.missing_count} \u6761\u5386\u53F2\u8BB0\u5F55\u672A\u8FDB\u5165\u5F71\u89C6\u5E93`);
-          } else {
+          const checkedRecords = result.records || [];
+          const missingRecords = result.missing_records || checkedRecords.filter((record) => record.needs_reselect);
+          setHistoryData(checkedRecords);
+          if (missingRecords.length === 0) {
             message8.success(result.message || "\u5386\u53F2\u8BB0\u5F55\u5747\u5DF2\u5165\u5E93");
+            return;
+          }
+          if (!await isDownloadToolReady(downloadTool)) {
+            message8.warning(`\u53D1\u73B0 ${missingRecords.length} \u6761\u5386\u53F2\u8BB0\u5F55\u672A\u8FDB\u5165\u5F71\u89C6\u5E93\uFF0C\u8BF7\u5148\u51C6\u5907\u4E0B\u8F7D\u5DE5\u5177\u540E\u518D\u91CD\u65B0\u4E0B\u8F7D`);
+            return;
+          }
+          const { magnetSource } = getMagnetSettings();
+          const attemptedPayload = buildHistoryRedispatchPayload(missingRecords, magnetSource);
+          const attemptedMovieIds = new Set(attemptedPayload.map((item) => item.movie_id));
+          const recordsWithoutLinks = missingRecords.filter((record) => !attemptedMovieIds.has(String(record.movie_id || "").trim()));
+          const fallbackPayload = [];
+          const fallbackFailures = [];
+          await runWithConcurrency(recordsWithoutLinks, RESOURCE_REQUEST_CONCURRENCY, async (record) => {
+            try {
+              const fallback = await fetchHistoryFallbackMagnet(record, magnetSource);
+              if (fallback) {
+                fallbackPayload.push(fallback);
+              } else {
+                fallbackFailures.push(record.movie_id);
+              }
+            } catch (error) {
+              fallbackFailures.push(record.movie_id);
+            }
+          });
+          const redispatchPayload = [...attemptedPayload, ...fallbackPayload];
+          if (redispatchPayload.length === 0) {
+            message8.warning("\u672A\u627E\u5230\u53EF\u91CD\u65B0\u6D3E\u53D1\u7684\u78C1\u529B\u94FE\u63A5");
+            return;
+          }
+          message8.loading({ key: messageKey, content: `\u6B63\u5728\u91CD\u65B0\u6D3E\u53D1 ${redispatchPayload.length} \u4E2A\u672A\u5165\u5E93\u5F71\u7247...` });
+          const dispatchResult = await dispatchMagnetDownloads(redispatchPayload, downloadTool);
+          const dispatchResults = Array.isArray(dispatchResult?.results) ? dispatchResult.results : [];
+          const successCount = Number.isFinite(Number(dispatchResult?.success_count)) ? Number(dispatchResult.success_count) : dispatchResults.filter((item) => item?.success).length;
+          const skippedCount = Number.isFinite(Number(dispatchResult?.skipped_count)) ? Number(dispatchResult.skipped_count) : dispatchResults.filter((item) => item?.skipped).length;
+          if (successCount > 0) {
+            message8.success({ key: messageKey, content: `\u5DF2\u81EA\u52A8\u91CD\u65B0\u6D3E\u53D1 ${successCount}/${missingRecords.length} \u4E2A\u672A\u5165\u5E93\u5F71\u7247` });
+          } else if (skippedCount > 0) {
+            message8.warning({ key: messageKey, content: `\u672A\u6D3E\u53D1\u65B0\u4EFB\u52A1\uFF0C${skippedCount} \u4E2A\u5F71\u7247\u88AB\u8DF3\u8FC7` });
+          } else {
+            message8.error({ key: messageKey, content: dispatchResult?.message || "\u672A\u80FD\u91CD\u65B0\u6D3E\u53D1\u4E0B\u8F7D\u4EFB\u52A1" });
+          }
+          if (fallbackFailures.length > 0) {
+            message8.warning(`\u6709 ${fallbackFailures.length} \u4E2A\u5F71\u7247\u672A\u627E\u5230\u53EF\u66FF\u6362\u78C1\u529B`);
           }
         } else {
           message8.error("\u6838\u5BF9\u5165\u5E93\u72B6\u6001\u5931\u8D25: " + (result.message || "\u672A\u77E5\u9519\u8BEF"));
@@ -6647,7 +6964,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           loading: checkingHistoryLibrary,
           onClick: handleCheckHistoryLocalLibrary
         },
-        "\u6838\u5BF9\u5165\u5E93\u72B6\u6001"
+        "\u6838\u5BF9\u5E76\u91CD\u65B0\u4E0B\u8F7D"
       ), /* @__PURE__ */ React8.createElement(
         Popconfirm6,
         {
@@ -6683,7 +7000,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
                   return /* @__PURE__ */ React8.createElement(Tag7, { color: "purple" }, "\u5DF2\u5165\u5E93");
                 }
                 if (record.needs_reselect) {
-                  return /* @__PURE__ */ React8.createElement(Tag7, { color: "orange" }, "\u672A\u5165\u5E93\uFF0C\u9700\u91CD\u9009\u94FE\u63A5");
+                  return /* @__PURE__ */ React8.createElement(Tag7, { color: "orange" }, "\u672A\u5165\u5E93\uFF0C\u9700\u91CD\u65B0\u4E0B\u8F7D");
                 }
                 return /* @__PURE__ */ React8.createElement(Tag7, null, "\u672A\u6838\u5BF9");
               }
@@ -6734,7 +7051,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               render: (_, record) => /* @__PURE__ */ React8.createElement(Button8, { type: "primary", size: "small", onClick: () => {
                 setViewMode("search");
                 searchMovie({ keyword: record.movie_id });
-              } }, record.needs_reselect ? "\u91CD\u65B0\u67E5\u627E" : "\u8BE6\u60C5\u641C\u7D22")
+              } }, record.needs_reselect ? "\u624B\u52A8\u67E5\u627E" : "\u8BE6\u60C5\u641C\u7D22")
             }
           ]
         }
@@ -6867,7 +7184,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       return /* @__PURE__ */ React8.createElement(Layout3, { className: "jav-workspace jav-page-workspace" }, /* @__PURE__ */ React8.createElement(Content3, { className: "jav-content jav-page-content" }, /* @__PURE__ */ React8.createElement("section", { className: "jav-results-panel jav-page-panel" }, pageContent)));
     };
     return /* @__PURE__ */ React8.createElement(
-      ConfigProvider,
+      ConfigProvider2,
       {
         theme: {
           token: {
