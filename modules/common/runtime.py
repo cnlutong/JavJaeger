@@ -11,6 +11,8 @@ from fastapi.templating import Jinja2Templates
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ACTOR_IMAGE_DIRECTORY = "data/actor_images"
+
 SCRAPER_PROVIDER_NAMES = [
     "javbus",
     "r18dev",
@@ -107,6 +109,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "min_score": 1.0,
         "probe_timeout_seconds": 20.0,
         "allow_unknown": True,
+    },
+    "local_library": {
+        "directories": [],
+        "ignored_paths": [],
+        "actor_image_directory": DEFAULT_ACTOR_IMAGE_DIRECTORY,
     },
 }
 
@@ -271,6 +278,18 @@ def get_pan115_config() -> dict[str, Any]:
 
 def get_magnet_health_config() -> dict[str, Any]:
     return copy.deepcopy(config.get("magnet_health", DEFAULT_CONFIG["magnet_health"]))
+
+
+def get_local_library_config() -> dict[str, Any]:
+    return copy.deepcopy(config.get("local_library", DEFAULT_CONFIG["local_library"]))
+
+
+def get_actor_image_directory() -> str:
+    env_path = os.getenv("JAVJAEGER_ACTOR_IMAGE_DIR")
+    if env_path:
+        return env_path
+    local_library_config = get_local_library_config()
+    return str(local_library_config.get("actor_image_directory") or DEFAULT_ACTOR_IMAGE_DIRECTORY)
 
 
 def get_javbus_config() -> dict[str, Any]:

@@ -2795,6 +2795,181 @@ def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
     assert record["media_info"]["container"] == "matroska"
 
 
+def test_local_library_scan_defaults_to_direct_import_without_metadata_scrape(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    async def fail_metadata_fetch(movie_ids, concurrent):
+        raise AssertionError("default local library scan should not scrape metadata")
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", lambda path: {})
+    monkeypatch.setattr(movies_local_library, "_scrape_metadata", fail_metadata_fetch)
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path))
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+
+    assert payload["success"] is True
+    assert payload["scraped_movie_count"] == 0
+    assert summary["records"][0]["scrape_status"] == "skipped"
+
+
+def test_local_library_scan_can_regularize_actor_avatars_and_duplicate_files(tmp_path, monkeypatch):
+    root = tmp_path / "media"
+    duplicate_dir = root / "copy"
+    old_actor_dir = root / "actors"
+    actor_image_dir = tmp_path / "actor_images"
+    root.mkdir()
+    duplicate_dir.mkdir()
+    old_actor_dir.mkdir()
+    kept_video = root / "ABP-123.mp4"
+    duplicate_video = duplicate_dir / "ABP-123 duplicate.mp4"
+    old_avatar = old_actor_dir / "Actor_One.jpg"
+    kept_video.write_bytes(b"same-video")
+    duplicate_video.write_bytes(b"same-video")
+    old_avatar.write_bytes(b"avatar")
+    actor_service = local_actor_library_service.__class__(
+        str(tmp_path / "actors.json"),
+        str(actor_image_dir),
+    )
+    service = local_movie_library_service.__class__(
+        str(tmp_path / "library.json"),
+        actor_library_service=actor_service,
+    )
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", lambda path: {})
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(
+                directory=str(root),
+                scrape=False,
+                regularize_files=True,
+            )
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+
+    assert payload["success"] is True
+    assert payload["regularized_actor_avatar_count"] == 1
+    assert payload["deleted_duplicate_file_count"] == 1
+    assert old_avatar.exists() is False
+    assert (actor_image_dir / "Actor_One.jpg").read_bytes() == b"avatar"
+    assert duplicate_video.exists() is False
+    assert kept_video.exists() is True
+    assert summary["total_files"] == 1
+    assert summary["records"][0]["files"][0]["path"] == str(kept_video.resolve())
+
+
+def test_local_library_scan_accepts_multiple_directories(tmp_path, monkeypatch):
+    first_root = tmp_path / "disk-a"
+    second_root = tmp_path / "disk-b"
+    first_root.mkdir()
+    second_root.mkdir()
+    first_video = first_root / "ABP-123.mp4"
+    second_video = second_root / "IPX-456.mp4"
+    first_video.write_bytes(b"first")
+    second_video.write_bytes(b"second")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", lambda path: {})
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(
+                directories=[str(first_root), str(second_root)],
+                scrape=False,
+            )
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+    records_by_id = {record["movie_id"]: record for record in summary["records"]}
+
+    assert payload["success"] is True
+    assert payload["scan_count"] == 2
+    assert payload["failed_count"] == 0
+    assert payload["directories"] == [str(first_root.resolve()), str(second_root.resolve())]
+    assert payload["scanned_files"] == 2
+    assert set(records_by_id) == {"ABP-123", "IPX-456"}
+    assert records_by_id["ABP-123"]["scan_roots"] == [str(first_root.resolve())]
+    assert records_by_id["IPX-456"]["scan_roots"] == [str(second_root.resolve())]
+
+    first_video.unlink()
+    asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(
+                directories=[str(first_root)],
+                scrape=False,
+                remove_missing=True,
+            )
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+    records_by_id = {record["movie_id"]: record for record in summary["records"]}
+
+    assert set(records_by_id) == {"IPX-456"}
+    assert records_by_id["IPX-456"]["scan_roots"] == [str(second_root.resolve())]
+
+
+def test_local_library_settings_persist_and_scan_respects_ignored_paths(tmp_path, monkeypatch):
+    root = tmp_path / "media"
+    ignored = root / "ignore"
+    root.mkdir()
+    ignored.mkdir()
+    kept_video = root / "ABP-123.mp4"
+    ignored_video = ignored / "IPX-456.mp4"
+    kept_video.write_bytes(b"kept")
+    ignored_video.write_bytes(b"ignored")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+    config_path = tmp_path / "config.json"
+
+    monkeypatch.setattr(runtime, "CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(runtime, "config", runtime.merge_config(runtime.DEFAULT_CONFIG, {}))
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", lambda path: {})
+    client = TestClient(main.app)
+
+    settings_response = client.put(
+        "/api/movies/local-library/settings",
+        json={
+            "directories": [str(root), str(root), " "],
+            "ignored_paths": [str(ignored), str(ignored), ""],
+        },
+    )
+
+    assert settings_response.status_code == 200
+    settings = settings_response.json()
+    assert settings["success"] is True
+    assert settings["directories"] == [str(root)]
+    assert settings["ignored_paths"] == [str(ignored)]
+    saved_config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved_config["local_library"]["directories"] == [str(root)]
+    assert saved_config["local_library"]["ignored_paths"] == [str(ignored)]
+
+    get_response = client.get("/api/movies/local-library/settings")
+    assert get_response.status_code == 200
+    assert get_response.json()["directories"] == [str(root)]
+
+    scan_response = client.post("/api/movies/local-library/scan", json={"scrape": False})
+    summary = asyncio.run(service.get_summary())
+    records_by_id = {record["movie_id"]: record for record in summary["records"]}
+
+    assert scan_response.status_code == 200
+    payload = scan_response.json()
+    assert payload["success"] is True
+    assert payload["directory"] == str(root.resolve())
+    assert payload["scanned_files"] == 1
+    assert set(records_by_id) == {"ABP-123"}
+    assert records_by_id["ABP-123"]["files"][0]["path"] == str(kept_video.resolve())
+
+
 def test_local_library_information_download_refreshes_video_media_metadata(tmp_path, monkeypatch):
     video = tmp_path / "ABP-123.mp4"
     video.write_bytes(b"video")
@@ -3481,6 +3656,11 @@ def test_local_scrape_downloads_actor_avatars_and_list_thumbnail_options(tmp_pat
 
     monkeypatch.setattr(local_scrape, "_download_image", fake_download)
     monkeypatch.setattr(local_scrape.javbus_api_service, "get_star_info", fake_star_info)
+    actor_service = local_actor_library_service.__class__(
+        str(tmp_path / "actors.json"),
+        str(tmp_path / "actor_images"),
+    )
+    monkeypatch.setattr(local_scrape, "local_actor_library_service", actor_service)
 
     video = tmp_path / "ABP-123 Sample.mp4"
     metadata = local_scrape._build_metadata(
@@ -3501,13 +3681,18 @@ def test_local_scrape_downloads_actor_avatars_and_list_thumbnail_options(tmp_pat
     thumbnail_name = asyncio.run(local_scrape._write_list_thumbnail(video, metadata, overwrite=True))
 
     assert actor_names == [
-        str(Path("actors") / "Actor One.jpg"),
-        str(Path("actors") / "Actor_Two.jpg"),
+        str(tmp_path / "actor_images" / "star-a.jpg"),
+        str(tmp_path / "actor_images" / "star-b.jpg"),
     ]
     assert thumbnail_name == "ABP-123 Sample-thumb.jpg"
-    assert (tmp_path / "actors" / "Actor One.jpg").exists()
-    assert (tmp_path / "actors" / "Actor_Two.jpg").exists()
+    assert (tmp_path / "actor_images" / "star-a.jpg").exists()
+    assert (tmp_path / "actor_images" / "star-b.jpg").exists()
     assert (tmp_path / "ABP-123 Sample-thumb.jpg").exists()
+    assert (
+        "https://www.javbus.com/pics/actress/star-a.jpg",
+        Path("actor_images") / "star-a.jpg",
+        True,
+    ) in downloaded
     assert (
         "https://www.javbus.com/pics/thumb/abp.jpg",
         Path("ABP-123 Sample-thumb.jpg"),
@@ -3534,6 +3719,11 @@ def test_local_scrape_rebuilt_preview_metadata_keeps_actor_refs_for_avatar_downl
 
     monkeypatch.setattr(local_scrape, "_download_image", fake_download)
     monkeypatch.setattr(local_scrape.javbus_api_service, "get_star_info", fake_star_info)
+    actor_service = local_actor_library_service.__class__(
+        str(tmp_path / "actors.json"),
+        str(tmp_path / "actor_images"),
+    )
+    monkeypatch.setattr(local_scrape, "local_actor_library_service", actor_service)
 
     video = tmp_path / "ABP-123 Sample.mp4"
     preview_metadata = local_scrape._build_metadata(
@@ -3551,10 +3741,10 @@ def test_local_scrape_rebuilt_preview_metadata_keeps_actor_refs_for_avatar_downl
 
     assert apply_metadata["actor_refs"] == [{"id": "star-a", "name": "Actor One"}]
     assert fetched_star_ids == ["star-a"]
-    assert actor_names == [str(Path("actors") / "Actor One.jpg")]
+    assert actor_names == [str(tmp_path / "actor_images" / "star-a.jpg")]
     assert (
         "https://www.javbus.com/pics/actress/star-a.jpg",
-        Path("actors") / "Actor One.jpg",
+        Path("actor_images") / "star-a.jpg",
         True,
     ) in downloaded
 
@@ -3859,7 +4049,49 @@ def test_local_library_delete_movie_removes_only_requested_record(tmp_path):
     assert second_video.exists()
 
 
-def test_local_library_actor_avatar_path_comes_from_movie_actor_directory(tmp_path):
+def test_local_library_actor_avatar_path_comes_from_shared_actor_directory(tmp_path):
+    video = tmp_path / "ABP-123 Sample.mp4"
+    actor_dir = tmp_path / "actor_images"
+    actor_avatar = actor_dir / "star-a.jpg"
+    video.write_bytes(b"video")
+    actor_dir.mkdir()
+    actor_avatar.write_bytes(b"avatar")
+
+    async def exercise():
+        actor_service = local_actor_library_service.__class__(
+            str(tmp_path / "actors.json"),
+            str(actor_dir),
+        )
+        service = local_movie_library_service.__class__(
+            str(tmp_path / "library.json"),
+            actor_library_service=actor_service,
+        )
+        await service.update_from_scan(
+            str(tmp_path),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": video.name,
+                    "file_name": video.name,
+                    "size": 123,
+                    "metadata": {
+                        "id": "ABP-123",
+                        "title": "ABP-123 Sample",
+                        "actor_refs": [{"id": "star-a", "name": "Actor/Two"}],
+                        "stars": ["Actor/Two"],
+                    },
+                    "scrape_status": "found",
+                    "full_text": "ABP-123 Actor/Two",
+                }
+            ],
+        )
+        return await service.get_actor_avatar_path("ABP-123", "Actor/Two")
+
+    assert asyncio.run(exercise()) == actor_avatar.resolve()
+
+
+def test_local_library_actor_avatar_path_falls_back_to_movie_actor_directory(tmp_path):
     video = tmp_path / "ABP-123 Sample.mp4"
     actor_dir = tmp_path / "actors"
     actor_avatar = actor_dir / "Actor_Two.jpg"

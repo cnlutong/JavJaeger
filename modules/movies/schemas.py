@@ -78,12 +78,20 @@ class LocalScrapeDeleteRequest(BaseModel):
 
 
 class LocalLibraryScanRequest(BaseModel):
-    directory: str
+    directory: Optional[str] = None
+    directories: Optional[list[str]] = None
+    ignored_paths: Optional[list[str]] = None
     recursive: bool = True
     max_depth: Optional[int] = None
     remove_missing: bool = True
-    scrape: bool = True
+    scrape: bool = False
+    regularize_files: bool = False
     concurrent: int = 3
+
+
+class LocalLibrarySettingsRequest(BaseModel):
+    directories: Optional[list[str]] = None
+    ignored_paths: Optional[list[str]] = None
 
 
 class LocalLibraryInformationDownloadRequest(BaseModel):

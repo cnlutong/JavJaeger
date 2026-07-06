@@ -179,6 +179,11 @@ Copy-Item config.example.json config.json
     "min_score": 1.0,
     "probe_timeout_seconds": 20.0,
     "allow_unknown": true
+  },
+  "local_library": {
+    "directories": ["/app/data"],
+    "ignored_paths": [],
+    "actor_image_directory": "data/actor_images"
   }
 }
 ```
@@ -191,6 +196,8 @@ Copy-Item config.example.json config.json
 - `webdav.auto_connect` 和 `aria2.auto_connect` 会在页面加载后尝试使用服务端配置连接。
 - `pikpak.auto_login` 会在页面加载后尝试使用服务端配置登录。
 - `magnet_health.enabled` 会在最佳磁力派发前按阈值剔除低健康度候选；`probe_with_aria2` 启用后会使用已配置 Aria2 做 metadata-only 探测并自动清理探测任务。
+- `local_library.directories` 和 `local_library.ignored_paths` 会由影视库页面的“路径配置”保存；Docker 中必须填写容器内可见路径。
+- `local_library.actor_image_directory` 保存演员头像；Docker 默认用 `JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images` 指向单独挂载目录。
 - `/api/client-config` 只返回前端需要的脱敏默认值，不返回密码和 RPC secret。
 
 `scrapers.priority` 控制本地刮削的元数据 provider 顺序。配置结构参考 javinizer-go 的多 scraper 设计；当前 JavJaeger 已接入全部内置 provider：JavBus、R18.dev、DMM、LibreDMM、JAVLibrary、JavDB、JAV321、MGStage、TokyoHot、AVEntertainment、DLGetchu、Caribbeancom、FC2 和 JavStash。默认启用本环境实测可用的 JavBus、LibreDMM、JAV321、TokyoHot、DLGetchu 和 FC2；JavStash 需要配置 `api_key`，部分站点仍可能因地区、Cloudflare 或年龄验证拦截而在运行时不可达。
@@ -203,6 +210,7 @@ Copy-Item config.example.json config.json
 | --- | --- |
 | `APP_SESSION_SECRET` | 覆盖 `config.session_secret` |
 | `JAVJAEGER_CONFIG_PATH` | 指定配置文件路径，默认 `config.json` |
+| `JAVJAEGER_ACTOR_IMAGE_DIR` | 覆盖演员头像目录，Docker 默认 `/app/actor_images` |
 | `JAVBUS_BASE_URL` | 覆盖 JavBus 站点地址 |
 | `JAVBUS_PROXY` | 给内置 JavBus provider 配置代理 |
 | `JAVBUS_REQUEST_INTERVAL_SECONDS` | 覆盖 JavBus 请求间隔，`0` 表示关闭限流 |
@@ -216,6 +224,7 @@ Docker compose 示例：
 environment:
   - APP_SESSION_SECRET=change-this-session-secret
   - JAVJAEGER_CONFIG_PATH=/app/data/config.json
+  - JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images
   # - JAVBUS_PROXY=http://127.0.0.1:7890
 ```
 
@@ -226,6 +235,7 @@ environment:
   - JAVJAEGER_CONFIG_PATH=/app/data/config.json
 volumes:
   - ./data:/app/data
+  - ./actor_images:/app/actor_images
 ```
 
 设置页会写入 `JAVJAEGER_CONFIG_PATH` 指向的文件。不要把该文件以只读方式挂载，否则保存设置和按测试结果启停刮削源会失败。
@@ -239,7 +249,7 @@ volumes:
 | `data/downloaded_movies.json` | 下载历史和已尝试资源链接，包含资源来源 |
 | `data/local_movie_library.json` | 本地影片库索引 |
 | `data/local_actor_library.json` | 本地演员信息库索引 |
-| `data/actor_images/` | 本地演员头像文件 |
+| `data/actor_images/` 或 Docker 默认 `/app/actor_images/` | 本地演员头像文件，独立于影视库扫描路径 |
 | `data/automation_tasks.json` | 自动化任务和运行记录 |
 | `data/config.json` | Docker 默认可写运行配置 |
 
@@ -281,6 +291,7 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 - Docker 运行：填写容器内路径，例如把宿主机目录挂载到 `/media/JAV` 后，在页面中填写 `/media/JAV`
 
 如果服务端运行在 Docker 或 Linux 中，不能直接填写宿主机 Windows 路径，除非该路径已经通过 volume、SMB、NFS 或 WSL 等方式挂载到服务端可见的位置。
+影视库页面支持在“路径配置”中一次保存多个服务端可访问路径和多个忽略路径；点击“保存并扫描”会先写入 `config.json`，再用当前路径配置扫描入库。后端会按路径分别记录 `scan_root`，重新扫描某一个路径并启用“移除缺失文件”时，只会清理该路径下已经不存在的旧文件记录，不会删除其他数据源路径的记录。忽略路径可以是绝对路径，也可以是相对每个扫描根目录的路径，例如 `cache` 或 `sample`。演员头像不跟随这些数据源路径，始终写入 `local_library.actor_image_directory` 或 `JAVJAEGER_ACTOR_IMAGE_DIR` 指向的目录；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到该目录，并删除内容完全相同的重复视频文件。
 历史记录页可核对下载历史中的影片是否已经进入本地影片库；未入库记录会保留旧资源链接作为“已尝试”链接，并可一键自动重新选择可替换磁力后派发到当前下载工具。
 
 ### 自动模式
@@ -313,7 +324,9 @@ POST   /api/movies/recognize
 POST   /api/movies/download-by-codes
 
 GET    /api/movies/local-library
-POST   /api/movies/local-library/scan
+GET    /api/movies/local-library/settings
+PUT    /api/movies/local-library/settings
+POST   /api/movies/local-library/scan  # body 支持 directory/directories/ignored_paths/regularize_files；默认直接扫描入库，传 scrape=true 才补元数据
 DELETE /api/movies/local-library
 DELETE /api/movies/local-library/{movie_id}
 GET    /api/movies/local-library/information/check
@@ -383,7 +396,7 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/movies/local-library/clean-invalid` 会重新探测影视库索引中的本地视频文件；如果一个现存视频文件仍读取不到分辨率、码率等媒体信息，则删除该物理文件并同步移除影视库文件记录。若 `ffprobe` 不可用，接口会失败返回且不会删除文件。
 
-本地影视库在刮削或补全影片元数据时会同步维护 `data/local_actor_library.json`。演员以独立索引保存关联影片，头像保存在 `data/actor_images/`；如果演员已有本地头像，后续刮削会复用并跳过下载。
+本地影视库在刮削或补全影片元数据时会同步维护 `data/local_actor_library.json`。演员以独立索引保存关联影片，头像保存在单独的演员头像目录；如果演员已有本地头像，后续刮削会复用并跳过下载。
 
 `/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情，包含大小、修改时间以及通过 `ffprobe` 可探测到的分辨率和码率；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `auto_best`、`skip`、`keep_newer`、`keep_older`、`keep_larger`、`keep_higher_resolution`、`keep_higher_bitrate`，旧的 `keep_source` 和 `keep_target` 仍兼容。`auto_best` 会按分辨率、码率、文件大小、修改时间依次选择保留文件；源文件更优时移动源文件覆盖目标，目标文件更优时保留目标并删除源文件，仍无法判断时保留目标且不删除源文件。分辨率或码率无法探测、两边相同或缺少冲突策略时，后端不会自动覆盖文件。
 如果同一次预览中多个源文件生成相同目标路径，预览项会标记 `target_duplicate`；这类批次内重复目标不会被一键冲突策略自动处理，需要先调整命名模板或移除重复项。后端 apply 会重新检查同一请求内的重复目标并返回 `target_duplicate`，不会移动这些源文件。

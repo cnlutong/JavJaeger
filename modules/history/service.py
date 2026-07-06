@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from modules.common.image_download import download_image
+from modules.common.runtime import get_actor_image_directory
 from modules.javbus_api import javbus_api_service
 
 
@@ -382,9 +383,9 @@ def _actor_name(actor: Any) -> str:
 
 
 class ActorLibraryService:
-    def __init__(self, file_path: str = "data/local_actor_library.json", image_dir: str = "data/actor_images") -> None:
+    def __init__(self, file_path: str = "data/local_actor_library.json", image_dir: str | None = None) -> None:
         self.file_path = file_path
-        self.image_dir = image_dir
+        self.image_dir = image_dir or get_actor_image_directory()
         self._cache: dict[str, dict[str, Any]] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
@@ -400,6 +401,12 @@ class ActorLibraryService:
 
     def _avatar_target(self, actor_key: str) -> Path:
         return Path(self.image_dir) / f"{_safe_actor_file_stem(actor_key, 'actor')}.jpg"
+
+    def actor_key_for(self, actor: dict[str, Any]) -> str:
+        return self._actor_key(actor)
+
+    def avatar_target_for(self, actor_key: str) -> Path:
+        return self._avatar_target(actor_key)
 
     def _actor_refs_from_record(self, record: dict[str, Any]) -> list[dict[str, str]]:
         values: list[Any] = []
@@ -486,6 +493,11 @@ class ActorLibraryService:
         if existing_path and not overwrite:
             return False
 
+        target = self._avatar_target(actor_key)
+        if target.exists() and not overwrite:
+            actor["avatar_file"] = target.name
+            return False
+
         avatar_url = str(actor.get("remote_avatar_url") or "").strip()
         actor_id = str(actor.get("id") or "").strip()
         if not avatar_url and actor_id:
@@ -501,10 +513,6 @@ class ActorLibraryService:
         if not avatar_url:
             return False
 
-        target = self._avatar_target(actor_key)
-        if target.exists() and not overwrite:
-            actor["avatar_file"] = target.name
-            return False
         try:
             name = await download_image(avatar_url, target, overwrite)
         except Exception as exc:
@@ -1101,7 +1109,28 @@ class LocalMovieLibraryService:
                     continue
         return None
 
-    def _actor_avatar_candidates(self, video_path: Path, actor_name: str) -> list[Path]:
+    def _shared_actor_avatar_candidates(self, record: dict[str, Any], actor_name: str) -> list[Path]:
+        if self.actor_library_service is None:
+            return []
+        raw_name = str(actor_name or "").strip()
+        if not raw_name:
+            return []
+
+        candidates: list[Path] = []
+        normalized_name = raw_name.lower()
+        actor_refs = self.actor_library_service._actor_refs_from_record(record)
+        for actor_ref in actor_refs:
+            if _actor_name(actor_ref).lower() != normalized_name:
+                continue
+            actor_key = self.actor_library_service.actor_key_for(actor_ref)
+            candidates.append(self.actor_library_service.avatar_target_for(actor_key))
+
+        if not candidates:
+            actor_key = self.actor_library_service.actor_key_for({"id": "", "name": raw_name})
+            candidates.append(self.actor_library_service.avatar_target_for(actor_key))
+        return candidates
+
+    def _actor_avatar_candidates(self, video_path: Path, actor_name: str, record: dict[str, Any]) -> list[Path]:
         raw_name = str(actor_name or "").strip()
         if not raw_name:
             return []
@@ -1113,7 +1142,10 @@ class LocalMovieLibraryService:
                 stems.append(stem)
         actor_dir = video_path.parent / "actors"
         extensions = [".jpg", ".jpeg", ".png", ".webp"]
-        return [actor_dir / f"{stem}{extension}" for stem in stems for extension in extensions]
+        return [
+            *self._shared_actor_avatar_candidates(record, raw_name),
+            *[actor_dir / f"{stem}{extension}" for stem in stems for extension in extensions],
+        ]
 
     async def get_actor_avatar_path(self, movie_id: str, actor_name: str) -> Path | None:
         records = await self.load_records()
@@ -1125,7 +1157,7 @@ class LocalMovieLibraryService:
             video_path = Path(str(file_record.get("path") or ""))
             if not video_path.name:
                 continue
-            for candidate in self._actor_avatar_candidates(video_path, actor_name):
+            for candidate in self._actor_avatar_candidates(video_path, actor_name, record):
                 try:
                     if candidate.exists() and candidate.is_file():
                         return candidate.resolve()

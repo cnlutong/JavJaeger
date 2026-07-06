@@ -1,10 +1,12 @@
 import datetime
+import hashlib
 import logging
 import os
 import shutil
 from pathlib import Path
 from typing import Any
 
+from modules.common import runtime
 from modules.common.paths import UserPathError, resolve_existing_directory
 from modules.history.service import (
     LOCAL_LIBRARY_INFORMATION_FIELDS,
@@ -25,10 +27,12 @@ from .local_scrape import (
     recognize_designation,
     scrape_movie_metadata_map,
 )
-from .schemas import LocalLibraryInformationDownloadRequest, LocalLibraryScanRequest
+from .schemas import LocalLibraryInformationDownloadRequest, LocalLibraryScanRequest, LocalLibrarySettingsRequest
 
 
 logger = logging.getLogger(__name__)
+ACTOR_AVATAR_EXTENSIONS = {".jpg", ".jpeg"}
+HASH_BLOCK_SIZE = 1024 * 1024
 
 
 def _iso_mtime(path: Path) -> str:
@@ -70,13 +74,236 @@ async def _scrape_metadata(movie_ids: list[str], concurrent: int) -> dict[str, d
     return await scrape_movie_metadata_map(movie_ids, concurrent)
 
 
-async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]:
+def _normalize_path_values(values: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    raw_values = [values] if isinstance(values, str) else list(values or [])
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in raw_values:
+        path_value = str(value or "").strip()
+        if not path_value or path_value in seen:
+            continue
+        seen.add(path_value)
+        normalized.append(path_value)
+    return normalized
+
+
+def get_local_library_settings() -> dict[str, Any]:
+    config = runtime.get_local_library_config()
+    return {
+        "success": True,
+        "directories": _normalize_path_values(config.get("directories")),
+        "ignored_paths": _normalize_path_values(config.get("ignored_paths")),
+    }
+
+
+def update_local_library_settings(request: LocalLibrarySettingsRequest) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    if request.directories is not None:
+        updates["directories"] = _normalize_path_values(request.directories)
+    if request.ignored_paths is not None:
+        updates["ignored_paths"] = _normalize_path_values(request.ignored_paths)
+
+    if updates:
+        runtime.update_config_section("local_library", updates)
+    return get_local_library_settings()
+
+
+def _scan_directories_from_request(request: LocalLibraryScanRequest) -> list[str]:
+    directories: list[str] = []
+    if request.directory:
+        directories.append(request.directory)
+    if request.directories:
+        directories.extend(request.directories)
+
+    normalized = _normalize_path_values(directories)
+    if not normalized and request.directory is None and request.directories is None:
+        return get_local_library_settings()["directories"]
+    return normalized
+
+
+def _scan_ignored_paths_from_request(request: LocalLibraryScanRequest) -> list[str]:
+    if request.ignored_paths is not None:
+        return _normalize_path_values(request.ignored_paths)
+    return get_local_library_settings()["ignored_paths"]
+
+
+def _resolve_ignored_paths(root: Path, ignored_paths: list[str]) -> list[Path]:
+    resolved_paths: list[Path] = []
+    for ignored_path in ignored_paths:
+        candidate = Path(ignored_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        try:
+            resolved_paths.append(candidate.resolve(strict=False))
+        except OSError:
+            resolved_paths.append(Path(os.path.abspath(str(candidate))))
+    return resolved_paths
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
-        root = resolve_existing_directory(request.directory)
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _filter_ignored_video_files(video_files: list[Path], ignored_paths: list[Path]) -> list[Path]:
+    if not ignored_paths:
+        return video_files
+
+    filtered: list[Path] = []
+    for video_file in video_files:
+        try:
+            resolved_video = video_file.resolve(strict=False)
+        except OSError:
+            resolved_video = Path(os.path.abspath(str(video_file)))
+        if any(resolved_video == ignored_path or _is_relative_to(resolved_video, ignored_path) for ignored_path in ignored_paths):
+            continue
+        filtered.append(video_file)
+    return filtered
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        digest = hashlib.sha256()
+        with open(path, "rb") as file:
+            for chunk in iter(lambda: file.read(HASH_BLOCK_SIZE), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def _file_fingerprint(path: Path) -> tuple[int, str] | None:
+    digest = _file_sha256(path)
+    if digest is None:
+        return None
+    return (_file_size(path), digest)
+
+
+def _same_file_content(left: Path, right: Path) -> bool:
+    if _file_size(left) != _file_size(right):
+        return False
+    left_digest = _file_sha256(left)
+    return bool(left_digest and left_digest == _file_sha256(right))
+
+
+def _delete_duplicate_video_files(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    seen: dict[tuple[int, str], Path] = {}
+    kept_records: list[dict[str, Any]] = []
+    deleted_files: list[dict[str, str]] = []
+    failed_files: list[dict[str, str]] = []
+
+    for record in sorted(records, key=lambda item: str(item.get("path") or "").lower()):
+        path = Path(str(record.get("path") or ""))
+        fingerprint = _file_fingerprint(path) if path.name and path.exists() and path.is_file() else None
+        if fingerprint is None or fingerprint not in seen:
+            if fingerprint is not None:
+                seen[fingerprint] = path
+            kept_records.append(record)
+            continue
+
+        kept_path = seen[fingerprint]
+        try:
+            path.unlink()
+        except OSError as exc:
+            failed_files.append({"path": str(path), "error": str(exc)})
+            kept_records.append(record)
+            continue
+        deleted_files.append({"path": str(path), "kept_path": str(kept_path)})
+
+    return kept_records, {
+        "deleted_duplicate_file_count": len(deleted_files),
+        "regularization_failed_count": len(failed_files),
+        "deleted_duplicate_files": deleted_files[:100],
+        "regularization_failed_files": failed_files[:100],
+    }
+
+
+def _move_actor_avatar_files(records: list[dict[str, Any]]) -> dict[str, Any]:
+    actor_service = getattr(local_movie_library_service, "actor_library_service", None)
+    if actor_service is None:
+        return {"regularized_actor_avatar_count": 0, "deleted_duplicate_actor_avatar_count": 0}
+
+    moved: list[dict[str, str]] = []
+    deleted_duplicates: list[dict[str, str]] = []
+    failed: list[dict[str, str]] = []
+    seen_sources: set[str] = set()
+
+    for record in sorted(records, key=lambda item: str(item.get("path") or "").lower()):
+        video_path = Path(str(record.get("path") or ""))
+        actor_dir = video_path.parent / "actors"
+        try:
+            sources = sorted(
+                [entry for entry in actor_dir.iterdir() if entry.is_file() and entry.suffix.lower() in ACTOR_AVATAR_EXTENSIONS],
+                key=lambda path: str(path).lower(),
+            )
+        except OSError:
+            continue
+
+        for source in sources:
+            try:
+                resolved_source = source.resolve()
+            except OSError as exc:
+                failed.append({"path": str(source), "error": str(exc)})
+                continue
+            source_key = str(resolved_source).lower()
+            if source_key in seen_sources:
+                continue
+            seen_sources.add(source_key)
+
+            actor_key = actor_service.actor_key_for({"id": "", "name": source.stem})
+            target = actor_service.avatar_target_for(actor_key)
+            try:
+                if resolved_source == target.resolve(strict=False):
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    if _same_file_content(resolved_source, target):
+                        resolved_source.unlink()
+                        deleted_duplicates.append({"path": str(resolved_source), "kept_path": str(target)})
+                    continue
+                shutil.move(str(resolved_source), str(target))
+            except OSError as exc:
+                failed.append({"path": str(resolved_source), "error": str(exc)})
+                continue
+            moved.append({"source": str(resolved_source), "target": str(target)})
+
+    return {
+        "regularized_actor_avatar_count": len(moved),
+        "deleted_duplicate_actor_avatar_count": len(deleted_duplicates),
+        "regularization_failed_count": len(failed),
+        "regularized_actor_avatars": moved[:100],
+        "deleted_duplicate_actor_avatars": deleted_duplicates[:100],
+        "regularization_failed_files": failed[:100],
+    }
+
+
+def _regularize_scan_files(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    avatar_result = _move_actor_avatar_files(records)
+    kept_records, duplicate_result = _delete_duplicate_video_files(records)
+    failed_files = [
+        *duplicate_result.get("regularization_failed_files", []),
+        *avatar_result.get("regularization_failed_files", []),
+    ]
+    return kept_records, {
+        **duplicate_result,
+        **avatar_result,
+        "regularization_failed_count": int(duplicate_result.get("regularization_failed_count") or 0)
+        + int(avatar_result.get("regularization_failed_count") or 0),
+        "regularization_failed_files": failed_files[:100],
+    }
+
+
+async def _scan_local_library_directory(directory: str, request: LocalLibraryScanRequest) -> dict[str, Any]:
+    try:
+        root = resolve_existing_directory(directory)
     except UserPathError as exc:
         return {"success": False, "error": exc.code, "message": exc.message}
 
-    video_files = _walk_video_files(root, request.recursive, request.max_depth)
+    ignored_paths = _resolve_ignored_paths(root, _scan_ignored_paths_from_request(request))
+    video_files = _filter_ignored_video_files(_walk_video_files(root, request.recursive, request.max_depth), ignored_paths)
     records = [_build_library_file_record(path, root) for path in video_files]
     movie_ids = sorted({str(record["movie_id"]).upper() for record in records if record.get("movie_id")})
     metadata_map = await _scrape_metadata(movie_ids, request.concurrent) if request.scrape else {}
@@ -98,14 +325,79 @@ async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]
             record["full_text"] = _metadata_full_text(str(movie_id), metadata)
             record["scraped_at"] = ""
 
+    regularize_result = {
+        "regularized_actor_avatar_count": 0,
+        "deleted_duplicate_file_count": 0,
+        "deleted_duplicate_actor_avatar_count": 0,
+        "regularization_failed_count": 0,
+    }
+    if request.regularize_files:
+        records, regularize_result = _regularize_scan_files(records)
+
     result = await local_movie_library_service.update_from_scan(
         str(root),
         records,
         remove_missing=request.remove_missing,
     )
     result["directory"] = str(root)
+    result["ignored_path_count"] = len(ignored_paths)
     result["scraped_movie_count"] = len(metadata_map)
+    result.update(regularize_result)
     return result
+
+
+def _aggregate_scan_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    successful_results = [result for result in results if result.get("success")]
+    failed_results = [result for result in results if not result.get("success")]
+    latest_success = successful_results[-1] if successful_results else {}
+    scanned_files = sum(int(result.get("scanned_files") or 0) for result in successful_results)
+    recognized_files = sum(int(result.get("recognized_files") or 0) for result in successful_results)
+    unrecognized_files = sum(int(result.get("unrecognized_files") or 0) for result in successful_results)
+    scraped_movie_count = sum(int(result.get("scraped_movie_count") or 0) for result in successful_results)
+    removed_file_count = sum(int(result.get("removed_file_count") or 0) for result in successful_results)
+    regularized_actor_avatar_count = sum(int(result.get("regularized_actor_avatar_count") or 0) for result in successful_results)
+    deleted_duplicate_file_count = sum(int(result.get("deleted_duplicate_file_count") or 0) for result in successful_results)
+    deleted_duplicate_actor_avatar_count = sum(int(result.get("deleted_duplicate_actor_avatar_count") or 0) for result in successful_results)
+    regularization_failed_count = sum(int(result.get("regularization_failed_count") or 0) for result in successful_results)
+    new_movie_count = sum(int(result.get("new_movie_count") or 0) for result in successful_results)
+    updated_movie_count = sum(int(result.get("updated_movie_count") or 0) for result in successful_results)
+
+    return {
+        "success": len(successful_results) > 0 and len(failed_results) == 0,
+        "scan_count": len(successful_results),
+        "failed_count": len(failed_results),
+        "directories": [str(result.get("directory") or result.get("scan_root") or "") for result in successful_results],
+        "scans": results,
+        "scanned_files": scanned_files,
+        "recognized_files": recognized_files,
+        "unrecognized_files": unrecognized_files,
+        "scraped_movie_count": scraped_movie_count,
+        "removed_file_count": removed_file_count,
+        "regularized_actor_avatar_count": regularized_actor_avatar_count,
+        "deleted_duplicate_file_count": deleted_duplicate_file_count,
+        "deleted_duplicate_actor_avatar_count": deleted_duplicate_actor_avatar_count,
+        "regularization_failed_count": regularization_failed_count,
+        "new_movie_count": new_movie_count,
+        "updated_movie_count": updated_movie_count,
+        "total_movies": int(latest_success.get("total_movies") or 0),
+        "total_files": int(latest_success.get("total_files") or 0),
+        "actor_count": int(latest_success.get("actor_count") or 0),
+        "message": f"已扫描 {len(successful_results)} 个目录，失败 {len(failed_results)} 个",
+    }
+
+
+async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]:
+    directories = _scan_directories_from_request(request)
+    if not directories:
+        return {"success": False, "error": "directory_required", "message": "请至少选择一个本地影视库路径"}
+
+    if len(directories) == 1:
+        return await _scan_local_library_directory(directories[0], request)
+
+    results = []
+    for directory in directories:
+        results.append(await _scan_local_library_directory(directory, request))
+    return _aggregate_scan_results(results)
 
 
 async def get_local_library_payload() -> dict[str, Any]:

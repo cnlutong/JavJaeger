@@ -2762,9 +2762,12 @@
     DeleteOutlined: DeleteOutlined4,
     DownloadOutlined: DownloadOutlined2,
     FilterOutlined,
+    FolderOpenOutlined: FolderOpenOutlined4,
     MoonOutlined,
     PlayCircleOutlined: PlayCircleOutlined3,
+    PlusOutlined: PlusOutlined2,
     ReloadOutlined: ReloadOutlined3,
+    SaveOutlined: SaveOutlined2,
     SearchOutlined: SearchOutlined2,
     SunOutlined,
     UnorderedListOutlined,
@@ -2774,6 +2777,7 @@
   var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React5.createElement(Component, null) : null;
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
   var LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
+  var DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
   var LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
   var LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
   var LOCAL_LIBRARY_SORT_OPTIONS = [
@@ -2849,6 +2853,40 @@
       throw new Error(data.message || `HTTP ${response.status}`);
     }
     return data;
+  };
+  var normalizePathItems = (items) => {
+    const paths = Array.isArray(items) ? items : [];
+    const seen = /* @__PURE__ */ new Set();
+    return paths.map((item) => typeof item === "string" ? item : item?.path).map((path) => String(path || "").trim()).filter((path) => {
+      if (!path || seen.has(path)) {
+        return false;
+      }
+      seen.add(path);
+      return true;
+    });
+  };
+  var normalizeScanDirectories = (values) => normalizePathItems(values?.directories);
+  var normalizeScanIgnoredPaths = (values) => normalizePathItems(values?.ignoredPaths);
+  var buildPathFormItems = (paths, fallback = []) => {
+    const normalized = normalizePathItems(paths);
+    const nextPaths = normalized.length ? normalized : fallback;
+    return nextPaths.map((path) => ({ path }));
+  };
+  var localLibrarySettingsToFormValues = (settings = {}) => ({
+    directories: buildPathFormItems(settings.directories, DEFAULT_LOCAL_LIBRARY_DIRECTORIES),
+    ignoredPaths: buildPathFormItems(settings.ignored_paths)
+  });
+  var normalizeLocalLibrarySettings = (settings = {}) => ({
+    directories: normalizePathItems(settings.directories),
+    ignored_paths: normalizePathItems(settings.ignored_paths)
+  });
+  var buildLocalLibrarySettingsPayload = (values) => {
+    const normalizedDirectories = normalizeScanDirectories(values);
+    const normalizedIgnoredPaths = normalizeScanIgnoredPaths(values);
+    return {
+      directories: normalizedDirectories,
+      ignored_paths: normalizedIgnoredPaths
+    };
   };
   var formatBytes2 = (bytes) => {
     if (!bytes) return "-";
@@ -3126,8 +3164,17 @@
     const [checkingInformation, setCheckingInformation] = React5.useState(false);
     const [downloadingInformation, setDownloadingInformation] = React5.useState(false);
     const [cleaningInvalidFiles, setCleaningInvalidFiles] = React5.useState(false);
+    const [scanningLibrary, setScanningLibrary] = React5.useState(false);
+    const [settingsLoading, setSettingsLoading] = React5.useState(false);
+    const [savingLibrarySettings, setSavingLibrarySettings] = React5.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React5.useState("");
     const [filterOpen, setFilterOpen] = React5.useState(false);
+    const [scanOpen, setScanOpen] = React5.useState(false);
+    const [scanResult, setScanResult] = React5.useState(null);
+    const [librarySettings, setLibrarySettings] = React5.useState(() => normalizeLocalLibrarySettings({
+      directories: DEFAULT_LOCAL_LIBRARY_DIRECTORIES,
+      ignored_paths: []
+    }));
     const [informationCheckOpen, setInformationCheckOpen] = React5.useState(false);
     const [informationCheckFields, setInformationCheckFields] = React5.useState(() => loadInformationCheckSettings().fields);
     const [selectedRecord, setSelectedRecord] = React5.useState(null);
@@ -3155,6 +3202,7 @@
       years: [],
       roots: []
     });
+    const [scanForm] = Form4.useForm();
     const [informationCheckForm] = Form4.useForm();
     const [informationDownloadForm] = Form4.useForm();
     const gridPageLoadingTimerRef = React5.useRef(null);
@@ -3408,6 +3456,64 @@ ${record.full_text || ""}`.toLowerCase();
         setLoading(false);
       }
     };
+    const loadLocalLibrarySettings = async () => {
+      setSettingsLoading(true);
+      try {
+        const response = await fetch("/api/movies/local-library/settings");
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || data.detail?.message || "\u52A0\u8F7D\u5931\u8D25");
+        }
+        const nextSettings = normalizeLocalLibrarySettings(data);
+        setLibrarySettings(nextSettings);
+        scanForm.setFieldsValue(localLibrarySettingsToFormValues(nextSettings));
+        return nextSettings;
+      } catch (error) {
+        message5.error(`\u8DEF\u5F84\u914D\u7F6E\u52A0\u8F7D\u5931\u8D25\uFF1A${error.message}`);
+        return null;
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+    const saveLocalLibrarySettings = async (values = scanForm.getFieldsValue(true), { silent = false } = {}) => {
+      const settingsPayload = buildLocalLibrarySettingsPayload(values);
+      if (settingsPayload.directories.length === 0) {
+        if (!silent) {
+          message5.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u5F71\u89C6\u5E93\u8DEF\u5F84");
+        }
+        return null;
+      }
+      setSavingLibrarySettings(true);
+      try {
+        const response = await fetch("/api/movies/local-library/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(settingsPayload)
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.detail?.reason || data.detail?.message || data.message || `HTTP ${response.status}`);
+        }
+        const nextSettings = normalizeLocalLibrarySettings(data);
+        setLibrarySettings(nextSettings);
+        scanForm.setFieldsValue(localLibrarySettingsToFormValues(nextSettings));
+        if (!silent) {
+          message5.success("\u5F71\u89C6\u5E93\u8DEF\u5F84\u914D\u7F6E\u5DF2\u4FDD\u5B58");
+        }
+        return nextSettings;
+      } catch (error) {
+        if (!silent) {
+          message5.error(`\u4FDD\u5B58\u8DEF\u5F84\u914D\u7F6E\u5931\u8D25\uFF1A${error.message}`);
+          return null;
+        }
+        throw error;
+      } finally {
+        setSavingLibrarySettings(false);
+      }
+    };
+    const handleSaveLibrarySettings = async () => {
+      await saveLocalLibrarySettings();
+    };
     const openInformationCheck = () => {
       const saved = loadInformationCheckSettings();
       setInformationCheckFields(saved.fields);
@@ -3456,7 +3562,7 @@ ${record.full_text || ""}`.toLowerCase();
       }
     };
     React5.useEffect(() => {
-      loadLibrary();
+      void Promise.all([loadLibrary(), loadLocalLibrarySettings()]);
     }, []);
     const openRecordPreview = (record) => {
       setSelectedRecord(record);
@@ -3521,6 +3627,52 @@ ${record.full_text || ""}`.toLowerCase();
         message5.error(`\u6E05\u6D17\u65E0\u6548\u6587\u4EF6\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setCleaningInvalidFiles(false);
+      }
+    };
+    const openScanDrawer = () => {
+      scanForm.setFieldsValue({
+        ...localLibrarySettingsToFormValues(librarySettings),
+        recursive: scanForm.getFieldValue("recursive") !== false,
+        removeMissing: scanForm.getFieldValue("removeMissing") !== false,
+        regularizeFiles: scanForm.getFieldValue("regularizeFiles") === true
+      });
+      setScanOpen(true);
+    };
+    const handleScan = async (values = {}) => {
+      const settingsPayload = buildLocalLibrarySettingsPayload(values);
+      const normalizedDirectories = settingsPayload.directories;
+      if (normalizedDirectories.length === 0) {
+        message5.warning("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u4E2A\u5F71\u89C6\u5E93\u8DEF\u5F84");
+        return;
+      }
+      const payload = {
+        directories: normalizedDirectories,
+        ignored_paths: settingsPayload.ignored_paths,
+        recursive: values.recursive !== false,
+        max_depth: values.maxDepth ?? null,
+        remove_missing: values.removeMissing !== false,
+        scrape: false,
+        regularize_files: values.regularizeFiles === true
+      };
+      setScanningLibrary(true);
+      try {
+        await saveLocalLibrarySettings(values, { silent: true });
+        const data = await postJson2("/api/movies/local-library/scan", payload);
+        setScanResult(data);
+        await loadLibrary();
+        const successCount = data.scan_count ?? (data.success ? normalizedDirectories.length : 0);
+        const failedCount = data.failed_count || 0;
+        if (data.success) {
+          message5.success(`\u626B\u63CF\u5B8C\u6210\uFF1A${successCount} \u4E2A\u8DEF\u5F84\uFF0C${data.scanned_files || 0} \u4E2A\u6587\u4EF6`);
+        } else if (successCount > 0) {
+          message5.warning(`\u90E8\u5206\u5B8C\u6210\uFF1A${successCount} \u4E2A\u8DEF\u5F84\u6210\u529F\uFF0C${failedCount} \u4E2A\u8DEF\u5F84\u5931\u8D25`);
+        } else {
+          message5.error(data.message || "\u626B\u63CF\u5931\u8D25");
+        }
+      } catch (error) {
+        message5.error(`\u626B\u63CF\u5931\u8D25\uFF1A${error.message}`);
+      } finally {
+        setScanningLibrary(false);
       }
     };
     const handleDeleteMovie = async (record) => {
@@ -3922,7 +4074,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         )
       )));
     }
-    return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u5EFA\u7ACB\u5F71\u7247\u6570\u636E\u5E93\uFF0C\u5E76\u7528\u522E\u524A\u5168\u6587\u4FE1\u606F\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
+    return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
       Input5,
       {
         allowClear: true,
@@ -3969,7 +4121,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         onChange: viewMode === "grid" ? setGridPosterSize : setListPosterSize,
         tooltip: { formatter: (value) => `${value}px` }
       }
-    )), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ReloadOutlined3 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React5.createElement(
+    )), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` (${activeFilterCount})` : ""), /* @__PURE__ */ React5.createElement(Button5, { type: "primary", icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FolderOpenOutlined4 }), onClick: openScanDrawer, loading: settingsLoading }, "\u8DEF\u5F84\u914D\u7F6E"), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }), onClick: openInformationCheck, loading: checkingInformation }, "\u68C0\u67E5\u4FE1\u606F"), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ReloadOutlined3 }), onClick: loadLibrary, loading }, "\u5237\u65B0"), /* @__PURE__ */ React5.createElement(
       Popconfirm4,
       {
         title: "\u6E05\u6D17\u65E0\u6548\u6587\u4EF6\uFF1F",
@@ -4104,6 +4256,84 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     }))), /* @__PURE__ */ React5.createElement(
       Drawer2,
       {
+        title: "\u5F71\u89C6\u5E93\u8DEF\u5F84\u914D\u7F6E",
+        placement: "right",
+        width: 560,
+        open: scanOpen,
+        onClose: () => setScanOpen(false),
+        rootClassName: isDarkMode ? "jav-library-dark-surface" : "",
+        destroyOnClose: false
+      },
+      /* @__PURE__ */ React5.createElement(
+        Form4,
+        {
+          form: scanForm,
+          layout: "vertical",
+          initialValues: {
+            directories: buildPathFormItems(DEFAULT_LOCAL_LIBRARY_DIRECTORIES),
+            ignoredPaths: [],
+            recursive: true,
+            removeMissing: true,
+            regularizeFiles: false
+          },
+          onFinish: handleScan
+        },
+        /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-path-section" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-path-section-title" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u5F71\u89C6\u5E93\u8DEF\u5F84"), /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, normalizePathItems(librarySettings.directories).length || 0)), /* @__PURE__ */ React5.createElement(Form4.List, { name: "directories" }, (fields, { add, remove }) => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-paths" }, fields.map((field) => {
+          const scanDirectoryPath = scanForm.getFieldValue(["directories", field.name, "path"]) || "";
+          return /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-path-row", key: field.key, title: scanDirectoryPath }, /* @__PURE__ */ React5.createElement(
+            Form4.Item,
+            {
+              ...field,
+              name: [field.name, "path"],
+              rules: [{ required: true, message: "\u8BF7\u9009\u62E9\u5F71\u89C6\u5E93\u8DEF\u5F84" }],
+              style: { marginBottom: 0, flex: 1 }
+            },
+            /* @__PURE__ */ React5.createElement(DirectoryInput, { placeholder: "/app/data/JAV \u6216 /media/jav1" })
+          ), /* @__PURE__ */ React5.createElement(
+            Button5,
+            {
+              danger: true,
+              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
+              disabled: fields.length <= 1,
+              onClick: () => remove(field.name)
+            }
+          ));
+        }), /* @__PURE__ */ React5.createElement(Button5, { htmlType: "button", icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlusOutlined2 }), onClick: () => add({ path: "" }) }, "\u6DFB\u52A0\u5F71\u89C6\u5E93\u8DEF\u5F84")))),
+        /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-path-section" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-path-section-title" }, /* @__PURE__ */ React5.createElement(Text5, { strong: true }, "\u5FFD\u7565\u8DEF\u5F84"), /* @__PURE__ */ React5.createElement(Tag4, { color: "default" }, normalizePathItems(librarySettings.ignored_paths).length || 0)), /* @__PURE__ */ React5.createElement(Form4.List, { name: "ignoredPaths" }, (fields, { add, remove }) => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-paths" }, fields.map((field) => {
+          const ignoredDirectoryPath = scanForm.getFieldValue(["ignoredPaths", field.name, "path"]) || "";
+          return /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-path-row", key: field.key, title: ignoredDirectoryPath }, /* @__PURE__ */ React5.createElement(
+            Form4.Item,
+            {
+              ...field,
+              name: [field.name, "path"],
+              style: { marginBottom: 0, flex: 1 }
+            },
+            /* @__PURE__ */ React5.createElement(DirectoryInput, { placeholder: "/app/data/cache \u6216 sample" })
+          ), /* @__PURE__ */ React5.createElement(
+            Button5,
+            {
+              danger: true,
+              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
+              onClick: () => remove(field.name)
+            }
+          ));
+        }), /* @__PURE__ */ React5.createElement(Button5, { htmlType: "button", icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlusOutlined2 }), onClick: () => add({ path: "" }) }, "\u6DFB\u52A0\u5FFD\u7565\u8DEF\u5F84")))),
+        /* @__PURE__ */ React5.createElement(Divider2, null),
+        /* @__PURE__ */ React5.createElement(Space5, { wrap: true, align: "center" }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "removeMissing", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u79FB\u9664\u7F3A\u5931\u6587\u4EF6")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "regularizeFiles", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u6574\u7406\u6587\u4EF6")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "maxDepth", label: "\u6700\u5927\u6DF1\u5EA6" }, /* @__PURE__ */ React5.createElement(InputNumber3, { min: 1, max: 20, placeholder: "\u4E0D\u9650" }))),
+        /* @__PURE__ */ React5.createElement(Space5, { wrap: true, className: "jav-library-scan-actions" }, /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SaveOutlined2 }), onClick: handleSaveLibrarySettings, loading: savingLibrarySettings }, "\u4FDD\u5B58\u914D\u7F6E"), /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", loading: scanningLibrary, icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FolderOpenOutlined4 }) }, "\u4FDD\u5B58\u5E76\u626B\u63CF"))
+      ),
+      scanResult && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-result-list" }, /* @__PURE__ */ React5.createElement(
+        Alert2,
+        {
+          type: scanResult.success ? "success" : scanResult.scan_count > 0 ? "warning" : "error",
+          showIcon: true,
+          message: `\u626B\u63CF\u8DEF\u5F84 ${scanResult.scan_count ?? (scanResult.success ? 1 : 0)} \u4E2A\uFF0C\u5931\u8D25 ${scanResult.failed_count || 0} \u4E2A`,
+          description: `\u6587\u4EF6 ${scanResult.scanned_files || 0} \u4E2A\uFF0C\u8BC6\u522B ${scanResult.recognized_files || 0} \u4E2A\uFF0C\u79FB\u9664 ${scanResult.removed_file_count || 0} \u4E2A\uFF0C\u6574\u7406\u5934\u50CF ${scanResult.regularized_actor_avatar_count || 0} \u4E2A\uFF0C\u5220\u9664\u91CD\u590D ${scanResult.deleted_duplicate_file_count || 0} \u4E2A`
+        }
+      ), (scanResult.scans || [scanResult]).map((result, index) => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-result-row", key: `${result.directory || result.scan_root || index}` }, /* @__PURE__ */ React5.createElement(Text5, { copyable: !!(result.directory || result.scan_root), ellipsis: true }, result.directory || result.scan_root || result.message || "\u626B\u63CF\u8DEF\u5F84"), /* @__PURE__ */ React5.createElement(Tag4, { color: result.success ? "success" : "error" }, result.success ? `${result.recognized_files || 0}/${result.scanned_files || 0}` : result.error || "\u5931\u8D25"))))
+    ), /* @__PURE__ */ React5.createElement(
+      Drawer2,
+      {
         title: "\u68C0\u67E5\u4FE1\u606F",
         placement: "right",
         width: 460,
@@ -4232,7 +4462,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     LoginOutlined,
     ReloadOutlined: ReloadOutlined4,
     SafetyCertificateOutlined,
-    SaveOutlined: SaveOutlined2,
+    SaveOutlined: SaveOutlined3,
     SettingOutlined: SettingOutlined2
   } = icons6;
   var Icon4 = ({ as: Component }) => Component ? /* @__PURE__ */ React6.createElement(Component, null) : null;
@@ -5080,14 +5310,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       },
       /* @__PURE__ */ React6.createElement(Switch3, null)
     ))), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["magnet_health", "min_seeders"], label: "\u6700\u5C11\u505A\u79CD\u6570" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 1e4, precision: 0, style: { width: "100%" } }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["magnet_health", "min_peers"], label: "\u6700\u5C11 Peer \u6570" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 1e4, precision: 0, style: { width: "100%" } }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["magnet_health", "min_availability"], label: "\u6700\u5C0F\u53EF\u7528\u5EA6" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 100, step: 0.1, precision: 2, style: { width: "100%" } })))), /* @__PURE__ */ React6.createElement(Row2, { gutter: 16 }, /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["magnet_health", "min_score"], label: "\u6700\u4F4E\u8BC4\u5206" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 0, max: 1e5, step: 0.5, precision: 1, style: { width: "100%" } }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["magnet_health", "probe_timeout_seconds"], label: "\u63A2\u6D4B\u8D85\u65F6\uFF08\u79D2\uFF09" }, /* @__PURE__ */ React6.createElement(InputNumber4, { min: 3, max: 120, step: 1, precision: 0, style: { width: "100%" } }))), /* @__PURE__ */ React6.createElement(Col2, { xs: 24, md: 8 }, /* @__PURE__ */ React6.createElement(Form5.Item, { name: ["magnet_health", "allow_unknown"], label: "\u653E\u884C\u672A\u77E5\u5065\u5EB7\u5EA6", valuePropName: "checked" }, /* @__PURE__ */ React6.createElement(Switch3, null))))));
-    const renderSecurity = () => /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Card5, { className: "settings-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SafetyCertificateOutlined }), " \u8FD0\u884C\u4E0E\u5B89\u5168") }, /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "session_secret"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React6.createElement(Tag5, { color: security.session_secret_configured ? "success" : "warning" }, security.session_secret_configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Tag5, { color: security.using_default_session_secret ? "error" : "success" }, security.using_default_session_secret ? "\u4F7F\u7528\u9ED8\u8BA4\u503C" : "\u975E\u9ED8\u8BA4\u503C"))), /* @__PURE__ */ React6.createElement(Divider3, { style: { margin: "4px 0" } }), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, Object.entries(envOverrides).map(([key, active]) => /* @__PURE__ */ React6.createElement(Tag5, { key, color: active ? "warning" : "default" }, key, ": ", active ? "\u662F" : "\u5426")))))), /* @__PURE__ */ React6.createElement(Card5, { className: "settings-card settings-save-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined2 }), " \u4FDD\u5B58\u7B56\u7565") }, /* @__PURE__ */ React6.createElement(
+    const renderSecurity = () => /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Card5, { className: "settings-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SafetyCertificateOutlined }), " \u8FD0\u884C\u4E0E\u5B89\u5168") }, /* @__PURE__ */ React6.createElement(Space6, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "session_secret"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React6.createElement(Tag5, { color: security.session_secret_configured ? "success" : "warning" }, security.session_secret_configured ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Tag5, { color: security.using_default_session_secret ? "error" : "success" }, security.using_default_session_secret ? "\u4F7F\u7528\u9ED8\u8BA4\u503C" : "\u975E\u9ED8\u8BA4\u503C"))), /* @__PURE__ */ React6.createElement(Divider3, { style: { margin: "4px 0" } }), /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6"), /* @__PURE__ */ React6.createElement("div", { style: { marginTop: 6 } }, Object.entries(envOverrides).map(([key, active]) => /* @__PURE__ */ React6.createElement(Tag5, { key, color: active ? "warning" : "default" }, key, ": ", active ? "\u662F" : "\u5426")))))), /* @__PURE__ */ React6.createElement(Card5, { className: "settings-card settings-save-card", title: /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined3 }), " \u4FDD\u5B58\u7B56\u7565") }, /* @__PURE__ */ React6.createElement(
       Alert3,
       {
         showIcon: true,
         type: "info",
         message: "\u654F\u611F\u5B57\u6BB5\u4E0D\u4F1A\u4ECE\u63A5\u53E3\u56DE\u663E\u3002\u5BC6\u7801\u3001secret\u3001Cookie \u6216 API key \u7559\u7A7A\u65F6\uFF0C\u4FDD\u5B58\u4E0D\u4F1A\u8986\u76D6 config.json \u4E2D\u5DF2\u6709\u503C\u3002"
       }
-    ), /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(Button6, { type: "primary", onClick: saveSettings, icon: /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined2 }), loading: saving }, "\u4FDD\u5B58\u5168\u90E8"), /* @__PURE__ */ React6.createElement(Button6, { onClick: resetForm, disabled: saving }, "\u91CD\u7F6E\u8868\u5355"))));
+    ), /* @__PURE__ */ React6.createElement(Space6, { wrap: true }, /* @__PURE__ */ React6.createElement(Button6, { type: "primary", onClick: saveSettings, icon: /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined3 }), loading: saving }, "\u4FDD\u5B58\u5168\u90E8"), /* @__PURE__ */ React6.createElement(Button6, { onClick: resetForm, disabled: saving }, "\u91CD\u7F6E\u8868\u5355"))));
     const renderActiveSection = () => {
       if (activeSection === "javbus") {
         return /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(SectionHeading, { title: "JavBus API", description: "\u8C03\u6574\u7AD9\u70B9\u8BBF\u95EE\u3001\u4EE3\u7406\u3001\u7F13\u5B58\u548C\u56FE\u7247\u91CD\u8BD5\u7B56\u7565\u3002" }), renderJavbus());
@@ -5103,7 +5333,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }
       return /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement(SectionHeading, { title: "\u6982\u89C8", description: "\u5148\u770B\u5F53\u524D\u914D\u7F6E\u72B6\u6001\uFF0C\u518D\u8FDB\u5165\u5177\u4F53\u5206\u7EC4\u7F16\u8F91\u3002" }), renderOverview());
     };
-    return /* @__PURE__ */ React6.createElement("div", { className: "webdav-page settings-page" }, /* @__PURE__ */ React6.createElement("style", null, settingPageStyles), /* @__PURE__ */ React6.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React6.createElement("div", { className: "settings-heading-copy" }, /* @__PURE__ */ React6.createElement(Title5, { level: 3, style: { marginBottom: 0 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u6309\u8FD0\u884C\u914D\u7F6E\u3001\u522E\u524A\u6E90\u548C\u4E0B\u8F7D\u670D\u52A1\u5206\u7EC4\u7BA1\u7406\u53EF\u70ED\u66F4\u65B0\u9879")), /* @__PURE__ */ React6.createElement(Space6, { className: "settings-header-actions", wrap: true }, hasEnvOverrides && /* @__PURE__ */ React6.createElement(Tag5, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon4, { as: ReloadOutlined4 }), onClick: loadSettings, loading }, "\u5237\u65B0"), /* @__PURE__ */ React6.createElement(Button6, { type: "primary", icon: /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined2 }), onClick: saveSettings, loading: saving }, "\u4FDD\u5B58\u5168\u90E8"))), /* @__PURE__ */ React6.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React6.createElement(Form5, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React6.createElement("div", { className: "settings-shell" }, /* @__PURE__ */ React6.createElement("aside", { className: "settings-nav", "aria-label": "\u8BBE\u7F6E\u5206\u7EC4" }, /* @__PURE__ */ React6.createElement("div", { className: "settings-nav-header" }, /* @__PURE__ */ React6.createElement("span", { className: "settings-nav-title" }, "\u8FD0\u884C\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u9009\u62E9\u4E00\u4E2A\u5206\u7EC4\u96C6\u4E2D\u7F16\u8F91")), /* @__PURE__ */ React6.createElement("div", { className: "settings-nav-list" }, SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ React6.createElement(
+    return /* @__PURE__ */ React6.createElement("div", { className: "webdav-page settings-page" }, /* @__PURE__ */ React6.createElement("style", null, settingPageStyles), /* @__PURE__ */ React6.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React6.createElement("div", { className: "settings-heading-copy" }, /* @__PURE__ */ React6.createElement(Title5, { level: 3, style: { marginBottom: 0 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u6309\u8FD0\u884C\u914D\u7F6E\u3001\u522E\u524A\u6E90\u548C\u4E0B\u8F7D\u670D\u52A1\u5206\u7EC4\u7BA1\u7406\u53EF\u70ED\u66F4\u65B0\u9879")), /* @__PURE__ */ React6.createElement(Space6, { className: "settings-header-actions", wrap: true }, hasEnvOverrides && /* @__PURE__ */ React6.createElement(Tag5, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon4, { as: ReloadOutlined4 }), onClick: loadSettings, loading }, "\u5237\u65B0"), /* @__PURE__ */ React6.createElement(Button6, { type: "primary", icon: /* @__PURE__ */ React6.createElement(Icon4, { as: SaveOutlined3 }), onClick: saveSettings, loading: saving }, "\u4FDD\u5B58\u5168\u90E8"))), /* @__PURE__ */ React6.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React6.createElement(Form5, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React6.createElement("div", { className: "settings-shell" }, /* @__PURE__ */ React6.createElement("aside", { className: "settings-nav", "aria-label": "\u8BBE\u7F6E\u5206\u7EC4" }, /* @__PURE__ */ React6.createElement("div", { className: "settings-nav-header" }, /* @__PURE__ */ React6.createElement("span", { className: "settings-nav-title" }, "\u8FD0\u884C\u914D\u7F6E"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u9009\u62E9\u4E00\u4E2A\u5206\u7EC4\u96C6\u4E2D\u7F16\u8F91")), /* @__PURE__ */ React6.createElement("div", { className: "settings-nav-list" }, SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ React6.createElement(
       "button",
       {
         key: section.key,
@@ -5145,9 +5375,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     DeleteOutlined: DeleteOutlined5,
     DownloadOutlined: DownloadOutlined3,
     LinkOutlined,
-    PlusOutlined: PlusOutlined2,
+    PlusOutlined: PlusOutlined3,
     PlayCircleOutlined: PlayCircleOutlined4,
-    SaveOutlined: SaveOutlined3,
+    SaveOutlined: SaveOutlined4,
     SearchOutlined: SearchOutlined3,
     ThunderboltOutlined
   } = icons7;
@@ -5577,7 +5807,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       { title: "\u8DF3\u8FC7", dataIndex: "skipped_count", width: 70 },
       { title: "\u9519\u8BEF", dataIndex: "error", ellipsis: true }
     ];
-    return /* @__PURE__ */ React7.createElement("div", { className: "automation-page" }, /* @__PURE__ */ React7.createElement("aside", { className: "automation-sidebar" }, /* @__PURE__ */ React7.createElement("div", { className: "automation-sidebar-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5 }, "\u81EA\u52A8\u6A21\u5F0F"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", size: "small", icon: /* @__PURE__ */ React7.createElement(Icon5, { as: PlusOutlined2 }), onClick: handleNewTask }, "\u65B0\u5EFA")), /* @__PURE__ */ React7.createElement(
+    return /* @__PURE__ */ React7.createElement("div", { className: "automation-page" }, /* @__PURE__ */ React7.createElement("aside", { className: "automation-sidebar" }, /* @__PURE__ */ React7.createElement("div", { className: "automation-sidebar-header" }, /* @__PURE__ */ React7.createElement(Title6, { level: 5 }, "\u81EA\u52A8\u6A21\u5F0F"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", size: "small", icon: /* @__PURE__ */ React7.createElement(Icon5, { as: PlusOutlined3 }), onClick: handleNewTask }, "\u65B0\u5EFA")), /* @__PURE__ */ React7.createElement(
       List3,
       {
         loading,
@@ -5608,7 +5838,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         unCheckedChildren: "\u505C\u7528",
         onChange: (checked) => updateTaskField("enabled", checked)
       }
-    ), /* @__PURE__ */ React7.createElement(Tag6, { icon: /* @__PURE__ */ React7.createElement(Icon5, { as: ClockCircleOutlined }), color: "blue" }, triggerLabel(currentTask.trigger))), /* @__PURE__ */ React7.createElement(Space7, null, /* @__PURE__ */ React7.createElement(Button7, { className: "automation-layout-button", onClick: handleAutoLayout }, "\u81EA\u52A8\u6392\u7248"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon5, { as: PlayCircleOutlined4 }), onClick: handleRun, loading: running }, "\u8FD0\u884C"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", icon: /* @__PURE__ */ React7.createElement(Icon5, { as: SaveOutlined3 }), onClick: handleSave, loading: saving }, "\u4FDD\u5B58"), /* @__PURE__ */ React7.createElement(Popconfirm5, { title: "\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u4EFB\u52A1\uFF1F", okText: "\u5220\u9664", cancelText: "\u53D6\u6D88", onConfirm: handleDelete }, /* @__PURE__ */ React7.createElement(Button7, { danger: true, icon: /* @__PURE__ */ React7.createElement(Icon5, { as: DeleteOutlined5 }) }, "\u5220\u9664")))), /* @__PURE__ */ React7.createElement("section", { className: "automation-workbench" }, /* @__PURE__ */ React7.createElement("div", { className: "automation-canvas", ref: canvasRef }, renderEdges(), (currentTask.nodes || []).map((node) => {
+    ), /* @__PURE__ */ React7.createElement(Tag6, { icon: /* @__PURE__ */ React7.createElement(Icon5, { as: ClockCircleOutlined }), color: "blue" }, triggerLabel(currentTask.trigger))), /* @__PURE__ */ React7.createElement(Space7, null, /* @__PURE__ */ React7.createElement(Button7, { className: "automation-layout-button", onClick: handleAutoLayout }, "\u81EA\u52A8\u6392\u7248"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon5, { as: PlayCircleOutlined4 }), onClick: handleRun, loading: running }, "\u8FD0\u884C"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", icon: /* @__PURE__ */ React7.createElement(Icon5, { as: SaveOutlined4 }), onClick: handleSave, loading: saving }, "\u4FDD\u5B58"), /* @__PURE__ */ React7.createElement(Popconfirm5, { title: "\u5220\u9664\u8FD9\u4E2A\u81EA\u52A8\u4EFB\u52A1\uFF1F", okText: "\u5220\u9664", cancelText: "\u53D6\u6D88", onConfirm: handleDelete }, /* @__PURE__ */ React7.createElement(Button7, { danger: true, icon: /* @__PURE__ */ React7.createElement(Icon5, { as: DeleteOutlined5 }) }, "\u5220\u9664")))), /* @__PURE__ */ React7.createElement("section", { className: "automation-workbench" }, /* @__PURE__ */ React7.createElement("div", { className: "automation-canvas", ref: canvasRef }, renderEdges(), (currentTask.nodes || []).map((node) => {
       const meta = NODE_META[node.type] || NODE_META.search;
       return /* @__PURE__ */ React7.createElement(
         "button",

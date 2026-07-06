@@ -4310,7 +4310,7 @@ body:has(.jav-app),
 
 .jav-library-toolbar {
     display: grid;
-    grid-template-columns: minmax(280px, 1fr) minmax(160px, 220px) auto minmax(150px, 210px) repeat(4, auto);
+    grid-template-columns: minmax(280px, 1fr) minmax(160px, 220px) auto minmax(150px, 210px) repeat(5, auto);
     gap: 8px;
     align-items: center;
     margin: 14px 0 10px;
@@ -4335,6 +4335,68 @@ body:has(.jav-app),
 
 .jav-library-size-control .ant-slider {
     margin: 4px 0;
+}
+
+.jav-library-scan-path-section {
+    display: grid;
+    gap: 10px;
+}
+
+.jav-library-scan-path-section + .jav-library-scan-path-section {
+    margin-top: 18px;
+}
+
+.jav-library-scan-path-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.jav-library-scan-paths {
+    display: grid;
+    gap: 10px;
+}
+
+.jav-library-scan-path-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+}
+
+.jav-library-scan-path-row .ant-form-item {
+    min-width: 0;
+}
+
+.jav-library-scan-actions {
+    width: 100%;
+}
+
+.jav-library-scan-actions .ant-space-item {
+    flex: 1;
+    min-width: 160px;
+}
+
+.jav-library-scan-actions .ant-btn {
+    width: 100%;
+}
+
+.jav-library-scan-result-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.jav-library-scan-result-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    background: #fafafa;
 }
 
 .jav-library-poster {
@@ -5595,8 +5657,14 @@ body:has(.jav-app),
 .jav-library-page.is-dark .jav-library-theme-toggle.ant-segmented,
 .jav-library-page.is-dark .jav-library-size-control,
 .jav-library-page.is-dark .jav-library-active-filters,
-.jav-library-page.is-dark .jav-library-filter-block {
+.jav-library-page.is-dark .jav-library-filter-block,
+.jav-library-page.is-dark .jav-library-scan-path-section,
+.jav-library-page.is-dark .jav-library-scan-result-row {
     border-color: #3a3a3a;
+}
+
+.jav-library-page.is-dark .jav-library-scan-result-row {
+    background: #262626;
 }
 
 .jav-library-theme-toggle.ant-segmented {

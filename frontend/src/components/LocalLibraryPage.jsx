@@ -1,3 +1,5 @@
+import DirectoryInput from "./DirectoryInput.jsx";
+
 const React = window.React;
 const antd = window.antd;
 const icons = window.icons || {};
@@ -32,9 +34,12 @@ const {
     DeleteOutlined,
     DownloadOutlined,
     FilterOutlined,
+    FolderOpenOutlined,
     MoonOutlined,
     PlayCircleOutlined,
+    PlusOutlined,
     ReloadOutlined,
+    SaveOutlined,
     SearchOutlined,
     SunOutlined,
     UnorderedListOutlined,
@@ -45,6 +50,7 @@ const antTheme = antd.theme || {};
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
 const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
 const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
+const DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
 const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
 const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
 const LOCAL_LIBRARY_SORT_OPTIONS = [
@@ -131,6 +137,49 @@ const postJson = async (url, body) => {
         throw new Error(data.message || `HTTP ${response.status}`);
     }
     return data;
+};
+
+const normalizePathItems = (items) => {
+    const paths = Array.isArray(items) ? items : [];
+    const seen = new Set();
+    return paths
+        .map((item) => typeof item === "string" ? item : item?.path)
+        .map((path) => String(path || "").trim())
+        .filter((path) => {
+            if (!path || seen.has(path)) {
+                return false;
+            }
+            seen.add(path);
+            return true;
+        });
+};
+
+const normalizeScanDirectories = (values) => normalizePathItems(values?.directories);
+const normalizeScanIgnoredPaths = (values) => normalizePathItems(values?.ignoredPaths);
+
+const buildPathFormItems = (paths, fallback = []) => {
+    const normalized = normalizePathItems(paths);
+    const nextPaths = normalized.length ? normalized : fallback;
+    return nextPaths.map((path) => ({ path }));
+};
+
+const localLibrarySettingsToFormValues = (settings = {}) => ({
+    directories: buildPathFormItems(settings.directories, DEFAULT_LOCAL_LIBRARY_DIRECTORIES),
+    ignoredPaths: buildPathFormItems(settings.ignored_paths),
+});
+
+const normalizeLocalLibrarySettings = (settings = {}) => ({
+    directories: normalizePathItems(settings.directories),
+    ignored_paths: normalizePathItems(settings.ignored_paths),
+});
+
+const buildLocalLibrarySettingsPayload = (values) => {
+    const normalizedDirectories = normalizeScanDirectories(values);
+    const normalizedIgnoredPaths = normalizeScanIgnoredPaths(values);
+    return {
+        directories: normalizedDirectories,
+        ignored_paths: normalizedIgnoredPaths,
+    };
 };
 
 const formatBytes = (bytes) => {
@@ -480,8 +529,17 @@ export default function LocalLibraryPage() {
     const [checkingInformation, setCheckingInformation] = React.useState(false);
     const [downloadingInformation, setDownloadingInformation] = React.useState(false);
     const [cleaningInvalidFiles, setCleaningInvalidFiles] = React.useState(false);
+    const [scanningLibrary, setScanningLibrary] = React.useState(false);
+    const [settingsLoading, setSettingsLoading] = React.useState(false);
+    const [savingLibrarySettings, setSavingLibrarySettings] = React.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React.useState("");
     const [filterOpen, setFilterOpen] = React.useState(false);
+    const [scanOpen, setScanOpen] = React.useState(false);
+    const [scanResult, setScanResult] = React.useState(null);
+    const [librarySettings, setLibrarySettings] = React.useState(() => normalizeLocalLibrarySettings({
+        directories: DEFAULT_LOCAL_LIBRARY_DIRECTORIES,
+        ignored_paths: [],
+    }));
     const [informationCheckOpen, setInformationCheckOpen] = React.useState(false);
     const [informationCheckFields, setInformationCheckFields] = React.useState(() => loadInformationCheckSettings().fields);
     const [selectedRecord, setSelectedRecord] = React.useState(null);
@@ -509,6 +567,7 @@ export default function LocalLibraryPage() {
         years: [],
         roots: [],
     });
+    const [scanForm] = Form.useForm();
     const [informationCheckForm] = Form.useForm();
     const [informationDownloadForm] = Form.useForm();
     const gridPageLoadingTimerRef = React.useRef(null);
@@ -792,6 +851,68 @@ export default function LocalLibraryPage() {
         }
     };
 
+    const loadLocalLibrarySettings = async () => {
+        setSettingsLoading(true);
+        try {
+            const response = await fetch("/api/movies/local-library/settings");
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || data.detail?.message || "加载失败");
+            }
+            const nextSettings = normalizeLocalLibrarySettings(data);
+            setLibrarySettings(nextSettings);
+            scanForm.setFieldsValue(localLibrarySettingsToFormValues(nextSettings));
+            return nextSettings;
+        } catch (error) {
+            message.error(`路径配置加载失败：${error.message}`);
+            return null;
+        } finally {
+            setSettingsLoading(false);
+        }
+    };
+
+    const saveLocalLibrarySettings = async (values = scanForm.getFieldsValue(true), { silent = false } = {}) => {
+        const settingsPayload = buildLocalLibrarySettingsPayload(values);
+        if (settingsPayload.directories.length === 0) {
+            if (!silent) {
+                message.warning("请至少选择一个影视库路径");
+            }
+            return null;
+        }
+
+        setSavingLibrarySettings(true);
+        try {
+            const response = await fetch("/api/movies/local-library/settings", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(settingsPayload),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.detail?.reason || data.detail?.message || data.message || `HTTP ${response.status}`);
+            }
+            const nextSettings = normalizeLocalLibrarySettings(data);
+            setLibrarySettings(nextSettings);
+            scanForm.setFieldsValue(localLibrarySettingsToFormValues(nextSettings));
+            if (!silent) {
+                message.success("影视库路径配置已保存");
+            }
+            return nextSettings;
+        } catch (error) {
+            if (!silent) {
+                message.error(`保存路径配置失败：${error.message}`);
+                return null;
+            }
+            throw error;
+        } finally {
+            setSavingLibrarySettings(false);
+        }
+    };
+
+    const handleSaveLibrarySettings = async () => {
+        await saveLocalLibrarySettings();
+    };
+
     const openInformationCheck = () => {
         const saved = loadInformationCheckSettings();
         setInformationCheckFields(saved.fields);
@@ -843,7 +964,7 @@ export default function LocalLibraryPage() {
     };
 
     React.useEffect(() => {
-        loadLibrary();
+        void Promise.all([loadLibrary(), loadLocalLibrarySettings()]);
     }, []);
 
     const openRecordPreview = (record) => {
@@ -914,6 +1035,56 @@ export default function LocalLibraryPage() {
             message.error(`清洗无效文件失败：${error.message}`);
         } finally {
             setCleaningInvalidFiles(false);
+        }
+    };
+
+    const openScanDrawer = () => {
+        scanForm.setFieldsValue({
+            ...localLibrarySettingsToFormValues(librarySettings),
+            recursive: scanForm.getFieldValue("recursive") !== false,
+            removeMissing: scanForm.getFieldValue("removeMissing") !== false,
+            regularizeFiles: scanForm.getFieldValue("regularizeFiles") === true,
+        });
+        setScanOpen(true);
+    };
+
+    const handleScan = async (values = {}) => {
+        const settingsPayload = buildLocalLibrarySettingsPayload(values);
+        const normalizedDirectories = settingsPayload.directories;
+        if (normalizedDirectories.length === 0) {
+            message.warning("请至少选择一个影视库路径");
+            return;
+        }
+
+        const payload = {
+            directories: normalizedDirectories,
+            ignored_paths: settingsPayload.ignored_paths,
+            recursive: values.recursive !== false,
+            max_depth: values.maxDepth ?? null,
+            remove_missing: values.removeMissing !== false,
+            scrape: false,
+            regularize_files: values.regularizeFiles === true,
+        };
+
+        setScanningLibrary(true);
+        try {
+            await saveLocalLibrarySettings(values, { silent: true });
+            const data = await postJson("/api/movies/local-library/scan", payload);
+            setScanResult(data);
+            await loadLibrary();
+            const successCount = data.scan_count ?? (data.success ? normalizedDirectories.length : 0);
+            const failedCount = data.failed_count || 0;
+            if (data.success) {
+                message.success(`扫描完成：${successCount} 个路径，${data.scanned_files || 0} 个文件`);
+            } else if (successCount > 0) {
+                message.warning(`部分完成：${successCount} 个路径成功，${failedCount} 个路径失败`);
+            } else {
+                message.error(data.message || "扫描失败");
+            }
+        } catch (error) {
+            message.error(`扫描失败：${error.message}`);
+        } finally {
+            setScanningLibrary(false);
         }
     };
 
@@ -1506,7 +1677,7 @@ export default function LocalLibraryPage() {
                                 影视库
                             </Title>
                             <Text type="secondary" className="jav-results-subtitle">
-                                从本地文件夹建立影片数据库，并用刮削全文信息支持筛选与去重下载
+                                从本地文件夹直接扫描入库，并用本地索引支持筛选与去重下载
                             </Text>
                         </div>
                     </div>
@@ -1561,6 +1732,9 @@ export default function LocalLibraryPage() {
                         </div>}
                         <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
                             筛选{activeFilterCount ? ` (${activeFilterCount})` : ""}
+                        </Button>
+                        <Button type="primary" icon={<Icon as={FolderOpenOutlined} />} onClick={openScanDrawer} loading={settingsLoading}>
+                            路径配置
                         </Button>
                         <Button icon={<Icon as={SearchOutlined} />} onClick={openInformationCheck} loading={checkingInformation}>
                             检查信息
@@ -1772,6 +1946,145 @@ export default function LocalLibraryPage() {
                         )}
                         </>
                     )}
+                    <Drawer
+                        title="影视库路径配置"
+                        placement="right"
+                        width={560}
+                        open={scanOpen}
+                        onClose={() => setScanOpen(false)}
+                        rootClassName={isDarkMode ? "jav-library-dark-surface" : ""}
+                        destroyOnClose={false}
+                    >
+                        <Form
+                            form={scanForm}
+                            layout="vertical"
+                            initialValues={{
+                                directories: buildPathFormItems(DEFAULT_LOCAL_LIBRARY_DIRECTORIES),
+                                ignoredPaths: [],
+                                recursive: true,
+                                removeMissing: true,
+                                regularizeFiles: false,
+                            }}
+                            onFinish={handleScan}
+                        >
+                            <div className="jav-library-scan-path-section">
+                                <div className="jav-library-scan-path-section-title">
+                                    <Text strong>影视库路径</Text>
+                                    <Tag color="blue">{normalizePathItems(librarySettings.directories).length || 0}</Tag>
+                                </div>
+                                <Form.List name="directories">
+                                    {(fields, { add, remove }) => (
+                                        <div className="jav-library-scan-paths">
+                                            {fields.map((field) => {
+                                                const scanDirectoryPath = scanForm.getFieldValue(["directories", field.name, "path"]) || "";
+                                                return (
+                                                    <div className="jav-library-scan-path-row" key={field.key} title={scanDirectoryPath}>
+                                                        <Form.Item
+                                                            {...field}
+                                                            name={[field.name, "path"]}
+                                                            rules={[{ required: true, message: "请选择影视库路径" }]}
+                                                            style={{ marginBottom: 0, flex: 1 }}
+                                                        >
+                                                            <DirectoryInput placeholder="/app/data/JAV 或 /media/jav1" />
+                                                        </Form.Item>
+                                                        <Button
+                                                            danger
+                                                            icon={<Icon as={DeleteOutlined} />}
+                                                            disabled={fields.length <= 1}
+                                                            onClick={() => remove(field.name)}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                            <Button htmlType="button" icon={<Icon as={PlusOutlined} />} onClick={() => add({ path: "" })}>
+                                                添加影视库路径
+                                            </Button>
+                                        </div>
+                                    )}
+                                </Form.List>
+                            </div>
+
+                            <div className="jav-library-scan-path-section">
+                                <div className="jav-library-scan-path-section-title">
+                                    <Text strong>忽略路径</Text>
+                                    <Tag color="default">{normalizePathItems(librarySettings.ignored_paths).length || 0}</Tag>
+                                </div>
+                                <Form.List name="ignoredPaths">
+                                    {(fields, { add, remove }) => (
+                                        <div className="jav-library-scan-paths">
+                                            {fields.map((field) => {
+                                                const ignoredDirectoryPath = scanForm.getFieldValue(["ignoredPaths", field.name, "path"]) || "";
+                                                return (
+                                                    <div className="jav-library-scan-path-row" key={field.key} title={ignoredDirectoryPath}>
+                                                        <Form.Item
+                                                            {...field}
+                                                            name={[field.name, "path"]}
+                                                            style={{ marginBottom: 0, flex: 1 }}
+                                                        >
+                                                            <DirectoryInput placeholder="/app/data/cache 或 sample" />
+                                                        </Form.Item>
+                                                        <Button
+                                                            danger
+                                                            icon={<Icon as={DeleteOutlined} />}
+                                                            onClick={() => remove(field.name)}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                            <Button htmlType="button" icon={<Icon as={PlusOutlined} />} onClick={() => add({ path: "" })}>
+                                                添加忽略路径
+                                            </Button>
+                                        </div>
+                                    )}
+                                </Form.List>
+                            </div>
+
+                            <Divider />
+                            <Space wrap align="center">
+                                <Form.Item name="recursive" valuePropName="checked">
+                                    <Checkbox>递归扫描</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="removeMissing" valuePropName="checked">
+                                    <Checkbox>移除缺失文件</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="regularizeFiles" valuePropName="checked">
+                                    <Checkbox>整理文件</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="maxDepth" label="最大深度">
+                                    <InputNumber min={1} max={20} placeholder="不限" />
+                                </Form.Item>
+                            </Space>
+                            <Space wrap className="jav-library-scan-actions">
+                                <Button icon={<Icon as={SaveOutlined} />} onClick={handleSaveLibrarySettings} loading={savingLibrarySettings}>
+                                    保存配置
+                                </Button>
+                                <Button type="primary" htmlType="submit" loading={scanningLibrary} icon={<Icon as={FolderOpenOutlined} />}>
+                                    保存并扫描
+                                </Button>
+                            </Space>
+                        </Form>
+
+                        {scanResult && (
+                            <div className="jav-library-scan-result-list">
+                                <Alert
+                                    type={scanResult.success ? "success" : scanResult.scan_count > 0 ? "warning" : "error"}
+                                    showIcon
+                                    message={`扫描路径 ${scanResult.scan_count ?? (scanResult.success ? 1 : 0)} 个，失败 ${scanResult.failed_count || 0} 个`}
+                                    description={`文件 ${scanResult.scanned_files || 0} 个，识别 ${scanResult.recognized_files || 0} 个，移除 ${scanResult.removed_file_count || 0} 个，整理头像 ${scanResult.regularized_actor_avatar_count || 0} 个，删除重复 ${scanResult.deleted_duplicate_file_count || 0} 个`}
+                                />
+                                {(scanResult.scans || [scanResult]).map((result, index) => (
+                                    <div className="jav-library-scan-result-row" key={`${result.directory || result.scan_root || index}`}>
+                                        <Text copyable={!!(result.directory || result.scan_root)} ellipsis>
+                                            {result.directory || result.scan_root || result.message || "扫描路径"}
+                                        </Text>
+                                        <Tag color={result.success ? "success" : "error"}>
+                                            {result.success ? `${result.recognized_files || 0}/${result.scanned_files || 0}` : result.error || "失败"}
+                                        </Tag>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </Drawer>
                     <Drawer
                         title="检查信息"
                         placement="right"

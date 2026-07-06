@@ -19,7 +19,8 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    JAVJAEGER_CONFIG_PATH=/app/data/config.json
+    JAVJAEGER_CONFIG_PATH=/app/data/config.json \
+    JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
@@ -32,7 +33,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 COPY --from=frontend-builder /frontend/static/app.js /app/static/app.js
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/actor_images
 
 EXPOSE 5000
 

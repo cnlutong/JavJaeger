@@ -105,14 +105,37 @@ test("local library search box keeps search and clear actions in the same row", 
     assert.match(css, /\.jav-library-search-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+auto;/);
 });
 
-test("local library page does not expose scan import controls", () => {
-    assert.doesNotMatch(localLibraryPage, /scanOpen/);
-    assert.doesNotMatch(localLibraryPage, /handleScan/);
-    assert.doesNotMatch(localLibraryPage, /scanResult/);
-    assert.doesNotMatch(localLibraryPage, /\/api\/movies\/local-library\/scan/);
-    assert.doesNotMatch(localLibraryPage, /扫描入库/);
-    assert.doesNotMatch(localLibraryPage, /FolderOpenOutlined/);
-    assert.doesNotMatch(css, /jav-library-scan-options/);
+test("local library page exposes multi-path scan import controls", () => {
+    assert.match(localLibraryPage, /import DirectoryInput from "\.\/DirectoryInput\.jsx"/);
+    assert.match(localLibraryPage, /const \[librarySettings, setLibrarySettings\] = React\.useState/);
+    assert.match(localLibraryPage, /const \[savingLibrarySettings, setSavingLibrarySettings\] = React\.useState\(false\)/);
+    assert.match(localLibraryPage, /const \[scanOpen, setScanOpen\] = React\.useState\(false\)/);
+    assert.match(localLibraryPage, /const \[scanningLibrary, setScanningLibrary\] = React\.useState\(false\)/);
+    assert.match(localLibraryPage, /const \[scanResult, setScanResult\] = React\.useState\(null\)/);
+    assert.match(localLibraryPage, /const normalizeScanDirectories = \(values\) =>/);
+    assert.match(localLibraryPage, /const buildLocalLibrarySettingsPayload = \(values\) =>/);
+    assert.match(localLibraryPage, /fetch\("\/api\/movies\/local-library\/settings"\)/);
+    assert.match(localLibraryPage, /fetch\("\/api\/movies\/local-library\/settings", \{/);
+    assert.match(localLibraryPage, /ignored_paths: normalizedIgnoredPaths,/);
+    assert.match(localLibraryPage, /directories: normalizedDirectories,/);
+    assert.match(localLibraryPage, /scrape: false,/);
+    assert.match(localLibraryPage, /regularize_files: values\.regularizeFiles === true,/);
+    assert.match(localLibraryPage, /postJson\("\/api\/movies\/local-library\/scan", payload\)/);
+    assert.match(localLibraryPage, /<Form\.List name="directories">/);
+    assert.match(localLibraryPage, /<Form\.List name="ignoredPaths">/);
+    assert.match(localLibraryPage, /<DirectoryInput[\s\S]*placeholder="\/app\/data\/JAV/);
+    assert.match(localLibraryPage, /placeholder="\/app\/data\/cache/);
+    assert.match(localLibraryPage, /scanDirectoryPath/);
+    assert.match(localLibraryPage, /ignoredDirectoryPath/);
+    assert.match(localLibraryPage, /FolderOpenOutlined/);
+    assert.match(localLibraryPage, /SaveOutlined/);
+    assert.doesNotMatch(localLibraryPage, /刮削元数据/);
+    assert.doesNotMatch(localLibraryPage, /<Form\.Item name="scrape"/);
+    assert.match(localLibraryPage, /<Form\.Item name="regularizeFiles" valuePropName="checked">/);
+    assert.match(localLibraryPage, /整理文件/);
+    assert.match(css, /\.jav-library-scan-paths\s*\{/);
+    assert.match(css, /\.jav-library-scan-path-section\s*\{/);
+    assert.match(css, /\.jav-library-scan-result-list\s*\{/);
 });
 
 test("local library list mode shows every genre tag in movie information", () => {

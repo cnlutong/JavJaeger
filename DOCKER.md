@@ -16,7 +16,7 @@
 ### 0. 部署前检查
 
 1. 确认当前目录是仓库根目录，并已拉取目标版本。
-2. 备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json` 和 `data/automation_tasks.json`。
+2. 备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json`、`data/automation_tasks.json` 和 `actor_images/`。
 3. 确认宿主机 `./data` 目录存在且对 Docker 进程可写。
 4. 准备强随机 `APP_SESSION_SECRET`，不要使用示例值。
 5. 确认配置文件路径使用可写持久化路径：`JAVJAEGER_CONFIG_PATH=/app/data/config.json`。
@@ -33,10 +33,26 @@ services:
     environment:
       - APP_SESSION_SECRET=replace-with-a-strong-secret
       - JAVJAEGER_CONFIG_PATH=/app/data/config.json
+      - JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images
       # - JAVBUS_PROXY=http://proxy.example:7890
     volumes:
       - ./data:/app/data
+      - ./actor_images:/app/actor_images
 ```
+
+如果要把多个媒体目录加入影视库，建议把运行数据和媒体目录分开挂载，例如：
+
+```yaml
+services:
+  javjaeger:
+    volumes:
+      - ./data:/app/data
+      - ./actor_images:/app/actor_images
+      - D:/JAV:/media/jav1
+      - E:/JAV:/media/jav2
+```
+
+然后在影视库页面的“路径配置”里保存 `/media/jav1` 和 `/media/jav2`。演员头像始终写入 `/app/actor_images`，不会落到任一媒体数据源路径里；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到这里，并删除内容完全相同的重复视频文件。如果有缓存、样品图或整理临时目录，可以在忽略路径里填写容器内绝对路径，例如 `/media/jav1/cache`，也可以填写相对扫描根目录的 `cache`。每个路径会作为独立 `scan_root` 记录，后续只重扫其中一个路径时不会清理另一个路径的索引。
 
 硬性要求：
 
@@ -187,6 +203,11 @@ volumes:
     "batch_interval_seconds": 25.0,
     "jitter_seconds": 5.0,
     "failure_backoff_seconds": [120.0, 600.0]
+  },
+  "local_library": {
+    "directories": ["/media/jav1", "/media/jav2"],
+    "ignored_paths": ["cache", "/media/jav1/sample"],
+    "actor_image_directory": "/app/actor_images"
   }
 }
 ```
@@ -196,6 +217,8 @@ volumes:
 - 环境变量优先级高于 `config.json`
 - 前端不会收到密码或 secret，只会收到脱敏默认值
 - 只有对应模块设置了 `enabled: true`，页面才会显示“使用配置连接/登录”
+- 影视库路径配置由 `local_library.directories` 和 `local_library.ignored_paths` 保存，页面保存时会写入同一个可写配置文件
+- 演员头像目录由 `JAVJAEGER_ACTOR_IMAGE_DIR` 覆盖；Docker 推荐单独挂载 `./actor_images:/app/actor_images`
 - 不要把 `/app/config.json` 以 `:ro` 方式挂载后再使用设置页保存；只读配置会导致 `/api/system/settings` 返回 `config_save_failed`
 
 ### 3. 构建并启动
@@ -253,18 +276,20 @@ ports:
 当前下载历史保存在：
 
 - `/app/data/downloaded_movies.json`
+- `/app/actor_images` 保存演员头像，独立于 `/media/jav*` 等媒体数据源挂载
 
 compose 中已经做了持久化挂载：
 
 ```yaml
 volumes:
   - ./data:/app/data
+  - ./actor_images:/app/actor_images
 ```
 
 这意味着：
 
 - 容器重启不会丢失下载历史
-- 备份时优先保留 `data/`
+- 备份时优先保留 `data/` 和 `actor_images/`
 
 ## 关于前端构建
 

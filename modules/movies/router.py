@@ -13,14 +13,17 @@ from .local_library import (
     download_missing_local_library_information,
     get_local_library_information_check,
     get_local_library_payload,
+    get_local_library_settings,
     get_local_library_status,
     scan_local_library,
+    update_local_library_settings,
 )
 from .local_scrape import apply_local_scrape, delete_local_scrape_files, preview_local_scrape
 from .local_scrape_tasks import local_scrape_task_manager
 from .schemas import (
     LocalLibraryInformationDownloadRequest,
     LocalLibraryScanRequest,
+    LocalLibrarySettingsRequest,
     LocalScrapeApplyRequest,
     LocalScrapeDeleteRequest,
     LocalScrapePreviewRequest,
@@ -72,6 +75,27 @@ async def get_local_movie_library():
     except Exception as exc:
         logger.error("Local library read failed: %s", exc)
         return {"success": False, "error": "library_read_failed", "message": "读取本地影片库失败"}
+
+
+@router.get("/api/movies/local-library/settings")
+async def get_local_movie_library_settings():
+    return get_local_library_settings()
+
+
+@router.put("/api/movies/local-library/settings")
+async def put_local_movie_library_settings(request: LocalLibrarySettingsRequest):
+    try:
+        return update_local_library_settings(request)
+    except runtime.ConfigSaveError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "config_save_failed",
+                "message": "配置文件写入失败，请检查部署环境中的配置文件路径和写入权限",
+                "path": exc.path,
+                "reason": exc.reason,
+            },
+        )
 
 
 @router.post("/api/movies/local-library/scan")

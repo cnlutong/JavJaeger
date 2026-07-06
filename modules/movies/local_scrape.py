@@ -16,7 +16,7 @@ import httpx
 
 from modules.common.runtime import get_javbus_config
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
-from modules.history.service import local_movie_library_service
+from modules.history.service import local_actor_library_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from .metadata_scrapers import metadata_scraper_service
 from .schemas import LocalScrapeApplyRequest, LocalScrapeDeleteRequest, LocalScrapePreviewRequest
@@ -1328,12 +1328,16 @@ async def _write_images(
 
 async def _write_actor_images(video_path: Path, metadata: dict[str, Any], overwrite: bool) -> list[str]:
     actor_names: list[str] = []
-    actor_dir = video_path.parent / "actors"
-    used_names: set[str] = set()
+    used_actor_keys: set[str] = set()
     for index, actor in enumerate(metadata.get("actor_refs") or [], start=1):
         if not isinstance(actor, dict):
             continue
         actor_id = str(actor.get("id") or "").strip()
+        actor_name = str(actor.get("name") or actor_id or f"actor{index}").strip()
+        actor_key = local_actor_library_service.actor_key_for({"id": actor_id, "name": actor_name})
+        if actor_key in used_actor_keys:
+            continue
+        used_actor_keys.add(actor_key)
         avatar_url = str(
             actor.get("avatar")
             or actor.get("img")
@@ -1350,13 +1354,10 @@ async def _write_actor_images(video_path: Path, metadata: dict[str, Any], overwr
             avatar_url = str(star_info.get("avatar") or "").strip() if isinstance(star_info, dict) else ""
         if not avatar_url:
             continue
-        file_stem = _sanitize_path_segment(str(actor.get("name") or actor_id or f"actor{index}"), f"actor{index}")
-        if file_stem.lower() in used_names:
-            file_stem = _sanitize_path_segment(f"{file_stem}-{index}", f"actor{index}")
-        used_names.add(file_stem.lower())
-        name = await _download_image_or_warn(str(avatar_url), actor_dir / f"{file_stem}.jpg", overwrite)
+        target = local_actor_library_service.avatar_target_for(actor_key)
+        name = await _download_image_or_warn(str(avatar_url), target, overwrite)
         if name:
-            actor_names.append(str(Path("actors") / name))
+            actor_names.append(str(target.parent / name))
     return actor_names
 
 

@@ -91,5 +91,10 @@
     "min_score": 1.0,
     "probe_timeout_seconds": 20.0,
     "allow_unknown": true
+  },
+  "local_library": {
+    "directories": [],
+    "ignored_paths": [],
+    "actor_image_directory": "data/actor_images"
   }
 }
