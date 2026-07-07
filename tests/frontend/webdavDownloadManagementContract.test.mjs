@@ -53,6 +53,13 @@ test("webdav resource manager can browse configured 115 net disk safely", () => 
     assert.doesNotMatch(webDavPage, /115 网盘文件暂不支持直接派发到 Aria2/);
 });
 
+test("webdav 115 browsing loads every directory page", () => {
+    assert.match(webDavPage, /const PAN115_PAGE_LIMIT = 200;/);
+    assert.match(webDavPage, /offset=\$\{offset\}/);
+    assert.match(webDavPage, /limit=\$\{PAN115_PAGE_LIMIT\}/);
+    assert.match(webDavPage, /while \(total === null \|\| offset < total\)/);
+});
+
 test("webdav resource manager allows selecting 115 rows for aria2 dispatch", () => {
     assert.match(webDavPage, /const isFileRowSelectable = \(record\) => !record\.isParent && record\.source_type !== "local";/);
     assert.match(webDavPage, /const isAria2Dispatchable = \(record\) => record\.source_type !== "local";/);

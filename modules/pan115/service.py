@@ -40,6 +40,7 @@ PAN115_DEFAULT_BATCH_INTERVAL_SECONDS = 25.0
 PAN115_DEFAULT_JITTER_SECONDS = 5.0
 PAN115_DEFAULT_FAILURE_BACKOFF_SECONDS = [120.0, 600.0]
 PAN115_DIRECTORY_CACHE_TTL_SECONDS = 120.0
+PAN115_DIRECTORY_PAGE_LIMIT = 200
 PAN115_VIDEO_EXTENSIONS = {
     ".mp4",
     ".avi",
@@ -270,7 +271,7 @@ class Pan115Client:
     ) -> dict[str, Any]:
         normalized_cid = str(cid or "0")
         normalized_offset = max(0, int(offset))
-        normalized_limit = min(max(1, int(limit)), 200)
+        normalized_limit = min(max(1, int(limit)), PAN115_DIRECTORY_PAGE_LIMIT)
         cache_key = (self.user_id, normalized_cid, normalized_offset, normalized_limit)
         cached = directory_cache.get(cache_key, cache_ttl_seconds)
         if cached is not None:
@@ -303,6 +304,39 @@ class Pan115Client:
         result = _normalize_directory_payload(payload)
         directory_cache.set(cache_key, result)
         return result
+
+    async def list_directory_all(
+        self,
+        cid: str = "0",
+        *,
+        limit: int = PAN115_DIRECTORY_PAGE_LIMIT,
+        cache_ttl_seconds: float = PAN115_DIRECTORY_CACHE_TTL_SECONDS,
+    ) -> dict[str, Any]:
+        normalized_limit = min(max(1, int(limit)), PAN115_DIRECTORY_PAGE_LIMIT)
+        offset = 0
+        items: list[dict[str, Any]] = []
+        total_count: int | None = None
+        current_cid = str(cid or "0")
+
+        while True:
+            payload = await self.list_directory(
+                cid,
+                offset=offset,
+                limit=normalized_limit,
+                cache_ttl_seconds=cache_ttl_seconds,
+            )
+            current_cid = str(payload.get("cid") or current_cid)
+            page_items = list(payload.get("items") or [])
+            items.extend(page_items)
+            try:
+                total_count = int(payload.get("count"))
+            except (TypeError, ValueError):
+                total_count = None
+            offset += len(page_items)
+            if not page_items or len(page_items) < normalized_limit or (total_count is not None and offset >= total_count):
+                break
+
+        return {"cid": current_cid, "count": total_count if total_count is not None else len(items), "items": items}
 
     async def resolve_direct_download(
         self,
@@ -739,7 +773,7 @@ async def _resolve_download_entries(
             size = 0
 
         if is_directory:
-            child_payload = await client.list_directory(path)
+            child_payload = await client.list_directory_all(path)
             child_downloads, child_skipped = await _resolve_download_entries(
                 client,
                 [

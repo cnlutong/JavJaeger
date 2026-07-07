@@ -2178,6 +2178,107 @@ def test_pan115_directory_listing_exposes_pick_code(monkeypatch):
     assert payload["items"][0]["pick_code"] == "pick-1"
 
 
+def test_pan115_directory_listing_can_fetch_all_pages(monkeypatch):
+    calls = []
+    total = 201
+
+    class FakeResponse:
+        def __init__(self, params):
+            self.params = params
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            offset = int(self.params["offset"])
+            limit = int(self.params["limit"])
+            return {
+                "state": True,
+                "cid": "folder",
+                "count": total,
+                "data": [
+                    {"fid": f"file-{index}", "pid": "folder", "n": f"movie-{index}.mp4", "ico": "mp4", "pc": f"pick-{index}"}
+                    for index in range(offset, min(offset + limit, total))
+                ],
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url, params=None, headers=None):
+            calls.append((url, dict(params)))
+            return FakeResponse(params)
+
+    monkeypatch.setattr(pan115_service_module.httpx, "AsyncClient", FakeAsyncClient)
+    client = pan115_service_module.Pan115Client("UID=uid;CID=cid;SEID=seid;KID=kid")
+
+    payload = asyncio.run(client.list_directory_all("folder", cache_ttl_seconds=0))
+
+    assert len(payload["items"]) == total
+    assert [call[1]["offset"] for call in calls] == ["0", "200"]
+    assert [call[1]["limit"] for call in calls] == ["200", "200"]
+
+
+def test_pan115_directory_download_resolves_all_child_pages(monkeypatch):
+    total = 201
+    clients = []
+
+    class FakePan115Client:
+        def __init__(self, cookie):
+            self.cookie = cookie
+            self.list_all_calls = []
+            clients.append(self)
+
+        async def list_directory(self, cid, *, offset=0, limit=100, cache_ttl_seconds=120):
+            return {
+                "cid": cid,
+                "count": total,
+                "items": [
+                    {"id": f"file-{index}", "name": f"movie-{index}.mp4", "kind": "mp4", "size": 1024, "pick_code": f"pick-{index}"}
+                    for index in range(offset, min(offset + limit, total))
+                ],
+            }
+
+        async def list_directory_all(self, cid, *, cache_ttl_seconds=120):
+            self.list_all_calls.append(cid)
+            first = await self.list_directory(cid, offset=0, limit=200, cache_ttl_seconds=cache_ttl_seconds)
+            second = await self.list_directory(cid, offset=200, limit=200, cache_ttl_seconds=cache_ttl_seconds)
+            return {**first, "items": first["items"] + second["items"]}
+
+        async def resolve_direct_download(self, pick_code, *, fallback_name="", fallback_size=0):
+            return pan115_service_module.Pan115ResolvedDownload(
+                name=fallback_name,
+                url=f"https://download.example/{pick_code}",
+                headers=[],
+                size=fallback_size,
+                pick_code=pick_code,
+            )
+
+    monkeypatch.setattr(pan115_service_module, "Pan115Client", FakePan115Client)
+    monkeypatch.setattr(
+        pan115_service_module,
+        "get_pan115_config",
+        lambda: {"enabled": True, "cookie": "UID=uid;CID=cid;SEID=seid;KID=kid"},
+    )
+
+    downloads, skipped = asyncio.run(
+        pan115_service_module.resolve_download_entries_from_config(
+            [{"name": "folder", "path": "folder", "is_directory": True}],
+        )
+    )
+
+    assert len(downloads) == total
+    assert skipped == []
+    assert clients[0].list_all_calls == ["folder"]
+
+
 def test_pan115_direct_download_uses_android_client(monkeypatch):
     class FakeP115Client:
         def __init__(self, cookie):

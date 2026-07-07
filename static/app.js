@@ -321,6 +321,7 @@
   var NET_DISK_PUBLIC_KEY = "webdavNetDisksPublic";
   var NET_DISK_SECRET_KEY = "webdavNetDisksSecret";
   var PAN115_PROFILE_ID = "pan115::config";
+  var PAN115_PAGE_LIMIT = 200;
   var parseJson2 = (value, fallback) => {
     if (!value) return fallback;
     try {
@@ -713,37 +714,53 @@
     const loadPan115Files = async (cid = "0", folderName = "") => {
       setFilesLoading(true);
       try {
-        const res = await fetch(`/api/115/files?cid=${encodeURIComponent(cid || "0")}`);
-        const result = await res.json();
-        if (res.ok && result.items) {
-          const currentCid = String(result.cid || cid || "0");
-          const entries = (result.items || []).map((item) => {
-            const isDirectory = item.kind === "folder";
-            const size = Number(item.size || 0);
-            return {
-              name: item.name || "",
-              path: item.id || "",
-              parent_id: item.parent_id || currentCid,
-              is_directory: isDirectory,
-              size: Number.isFinite(size) ? size : 0,
-              pick_code: item.pick_code || ""
-            };
-          });
-          setPan115Breadcrumbs((breadcrumbs) => {
-            if (currentCid === "0") {
-              return [{ cid: "0", name: "\u6839\u76EE\u5F55" }];
-            }
-            const existingIndex = breadcrumbs.findIndex((item) => item.cid === currentCid);
-            if (existingIndex >= 0) {
-              return breadcrumbs.slice(0, existingIndex + 1);
-            }
-            const base = breadcrumbs.length > 0 ? breadcrumbs : [{ cid: "0", name: "\u6839\u76EE\u5F55" }];
-            return [...base, { cid: currentCid, name: folderName || currentCid }];
-          });
-          applyFileList(entries, currentCid, "pan115");
-        } else {
-          message2.error(result.detail || result.message || "\u52A0\u8F7D 115 \u7F51\u76D8\u6587\u4EF6\u5931\u8D25");
+        let offset = 0;
+        let total = null;
+        let currentCid = String(cid || "0");
+        const items = [];
+        while (total === null || offset < total) {
+          const res = await fetch(`/api/115/files?cid=${encodeURIComponent(cid || "0")}&offset=${offset}&limit=${PAN115_PAGE_LIMIT}`);
+          const result = await res.json();
+          if (!res.ok || !result.items) {
+            message2.error(result.detail || result.message || "\u52A0\u8F7D 115 \u7F51\u76D8\u6587\u4EF6\u5931\u8D25");
+            return;
+          }
+          if (offset === 0) {
+            currentCid = String(result.cid || cid || "0");
+          }
+          const pageItems = result.items || [];
+          items.push(...pageItems);
+          const nextTotal = Number(result.count);
+          total = Number.isFinite(nextTotal) ? nextTotal : items.length;
+          offset += pageItems.length;
+          if (pageItems.length === 0 || pageItems.length < PAN115_PAGE_LIMIT) {
+            break;
+          }
         }
+        const entries = items.map((item) => {
+          const isDirectory = item.kind === "folder";
+          const size = Number(item.size || 0);
+          return {
+            name: item.name || "",
+            path: item.id || "",
+            parent_id: item.parent_id || currentCid,
+            is_directory: isDirectory,
+            size: Number.isFinite(size) ? size : 0,
+            pick_code: item.pick_code || ""
+          };
+        });
+        setPan115Breadcrumbs((breadcrumbs) => {
+          if (currentCid === "0") {
+            return [{ cid: "0", name: "\u6839\u76EE\u5F55" }];
+          }
+          const existingIndex = breadcrumbs.findIndex((item) => item.cid === currentCid);
+          if (existingIndex >= 0) {
+            return breadcrumbs.slice(0, existingIndex + 1);
+          }
+          const base = breadcrumbs.length > 0 ? breadcrumbs : [{ cid: "0", name: "\u6839\u76EE\u5F55" }];
+          return [...base, { cid: currentCid, name: folderName || currentCid }];
+        });
+        applyFileList(entries, currentCid, "pan115");
       } catch (error) {
         message2.error("\u52A0\u8F7D 115 \u7F51\u76D8\u6587\u4EF6\u5F02\u5E38");
       } finally {
