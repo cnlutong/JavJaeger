@@ -234,6 +234,17 @@ def test_local_library_clean_invalid_route_is_before_status_route():
     )
 
 
+def test_local_library_scan_job_routes_are_before_status_route():
+    api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
+
+    assert api_paths.index("/api/movies/local-library/scan/jobs") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+    assert api_paths.index("/api/movies/local-library/scan/jobs/{task_id}") < api_paths.index(
+        "/api/movies/local-library/{movie_id}"
+    )
+
+
 def test_metadata_scraper_routes_are_before_movie_detail_route():
     api_paths = [route.path for route in main.app.routes if getattr(route, "path", "").startswith("/api")]
 
@@ -2774,7 +2785,7 @@ def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
 
     payload = asyncio.run(
         movies_local_library.scan_local_library(
-            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path), scrape=True)
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path), scrape=True, probe_media=True)
         )
     )
     summary = asyncio.run(service.get_summary())
@@ -2793,6 +2804,27 @@ def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
     assert record["media_info"]["bitrate"] == 12_000_000
     assert record["media_info"]["codec"] == "hevc"
     assert record["media_info"]["container"] == "matroska"
+
+
+def test_local_library_scan_defaults_to_fast_import_without_media_probe(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    def fail_probe(path):
+        raise AssertionError(f"default scan should not probe media: {path}")
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fail_probe)
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path), scrape=False)
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["scanned_files"] == 1
 
 
 def test_local_library_scan_defaults_to_direct_import_without_metadata_scrape(tmp_path, monkeypatch):
@@ -2865,6 +2897,36 @@ def test_local_library_scan_can_regularize_actor_avatars_and_duplicate_files(tmp
     assert kept_video.exists() is True
     assert summary["total_files"] == 1
     assert summary["records"][0]["files"][0]["path"] == str(kept_video.resolve())
+
+
+def test_local_library_regularize_skips_hashing_when_duplicate_candidates_do_not_exist(tmp_path, monkeypatch):
+    first_video = tmp_path / "ABP-123.mp4"
+    second_video = tmp_path / "IPX-456.mp4"
+    first_video.write_bytes(b"first-video")
+    second_video.write_bytes(b"second-video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    def fail_hash(path):
+        raise AssertionError(f"should not hash unique file: {path}")
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", lambda path: {})
+    monkeypatch.setattr(movies_local_library, "_file_sha256", fail_hash)
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(
+                directory=str(tmp_path),
+                scrape=False,
+                regularize_files=True,
+            )
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["deleted_duplicate_file_count"] == 0
+    assert first_video.exists()
+    assert second_video.exists()
 
 
 def test_local_library_scan_accepts_multiple_directories(tmp_path, monkeypatch):
@@ -3909,6 +3971,37 @@ def test_local_scrape_background_task_manager_tracks_status_and_logs(tmp_path):
     assert finished["percent"] == 100
     assert finished["result"]["total_files"] == 1
     assert finished["logs"]
+
+
+def test_local_library_scan_can_run_as_background_task(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(movies_local_library, "_probe_video_metadata", lambda path: {})
+
+    async def exercise():
+        manager = LocalScrapeTaskManager()
+        task_id = manager.start_task(
+            "local-library-scan",
+            lambda _progress: movies_local_library.scan_local_library(
+                movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path), scrape=False)
+            ),
+        )
+        initial = manager.get_task(task_id)
+        while True:
+            snapshot = manager.get_task(task_id)
+            if snapshot["status"] != "running":
+                return initial, snapshot
+            await asyncio.sleep(0.01)
+
+    initial, finished = asyncio.run(exercise())
+
+    assert initial["task_id"]
+    assert finished["status"] == "success"
+    assert finished["percent"] == 100
+    assert finished["result"]["scanned_files"] == 1
 
 
 def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):

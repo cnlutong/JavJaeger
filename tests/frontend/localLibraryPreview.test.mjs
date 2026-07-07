@@ -112,6 +112,8 @@ test("local library page exposes multi-path scan import controls", () => {
     assert.match(localLibraryPage, /const \[scanOpen, setScanOpen\] = React\.useState\(false\)/);
     assert.match(localLibraryPage, /const \[scanningLibrary, setScanningLibrary\] = React\.useState\(false\)/);
     assert.match(localLibraryPage, /const \[scanResult, setScanResult\] = React\.useState\(null\)/);
+    assert.match(localLibraryPage, /const \[scanTask, setScanTask\] = React\.useState\(null\)/);
+    assert.match(localLibraryPage, /scanPollTimerRef/);
     assert.match(localLibraryPage, /const normalizeScanDirectories = \(values\) =>/);
     assert.match(localLibraryPage, /const buildLocalLibrarySettingsPayload = \(values\) =>/);
     assert.match(localLibraryPage, /fetch\("\/api\/movies\/local-library\/settings"\)/);
@@ -119,8 +121,11 @@ test("local library page exposes multi-path scan import controls", () => {
     assert.match(localLibraryPage, /ignored_paths: normalizedIgnoredPaths,/);
     assert.match(localLibraryPage, /directories: normalizedDirectories,/);
     assert.match(localLibraryPage, /scrape: false,/);
+    assert.match(localLibraryPage, /probe_media: values\.probeMedia === true,/);
     assert.match(localLibraryPage, /regularize_files: values\.regularizeFiles === true,/);
-    assert.match(localLibraryPage, /postJson\("\/api\/movies\/local-library\/scan", payload\)/);
+    assert.match(localLibraryPage, /postJson\("\/api\/movies\/local-library\/scan\/jobs", payload\)/);
+    assert.match(localLibraryPage, /\/api\/movies\/local-library\/scan\/jobs\/\$\{encodeURIComponent\(taskId\)\}/);
+    assert.match(localLibraryPage, /await loadLibrary\(\)/);
     assert.match(localLibraryPage, /<Form\.List name="directories">/);
     assert.match(localLibraryPage, /<Form\.List name="ignoredPaths">/);
     assert.match(localLibraryPage, /<DirectoryInput[\s\S]*placeholder="\/app\/data\/JAV/);
@@ -133,6 +138,8 @@ test("local library page exposes multi-path scan import controls", () => {
     assert.doesNotMatch(localLibraryPage, /<Form\.Item name="scrape"/);
     assert.match(localLibraryPage, /<Form\.Item name="regularizeFiles" valuePropName="checked">/);
     assert.match(localLibraryPage, /整理文件/);
+    assert.match(localLibraryPage, /<Form\.Item name="probeMedia" valuePropName="checked">/);
+    assert.match(localLibraryPage, /探测媒体信息/);
     assert.match(css, /\.jav-library-scan-paths\s*\{/);
     assert.match(css, /\.jav-library-scan-path-section\s*\{/);
     assert.match(css, /\.jav-library-scan-result-list\s*\{/);
@@ -158,6 +165,18 @@ test("local library KPI cards use a compact single-line layout", () => {
     assert.match(css, /\.jav-library-kpis \.jav-kpi-card\s*\{[\s\S]*min-height:\s*42px;[\s\S]*grid-template-columns:\s*max-content minmax\(0,\s*1fr\) max-content;/);
     assert.match(css, /\.jav-library-kpis \.jav-kpi-card strong\s*\{[\s\S]*font-size:\s*20px;[\s\S]*white-space:\s*nowrap;/);
     assert.match(css, /\.jav-library-kpis \.jav-kpi-label,[\s\S]*\.jav-library-kpis \.jav-kpi-note\s*\{[\s\S]*white-space:\s*nowrap;/);
+});
+
+test("local library dark mode becomes an Astryx-inspired immersive TV gallery", () => {
+    assert.match(localLibraryPage, /沉浸/);
+    assert.match(localLibraryPage, /电视墙式浏览本地影片/);
+    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*--color-background-body:\s*#111112;[\s\S]*--color-accent:\s*#2694FE;/);
+    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*radial-gradient\(circle at 20% 0%/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-toolbar\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(max\(var\(--jav-library-card-min,\s*156px\),\s*180px\),\s*1fr\)\)/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:hover,[\s\S]*\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:focus-within,[\s\S]*\.jav-library-page\.is-dark \.jav-library-actor-card:hover\s*\{[\s\S]*transform:\s*translateY\(-6px\) scale\(1\.025\)/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:focus-within\s*\{/);
+    assert.match(css, /@media \(max-width:\s*760px\)\s*\{[\s\S]*\.jav-library-page\.is-dark \.jav-library-toolbar \.ant-select,[\s\S]*max-width:\s*none;[\s\S]*width:\s*100%;/);
 });
 
 test("local library preview exposes a click-to-play video player", () => {
@@ -237,8 +256,8 @@ test("local library exposes a persistent scoped dark mode", () => {
     assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page \$\{isDarkMode \? "is-dark" : ""\}`\}/);
     assert.match(localLibraryPage, /className="jav-library-theme-toggle"/);
     assert.match(localLibraryPage, /saveLocalLibraryTheme\(nextTheme\)/);
-    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*background:\s*#141414;/);
-    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-results\s*\{[\s\S]*background:\s*#1f1f1f\s*!important;[\s\S]*border-color:\s*#3a3a3a\s*!important;/);
+    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*--color-background-body:\s*#111112;/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-results\s*\{[\s\S]*background:\s*linear-gradient\(180deg,\s*rgba\(31,\s*31,\s*34,\s*0\.82\)/);
     assert.match(css, /\.jav-page-workspace:has\(\.jav-library-page\.is-dark\)/);
 });
 

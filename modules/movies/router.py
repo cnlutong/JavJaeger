@@ -107,6 +107,23 @@ async def scan_local_movie_library(request: LocalLibraryScanRequest):
         return {"success": False, "error": "library_scan_failed", "message": "扫描本地影片库失败"}
 
 
+@router.post("/api/movies/local-library/scan/jobs")
+async def start_local_movie_library_scan_job(request: LocalLibraryScanRequest):
+    task_id = local_scrape_task_manager.start_task(
+        "local-library-scan",
+        lambda _progress: scan_local_library(request),
+    )
+    return {"success": True, "task_id": task_id}
+
+
+@router.get("/api/movies/local-library/scan/jobs/{task_id}")
+async def get_local_movie_library_scan_job(task_id: str):
+    task = local_scrape_task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="local_library_scan_task_not_found")
+    return task
+
+
 @router.delete("/api/movies/local-library")
 async def clear_local_movie_library():
     try:

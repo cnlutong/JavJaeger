@@ -85,6 +85,7 @@ class LocalLibraryScanRequest(BaseModel):
     max_depth: Optional[int] = None
     remove_missing: bool = True
     scrape: bool = False
+    probe_media: bool = False
     regularize_files: bool = False
     concurrent: int = 3
 

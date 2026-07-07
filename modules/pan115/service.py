@@ -167,6 +167,9 @@ class Pan115DirectoryCache:
         self._items: dict[tuple[str, str, int, int], tuple[float, dict[str, Any]]] = {}
 
     def get(self, key: tuple[str, str, int, int], ttl_seconds: float) -> dict[str, Any] | None:
+        if ttl_seconds <= 0:
+            self._items.pop(key, None)
+            return None
         item = self._items.get(key)
         if item is None:
             return None

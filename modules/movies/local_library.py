@@ -42,7 +42,7 @@ def _iso_mtime(path: Path) -> str:
         return ""
 
 
-def _build_library_file_record(path: Path, root: Path) -> dict[str, Any]:
+def _build_library_file_record(path: Path, root: Path, probe_media: bool = False) -> dict[str, Any]:
     code = recognize_designation(path.stem)
     record = {
         "movie_id": code,
@@ -54,7 +54,8 @@ def _build_library_file_record(path: Path, root: Path) -> dict[str, Any]:
         "extension": path.suffix.lower(),
         "part": _source_part_marker(path.stem),
     }
-    record.update(_probe_video_metadata(path))
+    if probe_media:
+        record.update(_probe_video_metadata(path))
     return record
 
 
@@ -175,13 +176,6 @@ def _file_sha256(path: Path) -> str | None:
         return None
 
 
-def _file_fingerprint(path: Path) -> tuple[int, str] | None:
-    digest = _file_sha256(path)
-    if digest is None:
-        return None
-    return (_file_size(path), digest)
-
-
 def _same_file_content(left: Path, right: Path) -> bool:
     if _file_size(left) != _file_size(right):
         return False
@@ -190,29 +184,46 @@ def _same_file_content(left: Path, right: Path) -> bool:
 
 
 def _delete_duplicate_video_files(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    seen: dict[tuple[int, str], Path] = {}
-    kept_records: list[dict[str, Any]] = []
+    candidate_keys: dict[tuple[str, int], int] = {}
+    for record in records:
+        movie_id = str(record.get("movie_id") or "").strip().upper()
+        size = int(record.get("size") or 0)
+        if movie_id and size > 0:
+            candidate_keys[(movie_id, size)] = candidate_keys.get((movie_id, size), 0) + 1
+
+    seen: dict[tuple[str, int, str], Path] = {}
+    deleted_paths: set[str] = set()
     deleted_files: list[dict[str, str]] = []
     failed_files: list[dict[str, str]] = []
 
     for record in sorted(records, key=lambda item: str(item.get("path") or "").lower()):
+        movie_id = str(record.get("movie_id") or "").strip().upper()
+        size = int(record.get("size") or 0)
         path = Path(str(record.get("path") or ""))
-        fingerprint = _file_fingerprint(path) if path.name and path.exists() and path.is_file() else None
-        if fingerprint is None or fingerprint not in seen:
-            if fingerprint is not None:
-                seen[fingerprint] = path
-            kept_records.append(record)
+        if candidate_keys.get((movie_id, size), 0) < 2 or not path.name or not path.exists() or not path.is_file():
             continue
 
-        kept_path = seen[fingerprint]
+        digest = _file_sha256(path)
+        if digest is None:
+            continue
+        key = (movie_id, size, digest)
+        if key not in seen:
+            seen[key] = path
+            continue
+
+        kept_path = seen[key]
         try:
             path.unlink()
         except OSError as exc:
             failed_files.append({"path": str(path), "error": str(exc)})
-            kept_records.append(record)
             continue
+        deleted_paths.add(os.path.abspath(str(path)))
         deleted_files.append({"path": str(path), "kept_path": str(kept_path)})
 
+    kept_records = [
+        record for record in records
+        if os.path.abspath(str(record.get("path") or "")) not in deleted_paths
+    ]
     return kept_records, {
         "deleted_duplicate_file_count": len(deleted_files),
         "regularization_failed_count": len(failed_files),
@@ -304,7 +315,7 @@ async def _scan_local_library_directory(directory: str, request: LocalLibrarySca
 
     ignored_paths = _resolve_ignored_paths(root, _scan_ignored_paths_from_request(request))
     video_files = _filter_ignored_video_files(_walk_video_files(root, request.recursive, request.max_depth), ignored_paths)
-    records = [_build_library_file_record(path, root) for path in video_files]
+    records = [_build_library_file_record(path, root, request.probe_media) for path in video_files]
     movie_ids = sorted({str(record["movie_id"]).upper() for record in records if record.get("movie_id")})
     metadata_map = await _scrape_metadata(movie_ids, request.concurrent) if request.scrape else {}
     scan_time = datetime.datetime.now().isoformat()

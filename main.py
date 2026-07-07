@@ -1,4 +1,5 @@
 import logging
+import time
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -37,13 +38,34 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.middleware("http")
-async def disable_frontend_cache_middleware(request, call_next):
-    response = await call_next(request)
+async def request_middleware(request, call_next):
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        route = request.scope.get("route")
+        logged_path = getattr(route, "path", request.url.path)
+        logger.exception(
+            "HTTP %s %s failed duration_ms=%.2f",
+            request.method,
+            logged_path,
+            (time.perf_counter() - start) * 1000,
+        )
+        raise
     request_path = request.url.path
     if is_frontend_cache_disabled() and request_path in {"/", "/static/app.js"}:
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+    route = request.scope.get("route")
+    logged_path = getattr(route, "path", request_path)
+    logger.info(
+        "HTTP %s %s status=%s duration_ms=%.2f",
+        request.method,
+        logged_path,
+        response.status_code,
+        (time.perf_counter() - start) * 1000,
+    )
     return response
 
 app.include_router(ui_router)

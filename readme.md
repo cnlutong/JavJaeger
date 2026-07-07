@@ -291,7 +291,7 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 - Docker 运行：填写容器内路径，例如把宿主机目录挂载到 `/media/JAV` 后，在页面中填写 `/media/JAV`
 
 如果服务端运行在 Docker 或 Linux 中，不能直接填写宿主机 Windows 路径，除非该路径已经通过 volume、SMB、NFS 或 WSL 等方式挂载到服务端可见的位置。
-影视库页面支持在“路径配置”中一次保存多个服务端可访问路径和多个忽略路径；点击“保存并扫描”会先写入 `config.json`，再用当前路径配置扫描入库。后端会按路径分别记录 `scan_root`，重新扫描某一个路径并启用“移除缺失文件”时，只会清理该路径下已经不存在的旧文件记录，不会删除其他数据源路径的记录。忽略路径可以是绝对路径，也可以是相对每个扫描根目录的路径，例如 `cache` 或 `sample`。演员头像不跟随这些数据源路径，始终写入 `local_library.actor_image_directory` 或 `JAVJAEGER_ACTOR_IMAGE_DIR` 指向的目录；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到该目录，并删除内容完全相同的重复视频文件。
+影视库页面支持在“路径配置”中一次保存多个服务端可访问路径和多个忽略路径；点击“保存并扫描”会先写入 `config.json`，再用当前路径配置扫描入库。后端会按路径分别记录 `scan_root`，重新扫描某一个路径并启用“移除缺失文件”时，只会清理该路径下已经不存在的旧文件记录，不会删除其他数据源路径的记录。忽略路径可以是绝对路径，也可以是相对每个扫描根目录的路径，例如 `cache` 或 `sample`。演员头像不跟随这些数据源路径，始终写入 `local_library.actor_image_directory` 或 `JAVJAEGER_ACTOR_IMAGE_DIR` 指向的目录；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到该目录，并删除同番号、同大小且内容完全相同的重复视频文件。
 历史记录页可核对下载历史中的影片是否已经进入本地影片库；未入库记录会保留旧资源链接作为“已尝试”链接，并可一键自动重新选择可替换磁力后派发到当前下载工具。
 
 ### 自动模式
@@ -326,7 +326,9 @@ POST   /api/movies/download-by-codes
 GET    /api/movies/local-library
 GET    /api/movies/local-library/settings
 PUT    /api/movies/local-library/settings
-POST   /api/movies/local-library/scan  # body 支持 directory/directories/ignored_paths/regularize_files；默认直接扫描入库，传 scrape=true 才补元数据
+POST   /api/movies/local-library/scan  # body 支持 directory/directories/ignored_paths/probe_media/regularize_files；默认快速扫描入库
+POST   /api/movies/local-library/scan/jobs
+GET    /api/movies/local-library/scan/jobs/{task_id}
 DELETE /api/movies/local-library
 DELETE /api/movies/local-library/{movie_id}
 GET    /api/movies/local-library/information/check
@@ -392,7 +394,7 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/movies/local-library/information/check` 会检查元数据以及默认本地资料文件（NFO、本地封面）是否缺失，可通过逗号分隔的 `fields` 指定检查标准：`title`、`date`、`stars`、`genres`、`cover_url`、`nfo`、`poster_file`。`/api/movies/local-library/information/download` 支持传入同样的 `fields`，并支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
 
-本地影视库扫描、本地刮削入库，以及 `/api/movies/local-library/information/download` 补全 API 元数据时，后端会对可访问的视频文件运行 `ffprobe`，记录分辨率、码率、编码、封装格式和时长等媒体信息。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回可展示的分辨率、码率、编码和封装格式。
+本地影视库扫描启用 `probe_media`、本地刮削入库，以及 `/api/movies/local-library/information/download` 补全 API 元数据时，后端会对可访问的视频文件运行 `ffprobe`，记录分辨率、码率、编码、封装格式和时长等媒体信息。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回可展示的分辨率、码率、编码和封装格式。
 
 `/api/movies/local-library/clean-invalid` 会重新探测影视库索引中的本地视频文件；如果一个现存视频文件仍读取不到分辨率、码率等媒体信息，则删除该物理文件并同步移除影视库文件记录。若 `ffprobe` 不可用，接口会失败返回且不会删除文件。
 

@@ -24,6 +24,9 @@ class LocalScrapeTaskManager:
     def start_apply_task(self, request: LocalScrapeApplyRequest) -> str:
         return self._start_task("apply", lambda progress: apply_local_scrape(request, progress_callback=progress))
 
+    def start_task(self, task_type: str, runner: TaskRunner) -> str:
+        return self._start_task(task_type, runner)
+
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         task = self._tasks.get(task_id)
         if task is None:

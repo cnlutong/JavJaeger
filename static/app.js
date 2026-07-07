@@ -2806,7 +2806,7 @@
   var DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
   var LOCAL_LIBRARY_THEME_OPTIONS = [
     { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: SunOutlined }), " \u6D45\u8272"), value: "light" },
-    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: MoonOutlined }), " \u6697\u9ED1"), value: "dark" }
+    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: MoonOutlined }), " \u6C89\u6D78"), value: "dark" }
   ];
   var normalizeLocalLibraryTheme = (theme) => theme === "dark" ? "dark" : "light";
   var loadLocalLibraryTheme = () => {
@@ -3171,6 +3171,7 @@
     const [filterOpen, setFilterOpen] = React5.useState(false);
     const [scanOpen, setScanOpen] = React5.useState(false);
     const [scanResult, setScanResult] = React5.useState(null);
+    const [scanTask, setScanTask] = React5.useState(null);
     const [librarySettings, setLibrarySettings] = React5.useState(() => normalizeLocalLibrarySettings({
       directories: DEFAULT_LOCAL_LIBRARY_DIRECTORIES,
       ignored_paths: []
@@ -3211,6 +3212,7 @@
     const listAutoLoadSentinelRef = React5.useRef(null);
     const gridAutoLoadLockedRef = React5.useRef(false);
     const listAutoLoadLockedRef = React5.useRef(false);
+    const scanPollTimerRef = React5.useRef(null);
     const isDarkMode = libraryTheme === "dark";
     const libraryThemeConfig = React5.useMemo(() => {
       if (!isDarkMode) {
@@ -3219,32 +3221,32 @@
       return {
         algorithm: antTheme.darkAlgorithm,
         token: {
-          colorPrimary: "#4096ff",
-          colorInfo: "#4096ff",
+          colorPrimary: "#2694FE",
+          colorInfo: "#2694FE",
           colorSuccess: "#34d399",
-          colorWarning: "#fbbf24",
+          colorWarning: "#F2C00B",
           colorError: "#f87171",
-          colorBgLayout: "#141414",
-          colorBgContainer: "#1f1f1f",
-          colorBgElevated: "#262626",
-          colorBorder: "#3a3a3a",
-          colorText: "#f5f5f5",
-          colorTextSecondary: "#bfbfbf",
-          borderRadius: 6
+          colorBgLayout: "#111112",
+          colorBgContainer: "#1F1F22",
+          colorBgElevated: "#28292C",
+          colorBorder: "#494D53",
+          colorText: "#DFE2E5",
+          colorTextSecondary: "#AAAFB5",
+          borderRadius: 8
         },
         components: {
           Card: {
-            colorBgContainer: "#1f1f1f",
-            colorBorderSecondary: "#3a3a3a"
+            colorBgContainer: "#1F1F22",
+            colorBorderSecondary: "#494D53"
           },
           Table: {
-            headerBg: "#262626",
-            headerColor: "#f5f5f5",
-            rowHoverBg: "#2f2f2f",
-            borderColor: "#3a3a3a"
+            headerBg: "#28292C",
+            headerColor: "#DFE2E5",
+            rowHoverBg: "#28292C",
+            borderColor: "#494D53"
           },
           Segmented: {
-            itemSelectedBg: "#3a3a3a",
+            itemSelectedBg: "#2694FE",
             itemSelectedColor: "#ffffff"
           }
         }
@@ -3564,6 +3566,7 @@ ${record.full_text || ""}`.toLowerCase();
     React5.useEffect(() => {
       void Promise.all([loadLibrary(), loadLocalLibrarySettings()]);
     }, []);
+    React5.useEffect(() => () => clearScanPollTimer(), []);
     const openRecordPreview = (record) => {
       setSelectedRecord(record);
       setPlayingRecordKey("");
@@ -3634,9 +3637,49 @@ ${record.full_text || ""}`.toLowerCase();
         ...localLibrarySettingsToFormValues(librarySettings),
         recursive: scanForm.getFieldValue("recursive") !== false,
         removeMissing: scanForm.getFieldValue("removeMissing") !== false,
+        probeMedia: scanForm.getFieldValue("probeMedia") === true,
         regularizeFiles: scanForm.getFieldValue("regularizeFiles") === true
       });
       setScanOpen(true);
+    };
+    const clearScanPollTimer = () => {
+      if (scanPollTimerRef.current) {
+        window.clearTimeout(scanPollTimerRef.current);
+        scanPollTimerRef.current = null;
+      }
+    };
+    const pollScanTask = async (taskId) => {
+      try {
+        const response = await fetch(`/api/movies/local-library/scan/jobs/${encodeURIComponent(taskId)}`);
+        const task = await response.json();
+        if (!response.ok) {
+          throw new Error(task.detail || task.message || `HTTP ${response.status}`);
+        }
+        setScanTask({ ...task, taskId: task.task_id || taskId });
+        if (task.result) {
+          setScanResult(task.result);
+        }
+        await loadLibrary();
+        if (task.status === "running") {
+          scheduleScanTaskPoll(taskId);
+          return;
+        }
+        setScanningLibrary(false);
+        if (task.status === "success") {
+          message5.success("\u626B\u63CF\u4EFB\u52A1\u5DF2\u5B8C\u6210");
+        } else {
+          message5.error(task.message || "\u626B\u63CF\u4EFB\u52A1\u5931\u8D25");
+        }
+      } catch (error) {
+        setScanningLibrary(false);
+        message5.error(`\u626B\u63CF\u4EFB\u52A1\u72B6\u6001\u5237\u65B0\u5931\u8D25\uFF1A${error.message}`);
+      }
+    };
+    const scheduleScanTaskPoll = (taskId) => {
+      clearScanPollTimer();
+      scanPollTimerRef.current = window.setTimeout(() => {
+        void pollScanTask(taskId);
+      }, 3e3);
     };
     const handleScan = async (values = {}) => {
       const settingsPayload = buildLocalLibrarySettingsPayload(values);
@@ -3652,26 +3695,20 @@ ${record.full_text || ""}`.toLowerCase();
         max_depth: values.maxDepth ?? null,
         remove_missing: values.removeMissing !== false,
         scrape: false,
+        probe_media: values.probeMedia === true,
         regularize_files: values.regularizeFiles === true
       };
       setScanningLibrary(true);
       try {
         await saveLocalLibrarySettings(values, { silent: true });
-        const data = await postJson2("/api/movies/local-library/scan", payload);
-        setScanResult(data);
-        await loadLibrary();
-        const successCount = data.scan_count ?? (data.success ? normalizedDirectories.length : 0);
-        const failedCount = data.failed_count || 0;
-        if (data.success) {
-          message5.success(`\u626B\u63CF\u5B8C\u6210\uFF1A${successCount} \u4E2A\u8DEF\u5F84\uFF0C${data.scanned_files || 0} \u4E2A\u6587\u4EF6`);
-        } else if (successCount > 0) {
-          message5.warning(`\u90E8\u5206\u5B8C\u6210\uFF1A${successCount} \u4E2A\u8DEF\u5F84\u6210\u529F\uFF0C${failedCount} \u4E2A\u8DEF\u5F84\u5931\u8D25`);
-        } else {
-          message5.error(data.message || "\u626B\u63CF\u5931\u8D25");
-        }
+        const data = await postJson2("/api/movies/local-library/scan/jobs", payload);
+        const taskId = data.task_id;
+        setScanResult(null);
+        setScanTask({ taskId, task_id: taskId, status: "running", percent: 0, message: "\u626B\u63CF\u4EFB\u52A1\u5DF2\u542F\u52A8" });
+        message5.success("\u626B\u63CF\u4EFB\u52A1\u5DF2\u5728\u540E\u53F0\u542F\u52A8");
+        scheduleScanTaskPoll(taskId);
       } catch (error) {
         message5.error(`\u626B\u63CF\u5931\u8D25\uFF1A${error.message}`);
-      } finally {
         setScanningLibrary(false);
       }
     };
@@ -4074,7 +4111,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         )
       )));
     }
-    return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
+    return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
       Input5,
       {
         allowClear: true,
@@ -4274,6 +4311,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             ignoredPaths: [],
             recursive: true,
             removeMissing: true,
+            probeMedia: false,
             regularizeFiles: false
           },
           onFinish: handleScan
@@ -4319,8 +4357,17 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           ));
         }), /* @__PURE__ */ React5.createElement(Button5, { htmlType: "button", icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlusOutlined2 }), onClick: () => add({ path: "" }) }, "\u6DFB\u52A0\u5FFD\u7565\u8DEF\u5F84")))),
         /* @__PURE__ */ React5.createElement(Divider2, null),
-        /* @__PURE__ */ React5.createElement(Space5, { wrap: true, align: "center" }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "removeMissing", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u79FB\u9664\u7F3A\u5931\u6587\u4EF6")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "regularizeFiles", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u6574\u7406\u6587\u4EF6")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "maxDepth", label: "\u6700\u5927\u6DF1\u5EA6" }, /* @__PURE__ */ React5.createElement(InputNumber3, { min: 1, max: 20, placeholder: "\u4E0D\u9650" }))),
+        /* @__PURE__ */ React5.createElement(Space5, { wrap: true, align: "center" }, /* @__PURE__ */ React5.createElement(Form4.Item, { name: "recursive", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u9012\u5F52\u626B\u63CF")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "removeMissing", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u79FB\u9664\u7F3A\u5931\u6587\u4EF6")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "probeMedia", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u63A2\u6D4B\u5A92\u4F53\u4FE1\u606F")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "regularizeFiles", valuePropName: "checked" }, /* @__PURE__ */ React5.createElement(Checkbox2, null, "\u6574\u7406\u6587\u4EF6")), /* @__PURE__ */ React5.createElement(Form4.Item, { name: "maxDepth", label: "\u6700\u5927\u6DF1\u5EA6" }, /* @__PURE__ */ React5.createElement(InputNumber3, { min: 1, max: 20, placeholder: "\u4E0D\u9650" }))),
         /* @__PURE__ */ React5.createElement(Space5, { wrap: true, className: "jav-library-scan-actions" }, /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SaveOutlined2 }), onClick: handleSaveLibrarySettings, loading: savingLibrarySettings }, "\u4FDD\u5B58\u914D\u7F6E"), /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", loading: scanningLibrary, icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FolderOpenOutlined4 }) }, "\u4FDD\u5B58\u5E76\u626B\u63CF"))
+      ),
+      scanTask && scanningLibrary && /* @__PURE__ */ React5.createElement(
+        Alert2,
+        {
+          type: "info",
+          showIcon: true,
+          message: `\u540E\u53F0\u626B\u63CF\u4E2D ${scanTask.percent || 0}%`,
+          description: scanTask.message || scanTask.current || "\u6B63\u5728\u540E\u53F0\u626B\u63CF\u5F71\u89C6\u5E93"
+        }
       ),
       scanResult && /* @__PURE__ */ React5.createElement("div", { className: "jav-library-scan-result-list" }, /* @__PURE__ */ React5.createElement(
         Alert2,
