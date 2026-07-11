@@ -53,6 +53,7 @@ const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
 const DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
 const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
 const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
+const LIBRARY_TABLE_SCROLL = { x: "max-content" };
 const LOCAL_LIBRARY_SORT_OPTIONS = [
     { label: "发行日期 新到旧", value: "date_desc" },
     { label: "发行日期 旧到新", value: "date_asc" },
@@ -1959,6 +1960,7 @@ export default function LocalLibraryPage() {
                             columns={columns}
                             loading={loading}
                             pagination={false}
+                            scroll={LIBRARY_TABLE_SCROLL}
                             onRow={(record) => ({
                                 onClick: () => openRecordPreview(record),
                             })}

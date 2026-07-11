@@ -48,6 +48,7 @@ const NODE_GAP = 52;
 const NODE_MIN_X = 48;
 const NODE_MIN_Y = 92;
 const NODE_TYPE_ORDER = ["trigger", "search", "magnet", "download"];
+const AUTOMATION_RUN_TABLE_SCROLL = { x: "max-content" };
 const MAGNET_SOURCE_LABELS = {
     javbus: "JavBus",
     cilisousuo: "Cilisousuo",
@@ -659,7 +660,7 @@ export default function AutomationPage() {
                         />
                         <Tag icon={<Icon as={ClockCircleOutlined} />} color="blue">{triggerLabel(currentTask.trigger)}</Tag>
                     </Space>
-                    <Space>
+                    <Space wrap>
                         <Button className="automation-layout-button" onClick={handleAutoLayout}>自动排版</Button>
                         <Button icon={<Icon as={PlayCircleOutlined} />} onClick={handleRun} loading={running}>运行</Button>
                         <Button type="primary" icon={<Icon as={SaveOutlined} />} onClick={handleSave} loading={saving}>保存</Button>
@@ -670,35 +671,37 @@ export default function AutomationPage() {
                 </section>
 
                 <section className="automation-workbench">
-                    <div className="automation-canvas" ref={canvasRef}>
-                        {renderEdges()}
-                        {(currentTask.nodes || []).map(node => {
-                            const meta = NODE_META[node.type] || NODE_META.search;
-                            return (
-                                <button
-                                    key={node.id}
-                                    type="button"
-                                    className={`automation-node ${meta.className} ${selectedNodeId === node.id ? "is-selected" : ""}`}
-                                    style={{ left: node.position?.x || 0, top: node.position?.y || 0 }}
-                                    onClick={() => setSelectedNodeId(node.id)}
-                                    onPointerDown={(event) => {
-                                        const rect = event.currentTarget.getBoundingClientRect();
-                                        setSelectedNodeId(node.id);
-                                        setDragState({
-                                            nodeId: node.id,
-                                            offsetX: event.clientX - rect.left,
-                                            offsetY: event.clientY - rect.top,
-                                        });
-                                    }}
-                                >
-                                    <span className="automation-node-icon"><Icon as={meta.icon} /></span>
-                                    <span className="automation-node-body">
-                                        <strong>{meta.title}</strong>
-                                        <em>{renderNodeSummary(node)}</em>
-                                    </span>
-                                </button>
-                            );
-                        })}
+                    <div className="automation-canvas-scroll">
+                        <div className="automation-canvas" ref={canvasRef}>
+                            {renderEdges()}
+                            {(currentTask.nodes || []).map(node => {
+                                const meta = NODE_META[node.type] || NODE_META.search;
+                                return (
+                                    <button
+                                        key={node.id}
+                                        type="button"
+                                        className={`automation-node ${meta.className} ${selectedNodeId === node.id ? "is-selected" : ""}`}
+                                        style={{ left: node.position?.x || 0, top: node.position?.y || 0 }}
+                                        onClick={() => setSelectedNodeId(node.id)}
+                                        onPointerDown={(event) => {
+                                            const rect = event.currentTarget.getBoundingClientRect();
+                                            setSelectedNodeId(node.id);
+                                            setDragState({
+                                                nodeId: node.id,
+                                                offsetX: event.clientX - rect.left,
+                                                offsetY: event.clientY - rect.top,
+                                            });
+                                        }}
+                                    >
+                                        <span className="automation-node-icon"><Icon as={meta.icon} /></span>
+                                        <span className="automation-node-body">
+                                            <strong>{meta.title}</strong>
+                                            <em>{renderNodeSummary(node)}</em>
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                     <aside className="automation-inspector">
                         <Card size="small" title={selectedNode ? NODE_META[selectedNode.type]?.title : "节点"}>
@@ -714,6 +717,7 @@ export default function AutomationPage() {
                             rowKey="id"
                             columns={runColumns}
                             dataSource={currentTask.runs || []}
+                            scroll={AUTOMATION_RUN_TABLE_SCROLL}
                             pagination={{ pageSize: 5, hideOnSinglePage: true }}
                             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无运行记录" /> }}
                         />

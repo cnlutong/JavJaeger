@@ -77,6 +77,32 @@ const PAGE_LABELS = {
     downloadManagement: '下载管理',
     settings: '设置',
 };
+const PAGE_NAV_OPTIONS = [
+    { label: '影片检索', value: 'jav', icon: <Icon as={SearchOutlined} /> },
+    { label: '刮削', value: 'localScrape', icon: <Icon as={FileSearchOutlined} /> },
+    { label: '影视库', value: 'localLibrary', icon: <Icon as={DatabaseOutlined} /> },
+    { label: '自动模式', value: 'automation', icon: <Icon as={ThunderboltOutlined} /> },
+    { label: '网盘管理', value: 'webdav', icon: <Icon as={CloudOutlined} /> },
+    { label: '下载管理', value: 'downloadManagement', icon: <Icon as={DownloadOutlined} /> },
+    { label: '设置', value: 'settings', icon: <Icon as={SettingOutlined} /> },
+];
+const APP_THEME = {
+    token: {
+        colorPrimary: '#0066cc',
+        colorInfo: '#0066cc',
+        colorSuccess: '#248a3d',
+        colorWarning: '#9a6700',
+        colorError: '#d70015',
+        colorText: '#1d1d1f',
+        colorTextSecondary: '#6e6e73',
+        colorBgLayout: '#f5f5f7',
+        colorBgContainer: '#ffffff',
+        colorBorder: '#e0e0e0',
+        borderRadius: 11,
+        controlHeight: 44,
+        fontFamily: 'SF Pro Text, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    },
+};
 const RESOURCE_REQUEST_CONCURRENCY = 4;
 const FILTER_TYPE_LABELS = {
     star: '演员',
@@ -292,7 +318,7 @@ export default function JavPage() {
     }, [logoPreviewOpen]);
 
     React.useEffect(() => {
-        const media = window.matchMedia('(max-width: 833px)');
+        const media = window.matchMedia('(max-width: 1068px)');
         const syncWorkspaceRails = () => {
             setCollapsedLeft(media.matches);
             setCollapsedRight(media.matches);
@@ -1785,25 +1811,7 @@ export default function JavPage() {
 
     // ---- Render ---
     return (
-        <ConfigProvider
-            theme={{
-                token: {
-                    colorPrimary: '#0066cc',
-                    colorInfo: '#0066cc',
-                    colorSuccess: '#248a3d',
-                    colorWarning: '#9a6700',
-                    colorError: '#d70015',
-                    colorText: '#1d1d1f',
-                    colorTextSecondary: '#6e6e73',
-                    colorBgLayout: '#f5f5f7',
-                    colorBgContainer: '#ffffff',
-                    colorBorder: '#e0e0e0',
-                    borderRadius: 11,
-                    controlHeight: 44,
-                    fontFamily: 'SF Pro Text, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-                },
-            }}
-        >
+        <ConfigProvider theme={APP_THEME}>
             <div className="jav-app">
                 <Layout className="jav-app-layout">
                     <Header className="jav-header">
@@ -1831,15 +1839,7 @@ export default function JavPage() {
                                 className="jav-page-tabs"
                                 value={activePage}
                                 onChange={setActivePage}
-                                options={[
-                                    { label: '影片检索', value: 'jav', icon: <Icon as={SearchOutlined} /> },
-                                    { label: '刮削', value: 'localScrape', icon: <Icon as={FileSearchOutlined} /> },
-                                    { label: '影视库', value: 'localLibrary', icon: <Icon as={DatabaseOutlined} /> },
-                                    { label: '自动模式', value: 'automation', icon: <Icon as={ThunderboltOutlined} /> },
-                                    { label: '网盘管理', value: 'webdav', icon: <Icon as={CloudOutlined} /> },
-                                    { label: '下载管理', value: 'downloadManagement', icon: <Icon as={DownloadOutlined} /> },
-                                    { label: '设置', value: 'settings', icon: <Icon as={SettingOutlined} /> }
-                                ]}
+                                options={PAGE_NAV_OPTIONS}
                             />
                         </div>
                         <Space size="middle" className="jav-header-actions">
@@ -1879,6 +1879,7 @@ export default function JavPage() {
                                     type="default"
                                     icon={<Icon as={FilterOutlined} />}
                                     aria-expanded={!collapsedLeft}
+                                    aria-controls="jav-filter-rail"
                                     onClick={() => {
                                         setCollapsedRight(true);
                                         setCollapsedLeft(value => !value);
@@ -1889,6 +1890,7 @@ export default function JavPage() {
                                     type="default"
                                     icon={<Icon as={DownloadOutlined} />}
                                     aria-expanded={!collapsedRight}
+                                    aria-controls="jav-download-rail"
                                     onClick={() => {
                                         setCollapsedLeft(true);
                                         setCollapsedRight(value => !value);
@@ -1938,6 +1940,7 @@ export default function JavPage() {
                     <Layout className="jav-workspace">
                         {/* Left Sidebar */}
                         <Sider
+                            id="jav-filter-rail"
                             width={320}
                             collapsedWidth={0}
                             theme="light"
@@ -2270,6 +2273,7 @@ export default function JavPage() {
 
                         {/* Right Sidebar */}
                         <Sider
+                            id="jav-download-rail"
                             width={300}
                             collapsedWidth={0}
                             theme="light"
