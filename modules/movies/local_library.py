@@ -1,8 +1,10 @@
 import datetime
 import hashlib
+import json
 import logging
 import os
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,99 @@ def _iso_mtime(path: Path) -> str:
         return ""
 
 
+def _read_nfo_record(video_path: Path, fallback_code: str | None) -> dict[str, Any]:
+    nfo_path = video_path.with_suffix(".nfo")
+    try:
+        root = ET.parse(nfo_path).getroot()
+    except FileNotFoundError:
+        return {}
+    except (OSError, ET.ParseError) as exc:
+        logger.warning("Local library NFO read failed for %s: %s", nfo_path, exc)
+        return {}
+
+    def first(*paths: str) -> str:
+        for path in paths:
+            value = root.findtext(path)
+            if value and value.strip():
+                return value.strip()
+        return ""
+
+    embedded_metadata = None
+    embedded_text = first("javjaeger/metadata")
+    if embedded_text:
+        try:
+            value = json.loads(embedded_text)
+            if isinstance(value, dict):
+                embedded_metadata = value
+        except json.JSONDecodeError as exc:
+            logger.warning("Local library embedded NFO metadata read failed for %s: %s", nfo_path, exc)
+
+    raw_id = str((embedded_metadata or {}).get("id") or first("num", "uniqueid", "id")).strip()
+    movie_id = recognize_designation(raw_id) or raw_id.upper() or fallback_code
+    if not movie_id:
+        return {}
+
+    genres = list(dict.fromkeys(
+        value
+        for tag in ("genre", "tag")
+        for node in root.findall(tag)
+        if (value := str(node.text or "").strip())
+    ))
+    stars = [
+        value
+        for node in root.findall("actor")
+        if (value := str(node.findtext("name") or node.text or "").strip())
+    ]
+    metadata = embedded_metadata or _build_metadata(
+        {
+            "id": movie_id,
+            "title": first("title", "originaltitle", "sorttitle"),
+            "date": first("premiered", "releasedate", "release", "date"),
+            "videoLength": first("runtime"),
+            "producer": first("studio", "maker"),
+            "publisher": first("publisher"),
+            "director": first("director"),
+            "series": first("set/name", "set"),
+            "genres": genres,
+            "stars": stars,
+            "img": first("poster", "cover"),
+            "raw": {"id": movie_id, "source": "nfo", "path": str(nfo_path)},
+        },
+        movie_id,
+        video_path.stem,
+    )
+    record = {
+        "movie_id": movie_id,
+        "metadata": metadata,
+        "full_text": _metadata_full_text(movie_id, metadata),
+        "scrape_status": "found",
+        "scrape_error": None,
+        "scraped_at": _iso_mtime(nfo_path),
+    }
+
+    video = root.find("./fileinfo/streamdetails/video")
+    if video is not None:
+        for tag, key in (("codec", "codec"), ("container", "container")):
+            value = str(video.findtext(tag) or "").strip()
+            if value:
+                record[key] = value
+        for tag, key in (
+            ("width", "width"),
+            ("height", "height"),
+            ("bitrate", "bitrate"),
+            ("durationinseconds", "duration_seconds"),
+        ):
+            try:
+                value = int(float(str(video.findtext(tag) or "").strip()))
+            except (ValueError, OverflowError):
+                continue
+            if value > 0:
+                record[key] = value
+        if record.get("width") and record.get("height"):
+            record["resolution_pixels"] = record["width"] * record["height"]
+    return record
+
+
 def _build_library_file_record(path: Path, root: Path, probe_media: bool = False) -> dict[str, Any]:
     code = recognize_designation(path.stem)
     record = {
@@ -54,6 +149,7 @@ def _build_library_file_record(path: Path, root: Path, probe_media: bool = False
         "extension": path.suffix.lower(),
         "part": _source_part_marker(path.stem),
     }
+    record.update(_read_nfo_record(path, code))
     if probe_media:
         record.update(_probe_video_metadata(path))
     return record
@@ -328,6 +424,8 @@ async def _scan_local_library_directory(directory: str, request: LocalLibrarySca
         if scraped:
             record.update(scraped)
             record["scraped_at"] = scan_time
+        elif record.get("metadata"):
+            continue
         else:
             metadata = _build_metadata(None, str(movie_id), str(movie_id))
             record["metadata"] = metadata

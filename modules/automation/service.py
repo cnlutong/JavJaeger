@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_AUTOMATION_PATH = "data/automation_tasks.json"
 REQUIRED_NODE_TYPES = {"trigger", "search", "magnet", "download"}
 RUN_HISTORY_LIMIT = 50
-MAX_AUTOMATION_ALL_PAGES = 100
 
 
 class AutomationError(ValueError):
@@ -328,10 +327,14 @@ class AutomationService:
             next_page = pagination.get("nextPage")
             if not has_next_page and not next_page:
                 break
-            current_page = int(next_page or current_page + 1)
-            if current_page - start_page >= MAX_AUTOMATION_ALL_PAGES:
-                logger.warning("自动任务检索达到最大页数限制 %s，停止获取", MAX_AUTOMATION_ALL_PAGES)
+            try:
+                next_page = int(next_page)
+            except (TypeError, ValueError):
+                next_page = current_page + 1
+            if next_page <= current_page:
+                logger.warning("Automation movie search stopped at invalid next page %s", next_page)
                 break
+            current_page = next_page
         return self._limit_movies(movies, max_results)
 
     async def _dispatch_downloads(self, config: dict[str, Any], prepared: list[dict[str, Any]]) -> list[dict[str, Any]]:

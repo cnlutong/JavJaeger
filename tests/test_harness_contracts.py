@@ -1425,6 +1425,38 @@ def test_movies_payload_applies_subtitle_filter_to_movie_identifiers(monkeypatch
     assert payload["pagination"]["total"] == 2
 
 
+def test_all_movies_payload_follows_next_page_past_visible_pagination_window(monkeypatch):
+    class FakeRequest:
+        query_params = QueryParams({"magnet": "exist", "type": "normal"})
+
+    class FakeJavBusService:
+        def __init__(self):
+            self.page_queries = []
+
+        async def get_movies_by_page(self, query):
+            page = int(query["page"])
+            self.page_queries.append(dict(query))
+            return {
+                "movies": [{"id": f"MOVIE-{page:03d}"}],
+                "pagination": {
+                    "currentPage": page,
+                    "hasNextPage": page < 105,
+                    "nextPage": page + 1 if page < 105 else None,
+                    "pages": [1, 2, 3],
+                },
+            }
+
+    fake_service = FakeJavBusService()
+    monkeypatch.setattr(movies_service, "javbus_api_service", fake_service)
+
+    payload = asyncio.run(movies_service.get_all_movies_payload(FakeRequest()))
+
+    assert len(payload["movies"]) == 105
+    assert payload["movies"][-1] == {"id": "MOVIE-105"}
+    assert payload["pagination"]["totalPages"] == 105
+    assert fake_service.page_queries[-1]["page"] == "105"
+
+
 def test_download_magnets_to_aria2_routes_success_and_failures(monkeypatch):
     class FakeAria2Client:
         def __init__(self):
@@ -2857,6 +2889,97 @@ def test_local_scrape_nfo_writes_video_stream_details(tmp_path, monkeypatch):
     assert "<durationinseconds>3600</durationinseconds>" in text
 
 
+def test_local_library_nfo_round_trip_preserves_complete_scraped_metadata(tmp_path, monkeypatch):
+    video = tmp_path / "ABP-123.mp4"
+    video.write_bytes(b"video")
+    metadata = {
+        "id": "ABP-123",
+        "title": "Complete title",
+        "date": "2024-01-02",
+        "duration_minutes": 120,
+        "director": "Director One",
+        "studio": "Studio One",
+        "publisher": "Publisher One",
+        "series": "Series One",
+        "genres": ["Genre One", "Genre Two"],
+        "stars": ["Actor One", "Actor Two"],
+        "actor_refs": [
+            {"id": "star-a", "name": "Actor One", "avatar": "https://example.test/actor-a.jpg"},
+            {"id": "star-b", "name": "Actor Two"},
+        ],
+        "cover_url": "https://example.test/cover.jpg",
+        "list_thumbnail_url": "https://example.test/thumb.jpg",
+        "samples": [
+            {"id": "sample-1", "src": "https://example.test/sample.jpg", "thumbnail": "https://example.test/sample-thumb.jpg"}
+        ],
+        "raw": {
+            "id": "ABP-123",
+            "source": "javbus",
+            "stars": [{"id": "star-a", "name": "Actor One"}],
+            "genres": [{"id": "genre-a", "name": "Genre One"}],
+            "custom_field": {"kept": True},
+        },
+    }
+    media_info = {
+        "width": 1920,
+        "height": 1080,
+        "resolution_pixels": 1920 * 1080,
+        "bitrate": 4_500_000,
+        "codec": "h264",
+        "container": "mp4",
+        "duration_seconds": 7200,
+    }
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", lambda path: media_info)
+    local_scrape._write_nfo(video, metadata, "ABP-123-poster.jpg", ["extrafanart/fanart1.jpg"])
+
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(
+        movies_local_library,
+        "_probe_video_metadata",
+        lambda path: (_ for _ in ()).throw(AssertionError(f"NFO import should not probe: {path}")),
+    )
+
+    asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path))
+        )
+    )
+    record = asyncio.run(service.get_summary())["records"][0]
+
+    assert record["metadata"] == metadata
+    assert record["full_text"] == local_scrape._metadata_full_text("ABP-123", metadata)
+    assert record["media_info"] == media_info
+    saved_record = json.loads((tmp_path / "library.json").read_text(encoding="utf-8"))["movies"]["ABP-123"]
+    assert saved_record["metadata"] == metadata
+
+    async def fake_get_movie_detail(movie_id):
+        return {"id": movie_id, "title": "Fresh search title", "date": "2025-02-03"}
+
+    async def fake_get_best_magnet_payload(movie_id, **kwargs):
+        return {"url": f"magnet:?xt=urn:btih:{movie_id}", "name": "Fresh magnet"}
+
+    async def fake_is_movie_downloaded(movie_id):
+        return False
+
+    monkeypatch.setattr(magnets_service, "local_movie_library_service", service)
+    monkeypatch.setattr(magnets_service, "get_movie_detail", fake_get_movie_detail)
+    monkeypatch.setattr(magnets_service, "get_best_magnet_payload", fake_get_best_magnet_payload)
+    monkeypatch.setattr(magnets_service.download_history_service, "is_movie_downloaded", fake_is_movie_downloaded)
+
+    search_result = asyncio.run(
+        magnets_service.build_movie_with_best_magnet_result("ABP-123", magnet_source="cilisousuo")
+    )
+
+    assert search_result["title"] == "Fresh search title"
+    assert search_result["date"] == "2025-02-03"
+    assert search_result["in_local_library"] is True
+    assert search_result["best_magnet"] == {
+        "url": "magnet:?xt=urn:btih:ABP-123",
+        "name": "Fresh magnet",
+    }
+
+
 def test_local_library_scan_records_video_media_metadata(tmp_path, monkeypatch):
     video = tmp_path / "ABP-123.mp4"
     video.write_bytes(b"video")
@@ -2950,6 +3073,74 @@ def test_local_library_scan_defaults_to_direct_import_without_metadata_scrape(tm
     assert payload["success"] is True
     assert payload["scraped_movie_count"] == 0
     assert summary["records"][0]["scrape_status"] == "skipped"
+
+
+def test_local_library_scan_rebuilds_index_from_nfo(tmp_path, monkeypatch):
+    video = tmp_path / "renamed-video.mp4"
+    video.write_bytes(b"video")
+    video.with_suffix(".nfo").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<movie>
+  <title>Imported title</title>
+  <num>ABP-123</num>
+  <premiered>2024-01-02</premiered>
+  <runtime>120</runtime>
+  <studio>Studio One</studio>
+  <publisher>Publisher One</publisher>
+  <director>Director One</director>
+  <set><name>Series One</name></set>
+  <poster>https://example.test/cover.jpg</poster>
+  <actor><name>Actor One</name></actor>
+  <actor><name>Actor Two</name></actor>
+  <genre>Genre One</genre>
+  <tag>Genre Two</tag>
+  <fileinfo><streamdetails><video>
+    <codec>h264</codec><container>mp4</container>
+    <width>1920</width><height>1080</height><bitrate>4500000</bitrate>
+    <durationinseconds>7200</durationinseconds>
+  </video></streamdetails></fileinfo>
+</movie>
+""",
+        encoding="utf-8",
+    )
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    monkeypatch.setattr(
+        movies_local_library,
+        "_probe_video_metadata",
+        lambda path: (_ for _ in ()).throw(AssertionError(f"scan should read NFO instead of probing: {path}")),
+    )
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path))
+        )
+    )
+    summary = asyncio.run(service.get_summary())
+
+    assert payload["success"] is True
+    assert payload["recognized_files"] == 1
+    record = summary["records"][0]
+    assert record["movie_id"] == "ABP-123"
+    assert record["title"] == "Imported title"
+    assert record["date"] == "2024-01-02"
+    assert record["stars"] == ["Actor One", "Actor Two"]
+    assert record["genres"] == ["Genre One", "Genre Two"]
+    assert record["studio"] == "Studio One"
+    assert record["publisher"] == "Publisher One"
+    assert record["director"] == "Director One"
+    assert record["series"] == "Series One"
+    assert record["metadata"]["cover_url"] == "https://example.test/cover.jpg"
+    assert record["media_info"] == {
+        "width": 1920,
+        "height": 1080,
+        "resolution_pixels": 1920 * 1080,
+        "bitrate": 4_500_000,
+        "codec": "h264",
+        "container": "mp4",
+        "duration_seconds": 7200,
+    }
 
 
 def test_local_library_scan_can_regularize_actor_avatars_and_duplicate_files(tmp_path, monkeypatch):
@@ -5034,3 +5225,40 @@ def test_automation_filter_search_supports_multiple_conditions_and_all_results(t
         {"filterType": "genre", "filterValue": "4y", "magnet": "exist", "type": "normal", "page": "1"},
         {"filterType": "genre", "filterValue": "4y", "magnet": "exist", "type": "normal", "page": "2"},
     ]
+
+
+def test_automation_all_results_follows_next_page_past_100_pages(tmp_path, monkeypatch):
+    page_queries = []
+
+    async def fake_get_movies_by_page(query):
+        page = int(query["page"])
+        page_queries.append(dict(query))
+        return {
+            "movies": [{"id": f"MATCH-{page:03d}"}],
+            "pagination": {
+                "currentPage": page,
+                "hasNextPage": page < 105,
+                "nextPage": page + 1 if page < 105 else None,
+                "pages": [1, 2, 3],
+            },
+        }
+
+    monkeypatch.setattr(automation_service_module.javbus_api_service, "get_movies_by_page", fake_get_movies_by_page)
+
+    async def exercise():
+        service = AutomationService(str(tmp_path / "automation_tasks.json"), scheduler_enabled=False)
+        return await service._search_movies(
+            {
+                "mode": "filter",
+                "max_results": "all",
+                "filters": [{"type": "genre", "value": "4y", "label": "Genre A"}],
+                "magnet": "exist",
+                "type": "normal",
+            }
+        )
+
+    movies = asyncio.run(exercise())
+
+    assert len(movies) == 105
+    assert movies[-1] == {"id": "MATCH-105"}
+    assert page_queries[-1]["page"] == "105"

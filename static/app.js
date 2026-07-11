@@ -7195,10 +7195,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       if (moviesData.id && !moviesData.gid && !moviesData.uc && moviesData.avatar) {
         return /* @__PURE__ */ React8.createElement(Card7, { style: { marginBottom: 16, textAlign: "center" } }, /* @__PURE__ */ React8.createElement("img", { src: moviesData.avatar, alt: moviesData.name, style: { width: 150, height: 150, borderRadius: "50%", objectFit: "cover" } }), /* @__PURE__ */ React8.createElement(Title7, { level: 4, style: { marginTop: 16 } }, moviesData.name));
       }
-      if (moviesData.movies && moviesData.movies.length > 0) {
+      if (Array.isArray(moviesData.movies)) {
         const isPageMode = lastFilterValues && lastFilterValues.fetchMode !== "all";
+        const pagination = moviesData.pagination || {};
         const canGoPrev = isPageMode && lastFilterValues && currentPage > 1;
-        const canGoNext = isPageMode && lastFilterValues && moviesData.movies.length >= 30;
+        const canGoNext = isPageMode && lastFilterValues && (pagination.hasNextPage || pagination.nextPage);
         const paginationBar = isPageMode && lastFilterValues && /* @__PURE__ */ React8.createElement("div", { className: "jav-pagination-bar" }, /* @__PURE__ */ React8.createElement(
           Button8,
           {
@@ -7212,11 +7213,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           {
             icon: /* @__PURE__ */ React8.createElement(Icon6, { as: ArrowRightOutlined }),
             disabled: !canGoNext || loading,
-            onClick: () => handleFilterPageChange(currentPage + 1)
+            onClick: () => handleFilterPageChange(Number(pagination.nextPage) || currentPage + 1)
           },
           "\u4E0B\u4E00\u9875"
         ));
-        return /* @__PURE__ */ React8.createElement("div", { className: "jav-results-list" }, /* @__PURE__ */ React8.createElement("div", { className: "jav-results-meta" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u5171 ", moviesData.movies.length, " \u90E8")), paginationBar, moviesData.movies.map((movie) => renderMovieCard(movie)), paginationBar);
+        return /* @__PURE__ */ React8.createElement("div", { className: "jav-results-list" }, /* @__PURE__ */ React8.createElement("div", { className: "jav-results-meta" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u5171 ", moviesData.movies.length, " \u90E8")), paginationBar, moviesData.movies.length > 0 ? moviesData.movies.map((movie) => renderMovieCard(movie)) : /* @__PURE__ */ React8.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u672C\u9875\u672A\u627E\u5230\u76F8\u5173\u6570\u636E")), paginationBar);
       }
       return /* @__PURE__ */ React8.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React8.createElement(Text8, { type: "secondary" }, "\u672A\u627E\u5230\u76F8\u5173\u6570\u636E"));
     };

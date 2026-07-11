@@ -1221,6 +1221,10 @@ def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | No
         ET.SubElement(root, "genre").text = genre
         ET.SubElement(root, "tag").text = genre
 
+    javjaeger = ET.SubElement(root, "javjaeger")
+    embedded_metadata = ET.SubElement(javjaeger, "metadata", {"format": "json", "version": "1"})
+    embedded_metadata.text = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+
     media_info = _probe_video_metadata(video_path)
     if media_info:
         file_info = ET.SubElement(root, "fileinfo")

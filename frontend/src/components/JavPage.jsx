@@ -1348,10 +1348,11 @@ export default function JavPage() {
         }
 
         // Handle Array of Movies
-        if (moviesData.movies && moviesData.movies.length > 0) {
+        if (Array.isArray(moviesData.movies)) {
             const isPageMode = lastFilterValues && lastFilterValues.fetchMode !== 'all';
+            const pagination = moviesData.pagination || {};
             const canGoPrev = isPageMode && lastFilterValues && currentPage > 1;
-            const canGoNext = isPageMode && lastFilterValues && moviesData.movies.length >= 30;
+            const canGoNext = isPageMode && lastFilterValues && (pagination.hasNextPage || pagination.nextPage);
             const paginationBar = isPageMode && lastFilterValues && (
                 <div className="jav-pagination-bar">
                     <Button
@@ -1363,7 +1364,7 @@ export default function JavPage() {
                     <Button
                         icon={<Icon as={ArrowRightOutlined} />}
                         disabled={!canGoNext || loading}
-                        onClick={() => handleFilterPageChange(currentPage + 1)}
+                        onClick={() => handleFilterPageChange(Number(pagination.nextPage) || currentPage + 1)}
                     >下一页</Button>
                 </div>
             );
@@ -1373,7 +1374,13 @@ export default function JavPage() {
                         <Text type="secondary">共 {moviesData.movies.length} 部</Text>
                     </div>
                     {paginationBar}
-                    {moviesData.movies.map(movie => renderMovieCard(movie))}
+                    {moviesData.movies.length > 0
+                        ? moviesData.movies.map(movie => renderMovieCard(movie))
+                        : (
+                            <div className="jav-state-panel">
+                                <Text type="secondary">本页未找到相关数据</Text>
+                            </div>
+                        )}
                     {paginationBar}
                 </div>
             );

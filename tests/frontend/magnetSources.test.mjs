@@ -18,6 +18,13 @@ test("jav page exposes exclude VR movie search option", () => {
     assert.match(javPage, /排除VR/);
 });
 
+test("jav page follows backend pagination instead of guessing by visible result count", () => {
+    assert.match(javPage, /const pagination = moviesData\.pagination \|\| \{\};/);
+    assert.match(javPage, /pagination\.hasNextPage \|\| pagination\.nextPage/);
+    assert.match(javPage, /handleFilterPageChange\(Number\(pagination\.nextPage\) \|\| currentPage \+ 1\)/);
+    assert.doesNotMatch(javPage, /moviesData\.movies\.length >= 30/);
+});
+
 test("automation page exposes yhg007 as a magnet node source", () => {
     assert.match(automationPage, /yhg007: "YHG007"/);
     assert.match(automationPage, /MAGNET_SOURCE_LABELS\[node\.config\?\.source \|\| "javbus"\]/);

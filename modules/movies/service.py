@@ -293,7 +293,8 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
 
     all_movies: list[dict[str, Any]] = []
     current_page = 1
-    total_pages = None
+    fetched_pages = 0
+    total_pages: int | None = None
 
     while True:
         page_params = query_params.copy()
@@ -304,22 +305,34 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
             break
 
         all_movies.extend(data["movies"])
-        if total_pages is None and data.get("pagination"):
-            total_pages = data["pagination"].get("totalPages")
-            if total_pages is None:
-                pages = data["pagination"].get("pages", [])
-                if pages:
-                    total_pages = max(pages)
+        fetched_pages += 1
+
+        pagination = data.get("pagination") or {}
+        if total_pages is None and pagination.get("totalPages"):
+            try:
+                total_pages = int(pagination["totalPages"])
+            except (TypeError, ValueError):
+                total_pages = None
 
         if total_pages and current_page >= total_pages:
             break
-        if not total_pages and len(data["movies"]) < 30:
-            break
 
-        current_page += 1
-        if current_page > 100:
-            logger.warning("达到最大页数限制(100页)，停止获取")
+        next_page = pagination.get("nextPage")
+        if not pagination:
+            if len(data["movies"]) < 30:
+                break
+            current_page += 1
+            continue
+        if not pagination.get("hasNextPage") and not next_page:
             break
+        try:
+            next_page = int(next_page)
+        except (TypeError, ValueError):
+            next_page = current_page + 1
+        if next_page <= current_page:
+            logger.warning("All-movies fetch stopped at invalid next page %s", next_page)
+            break
+        current_page = next_page
 
     if all_movies:
         filtered_movies: list[dict[str, Any]] = []
@@ -343,11 +356,11 @@ async def get_all_movies_payload(request: Request) -> dict[str, Any]:
     return {
         "movies": all_movies,
         "total_count": len(all_movies),
-        "total_pages": current_page - 1,
+        "total_pages": total_pages or fetched_pages,
         "is_all_pages": True,
         "pagination": {
             "currentPage": "all",
-            "totalPages": current_page - 1,
+            "totalPages": total_pages or fetched_pages,
             "total": len(all_movies),
         },
     }
