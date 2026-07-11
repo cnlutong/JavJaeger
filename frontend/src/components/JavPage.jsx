@@ -46,9 +46,11 @@ const { Option } = Select;
 const {
     ArrowLeftOutlined,
     ArrowRightOutlined,
+    CloudOutlined,
     DatabaseOutlined,
     DownloadOutlined,
     FilterOutlined,
+    FileSearchOutlined,
     GithubOutlined,
     HistoryOutlined,
     LinkOutlined,
@@ -66,6 +68,15 @@ const HEADER_BRAND_NAME = 'JavJaeger';
 const HEADER_SLOGAN = '"人类的一切痛苦，都是因为性欲得不到满足" --弗洛伊德 峰';
 const HEADER_SLOGAN_QUOTE = '"人类的一切痛苦，都是因为性欲得不到满足"';
 const HEADER_SLOGAN_AUTHOR = ' --弗洛伊德 峰';
+const PAGE_LABELS = {
+    jav: '影片检索',
+    localScrape: '刮削',
+    localLibrary: '影视库',
+    automation: '自动模式',
+    webdav: '网盘管理',
+    downloadManagement: '下载管理',
+    settings: '设置',
+};
 const RESOURCE_REQUEST_CONCURRENCY = 4;
 const FILTER_TYPE_LABELS = {
     star: '演员',
@@ -279,6 +290,17 @@ export default function JavPage() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [logoPreviewOpen]);
+
+    React.useEffect(() => {
+        const media = window.matchMedia('(max-width: 833px)');
+        const syncWorkspaceRails = () => {
+            setCollapsedLeft(media.matches);
+            setCollapsedRight(media.matches);
+        };
+        syncWorkspaceRails();
+        media.addEventListener('change', syncWorkspaceRails);
+        return () => media.removeEventListener('change', syncWorkspaceRails);
+    }, []);
 
     const displayVersion = versionInfo.version && versionInfo.version.startsWith('v')
         ? versionInfo.version
@@ -1766,15 +1788,19 @@ export default function JavPage() {
         <ConfigProvider
             theme={{
                 token: {
-                    colorPrimary: '#1677ff',
-                    colorInfo: '#1677ff',
-                    colorSuccess: '#52c41a',
-                    colorWarning: '#faad14',
-                    colorError: '#ff4d4f',
-                    colorBgLayout: '#f5f5f5',
-                    colorBorder: '#d9d9d9',
-                    borderRadius: 6,
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                    colorPrimary: '#0066cc',
+                    colorInfo: '#0066cc',
+                    colorSuccess: '#248a3d',
+                    colorWarning: '#9a6700',
+                    colorError: '#d70015',
+                    colorText: '#1d1d1f',
+                    colorTextSecondary: '#6e6e73',
+                    colorBgLayout: '#f5f5f7',
+                    colorBgContainer: '#ffffff',
+                    colorBorder: '#e0e0e0',
+                    borderRadius: 11,
+                    controlHeight: 44,
+                    fontFamily: 'SF Pro Text, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
                 },
             }}
         >
@@ -1806,13 +1832,13 @@ export default function JavPage() {
                                 value={activePage}
                                 onChange={setActivePage}
                                 options={[
-                                    { label: '影片检索', value: 'jav' },
-                                    { label: '刮削', value: 'localScrape' },
-                                    { label: '影视库', value: 'localLibrary' },
-                                    { label: '自动模式', value: 'automation' },
-                                    { label: '网盘管理', value: 'webdav' },
-                                    { label: '下载管理', value: 'downloadManagement' },
-                                    { label: '设置', value: 'settings' }
+                                    { label: '影片检索', value: 'jav', icon: <Icon as={SearchOutlined} /> },
+                                    { label: '刮削', value: 'localScrape', icon: <Icon as={FileSearchOutlined} /> },
+                                    { label: '影视库', value: 'localLibrary', icon: <Icon as={DatabaseOutlined} /> },
+                                    { label: '自动模式', value: 'automation', icon: <Icon as={ThunderboltOutlined} /> },
+                                    { label: '网盘管理', value: 'webdav', icon: <Icon as={CloudOutlined} /> },
+                                    { label: '下载管理', value: 'downloadManagement', icon: <Icon as={DownloadOutlined} /> },
+                                    { label: '设置', value: 'settings', icon: <Icon as={SettingOutlined} /> }
                                 ]}
                             />
                         </div>
@@ -1829,6 +1855,62 @@ export default function JavPage() {
                             </a>
                         </Space>
                     </Header>
+
+                    <div className="jav-product-strip">
+                        <div className="jav-product-strip-title">
+                            <strong>{PAGE_LABELS[activePage]}</strong>
+                            <span>JavJaeger 自动化工作台</span>
+                        </div>
+                        <div className="jav-product-strip-meta">
+                            <span>{displayVersion}</span>
+                            <span>{versionInfo.build_date}</span>
+                            {activePage === 'jav' && (
+                                <Button type="link" size="small" onClick={() => void loadDownloadToolStatus()}>
+                                    连接检测
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+
+                    {activePage === 'jav' && (
+                        <>
+                            <div className="jav-mobile-workspace-controls">
+                                <Button
+                                    type="default"
+                                    icon={<Icon as={FilterOutlined} />}
+                                    aria-expanded={!collapsedLeft}
+                                    onClick={() => {
+                                        setCollapsedRight(true);
+                                        setCollapsedLeft(value => !value);
+                                    }}
+                                >筛选</Button>
+                                <strong>影片检索</strong>
+                                <Button
+                                    type="default"
+                                    icon={<Icon as={DownloadOutlined} />}
+                                    aria-expanded={!collapsedRight}
+                                    onClick={() => {
+                                        setCollapsedLeft(true);
+                                        setCollapsedRight(value => !value);
+                                    }}
+                                >下载工具</Button>
+                            </div>
+                            <div className="jav-mobile-quick-search">
+                                <Form onFinish={searchMovie} layout="vertical">
+                                    <Form.Item
+                                        name="keyword"
+                                        label="按影片番号搜索"
+                                        rules={[{ required: true, message: '请输入番号' }]}
+                                    >
+                                        <Input placeholder="例如：IPX-123、SSNI-123" allowClear />
+                                    </Form.Item>
+                                    <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={SearchOutlined} />}>
+                                        开始搜索
+                                    </Button>
+                                </Form>
+                            </div>
+                        </>
+                    )}
 
                     {logoPreviewOpen && (
                         <div
@@ -1857,6 +1939,7 @@ export default function JavPage() {
                         {/* Left Sidebar */}
                         <Sider
                             width={320}
+                            collapsedWidth={0}
                             theme="light"
                             collapsible
                             collapsed={collapsedLeft}
@@ -2188,6 +2271,7 @@ export default function JavPage() {
                         {/* Right Sidebar */}
                         <Sider
                             width={300}
+                            collapsedWidth={0}
                             theme="light"
                             collapsible
                             collapsed={collapsedRight}
