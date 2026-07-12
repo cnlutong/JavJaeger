@@ -1,8 +1,7 @@
 const React = window.React;
 
-import JavPage from "./components/JavPage.jsx";
-
+import WorkbenchApp from "./workbench/WorkbenchApp.jsx";
 
 export default function App() {
-    return <JavPage />;
+  return <WorkbenchApp />;
 }

@@ -2,7 +2,7 @@ const React = window.React;
 const ReactDOM = window.ReactDOM;
 
 import App from "./App.jsx";
-import "./styles/apple.css";
+import "./workbench/workbench.css";
 
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
