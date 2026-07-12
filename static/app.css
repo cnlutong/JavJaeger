@@ -127,6 +127,7 @@ body {
   box-shadow: none;
 }
 .jav-page-tabs .ant-segmented-thumb {
+  display: none;
   border-radius: 0;
   background: #1d1d1f;
   box-shadow: none;
@@ -517,6 +518,13 @@ body {
   box-shadow: none !important;
   font-size: 14px;
 }
+.jav-app .ant-input-affix-wrapper > input.ant-input {
+  min-height: 0;
+  padding: 0;
+}
+.jav-app .ant-input-affix-wrapper {
+  height: 44px;
+}
 .jav-app .ant-select-single .ant-select-selector {
   align-items: center;
 }
@@ -633,6 +641,23 @@ body .jav-app .jav-kpi-grid > .jav-kpi-card {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
+.jav-library-toolbar {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  margin: 24px 0 16px;
+}
+.jav-library-search-row {
+  grid-column: span 4;
+}
+.jav-library-toolbar > .ant-segmented,
+.jav-library-toolbar > .ant-select,
+.jav-library-size-control,
+.jav-library-toolbar > .ant-btn {
+  grid-column: span 2;
+}
+.jav-library-toolbar > .ant-btn {
+  width: 100%;
+}
 .jav-app .webdav-netdisk-list .ant-list-item.is-active,
 .jav-app .webdav-netdisk-list .ant-list-item.is-active .webdav-netdisk-row {
   color: var(--apple-blue) !important;
@@ -672,6 +697,14 @@ body .jav-app .jav-kpi-grid > .jav-kpi-card {
 .automation-canvas {
   background: var(--apple-canvas) !important;
   box-shadow: none !important;
+}
+.automation-workbench {
+  grid-template-columns: minmax(0, 1fr);
+}
+.automation-inspector {
+  width: 100%;
+  max-width: 720px;
+  justify-self: center;
 }
 .automation-canvas-scroll {
   min-width: 0;
@@ -883,6 +916,18 @@ body .jav-app .jav-kpi-grid > .jav-kpi-card {
   .jav-content.jav-page-content {
     overflow-x: hidden;
   }
+  .jav-page-panel > .jav-local-scrape {
+    padding: 0 !important;
+  }
+  .jav-library-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .jav-library-search-row,
+  .jav-library-toolbar > .ant-segmented,
+  .jav-library-toolbar > .ant-select,
+  .jav-library-size-control {
+    grid-column: 1 / -1;
+  }
   .automation-workbench {
     min-width: 0;
   }
@@ -890,7 +935,31 @@ body .jav-app .jav-kpi-grid > .jav-kpi-card {
     max-width: 100%;
     overflow-x: auto;
   }
+  .automation-canvas {
+    overflow-x: auto;
+  }
   .automation-toolbar > .ant-space {
+    width: 100%;
+  }
+  .automation-sidebar {
+    max-height: 160px !important;
+  }
+  .automation-sidebar-header {
+    padding: 14px 16px 10px;
+  }
+  .automation-sidebar .ant-empty {
+    margin-block: 8px;
+  }
+  .automation-name-input {
+    width: 100%;
+  }
+  .automation-toolbar > .ant-space:last-child {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px !important;
+  }
+  .automation-toolbar > .ant-space:last-child > .ant-space-item,
+  .automation-toolbar > .ant-space:last-child .ant-btn {
     width: 100%;
   }
   .jav-kpi-grid {
@@ -929,11 +998,53 @@ body .jav-app .jav-kpi-grid > .jav-kpi-card {
     grid-template-columns: 1fr !important;
   }
   .settings-nav,
-  .automation-sidebar,
-  .automation-inspector {
+  .automation-sidebar {
     position: static !important;
     width: auto !important;
     max-width: none !important;
+  }
+  .automation-inspector {
+    position: static !important;
+    width: 100% !important;
+    max-width: 720px !important;
+    margin-inline: auto;
+  }
+}
+@media (max-width: 640px) {
+  .jav-library-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .jav-library-search-row {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .jav-library-search-row .ant-input-affix-wrapper {
+    grid-column: 1 / -1;
+  }
+  .jav-library-search-row .ant-btn,
+  .jav-library-toolbar > .ant-btn {
+    width: 100%;
+  }
+  .jav-library-toolbar > .ant-segmented,
+  .jav-library-toolbar > .ant-select,
+  .jav-library-size-control {
+    grid-column: 1 / -1;
+  }
+  .webdav-page-header-compact > .ant-space {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px !important;
+  }
+  .webdav-page-header-compact > .ant-space > .ant-space-item {
+    min-width: 0;
+  }
+  .webdav-page-header-compact > .ant-space > .ant-space-item:first-child {
+    grid-column: 1 / -1;
+  }
+  .webdav-page-header-compact > .ant-space .ant-btn {
+    width: 100%;
   }
 }
 @media (max-width: 480px) {

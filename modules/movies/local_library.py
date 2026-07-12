@@ -30,6 +30,7 @@ from .local_scrape import (
     scrape_movie_metadata_map,
 )
 from .schemas import LocalLibraryInformationDownloadRequest, LocalLibraryScanRequest, LocalLibrarySettingsRequest
+from .service import movie_detail_is_vr
 
 
 logger = logging.getLogger(__name__)
@@ -139,10 +140,12 @@ def _read_nfo_record(video_path: Path, fallback_code: str | None) -> dict[str, A
 
 def _build_library_file_record(path: Path, root: Path, probe_media: bool = False) -> dict[str, Any]:
     code = recognize_designation(path.stem)
+    relative_path = path.relative_to(root)
     record = {
         "movie_id": code,
         "path": str(path),
-        "relative_path": str(path.relative_to(root)),
+        "relative_path": str(relative_path),
+        "is_vr": root.name.casefold() == "vr" or any(part.casefold() == "vr" for part in relative_path.parts[:-1]),
         "file_name": path.name,
         "size": _file_size(path),
         "modified_at": _iso_mtime(path),
@@ -150,6 +153,7 @@ def _build_library_file_record(path: Path, root: Path, probe_media: bool = False
         "part": _source_part_marker(path.stem),
     }
     record.update(_read_nfo_record(path, code))
+    record["is_vr"] = bool(record["is_vr"] or (record.get("metadata") or {}).get("is_vr"))
     if probe_media:
         record.update(_probe_video_metadata(path))
     return record
@@ -433,6 +437,7 @@ async def _scan_local_library_directory(directory: str, request: LocalLibrarySca
             record["scrape_error"] = None
             record["full_text"] = _metadata_full_text(str(movie_id), metadata)
             record["scraped_at"] = ""
+        record["is_vr"] = bool(record.get("is_vr") or (record.get("metadata") or {}).get("is_vr"))
 
     regularize_result = {
         "regularized_actor_avatar_count": 0,
@@ -510,7 +515,10 @@ async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]
 
 
 async def get_local_library_payload() -> dict[str, Any]:
-    return await local_movie_library_service.get_summary()
+    payload = await local_movie_library_service.get_summary()
+    for record in payload.get("records", []):
+        record["is_vr"] = bool(record.get("is_vr") or movie_detail_is_vr(record.get("metadata") or record))
+    return payload
 
 
 def parse_information_check_fields(fields: str | list[str] | tuple[str, ...] | None) -> tuple[str, ...]:
@@ -793,7 +801,13 @@ async def _write_local_library_information_assets(
 
 
 async def get_local_library_status(movie_id: str) -> dict[str, Any]:
-    return await local_movie_library_service.get_status(movie_id)
+    payload = await local_movie_library_service.get_status(movie_id)
+    record = payload.get("record")
+    if record:
+        record = dict(record)
+        record["is_vr"] = bool(record.get("is_vr") or movie_detail_is_vr(record.get("metadata") or record))
+        payload["record"] = record
+    return payload
 
 
 async def clear_local_library() -> dict[str, Any]:

@@ -177,9 +177,11 @@ def _movie_detail_matches_filter(movie_detail: dict[str, Any], condition: dict[s
     return bool(detail_values.intersection(expected_values))
 
 
-def _movie_detail_is_vr(movie_detail: dict[str, Any]) -> bool:
-    genre_values = set(_iter_detail_values(movie_detail.get("genres")))
-    if "vr" in genre_values:
+def movie_detail_is_vr(movie_detail: dict[str, Any]) -> bool:
+    if movie_detail.get("is_vr") is True:
+        return True
+    genre_values = _iter_detail_values(movie_detail.get("genres"))
+    if any(re.search(r"^vr(?:$|[^a-z0-9])", value) for value in genre_values):
         return True
 
     title_values = []
@@ -187,7 +189,7 @@ def _movie_detail_is_vr(movie_detail: dict[str, Any]) -> bool:
         normalized = _normalize_filter_value(movie_detail.get(field_name))
         if normalized:
             title_values.append(normalized)
-    return any("【vr】" in title for title in title_values)
+    return any(re.search(r"(?<!\w)vr(?!\w)", title) for title in title_values)
 
 
 async def _filter_movies_by_detail(
@@ -212,7 +214,7 @@ async def _filter_movies_by_detail(
                 movie_detail = await get_movie_detail(movie["id"])
                 if not movie_detail:
                     return None
-                if exclude_vr and _movie_detail_is_vr(movie_detail):
+                if exclude_vr and movie_detail_is_vr(movie_detail):
                     return None
                 if actor_count_filter and not _matches_actor_count_filter(len(movie_detail.get("stars") or []), actor_count_filter):
                     return None

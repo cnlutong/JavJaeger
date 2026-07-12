@@ -1291,6 +1291,7 @@ class LocalMovieLibraryService:
         files = record.get("files", [])
         record["file_count"] = len(files)
         record["total_size"] = sum(int(item.get("size") or 0) for item in files)
+        record["is_vr"] = bool((record.get("metadata") or {}).get("is_vr") or any(item.get("is_vr") for item in files))
         record["updated_at"] = updated_at
         roots = sorted({str(item.get("scan_root") or "") for item in files if item.get("scan_root")})
         record["scan_roots"] = roots

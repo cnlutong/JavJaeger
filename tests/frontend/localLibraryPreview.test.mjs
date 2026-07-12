@@ -247,6 +247,14 @@ test("local library actor and genre tags filter from list, grid, and preview", (
     assert.match(css, /\.jav-library-filter-tag\.ant-tag\s*\{[\s\S]*cursor:\s*pointer;/);
 });
 
+test("local library exposes VR classification, filtering, and badges", () => {
+    assert.match(localLibraryPage, /types: countedOptions\(records, \(record\) => record\.is_vr \? "VR" : "普通"\)/);
+    assert.match(localLibraryPage, /matchesAny\(record\.is_vr \? "VR" : "普通", filters\.types\)/);
+    assert.match(localLibraryPage, /filterBlock\("影片类型", "types"\)/);
+    assert.match(localLibraryPage, /record\.is_vr && <Tag color="purple">VR<\/Tag>/);
+    assert.match(localLibraryPage, /selectedRecord\.is_vr && <Tag color="purple">VR<\/Tag>/);
+});
+
 test("local library exposes a persistent scoped dark mode", () => {
     assert.match(localLibraryPage, /LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger\.localLibrary\.theme"/);
     assert.match(localLibraryPage, /const \[libraryTheme, setLibraryTheme\] = React\.useState\(\(\) => loadLocalLibraryTheme\(\)\)/);

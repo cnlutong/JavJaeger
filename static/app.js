@@ -3213,6 +3213,7 @@
     const [keywordDraft, setKeywordDraft] = React5.useState("");
     const [filters, setFilters] = React5.useState({
       keyword: "",
+      types: [],
       genres: [],
       stars: [],
       studios: [],
@@ -3282,6 +3283,7 @@
       }, {});
     }, [informationCheck]);
     const filterOptions = React5.useMemo(() => ({
+      types: countedOptions(records, (record) => record.is_vr ? "VR" : "\u666E\u901A"),
       genres: countedOptions(records, (record) => record.genres),
       stars: countedOptions(records, (record) => record.stars),
       studios: countedOptions(records, (record) => record.studio),
@@ -3307,7 +3309,7 @@ ${record.full_text || ""}`.toLowerCase();
             return false;
           }
         }
-        return matchesAny(record.genres, filters.genres) && matchesAny(record.stars, filters.stars) && matchesAny(record.studio, filters.studios) && matchesAny(record.publisher, filters.publishers) && matchesAny(record.series, filters.series) && matchesAny(String(record.date || "").slice(0, 4), filters.years) && matchesAny(record.scan_roots, filters.roots);
+        return matchesAny(record.is_vr ? "VR" : "\u666E\u901A", filters.types) && matchesAny(record.genres, filters.genres) && matchesAny(record.stars, filters.stars) && matchesAny(record.studio, filters.studios) && matchesAny(record.publisher, filters.publishers) && matchesAny(record.series, filters.series) && matchesAny(String(record.date || "").slice(0, 4), filters.years) && matchesAny(record.scan_roots, filters.roots);
       });
     }, [records, filters]);
     const sortedRecords = React5.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
@@ -3434,6 +3436,7 @@ ${record.full_text || ""}`.toLowerCase();
       setKeywordDraft("");
       setFilters({
         keyword: "",
+        types: [],
         genres: [],
         stars: [],
         studios: [],
@@ -3821,6 +3824,7 @@ ${record.full_text || ""}`.toLowerCase();
     };
     const activeFilterTags = () => {
       const labels = {
+        types: "\u5F71\u7247\u7C7B\u578B",
         genres: "\u6807\u7B7E",
         stars: "\u6F14\u5458",
         studios: "\u5236\u4F5C\u5546",
@@ -3851,6 +3855,7 @@ ${record.full_text || ""}`.toLowerCase();
       }
       setFilters({
         keyword: "",
+        types: filterKey === "types" ? [value] : [],
         genres: filterKey === "genres" ? [value] : [],
         stars: filterKey === "stars" ? [value] : [],
         studios: [],
@@ -3871,6 +3876,7 @@ ${record.full_text || ""}`.toLowerCase();
       setFilters((prev) => ({
         ...prev,
         keyword: "",
+        types: [],
         genres: [],
         stars: [actor.name],
         studios: [],
@@ -4009,7 +4015,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           },
           "\u79FB\u9664"
         )
-      ), /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, selectedRecord.movie_id))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 3, className: "jav-library-preview-title" }, selectedRecord.title || selectedRecord.movie_id), selectedRecord.scrape_error && /* @__PURE__ */ React5.createElement(
+      ), /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, selectedRecord.movie_id), selectedRecord.is_vr && /* @__PURE__ */ React5.createElement(Tag4, { color: "purple" }, "VR"))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 3, className: "jav-library-preview-title" }, selectedRecord.title || selectedRecord.movie_id), selectedRecord.scrape_error && /* @__PURE__ */ React5.createElement(
         Alert2,
         {
           type: "warning",
@@ -4039,7 +4045,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         dataIndex: "movie_id",
         key: "movie_id",
         width: 140,
-        render: (value, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 2 }, /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, value), record.scrape_status === "found" && /* @__PURE__ */ React5.createElement(Tag4, { color: "green" }, "\u5DF2\u522E\u524A"), record.scrape_status === "failed" && /* @__PURE__ */ React5.createElement(Tag4, { color: "red" }, "\u522E\u524A\u5931\u8D25"), missingInformationByMovieId[String(value || "").toUpperCase()] && /* @__PURE__ */ React5.createElement(Tag4, { color: "orange" }, "\u7F3A\u4FE1\u606F"))
+        render: (value, record) => /* @__PURE__ */ React5.createElement(Space5, { direction: "vertical", size: 2 }, /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, value), record.is_vr && /* @__PURE__ */ React5.createElement(Tag4, { color: "purple" }, "VR"), record.scrape_status === "found" && /* @__PURE__ */ React5.createElement(Tag4, { color: "green" }, "\u5DF2\u522E\u524A"), record.scrape_status === "failed" && /* @__PURE__ */ React5.createElement(Tag4, { color: "red" }, "\u522E\u524A\u5931\u8D25"), missingInformationByMovieId[String(value || "").toUpperCase()] && /* @__PURE__ */ React5.createElement(Tag4, { color: "orange" }, "\u7F3A\u4FE1\u606F"))
       },
       {
         title: "\u5F71\u7247\u4FE1\u606F",
@@ -4228,7 +4234,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           onClick: () => openRecordPreview(record)
         },
         /* @__PURE__ */ React5.createElement(Text5, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
-        /* @__PURE__ */ React5.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, String(record.date).slice(0, 4))),
+        /* @__PURE__ */ React5.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, record.movie_id), record.is_vr && /* @__PURE__ */ React5.createElement(Tag4, { color: "purple" }, "VR"), record.date && /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, String(record.date).slice(0, 4))),
         renderMediaTags(primaryMediaInfo(record)),
         /* @__PURE__ */ React5.createElement(
           Popconfirm4,
@@ -4490,7 +4496,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         extra: /* @__PURE__ */ React5.createElement(Button5, { type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")
       },
       /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u540C\u4E00\u5B57\u6BB5\u5185\u4E3A\u201C\u4EFB\u4E00\u5339\u914D\u201D\uFF0C\u4E0D\u540C\u5B57\u6BB5\u4E4B\u95F4\u4E3A\u201C\u540C\u65F6\u6EE1\u8DB3\u201D\u3002")),
-      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filters" }, filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
+      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filters" }, filterBlock("\u5F71\u7247\u7C7B\u578B", "types"), filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
     )))));
   }
 

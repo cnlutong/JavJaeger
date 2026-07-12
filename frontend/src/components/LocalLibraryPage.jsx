@@ -561,6 +561,7 @@ export default function LocalLibraryPage() {
     const [keywordDraft, setKeywordDraft] = React.useState("");
     const [filters, setFilters] = React.useState({
         keyword: "",
+        types: [],
         genres: [],
         stars: [],
         studios: [],
@@ -632,6 +633,7 @@ export default function LocalLibraryPage() {
     }, [informationCheck]);
 
     const filterOptions = React.useMemo(() => ({
+        types: countedOptions(records, (record) => record.is_vr ? "VR" : "普通"),
         genres: countedOptions(records, (record) => record.genres),
         stars: countedOptions(records, (record) => record.stars),
         studios: countedOptions(records, (record) => record.studio),
@@ -660,6 +662,7 @@ export default function LocalLibraryPage() {
                 }
             }
             return (
+                matchesAny(record.is_vr ? "VR" : "普通", filters.types) &&
                 matchesAny(record.genres, filters.genres) &&
                 matchesAny(record.stars, filters.stars) &&
                 matchesAny(record.studio, filters.studios) &&
@@ -809,6 +812,7 @@ export default function LocalLibraryPage() {
         setKeywordDraft("");
         setFilters({
             keyword: "",
+            types: [],
             genres: [],
             stars: [],
             studios: [],
@@ -1233,6 +1237,7 @@ export default function LocalLibraryPage() {
 
     const activeFilterTags = () => {
         const labels = {
+            types: "影片类型",
             genres: "标签",
             stars: "演员",
             studios: "制作商",
@@ -1264,6 +1269,7 @@ export default function LocalLibraryPage() {
         }
         setFilters({
             keyword: "",
+            types: filterKey === "types" ? [value] : [],
             genres: filterKey === "genres" ? [value] : [],
             stars: filterKey === "stars" ? [value] : [],
             studios: [],
@@ -1285,6 +1291,7 @@ export default function LocalLibraryPage() {
         setFilters((prev) => ({
             ...prev,
             keyword: "",
+            types: [],
             genres: [],
             stars: [actor.name],
             studios: [],
@@ -1480,6 +1487,7 @@ export default function LocalLibraryPage() {
                                 </Button>
                             </Popconfirm>
                             <Tag color="blue">{selectedRecord.movie_id}</Tag>
+                            {selectedRecord.is_vr && <Tag color="purple">VR</Tag>}
                         </Space>
                     </div>
                     <div>
@@ -1566,6 +1574,7 @@ export default function LocalLibraryPage() {
             render: (value, record) => (
                 <Space direction="vertical" size={2}>
                     <Tag color="blue">{value}</Tag>
+                    {record.is_vr && <Tag color="purple">VR</Tag>}
                     {record.scrape_status === "found" && <Tag color="green">已刮削</Tag>}
                     {record.scrape_status === "failed" && <Tag color="red">刮削失败</Tag>}
                     {missingInformationByMovieId[String(value || "").toUpperCase()] && <Tag color="orange">缺信息</Tag>}
@@ -1897,6 +1906,7 @@ export default function LocalLibraryPage() {
                                         </Text>
                                         <div className="jav-library-poster-meta">
                                             <Tag color="blue">{record.movie_id}</Tag>
+                                            {record.is_vr && <Tag color="purple">VR</Tag>}
                                             {record.date && <Text type="secondary">{String(record.date).slice(0, 4)}</Text>}
                                         </div>
                                         {renderMediaTags(primaryMediaInfo(record))}
@@ -2286,6 +2296,7 @@ export default function LocalLibraryPage() {
                             <Text type="secondary">同一字段内为“任一匹配”，不同字段之间为“同时满足”。</Text>
                         </div>
                         <div className="jav-library-filters">
+                            {filterBlock("影片类型", "types")}
                             {filterBlock("标签", "genres")}
                             {filterBlock("演员", "stars")}
                             {filterBlock("制作商", "studios")}

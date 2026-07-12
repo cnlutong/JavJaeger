@@ -53,6 +53,7 @@ test("application shell exposes a frosted product strip and responsive rail cont
     assert.match(responsiveCss, /\.jav-header-nav\s*\{[^}]*width:\s*100%;/);
     assert.match(responsiveCss, /\.jav-mobile-workspace-controls\s*\{[^}]*position:\s*sticky;[^}]*top:\s*104px;/);
     assert.match(css, /\.jav-workspace:not\(\.jav-page-workspace\)[\s\S]*flex-direction:\s*row\s*!important/);
+    assert.match(css, /\.jav-page-tabs\s+\.ant-segmented-thumb\s*\{[^}]*display:\s*none;/);
     assert.match(css, /@media \(max-width:\s*1068px\)[\s\S]*\.jav-mobile-workspace-controls[\s\S]*display:\s*flex/);
 });
 
@@ -70,5 +71,20 @@ test("dense library and automation workspaces contain horizontal overflow on mob
     assert.match(automationPage, /scroll=\{AUTOMATION_RUN_TABLE_SCROLL\}/);
     assert.match(responsiveCss, /\.jav-content\.jav-page-content\s*\{[^}]*overflow-x:\s*hidden;/);
     assert.match(responsiveCss, /\.automation-canvas-scroll\s*\{[^}]*overflow-x:\s*auto;/);
+    assert.match(responsiveCss, /\.automation-canvas\s*\{[^}]*overflow-x:\s*auto;/);
     assert.match(responsiveCss, /\.automation-workbench\s*\{[^}]*min-width:\s*0;/);
+});
+
+test("secondary pages keep deliberate composition from desktop through phone", () => {
+    assert.match(css, /\.jav-app\s+\.ant-input-affix-wrapper\s*>\s*input\.ant-input\s*\{[^}]*min-height:\s*0;[^}]*padding:\s*0;/);
+    assert.match(css, /\.jav-app\s+\.ant-input-affix-wrapper\s*\{[^}]*height:\s*44px;/);
+    assert.match(css, /\.jav-library-toolbar\s*\{[^}]*grid-template-columns:\s*repeat\(12,/);
+    assert.match(css, /\.jav-library-search-row\s*\{[^}]*grid-column:\s*span\s+4;/);
+    assert.match(css, /\.automation-workbench\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
+    assert.match(css, /\.automation-inspector\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*720px;/);
+    assert.match(responsiveCss, /\.jav-page-panel\s*>\s*\.jav-local-scrape\s*\{[^}]*padding:\s*0\s*!important;/);
+    assert.match(responsiveCss, /\.automation-sidebar\s*\{[^}]*max-height:\s*160px\s*!important;/);
+    assert.match(responsiveCss, /\.automation-toolbar\s*>\s*\.ant-space:last-child\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,/);
+    assert.match(css, /@media \(max-width:\s*640px\)[\s\S]*\.jav-library-search-row\s+\.ant-input-affix-wrapper\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/);
+    assert.match(css, /@media \(max-width:\s*640px\)[\s\S]*\.webdav-page-header-compact\s*>\s*\.ant-space\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2,/);
 });

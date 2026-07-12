@@ -20,6 +20,7 @@ from modules.history.service import local_actor_library_service, local_movie_lib
 from modules.javbus_api import javbus_api_service
 from .metadata_scrapers import metadata_scraper_service
 from .schemas import LocalScrapeApplyRequest, LocalScrapeDeleteRequest, LocalScrapePreviewRequest
+from .service import movie_detail_is_vr
 
 
 logger = logging.getLogger(__name__)
@@ -382,6 +383,7 @@ def _build_metadata(movie: dict[str, Any] | None, code: str | None, source_stem:
     return {
         "id": local_id,
         "title": title,
+        "is_vr": movie_detail_is_vr(movie),
         "date": movie.get("date") or "",
         "duration_minutes": movie.get("videoLength") or movie.get("duration_minutes"),
         "director": _single_name(movie.get("director")),
@@ -444,6 +446,8 @@ def _build_target_paths(
 
     if organize:
         root = resolve_user_path(target_directory) if target_directory else source_path.parent
+        if movie_detail_is_vr(metadata):
+            root /= "VR"
         target_dir = root / folder_path
         part_marker = _source_part_marker(source_path.stem)
         if part_marker and part_marker.lower() not in target_stem.lower():

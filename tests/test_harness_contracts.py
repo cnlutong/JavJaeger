@@ -1362,15 +1362,17 @@ def test_movies_payload_can_exclude_vr_movies_by_genre_and_title(monkeypatch):
             return {
                 "movies": [
                     {"id": "KEEP-001", "title": "Regular Movie"},
+                    {"id": "VOTAN-038", "title": "ゴーグルなしでもVR気分"},
                     {"id": "VR-GENRE-001", "title": "Regular Title"},
                     {"id": "VR-TITLE-001", "title": "Some 【VR】 Movie"},
                 ],
-                "pagination": {"total": 3},
+                "pagination": {"total": 4},
             }
 
         async def get_movie_detail(self, movie_id):
             details = {
                 "KEEP-001": {"title": "Regular Movie", "genres": [{"id": "drama", "name": "Drama"}]},
+                "VOTAN-038": {"title": "ゴーグルなしでもVR気分", "genres": [{"id": "pov", "name": "POV"}]},
                 "VR-GENRE-001": {"title": "Regular Title", "genres": [{"id": "vr", "name": "VR"}]},
                 "VR-TITLE-001": {"title": "Some 【VR】 Movie", "genres": [{"id": "drama", "name": "Drama"}]},
             }
@@ -1382,8 +1384,11 @@ def test_movies_payload_can_exclude_vr_movies_by_genre_and_title(monkeypatch):
     payload = asyncio.run(movies_service.get_movies_payload(FakeRequest()))
 
     assert fake_service.page_queries == [{"magnet": "exist", "type": "normal"}]
-    assert payload["movies"] == [{"id": "KEEP-001", "title": "Regular Movie"}]
-    assert payload["pagination"]["total"] == 1
+    assert payload["movies"] == [
+        {"id": "KEEP-001", "title": "Regular Movie"},
+        {"id": "VOTAN-038", "title": "ゴーグルなしでもVR気分"},
+    ]
+    assert payload["pagination"]["total"] == 2
 
 
 def test_movies_payload_applies_subtitle_filter_to_movie_identifiers(monkeypatch):
@@ -2640,6 +2645,32 @@ def test_local_scrape_target_paths_support_custom_folder_templates():
     assert target_video == target_dir / "ABP-123.mp4"
 
 
+def test_local_scrape_target_paths_put_vr_movies_in_vr_folder():
+    source_path = Path(r"D:\incoming\VRKM-821.mp4")
+    metadata = local_scrape._build_metadata(
+        {
+            "id": "VRKM-821",
+            "title": "VRKM-821 Sample Title",
+            "genres": [{"id": "vr", "name": "VR専用"}],
+        },
+        "VRKM-821",
+        source_path.stem,
+    )
+
+    target_dir, target_video, _ = local_scrape._build_target_paths(
+        source_path,
+        metadata,
+        True,
+        r"D:\library",
+        "{code}",
+        "{code}",
+    )
+
+    assert metadata["is_vr"] is True
+    assert target_dir == Path(r"D:\library") / "VR" / "VRKM-821"
+    assert target_video == target_dir / "VRKM-821.mp4"
+
+
 def test_local_scrape_empty_folder_template_uses_target_root():
     source_path = Path(r"D:\incoming\ABP-123.mp4")
     metadata = local_scrape._build_metadata(
@@ -2839,9 +2870,9 @@ def test_local_scrape_preview_numbers_vr_multi_file_targets_by_size(tmp_path, mo
     assert payload["success"] is True
     assert payload["conflict_count"] == 0
     assert payload["target_duplicate_count"] == 0
-    assert items_by_name["VRKM-821-a.mp4"]["target_video_path"] == str(target_dir / "VRKM-821" / "VRKM-821-1.mp4")
-    assert items_by_name["VRKM-821-b.mp4"]["target_video_path"] == str(target_dir / "VRKM-821" / "VRKM-821-2.mp4")
-    assert items_by_name["VRKM-821-c.mp4"]["target_video_path"] == str(target_dir / "VRKM-821" / "VRKM-821-3.mp4")
+    assert items_by_name["VRKM-821-a.mp4"]["target_video_path"] == str(target_dir / "VR" / "VRKM-821" / "VRKM-821-1.mp4")
+    assert items_by_name["VRKM-821-b.mp4"]["target_video_path"] == str(target_dir / "VR" / "VRKM-821" / "VRKM-821-2.mp4")
+    assert items_by_name["VRKM-821-c.mp4"]["target_video_path"] == str(target_dir / "VR" / "VRKM-821" / "VRKM-821-3.mp4")
     assert {item["target_duplicate"] for item in payload["items"]} == {False}
     assert {item["target_exists"] for item in payload["items"]} == {False}
 
@@ -3073,6 +3104,26 @@ def test_local_library_scan_defaults_to_direct_import_without_metadata_scrape(tm
     assert payload["success"] is True
     assert payload["scraped_movie_count"] == 0
     assert summary["records"][0]["scrape_status"] == "skipped"
+
+
+def test_local_library_scan_marks_movies_in_vr_folder_without_scraping(tmp_path, monkeypatch):
+    vr_directory = tmp_path / "VR" / "VRKM-821"
+    vr_directory.mkdir(parents=True)
+    (vr_directory / "VRKM-821.mp4").write_bytes(b"video")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+
+    payload = asyncio.run(
+        movies_local_library.scan_local_library(
+            movies_local_library.LocalLibraryScanRequest(directory=str(tmp_path))
+        )
+    )
+    record = asyncio.run(service.get_summary())["records"][0]
+
+    assert payload["success"] is True
+    assert record["is_vr"] is True
+    assert record["files"][0]["is_vr"] is True
 
 
 def test_local_library_scan_rebuilds_index_from_nfo(tmp_path, monkeypatch):
@@ -3897,9 +3948,9 @@ def test_local_scrape_apply_numbers_vr_multi_file_targets_by_size(tmp_path):
         )
     )
 
-    first_target = target_dir / "VRKM-821" / "VRKM-821-1.mp4"
-    second_target = target_dir / "VRKM-821" / "VRKM-821-2.mp4"
-    third_target = target_dir / "VRKM-821" / "VRKM-821-3.mp4"
+    first_target = target_dir / "VR" / "VRKM-821" / "VRKM-821-1.mp4"
+    second_target = target_dir / "VR" / "VRKM-821" / "VRKM-821-2.mp4"
+    third_target = target_dir / "VR" / "VRKM-821" / "VRKM-821-3.mp4"
 
     assert result["success"] is True
     assert result["success_count"] == 3

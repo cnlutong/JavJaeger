@@ -402,6 +402,7 @@ GET    /api/automation/tasks/{task_id}/runs
 本地影视库在刮削或补全影片元数据时会同步维护 `data/local_actor_library.json`。演员以独立索引保存关联影片，头像保存在单独的演员头像目录；如果演员已有本地头像，后续刮削会复用并跳过下载。
 
 `/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情，包含大小、修改时间以及通过 `ffprobe` 可探测到的分辨率和码率；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `auto_best`、`skip`、`keep_newer`、`keep_older`、`keep_larger`、`keep_higher_resolution`、`keep_higher_bitrate`，旧的 `keep_source` 和 `keep_target` 仍兼容。`auto_best` 会按分辨率、码率、文件大小、修改时间依次选择保留文件；源文件更优时移动源文件覆盖目标，目标文件更优时保留目标并删除源文件，仍无法判断时保留目标且不删除源文件。分辨率或码率无法探测、两边相同或缺少冲突策略时，后端不会自动覆盖文件。
+启用整理时，元数据标记为 VR 的影片会统一存入目标根目录下的 `VR/` 文件夹，再应用原有文件夹和命名模板。影视库扫描会同时依据元数据和路径中的 `VR/` 目录写入 `is_vr` 分类；列表、海报墙和详情会显示 VR 标记，并可在“影片类型”中筛选 VR 或普通影片。
 如果同一次预览中多个源文件生成相同目标路径，预览项会标记 `target_duplicate`；这类批次内重复目标不会被一键冲突策略自动处理，需要先调整命名模板或移除重复项。后端 apply 会重新检查同一请求内的重复目标并返回 `target_duplicate`，不会移动这些源文件。
 
 ## 开发约定
