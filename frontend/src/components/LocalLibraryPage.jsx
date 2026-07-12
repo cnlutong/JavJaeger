@@ -1,0 +1,2301 @@
+import DirectoryInput from "./DirectoryInput.jsx";
+
+const React = window.React;
+const antd = window.antd;
+const icons = window.icons || {};
+
+const {
+    Alert,
+    Button,
+    Card,
+    Checkbox,
+    ConfigProvider,
+    Divider,
+    Drawer,
+    Form,
+    Input,
+    InputNumber,
+    Pagination,
+    Popconfirm,
+    Segmented,
+    Select,
+    Slider,
+    Space,
+    Table,
+    Tag,
+    Typography,
+    message,
+} = antd;
+const { Text, Title } = Typography;
+const {
+    ArrowLeftOutlined,
+    AppstoreOutlined,
+    DatabaseOutlined,
+    DeleteOutlined,
+    DownloadOutlined,
+    FilterOutlined,
+    FolderOpenOutlined,
+    MoonOutlined,
+    PlayCircleOutlined,
+    PlusOutlined,
+    ReloadOutlined,
+    SaveOutlined,
+    SearchOutlined,
+    SunOutlined,
+    UnorderedListOutlined,
+    UserOutlined,
+} = icons;
+const antTheme = antd.theme || {};
+
+const Icon = ({ as: Component }) => Component ? <Component /> : null;
+const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
+const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
+const DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
+const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
+const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
+const LOCAL_LIBRARY_SORT_OPTIONS = [
+    { label: "发行日期 新到旧", value: "date_desc" },
+    { label: "发行日期 旧到新", value: "date_asc" },
+    { label: "最近更新", value: "updated_desc" },
+    { label: "最近入库", value: "first_seen_desc" },
+    { label: "番号 A-Z", value: "movie_id_asc" },
+    { label: "番号 Z-A", value: "movie_id_desc" },
+    { label: "标题 A-Z", value: "title_asc" },
+    { label: "容量 大到小", value: "size_desc" },
+    { label: "容量 小到大", value: "size_asc" },
+    { label: "文件数 多到少", value: "file_count_desc" },
+    { label: "分辨率 高到低", value: "resolution_desc" },
+    { label: "码率 高到低", value: "bitrate_desc" },
+];
+const INFORMATION_CHECK_FIELD_OPTIONS = [
+    { label: "标题", value: "title" },
+    { label: "发行日期", value: "date" },
+    { label: "演员", value: "stars" },
+    { label: "标签", value: "genres" },
+    { label: "远程封面", value: "cover_url" },
+    { label: "NFO 文件", value: "nfo" },
+    { label: "本地封面", value: "poster_file" },
+];
+const DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
+const LOCAL_LIBRARY_THEME_OPTIONS = [
+    { label: <span><Icon as={SunOutlined} /> 浅色</span>, value: "light" },
+    { label: <span><Icon as={MoonOutlined} /> 沉浸</span>, value: "dark" },
+];
+
+const normalizeLocalLibraryTheme = (theme) => theme === "dark" ? "dark" : "light";
+
+const loadLocalLibraryTheme = () => {
+    try {
+        return normalizeLocalLibraryTheme(window.localStorage.getItem(LOCAL_LIBRARY_THEME_STORAGE_KEY));
+    } catch (error) {
+        return "light";
+    }
+};
+
+const saveLocalLibraryTheme = (theme) => {
+    try {
+        window.localStorage.setItem(LOCAL_LIBRARY_THEME_STORAGE_KEY, normalizeLocalLibraryTheme(theme));
+    } catch (error) {
+        /* ignore storage errors */
+    }
+};
+
+const normalizeInformationCheckFields = (fields, fallback = DEFAULT_INFORMATION_CHECK_FIELDS) => {
+    const allowed = new Set(DEFAULT_INFORMATION_CHECK_FIELDS);
+    const normalized = (Array.isArray(fields) ? fields : [])
+        .map((field) => String(field || "").trim())
+        .filter((field, index, source) => allowed.has(field) && source.indexOf(field) === index);
+    return normalized.length ? normalized : [...fallback];
+};
+
+const loadInformationCheckSettings = () => {
+    try {
+        return {
+            fields: normalizeInformationCheckFields(JSON.parse(window.localStorage.getItem(INFORMATION_CHECK_STORAGE_KEY) || "[]")),
+        };
+    } catch (error) {
+        return { fields: [...DEFAULT_INFORMATION_CHECK_FIELDS] };
+    }
+};
+
+const saveInformationCheckSettings = (fields) => {
+    try {
+        window.localStorage.setItem(INFORMATION_CHECK_STORAGE_KEY, JSON.stringify(normalizeInformationCheckFields(fields)));
+    } catch (error) {
+        /* ignore storage errors */
+    }
+};
+
+const postJson = async (url, body) => {
+    const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.message || `HTTP ${response.status}`);
+    }
+    return data;
+};
+
+const normalizePathItems = (items) => {
+    const paths = Array.isArray(items) ? items : [];
+    const seen = new Set();
+    return paths
+        .map((item) => typeof item === "string" ? item : item?.path)
+        .map((path) => String(path || "").trim())
+        .filter((path) => {
+            if (!path || seen.has(path)) {
+                return false;
+            }
+            seen.add(path);
+            return true;
+        });
+};
+
+const normalizeScanDirectories = (values) => normalizePathItems(values?.directories);
+const normalizeScanIgnoredPaths = (values) => normalizePathItems(values?.ignoredPaths);
+
+const buildPathFormItems = (paths, fallback = []) => {
+    const normalized = normalizePathItems(paths);
+    const nextPaths = normalized.length ? normalized : fallback;
+    return nextPaths.map((path) => ({ path }));
+};
+
+const localLibrarySettingsToFormValues = (settings = {}) => ({
+    directories: buildPathFormItems(settings.directories, DEFAULT_LOCAL_LIBRARY_DIRECTORIES),
+    ignoredPaths: buildPathFormItems(settings.ignored_paths),
+});
+
+const normalizeLocalLibrarySettings = (settings = {}) => ({
+    directories: normalizePathItems(settings.directories),
+    ignored_paths: normalizePathItems(settings.ignored_paths),
+});
+
+const buildLocalLibrarySettingsPayload = (values) => {
+    const normalizedDirectories = normalizeScanDirectories(values);
+    const normalizedIgnoredPaths = normalizeScanIgnoredPaths(values);
+    return {
+        directories: normalizedDirectories,
+        ignored_paths: normalizedIgnoredPaths,
+    };
+};
+
+const formatBytes = (bytes) => {
+    if (!bytes) return "-";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = bytes;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+        value /= 1024;
+        index += 1;
+    }
+    return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+};
+
+const formatBitrate = (bitrate) => {
+    if (!bitrate) return "-";
+    if (bitrate >= 1000 * 1000) {
+        return `${(bitrate / 1000 / 1000).toFixed(2)} Mbps`;
+    }
+    if (bitrate >= 1000) {
+        return `${(bitrate / 1000).toFixed(0)} Kbps`;
+    }
+    return `${bitrate} bps`;
+};
+
+const formatResolution = (mediaInfo) => {
+    if (!mediaInfo?.width || !mediaInfo?.height) {
+        return "-";
+    }
+    return `${mediaInfo.width}x${mediaInfo.height}`;
+};
+
+const formatCodec = (codec) => {
+    const value = String(codec || "").trim();
+    return value ? value.toUpperCase() : "-";
+};
+
+const formatContainer = (container) => {
+    const value = String(container || "").trim();
+    return value ? value.toUpperCase() : "-";
+};
+
+const primaryMediaInfo = (record) => {
+    if (
+        record?.media_info?.width
+        || record?.media_info?.height
+        || record?.media_info?.bitrate
+        || record?.media_info?.codec
+        || record?.media_info?.container
+    ) {
+        return record.media_info;
+    }
+    const files = Array.isArray(record?.files) ? record.files : [];
+    return files.reduce((best, file) => {
+        const bestScore = [Number(best?.resolution_pixels || 0), Number(best?.bitrate || 0)];
+        const fileScore = [Number(file?.resolution_pixels || 0), Number(file?.bitrate || 0)];
+        return fileScore[0] > bestScore[0] || (fileScore[0] === bestScore[0] && fileScore[1] > bestScore[1])
+            ? file
+            : best;
+    }, {});
+};
+
+const sortableText = (value) => String(value || "").trim().toLowerCase();
+const sortableTime = (value) => {
+    const time = Date.parse(String(value || ""));
+    return Number.isFinite(time) ? time : 0;
+};
+const compareText = (left, right, direction = "asc") => {
+    const result = sortableText(left).localeCompare(sortableText(right), "zh-CN", { numeric: true, sensitivity: "base" });
+    return direction === "desc" ? -result : result;
+};
+const compareNumber = (left, right, direction = "desc") => {
+    const leftNumber = Number(left) || 0;
+    const rightNumber = Number(right) || 0;
+    if (leftNumber === rightNumber) return 0;
+    if (leftNumber === 0) return 1;
+    if (rightNumber === 0) return -1;
+    return direction === "asc" ? leftNumber - rightNumber : rightNumber - leftNumber;
+};
+const recordResolutionPixels = (record) => {
+    const mediaInfo = primaryMediaInfo(record);
+    return Number(mediaInfo?.resolution_pixels || 0) || Number(mediaInfo?.width || 0) * Number(mediaInfo?.height || 0);
+};
+
+const sortLocalLibraryRecords = (records, sortRule) => {
+    const comparator = (left, right) => {
+        let result = 0;
+        switch (sortRule) {
+            case "date_asc":
+                result = compareNumber(sortableTime(left.date), sortableTime(right.date), "asc");
+                break;
+            case "updated_desc":
+                result = compareNumber(sortableTime(left.updated_at), sortableTime(right.updated_at), "desc");
+                break;
+            case "first_seen_desc":
+                result = compareNumber(sortableTime(left.first_seen_at), sortableTime(right.first_seen_at), "desc");
+                break;
+            case "movie_id_asc":
+                result = compareText(left.movie_id, right.movie_id, "asc");
+                break;
+            case "movie_id_desc":
+                result = compareText(left.movie_id, right.movie_id, "desc");
+                break;
+            case "title_asc":
+                result = compareText(left.title || left.movie_id, right.title || right.movie_id, "asc");
+                break;
+            case "size_desc":
+                result = compareNumber(left.total_size, right.total_size, "desc");
+                break;
+            case "size_asc":
+                result = compareNumber(left.total_size, right.total_size, "asc");
+                break;
+            case "file_count_desc":
+                result = compareNumber(left.file_count, right.file_count, "desc");
+                break;
+            case "resolution_desc":
+                result = compareNumber(recordResolutionPixels(left), recordResolutionPixels(right), "desc");
+                break;
+            case "bitrate_desc":
+                result = compareNumber(primaryMediaInfo(left)?.bitrate, primaryMediaInfo(right)?.bitrate, "desc");
+                break;
+            case "date_desc":
+            default:
+                result = compareNumber(sortableTime(left.date), sortableTime(right.date), "desc");
+                break;
+        }
+        return result || compareText(left.movie_id, right.movie_id, "asc");
+    };
+    return records
+        .map((record, index) => ({ record, index }))
+        .sort((left, right) => comparator(left.record, right.record) || left.index - right.index)
+        .map((item) => item.record);
+};
+
+const renderMediaTags = (mediaInfo) => {
+    const resolution = formatResolution(mediaInfo);
+    const bitrate = formatBitrate(mediaInfo?.bitrate);
+    const codec = formatCodec(mediaInfo?.codec);
+    const container = formatContainer(mediaInfo?.container);
+    if (resolution === "-" && bitrate === "-" && codec === "-" && container === "-") {
+        return null;
+    }
+    return (
+        <Space size={4} wrap className="jav-library-media-tags">
+            {resolution !== "-" && <Tag color="geekblue">{resolution}</Tag>}
+            {bitrate !== "-" && <Tag color="gold">{bitrate}</Tag>}
+            {codec !== "-" && <Tag color="volcano">{codec}</Tag>}
+            {container !== "-" && <Tag color="purple">{container}</Tag>}
+        </Space>
+    );
+};
+
+const countedOptions = (records, getter) => {
+    const counts = new Map();
+    records.forEach((record) => {
+        const value = getter(record);
+        const values = Array.isArray(value) ? value : [value];
+        values.filter(Boolean).forEach((item) => {
+            const key = String(item).trim();
+            if (!key) return;
+            counts.set(key, (counts.get(key) || 0) + 1);
+        });
+    });
+    return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 80)
+        .map(([value, count]) => ({
+            label: `${value} (${count})`,
+            value,
+        }));
+};
+
+const matchesAny = (recordValues, selectedValues) => {
+    if (!selectedValues || selectedValues.length === 0) {
+        return true;
+    }
+    const values = Array.isArray(recordValues) ? recordValues : [recordValues].filter(Boolean);
+    const normalized = new Set(values.map((value) => String(value)));
+    return selectedValues.some((value) => normalized.has(String(value)));
+};
+
+const posterSource = (record) => {
+    if (record?.poster_url) {
+        return record.poster_url;
+    }
+    const coverUrl = record?.cover_url || record?.metadata?.cover_url || record?.img || "";
+    return coverUrl ? `/api/image-proxy?url=${encodeURIComponent(coverUrl)}` : "";
+};
+
+const proxiedImageSource = (url) => {
+    if (!url) {
+        return "";
+    }
+    return url.startsWith("/api/")
+        ? url
+        : `/api/image-proxy?url=${encodeURIComponent(url)}`;
+};
+
+const thumbnailSource = (record) => {
+    const thumbnailUrl = record?.thumbnail_url || "";
+    if (thumbnailUrl.startsWith("/api/")) {
+        return thumbnailUrl;
+    }
+    if (record?.poster_url) {
+        return record.poster_url;
+    }
+    return proxiedImageSource(thumbnailUrl || record?.metadata?.list_thumbnail_url || "");
+};
+
+const actorName = (actor) => {
+    if (actor && typeof actor === "object") {
+        return String(actor.name || actor.title || actor.id || "").trim();
+    }
+    return String(actor || "").trim();
+};
+
+const normalizeActors = (record) => {
+    const actorValues = [
+        ...(Array.isArray(record?.metadata?.raw?.stars) ? record.metadata.raw.stars : []),
+        ...(Array.isArray(record?.metadata?.actor_refs) ? record.metadata.actor_refs : []),
+        ...(Array.isArray(record?.stars) ? record.stars : []),
+    ];
+    const actorsByName = new Map();
+    actorValues.forEach((actor) => {
+        const name = actorName(actor);
+        if (!name) {
+            return;
+        }
+        const existing = actorsByName.get(name) || { name, avatar: "" };
+        if (actor && typeof actor === "object" && !existing.avatar) {
+            existing.avatar = actor.avatar || actor.img || actor.image || actor.thumbnail || "";
+        }
+        actorsByName.set(name, existing);
+    });
+    return Array.from(actorsByName.values());
+};
+
+const actorAvatarSources = (record, actor) => {
+    const sources = [];
+    if (record?.movie_id && actor?.name) {
+        sources.push(`/api/movies/local-library/actor-avatar/${encodeURIComponent(record.movie_id)}/${encodeURIComponent(actor.name)}`);
+    }
+    const remoteAvatar = proxiedImageSource(actor?.avatar || "");
+    if (remoteAvatar) {
+        sources.push(remoteAvatar);
+    }
+    return sources;
+};
+
+const MoviePoster = ({ record, compact = false, width = null, variant = "poster", onRatio = null }) => {
+    const src = variant === "thumbnail" ? thumbnailSource(record) || posterSource(record) : posterSource(record);
+    const [failed, setFailed] = React.useState(false);
+    const [imageLoading, setImageLoading] = React.useState(!!src);
+    const style = width ? { width, height: compact ? Math.round(width * 1.5) : undefined } : undefined;
+
+    React.useEffect(() => {
+        setFailed(false);
+        setImageLoading(!!src);
+    }, [src]);
+
+    if (src && !failed) {
+        return (
+            <div className={`jav-library-poster ${compact ? "is-compact" : ""}`} style={style}>
+                {imageLoading && (
+                    <div className="jav-library-poster-loader" aria-label="封面加载中">
+                        <span>加载封面</span>
+                    </div>
+                )}
+                <img
+                    className={imageLoading ? "is-loading" : ""}
+                    src={src}
+                    alt={record.title || record.movie_id}
+                    onError={() => {
+                        setImageLoading(false);
+                        setFailed(true);
+                    }}
+                    onLoad={(event) => {
+                        setImageLoading(false);
+                        const { naturalWidth, naturalHeight } = event.currentTarget;
+                        if (onRatio && naturalWidth > 0 && naturalHeight > 0) {
+                            onRatio(naturalWidth / naturalHeight);
+                        }
+                    }}
+                />
+            </div>
+        );
+    }
+    return (
+        <div className={`jav-library-poster is-placeholder ${compact ? "is-compact" : ""}`} style={style}>
+            <span>{record.movie_id || "N/A"}</span>
+        </div>
+    );
+};
+
+const ActorPill = ({ record, actor, onClick }) => {
+    const [sourceIndex, setSourceIndex] = React.useState(0);
+    const sources = actorAvatarSources(record, actor);
+    const src = sources[sourceIndex] || "";
+    const initial = (actor.name || "?").slice(0, 1).toUpperCase();
+    return (
+        <button className="jav-library-actor-pill" type="button" onClick={onClick}>
+            <span className="jav-library-actor-avatar">
+                {src ? (
+                    <img
+                        src={src}
+                        alt={actor.name}
+                        onError={() => setSourceIndex((index) => index + 1)}
+                    />
+                ) : (
+                    <span>{initial}</span>
+                )}
+            </span>
+            <span className="jav-library-actor-name">{actor.name}</span>
+        </button>
+    );
+};
+
+const ActorLibraryAvatar = ({ actor }) => {
+    const sources = [];
+    if (actor?.key) {
+        sources.push(`/api/movies/local-library/actors/${encodeURIComponent(actor.key)}/avatar`);
+    }
+    const remoteAvatar = proxiedImageSource(actor?.remote_avatar_url || actor?.avatar || "");
+    if (remoteAvatar) {
+        sources.push(remoteAvatar);
+    }
+    const [sourceIndex, setSourceIndex] = React.useState(0);
+    const src = sources[sourceIndex] || "";
+    const initial = (actor?.name || "?").slice(0, 1).toUpperCase();
+    return (
+        <span className="jav-library-actor-card-avatar">
+            {src ? (
+                <img src={src} alt={actor.name} onError={() => setSourceIndex((index) => index + 1)} />
+            ) : (
+                <span>{initial}</span>
+            )}
+        </span>
+    );
+};
+
+export default function LocalLibraryPage() {
+    const [library, setLibrary] = React.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
+    const [actorLibrary, setActorLibrary] = React.useState({ actors: [], total_actors: 0 });
+    const [informationCheck, setInformationCheck] = React.useState(null);
+    const [loading, setLoading] = React.useState(false);
+    const [actorLibraryLoading, setActorLibraryLoading] = React.useState(false);
+    const [checkingInformation, setCheckingInformation] = React.useState(false);
+    const [downloadingInformation, setDownloadingInformation] = React.useState(false);
+    const [cleaningInvalidFiles, setCleaningInvalidFiles] = React.useState(false);
+    const [scanningLibrary, setScanningLibrary] = React.useState(false);
+    const [settingsLoading, setSettingsLoading] = React.useState(false);
+    const [savingLibrarySettings, setSavingLibrarySettings] = React.useState(false);
+    const [deletingMovieId, setDeletingMovieId] = React.useState("");
+    const [filterOpen, setFilterOpen] = React.useState(false);
+    const [scanOpen, setScanOpen] = React.useState(false);
+    const [scanResult, setScanResult] = React.useState(null);
+    const [scanTask, setScanTask] = React.useState(null);
+    const [librarySettings, setLibrarySettings] = React.useState(() => normalizeLocalLibrarySettings({
+        directories: DEFAULT_LOCAL_LIBRARY_DIRECTORIES,
+        ignored_paths: [],
+    }));
+    const [informationCheckOpen, setInformationCheckOpen] = React.useState(false);
+    const [informationCheckFields, setInformationCheckFields] = React.useState(() => loadInformationCheckSettings().fields);
+    const [selectedRecord, setSelectedRecord] = React.useState(null);
+    const [playingRecordKey, setPlayingRecordKey] = React.useState("");
+    const [selectedPlayFileIndex, setSelectedPlayFileIndex] = React.useState(0);
+    const [posterAspectRatioMap, setPosterAspectRatioMap] = React.useState({});
+    const [viewMode, setViewMode] = React.useState("list");
+    const [libraryTheme, setLibraryTheme] = React.useState(() => loadLocalLibraryTheme());
+    const [sortRule, setSortRule] = React.useState("date_desc");
+    const [gridPage, setGridPage] = React.useState(1);
+    const [gridPageLoading, setGridPageLoading] = React.useState(false);
+    const [listPage, setListPage] = React.useState(1);
+    const [listPageLoading, setListPageLoading] = React.useState(false);
+    const [listPageSize, setListPageSize] = React.useState(LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
+    const [listPosterSize, setListPosterSize] = React.useState(56);
+    const [gridPosterSize, setGridPosterSize] = React.useState(156);
+    const [keywordDraft, setKeywordDraft] = React.useState("");
+    const [filters, setFilters] = React.useState({
+        keyword: "",
+        genres: [],
+        stars: [],
+        studios: [],
+        publishers: [],
+        series: [],
+        years: [],
+        roots: [],
+    });
+    const [scanForm] = Form.useForm();
+    const [informationCheckForm] = Form.useForm();
+    const [informationDownloadForm] = Form.useForm();
+    const gridPageLoadingTimerRef = React.useRef(null);
+    const listPageLoadingTimerRef = React.useRef(null);
+    const gridAutoLoadSentinelRef = React.useRef(null);
+    const listAutoLoadSentinelRef = React.useRef(null);
+    const gridAutoLoadLockedRef = React.useRef(false);
+    const listAutoLoadLockedRef = React.useRef(false);
+    const scanPollTimerRef = React.useRef(null);
+    const isDarkMode = libraryTheme === "dark";
+    const libraryThemeConfig = React.useMemo(() => {
+        if (!isDarkMode) {
+            return {};
+        }
+        return {
+            algorithm: antTheme.darkAlgorithm,
+            token: {
+                colorPrimary: "#2694FE",
+                colorInfo: "#2694FE",
+                colorSuccess: "#34d399",
+                colorWarning: "#F2C00B",
+                colorError: "#f87171",
+                colorBgLayout: "#111112",
+                colorBgContainer: "#1F1F22",
+                colorBgElevated: "#28292C",
+                colorBorder: "#494D53",
+                colorText: "#DFE2E5",
+                colorTextSecondary: "#AAAFB5",
+                borderRadius: 8,
+            },
+            components: {
+                Card: {
+                    colorBgContainer: "#1F1F22",
+                    colorBorderSecondary: "#494D53",
+                },
+                Table: {
+                    headerBg: "#28292C",
+                    headerColor: "#DFE2E5",
+                    rowHoverBg: "#28292C",
+                    borderColor: "#494D53",
+                },
+                Segmented: {
+                    itemSelectedBg: "#2694FE",
+                    itemSelectedColor: "#ffffff",
+                },
+            },
+        };
+    }, [isDarkMode]);
+
+    const records = library.records || [];
+    const actors = actorLibrary.actors || [];
+    const missingInformationByMovieId = React.useMemo(() => {
+        const entries = informationCheck?.records || [];
+        return entries.reduce((map, record) => {
+            if (record?.movie_id && !record.info_complete) {
+                map[String(record.movie_id).toUpperCase()] = record;
+            }
+            return map;
+        }, {});
+    }, [informationCheck]);
+
+    const filterOptions = React.useMemo(() => ({
+        genres: countedOptions(records, (record) => record.genres),
+        stars: countedOptions(records, (record) => record.stars),
+        studios: countedOptions(records, (record) => record.studio),
+        publishers: countedOptions(records, (record) => record.publisher),
+        series: countedOptions(records, (record) => record.series),
+        years: countedOptions(records, (record) => String(record.date || "").slice(0, 4)),
+        roots: countedOptions(records, (record) => record.scan_roots),
+    }), [records]);
+
+    const activeFilterCount = React.useMemo(() => (
+        Object.entries(filters).reduce((count, [key, value]) => {
+            if (key === "keyword") {
+                return count + (String(value || "").trim() ? 1 : 0);
+            }
+            return count + (Array.isArray(value) ? value.length : 0);
+        }, 0)
+    ), [filters]);
+
+    const filteredRecords = React.useMemo(() => {
+        const keyword = filters.keyword.trim().toLowerCase();
+        return records.filter((record) => {
+            if (keyword) {
+                const text = `${record.movie_id || ""}\n${record.title || ""}\n${record.full_text || ""}`.toLowerCase();
+                if (!text.includes(keyword)) {
+                    return false;
+                }
+            }
+            return (
+                matchesAny(record.genres, filters.genres) &&
+                matchesAny(record.stars, filters.stars) &&
+                matchesAny(record.studio, filters.studios) &&
+                matchesAny(record.publisher, filters.publishers) &&
+                matchesAny(record.series, filters.series) &&
+                matchesAny(String(record.date || "").slice(0, 4), filters.years) &&
+                matchesAny(record.scan_roots, filters.roots)
+            );
+        });
+    }, [records, filters]);
+    const sortedRecords = React.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
+    const maxGridPage = Math.max(1, Math.ceil(sortedRecords.length / LOCAL_LIBRARY_GRID_PAGE_SIZE));
+    const gridVisibleCount = Math.min(gridPage * LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length);
+    const visibleGridRecords = React.useMemo(() => sortedRecords.slice(0, gridVisibleCount), [sortedRecords, gridVisibleCount]);
+    const maxListPage = Math.max(1, Math.ceil(sortedRecords.length / listPageSize));
+    const listVisibleCount = Math.min(listPage * listPageSize, sortedRecords.length);
+    const visibleListRecords = React.useMemo(() => sortedRecords.slice(0, listVisibleCount), [sortedRecords, listVisibleCount]);
+    const hasMoreGridRecords = gridVisibleCount < sortedRecords.length;
+    const hasMoreListRecords = listVisibleCount < sortedRecords.length;
+
+    React.useEffect(() => {
+        setGridPage(1);
+        setListPage(1);
+    }, [records, filters, sortRule]);
+
+    React.useEffect(() => () => {
+        if (gridPageLoadingTimerRef.current) {
+            window.clearTimeout(gridPageLoadingTimerRef.current);
+        }
+        if (listPageLoadingTimerRef.current) {
+            window.clearTimeout(listPageLoadingTimerRef.current);
+        }
+    }, []);
+
+    const startGridPageLoading = React.useCallback(() => {
+        setGridPageLoading(true);
+        if (gridPageLoadingTimerRef.current) {
+            window.clearTimeout(gridPageLoadingTimerRef.current);
+        }
+        gridPageLoadingTimerRef.current = window.setTimeout(() => {
+            setGridPageLoading(false);
+            gridAutoLoadLockedRef.current = false;
+        }, 220);
+    }, []);
+
+    const startListPageLoading = React.useCallback(() => {
+        setListPageLoading(true);
+        if (listPageLoadingTimerRef.current) {
+            window.clearTimeout(listPageLoadingTimerRef.current);
+        }
+        listPageLoadingTimerRef.current = window.setTimeout(() => {
+            setListPageLoading(false);
+            listAutoLoadLockedRef.current = false;
+        }, 160);
+    }, []);
+
+    const handleGridPageChange = (page) => {
+        const nextPage = Math.max(1, Math.min(Number(page) || 1, maxGridPage));
+        setGridPage(nextPage);
+        startGridPageLoading();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const handleListPageChange = (page, size = listPageSize) => {
+        const nextPageSize = Number(size) || LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE;
+        const nextMaxPage = Math.max(1, Math.ceil(sortedRecords.length / nextPageSize));
+        setListPageSize(nextPageSize);
+        setListPage(Math.max(1, Math.min(Number(page) || 1, nextMaxPage)));
+        startListPageLoading();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const handleListPageSizeChange = (_, size) => {
+        setListPage(1);
+        setListPageSize(Number(size) || LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE);
+        startListPageLoading();
+    };
+
+    const loadNextGridPage = React.useCallback(() => {
+        if (!hasMoreGridRecords || gridAutoLoadLockedRef.current) {
+            return;
+        }
+        gridAutoLoadLockedRef.current = true;
+        setGridPage((page) => Math.min(page + 1, maxGridPage));
+        startGridPageLoading();
+    }, [hasMoreGridRecords, maxGridPage, startGridPageLoading]);
+
+    const loadNextListPage = React.useCallback(() => {
+        if (!hasMoreListRecords || listAutoLoadLockedRef.current) {
+            return;
+        }
+        listAutoLoadLockedRef.current = true;
+        setListPage((page) => Math.min(page + 1, maxListPage));
+        startListPageLoading();
+    }, [hasMoreListRecords, maxListPage, startListPageLoading]);
+
+    React.useEffect(() => {
+        if (viewMode !== "grid" || !hasMoreGridRecords || selectedRecord) {
+            return undefined;
+        }
+        const sentinel = gridAutoLoadSentinelRef.current;
+        if (!sentinel || !window.IntersectionObserver) {
+            return undefined;
+        }
+        const observer = new window.IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                loadNextGridPage();
+            }
+        }, { root: null, rootMargin: "420px 0px", threshold: 0.01 });
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [viewMode, hasMoreGridRecords, selectedRecord, loadNextGridPage]);
+
+    React.useEffect(() => {
+        if (viewMode !== "list" || !hasMoreListRecords || selectedRecord) {
+            return undefined;
+        }
+        const sentinel = listAutoLoadSentinelRef.current;
+        if (!sentinel || !window.IntersectionObserver) {
+            return undefined;
+        }
+        const observer = new window.IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                loadNextListPage();
+            }
+        }, { root: null, rootMargin: "420px 0px", threshold: 0.01 });
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [viewMode, hasMoreListRecords, selectedRecord, loadNextListPage]);
+
+    const handleKeywordSearch = () => {
+        setFilters((prev) => ({ ...prev, keyword: keywordDraft.trim() }));
+    };
+
+    const handleKeywordClear = () => {
+        setKeywordDraft("");
+        setFilters((prev) => ({ ...prev, keyword: "" }));
+    };
+
+    const handleLibraryThemeChange = (nextTheme) => {
+        const normalizedTheme = normalizeLocalLibraryTheme(nextTheme);
+        setLibraryTheme(normalizedTheme);
+        saveLocalLibraryTheme(nextTheme);
+    };
+
+    const clearFilters = () => {
+        setKeywordDraft("");
+        setFilters({
+            keyword: "",
+            genres: [],
+            stars: [],
+            studios: [],
+            publishers: [],
+            series: [],
+            years: [],
+            roots: [],
+        });
+    };
+
+    const loadActorLibrary = async () => {
+        setActorLibraryLoading(true);
+        try {
+            const response = await fetch("/api/movies/local-library/actors");
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "加载失败");
+            }
+            setActorLibrary(data);
+            return data;
+        } catch (error) {
+            message.error(`演员信息库加载失败：${error.message}`);
+            return null;
+        } finally {
+            setActorLibraryLoading(false);
+        }
+    };
+
+    const loadLibrary = async () => {
+        setLoading(true);
+        try {
+            const response = await fetch("/api/movies/local-library");
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "加载失败");
+            }
+            setLibrary(data);
+            await loadActorLibrary();
+        } catch (error) {
+            message.error(`影视库加载失败：${error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadLocalLibrarySettings = async () => {
+        setSettingsLoading(true);
+        try {
+            const response = await fetch("/api/movies/local-library/settings");
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || data.detail?.message || "加载失败");
+            }
+            const nextSettings = normalizeLocalLibrarySettings(data);
+            setLibrarySettings(nextSettings);
+            scanForm.setFieldsValue(localLibrarySettingsToFormValues(nextSettings));
+            return nextSettings;
+        } catch (error) {
+            message.error(`路径配置加载失败：${error.message}`);
+            return null;
+        } finally {
+            setSettingsLoading(false);
+        }
+    };
+
+    const saveLocalLibrarySettings = async (values = scanForm.getFieldsValue(true), { silent = false } = {}) => {
+        const settingsPayload = buildLocalLibrarySettingsPayload(values);
+        if (settingsPayload.directories.length === 0) {
+            if (!silent) {
+                message.warning("请至少选择一个影视库路径");
+            }
+            return null;
+        }
+
+        setSavingLibrarySettings(true);
+        try {
+            const response = await fetch("/api/movies/local-library/settings", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(settingsPayload),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.detail?.reason || data.detail?.message || data.message || `HTTP ${response.status}`);
+            }
+            const nextSettings = normalizeLocalLibrarySettings(data);
+            setLibrarySettings(nextSettings);
+            scanForm.setFieldsValue(localLibrarySettingsToFormValues(nextSettings));
+            if (!silent) {
+                message.success("影视库路径配置已保存");
+            }
+            return nextSettings;
+        } catch (error) {
+            if (!silent) {
+                message.error(`保存路径配置失败：${error.message}`);
+                return null;
+            }
+            throw error;
+        } finally {
+            setSavingLibrarySettings(false);
+        }
+    };
+
+    const handleSaveLibrarySettings = async () => {
+        await saveLocalLibrarySettings();
+    };
+
+    const openInformationCheck = () => {
+        const saved = loadInformationCheckSettings();
+        setInformationCheckFields(saved.fields);
+        informationCheckForm.setFieldsValue({ fields: saved.fields });
+        setInformationCheckOpen(true);
+    };
+
+    const handleSaveInformationCheckSettings = () => {
+        const fields = informationCheckForm.getFieldValue("fields") || [];
+        if (!fields.length) {
+            message.warning("请至少选择一个检查项");
+            return;
+        }
+        const normalizedFields = normalizeInformationCheckFields(fields, []);
+        saveInformationCheckSettings(normalizedFields);
+        setInformationCheckFields(normalizedFields);
+        message.success("检查标准已保存");
+    };
+
+    const loadInformationCheck = async (values = {}) => {
+        const selectedFields = normalizeInformationCheckFields(values.fields || informationCheckForm.getFieldValue("fields"), []);
+        if (!selectedFields.length) {
+            message.warning("请至少选择一个检查项");
+            return null;
+        }
+        setCheckingInformation(true);
+        try {
+            const queryParams = new URLSearchParams();
+            queryParams.set("fields", selectedFields.join(","));
+            const response = await fetch(`/api/movies/local-library/information/check?${queryParams.toString()}`);
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "检查失败");
+            }
+            setInformationCheckFields(selectedFields);
+            setInformationCheck(data);
+            if (data.incomplete_count > 0) {
+                message.warning(`发现 ${data.incomplete_count} 部影片缺少信息`);
+            } else {
+                message.success("影视库信息完整");
+            }
+            return data;
+        } catch (error) {
+            message.error(`信息检查失败：${error.message}`);
+            return null;
+        } finally {
+            setCheckingInformation(false);
+        }
+    };
+
+    React.useEffect(() => {
+        void Promise.all([loadLibrary(), loadLocalLibrarySettings()]);
+    }, []);
+
+    React.useEffect(() => () => clearScanPollTimer(), []);
+
+    const openRecordPreview = (record) => {
+        setSelectedRecord(record);
+        setPlayingRecordKey("");
+        setSelectedPlayFileIndex(0);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const closeRecordPreview = () => {
+        setSelectedRecord(null);
+        setPlayingRecordKey("");
+    };
+
+    const handlePlaySelectedRecord = (fileIndex = 0) => {
+        if (!selectedRecord?.movie_id) {
+            return;
+        }
+        setSelectedPlayFileIndex(fileIndex);
+        setPlayingRecordKey(`${selectedRecord.movie_id}:${fileIndex}`);
+    };
+
+    const handlePosterAspectRatio = (ratio) => {
+        if (!selectedRecord?.movie_id || !Number.isFinite(ratio) || ratio <= 0) {
+            return;
+        }
+        setPosterAspectRatioMap((current) => ({
+            ...current,
+            [selectedRecord.movie_id]: ratio,
+        }));
+    };
+
+    const handleClear = async () => {
+        setLoading(true);
+        try {
+            const response = await fetch("/api/movies/local-library", { method: "DELETE" });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "清空失败");
+            }
+            await loadLibrary();
+            message.success("影视库已清空");
+        } catch (error) {
+            message.error(`清空失败：${error.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCleanInvalidFiles = async () => {
+        setCleaningInvalidFiles(true);
+        try {
+            const response = await fetch("/api/movies/local-library/clean-invalid", { method: "POST" });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "清洗失败");
+            }
+            await loadLibrary();
+            const checked = data.checked_file_count || 0;
+            const deleted = data.deleted_file_count || 0;
+            const removedMovies = data.removed_movie_count || 0;
+            if (deleted > 0) {
+                message.success(`已检查 ${checked} 个文件，删除 ${deleted} 个无效文件，移除 ${removedMovies} 部空记录`);
+            } else {
+                message.success(`已检查 ${checked} 个文件，未发现无效文件`);
+            }
+        } catch (error) {
+            message.error(`清洗无效文件失败：${error.message}`);
+        } finally {
+            setCleaningInvalidFiles(false);
+        }
+    };
+
+    const openScanDrawer = () => {
+        scanForm.setFieldsValue({
+            ...localLibrarySettingsToFormValues(librarySettings),
+            recursive: scanForm.getFieldValue("recursive") !== false,
+            removeMissing: scanForm.getFieldValue("removeMissing") !== false,
+            probeMedia: scanForm.getFieldValue("probeMedia") === true,
+            regularizeFiles: scanForm.getFieldValue("regularizeFiles") === true,
+        });
+        setScanOpen(true);
+    };
+
+    const clearScanPollTimer = () => {
+        if (scanPollTimerRef.current) {
+            window.clearTimeout(scanPollTimerRef.current);
+            scanPollTimerRef.current = null;
+        }
+    };
+
+    const pollScanTask = async (taskId) => {
+        try {
+            const response = await fetch(`/api/movies/local-library/scan/jobs/${encodeURIComponent(taskId)}`);
+            const task = await response.json();
+            if (!response.ok) {
+                throw new Error(task.detail || task.message || `HTTP ${response.status}`);
+            }
+            setScanTask({ ...task, taskId: task.task_id || taskId });
+            if (task.result) {
+                setScanResult(task.result);
+            }
+            await loadLibrary();
+            if (task.status === "running") {
+                scheduleScanTaskPoll(taskId);
+                return;
+            }
+            setScanningLibrary(false);
+            if (task.status === "success") {
+                message.success("扫描任务已完成");
+            } else {
+                message.error(task.message || "扫描任务失败");
+            }
+        } catch (error) {
+            setScanningLibrary(false);
+            message.error(`扫描任务状态刷新失败：${error.message}`);
+        }
+    };
+
+    const scheduleScanTaskPoll = (taskId) => {
+        clearScanPollTimer();
+        scanPollTimerRef.current = window.setTimeout(() => {
+            void pollScanTask(taskId);
+        }, 3000);
+    };
+
+    const handleScan = async (values = {}) => {
+        const settingsPayload = buildLocalLibrarySettingsPayload(values);
+        const normalizedDirectories = settingsPayload.directories;
+        if (normalizedDirectories.length === 0) {
+            message.warning("请至少选择一个影视库路径");
+            return;
+        }
+
+        const payload = {
+            directories: normalizedDirectories,
+            ignored_paths: settingsPayload.ignored_paths,
+            recursive: values.recursive !== false,
+            max_depth: values.maxDepth ?? null,
+            remove_missing: values.removeMissing !== false,
+            scrape: false,
+            probe_media: values.probeMedia === true,
+            regularize_files: values.regularizeFiles === true,
+        };
+
+        setScanningLibrary(true);
+        try {
+            await saveLocalLibrarySettings(values, { silent: true });
+            const data = await postJson("/api/movies/local-library/scan/jobs", payload);
+            const taskId = data.task_id;
+            setScanResult(null);
+            setScanTask({ taskId, task_id: taskId, status: "running", percent: 0, message: "扫描任务已启动" });
+            message.success("扫描任务已在后台启动");
+            scheduleScanTaskPoll(taskId);
+        } catch (error) {
+            message.error(`扫描失败：${error.message}`);
+            setScanningLibrary(false);
+        }
+    };
+
+    const handleDeleteMovie = async (record) => {
+        const movieId = String(record?.movie_id || "").trim();
+        if (!movieId) {
+            message.warning("影片番号无效");
+            return;
+        }
+        setDeletingMovieId(movieId);
+        try {
+            const response = await fetch(`/api/movies/local-library/${encodeURIComponent(movieId)}`, { method: "DELETE" });
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || "删除失败");
+            }
+            if (selectedRecord?.movie_id === movieId) {
+                closeRecordPreview();
+            }
+            setInformationCheck((current) => {
+                if (!current?.records) {
+                    return current;
+                }
+                const records = current.records.filter((item) => String(item.movie_id || "").toUpperCase() !== movieId.toUpperCase());
+                const incompleteRecords = records.filter((item) => !item.info_complete);
+                return {
+                    ...current,
+                    records,
+                    incomplete_records: incompleteRecords,
+                    total_movies: records.length,
+                    complete_count: records.length - incompleteRecords.length,
+                    incomplete_count: incompleteRecords.length,
+                };
+            });
+            await loadLibrary();
+            message.success(`已从影视库移除 ${movieId}`);
+        } catch (error) {
+            message.error(`删除影片失败：${error.message}`);
+        } finally {
+            setDeletingMovieId("");
+        }
+    };
+
+    const handleDownloadMissingInformation = async (values = {}) => {
+        setDownloadingInformation(true);
+        try {
+            const data = await postJson("/api/movies/local-library/information/download", {
+                only_missing: true,
+                fields: informationCheckFields,
+                concurrent: values.concurrent || 3,
+                write_nfo: values.writeNfo !== false,
+                download_images: values.downloadImages !== false,
+                download_sample_images: !!values.downloadSampleImages,
+                download_actor_images: !!values.downloadActorImages,
+                download_list_thumbnail: !!values.downloadListThumbnail,
+                overwrite_existing: !!values.overwriteExisting,
+            });
+            setInformationCheck(data.information_check);
+            await loadLibrary();
+            const updatedCount = data.updated_count || 0;
+            const failedCount = data.failed_count || 0;
+            const remainingCount = data.information_check?.incomplete_count || 0;
+            if (failedCount > 0 || remainingCount > 0) {
+                message.warning(`已更新 ${updatedCount} 部，${failedCount} 部下载失败，仍有 ${remainingCount} 部缺失`);
+            } else {
+                message.success(`已更新 ${updatedCount} 部影片信息`);
+            }
+        } catch (error) {
+            message.error(`下载缺失信息失败：${error.message}`);
+        } finally {
+            setDownloadingInformation(false);
+        }
+    };
+
+    const filterBlock = (title, key) => {
+        const options = filterOptions[key] || [];
+        const selected = filters[key] || [];
+        return (
+            <div className="jav-library-filter-block">
+                <div className="jav-library-filter-block-title">
+                    <Text strong>{title}</Text>
+                    {selected.length > 0 && (
+                        <Button
+                            type="link"
+                            size="small"
+                            onClick={() => setFilters((prev) => ({ ...prev, [key]: [] }))}
+                        >
+                            清除
+                        </Button>
+                    )}
+                </div>
+                {options.length ? (
+                    <Checkbox.Group
+                        options={options}
+                        value={selected}
+                        onChange={(next) => setFilters((prev) => ({ ...prev, [key]: next }))}
+                    />
+                ) : (
+                    <Text type="secondary">暂无可选项</Text>
+                )}
+            </div>
+        );
+    };
+
+    const activeFilterTags = () => {
+        const labels = {
+            genres: "标签",
+            stars: "演员",
+            studios: "制作商",
+            publishers: "发行商",
+            series: "系列",
+            years: "年份",
+            roots: "目录",
+        };
+        return Object.entries(labels).flatMap(([key, label]) => (
+            (filters[key] || []).map((value) => (
+                <Tag
+                    key={`${key}:${value}`}
+                    closable
+                    onClose={() => setFilters((prev) => ({
+                        ...prev,
+                        [key]: (prev[key] || []).filter((item) => item !== value),
+                    }))}
+                >
+                    {label}: {value}
+                </Tag>
+            ))
+        ));
+    };
+
+    const handleFilterTagClick = (filterKey, value, event) => {
+        event?.stopPropagation?.();
+        if (!filterKey || !value) {
+            return;
+        }
+        setFilters({
+            keyword: "",
+            genres: filterKey === "genres" ? [value] : [],
+            stars: filterKey === "stars" ? [value] : [],
+            studios: [],
+            publishers: [],
+            series: [],
+            years: [],
+            roots: [],
+        });
+        setKeywordDraft("");
+        setSelectedRecord(null);
+        setPlayingRecordKey("");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const handleActorLibrarySelect = (actor) => {
+        if (!actor?.name) {
+            return;
+        }
+        setFilters((prev) => ({
+            ...prev,
+            keyword: "",
+            genres: [],
+            stars: [actor.name],
+            studios: [],
+            publishers: [],
+            series: [],
+            years: [],
+            roots: [],
+        }));
+        setViewMode("grid");
+        setSelectedRecord(null);
+        setPlayingRecordKey("");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    const renderFilterTag = (filterKey, value, color) => (
+        <Tag
+            color={color}
+            key={value}
+            className="jav-library-filter-tag"
+            onClick={(event) => handleFilterTagClick(filterKey, value, event)}
+        >
+            {value}
+        </Tag>
+    );
+
+    const renderTagList = (items, color, filterKey = null) => {
+        const values = Array.isArray(items) ? items.filter(Boolean) : [items].filter(Boolean);
+        if (!values.length) {
+            return <Text type="secondary">-</Text>;
+        }
+        return (
+            <Space size={4} wrap>
+                {values.map((value) => (
+                    filterKey ? renderFilterTag(filterKey, value, color) : <Tag color={color} key={value}>{value}</Tag>
+                ))}
+            </Space>
+        );
+    };
+
+    const renderAutoLoadFooter = ({ visibleCount, total, hasMore, loading: footerLoading, onLoadMore, sentinelRef }) => (
+        <div className="jav-library-auto-load-footer" ref={sentinelRef} aria-live="polite">
+            <Text type="secondary">已显示 {visibleCount} / {total}</Text>
+            {hasMore ? (
+                <Button
+                    size="small"
+                    icon={<Icon as={ReloadOutlined} />}
+                    loading={footerLoading}
+                    onClick={onLoadMore}
+                >
+                    加载更多
+                </Button>
+            ) : (
+                <Text type="secondary">已全部显示</Text>
+            )}
+        </div>
+    );
+
+    const renderActorList = (record, variant = "compact") => {
+        const actors = normalizeActors(record);
+        if (!actors.length) {
+            return <Text type="secondary">-</Text>;
+        }
+        const className = variant === "cast" ? "jav-library-actor-list is-cast" : "jav-library-actor-list";
+        return (
+            <div className={className}>
+                {actors.map((actor) => (
+                    <ActorPill
+                        key={actor.name}
+                        record={record}
+                        actor={actor}
+                        onClick={(event) => handleFilterTagClick("stars", actor.name, event)}
+                    />
+                ))}
+            </div>
+        );
+    };
+
+    const renderActorLibraryView = () => {
+        const keyword = String(filters.keyword || "").trim().toLowerCase();
+        const visibleActors = actors.filter((actor) => {
+            if (!keyword) {
+                return true;
+            }
+            const text = `${actor.name || ""}\n${actor.key || ""}\n${(actor.movie_ids || []).join("\n")}`.toLowerCase();
+            return text.includes(keyword);
+        });
+        if (!visibleActors.length) {
+            return (
+                <div className="jav-state-panel jav-library-empty-state">
+                    <Text type="secondary">{actorLibraryLoading ? "演员信息库加载中" : "暂无演员信息"}</Text>
+                </div>
+            );
+        }
+        return (
+            <div className="jav-library-actor-grid">
+                {visibleActors.map((actor) => (
+                    <button
+                        key={actor.key}
+                        type="button"
+                        className="jav-library-actor-card"
+                        onClick={() => handleActorLibrarySelect(actor)}
+                    >
+                        <ActorLibraryAvatar actor={actor} />
+                        <span className="jav-library-actor-card-body">
+                            <strong>{actor.name}</strong>
+                            <Text type="secondary">{actor.movie_count || 0} movies</Text>
+                        </span>
+                    </button>
+                ))}
+            </div>
+        );
+    };
+
+    const renderRecordPreview = () => {
+        if (!selectedRecord) {
+            return null;
+        }
+
+        const selectedMediaInfo = primaryMediaInfo(selectedRecord);
+        const mediaInfo = selectedMediaInfo;
+        const detailRows = [
+            ["番号", selectedRecord.movie_id],
+            ["发布日期", selectedRecord.date],
+            ["分辨率", selectedMediaInfo.width && selectedMediaInfo.height ? formatResolution(selectedMediaInfo) : ""],
+            ["码率", selectedMediaInfo.bitrate ? formatBitrate(selectedMediaInfo.bitrate) : ""],
+            ["编码格式", selectedMediaInfo.codec ? formatCodec(selectedMediaInfo.codec) : ""],
+            ["封装格式", selectedMediaInfo.container ? formatContainer(selectedMediaInfo.container) : ""],
+            ["制作商", selectedRecord.studio],
+            ["发行商", selectedRecord.publisher],
+            ["导演", selectedRecord.director],
+            ["系列", selectedRecord.series],
+            ["刮削状态", selectedRecord.scrape_status],
+            ["首次入库", selectedRecord.first_seen_at],
+            ["最近更新", selectedRecord.updated_at],
+            ["文件数量", `${selectedRecord.file_count || 0} 个文件`],
+            ["总容量", formatBytes(selectedRecord.total_size)],
+        ].filter(([, value]) => value);
+        const hasPlayableFile = (selectedRecord.files || []).length > 0;
+        const videoSrc = `/api/movies/local-library/${encodeURIComponent(selectedRecord.movie_id)}/play?file_index=${selectedPlayFileIndex}`;
+        const isPlayingSelectedRecord = playingRecordKey === `${selectedRecord.movie_id}:${selectedPlayFileIndex}`;
+        const posterAspectRatio = posterAspectRatioMap[selectedRecord.movie_id] || null;
+        const previewRatioClass = posterAspectRatio > 1.08
+            ? "is-landscape"
+            : posterAspectRatio && posterAspectRatio < 0.82
+                ? "is-portrait"
+                : "is-balanced";
+        const previewStyle = posterAspectRatio
+            ? { "--jav-library-preview-poster-ratio": posterAspectRatio }
+            : undefined;
+
+        return (
+            <div className={`jav-library-preview ${previewRatioClass}`} style={previewStyle}>
+                <aside className="jav-library-preview-poster">
+                    <MoviePoster record={selectedRecord} onRatio={handlePosterAspectRatio} />
+                    <div className="jav-library-preview-poster-extras">
+                        <div className="jav-library-preview-section">
+                            <Text strong>演员</Text>
+                            {renderActorList(selectedRecord)}
+                        </div>
+                        <div className="jav-library-preview-section">
+                            <Text strong>标签</Text>
+                            {renderTagList(selectedRecord.genres, "cyan", "genres")}
+                        </div>
+                    </div>
+                </aside>
+                <section className="jav-library-preview-details">
+                    <div className="jav-library-preview-header">
+                        <Button icon={<Icon as={ArrowLeftOutlined} />} onClick={closeRecordPreview}>
+                            返回影片库
+                        </Button>
+                        <Space>
+                            <Button
+                                type="primary"
+                                icon={<Icon as={PlayCircleOutlined} />}
+                                disabled={!hasPlayableFile}
+                                onClick={() => handlePlaySelectedRecord(0)}
+                            >
+                                播放影片
+                            </Button>
+                            <Popconfirm
+                                title={`从影视库移除 ${selectedRecord.movie_id}？`}
+                                description="只删除数据库记录，不删除本地视频文件。"
+                                okText="移除"
+                                cancelText="取消"
+                                onConfirm={() => handleDeleteMovie(selectedRecord)}
+                            >
+                                <Button
+                                    danger
+                                    icon={<Icon as={DeleteOutlined} />}
+                                    loading={deletingMovieId === selectedRecord.movie_id}
+                                >
+                                    移除
+                                </Button>
+                            </Popconfirm>
+                            <Tag color="blue">{selectedRecord.movie_id}</Tag>
+                        </Space>
+                    </div>
+                    <div>
+                        <Title level={3} className="jav-library-preview-title">
+                            {selectedRecord.title || selectedRecord.movie_id}
+                        </Title>
+                        {selectedRecord.scrape_error && (
+                            <Alert
+                                type="warning"
+                                showIcon
+                                message="刮削异常"
+                                description={selectedRecord.scrape_error}
+                            />
+                        )}
+                    </div>
+                    <div className="jav-library-preview-section jav-library-preview-cast">
+                        <Text strong>演员阵容</Text>
+                        {renderActorList(selectedRecord, "cast")}
+                    </div>
+                    {isPlayingSelectedRecord && (
+                        <video controls className="jav-library-preview-player" src={videoSrc}>
+                            您的浏览器不支持视频播放。
+                        </video>
+                    )}
+                    <div className="jav-library-preview-meta">
+                        {detailRows.map(([label, value]) => (
+                            <div className="jav-library-preview-meta-row" key={label}>
+                                <span>{label}</span>
+                                <strong>{value}</strong>
+                            </div>
+                        ))}
+                    </div>
+                    {renderMediaTags(mediaInfo)}
+                    <div className="jav-library-preview-section">
+                        <Text strong>扫描目录</Text>
+                        {renderTagList(selectedRecord.scan_roots, "geekblue")}
+                    </div>
+                    {selectedRecord.full_text && (
+                        <div className="jav-library-preview-section">
+                            <Text strong>全文信息</Text>
+                            <Text className="jav-library-preview-full-text">{selectedRecord.full_text}</Text>
+                        </div>
+                    )}
+                    <div className="jav-library-preview-section">
+                        <Text strong>本地文件</Text>
+                        <div className="jav-library-preview-files">
+                            {(selectedRecord.files || []).map((file, fileIndex) => (
+                                <div className="jav-library-preview-file" key={file.path}>
+                                    <div className="jav-library-preview-file-title">
+                                        <Text strong ellipsis={{ tooltip: file.path }}>{file.file_name || file.path}</Text>
+                                        <Button
+                                            size="small"
+                                            icon={<Icon as={PlayCircleOutlined} />}
+                                            onClick={() => handlePlaySelectedRecord(fileIndex)}
+                                        >
+                                            播放
+                                        </Button>
+                                    </div>
+                                    <Text type="secondary" ellipsis={{ tooltip: file.path }}>
+                                        {formatBytes(file.size)} · {file.path}
+                                    </Text>
+                                    {renderMediaTags(file)}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </section>
+            </div>
+        );
+    };
+
+    const columns = [
+        {
+            title: "封面",
+            key: "poster",
+            width: listPosterSize + 30,
+            render: (_, record) => <MoviePoster record={record} compact width={listPosterSize} variant="thumbnail" />,
+        },
+        {
+            title: "番号",
+            dataIndex: "movie_id",
+            key: "movie_id",
+            width: 140,
+            render: (value, record) => (
+                <Space direction="vertical" size={2}>
+                    <Tag color="blue">{value}</Tag>
+                    {record.scrape_status === "found" && <Tag color="green">已刮削</Tag>}
+                    {record.scrape_status === "failed" && <Tag color="red">刮削失败</Tag>}
+                    {missingInformationByMovieId[String(value || "").toUpperCase()] && <Tag color="orange">缺信息</Tag>}
+                </Space>
+            ),
+        },
+        {
+            title: "影片信息",
+            key: "info",
+            render: (_, record) => (
+                <Space direction="vertical" size={4}>
+                    <Text strong ellipsis={{ tooltip: record.title }} style={{ maxWidth: 620 }}>{record.title || record.movie_id}</Text>
+                    <Space size={4} wrap>
+                        {record.date && <Text type="secondary">{record.date}</Text>}
+                        {record.studio && <Tag>{record.studio}</Tag>}
+                        {record.publisher && <Tag>{record.publisher}</Tag>}
+                        {record.series && <Tag color="purple">{record.series}</Tag>}
+                    </Space>
+                    <Space size={4} wrap>
+                        {(record.genres || []).map((genre) => renderFilterTag("genres", genre, "cyan"))}
+                    </Space>
+                    <Space size={4} wrap>
+                        {(record.stars || []).slice(0, 6).map((star) => renderFilterTag("stars", star, "magenta"))}
+                        {(record.stars || []).length > 6 && <Tag>+{record.stars.length - 6}</Tag>}
+                    </Space>
+                </Space>
+            ),
+        },
+        {
+            title: "分辨率",
+            key: "resolution",
+            width: 110,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatResolution(primaryMediaInfo(record))}
+                </Text>
+            ),
+        },
+        {
+            title: "码率",
+            key: "bitrate",
+            width: 120,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatBitrate(primaryMediaInfo(record)?.bitrate)}
+                </Text>
+            ),
+        },
+        {
+            title: "编码",
+            key: "codec",
+            width: 110,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatCodec(primaryMediaInfo(record)?.codec)}
+                </Text>
+            ),
+        },
+        {
+            title: "封装",
+            key: "container",
+            width: 110,
+            render: (_, record) => (
+                <Text type="secondary" style={{ fontFamily: "monospace" }}>
+                    {formatContainer(primaryMediaInfo(record)?.container)}
+                </Text>
+            ),
+        },
+        {
+            title: "文件",
+            key: "files",
+            width: 340,
+            render: (_, record) => (
+                <Space direction="vertical" size={2}>
+                    <Text>{record.file_count || 0} 个文件 · {formatBytes(record.total_size)}</Text>
+                    {(record.files || []).slice(0, 3).map((file) => (
+                        <Text key={file.path} type="secondary" ellipsis={{ tooltip: file.path }} style={{ maxWidth: 320 }}>
+                            {file.file_name}
+                        </Text>
+                    ))}
+                    {(record.files || []).length > 3 && <Text type="secondary">+{record.files.length - 3} 个文件</Text>}
+                </Space>
+            ),
+        },
+        {
+            title: "操作",
+            key: "actions",
+            width: 96,
+            render: (_, record) => (
+                <Popconfirm
+                    title={`从影视库移除 ${record.movie_id}？`}
+                    description="只删除数据库记录，不删除本地视频文件。"
+                    okText="移除"
+                    cancelText="取消"
+                    onConfirm={(event) => {
+                        event?.stopPropagation?.();
+                        return handleDeleteMovie(record);
+                    }}
+                >
+                    <Button
+                        danger
+                        size="small"
+                        icon={<Icon as={DeleteOutlined} />}
+                        loading={deletingMovieId === record.movie_id}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        移除
+                    </Button>
+                </Popconfirm>
+            ),
+        },
+    ];
+
+    if (selectedRecord) {
+        const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
+        const previewBackdropStyle = previewBackdropSource
+            ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` }
+            : undefined;
+        return (
+            <ConfigProvider theme={libraryThemeConfig}>
+                <div className={`jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}`}>
+                    <div
+                        className="jav-library-preview-backdrop"
+                        style={previewBackdropStyle}
+                        onClick={closeRecordPreview}
+                    >
+                        <section
+                            className="jav-local-results jav-library-results jav-library-preview-surface"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label="影片沉浸式预览"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            {renderRecordPreview()}
+                        </section>
+                    </div>
+                </div>
+            </ConfigProvider>
+        );
+    }
+
+    return (
+        <ConfigProvider theme={libraryThemeConfig}>
+        <div className={`jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}`}>
+            <div className="jav-library-layout">
+                <section className="jav-local-results jav-library-results">
+                    <div className="jav-results-header">
+                        <div>
+                            <Title level={4} className="jav-results-title">
+                                <span className="jav-section-icon"><Icon as={DatabaseOutlined} /></span>
+                                影视库
+                            </Title>
+                            <Text type="secondary" className="jav-results-subtitle">
+                                {isDarkMode
+                                    ? "电视墙式浏览本地影片，按封面、画质和资料状态快速定位收藏"
+                                    : "从本地文件夹直接扫描入库，并用本地索引支持筛选与去重下载"}
+                            </Text>
+                        </div>
+                    </div>
+                    <div className="jav-library-toolbar">
+                        <div className="jav-library-search-row">
+                            <Input
+                                allowClear
+                                prefix={<Icon as={SearchOutlined} />}
+                                placeholder="搜索番号、标题、演员、标签"
+                                value={keywordDraft}
+                                onChange={(event) => setKeywordDraft(event.target.value)}
+                                onPressEnter={handleKeywordSearch}
+                            />
+                            <Button type="primary" icon={<Icon as={SearchOutlined} />} onClick={handleKeywordSearch}>
+                                搜索
+                            </Button>
+                            <Button onClick={handleKeywordClear}>
+                                清空
+                            </Button>
+                        </div>
+                        <Segmented
+                            value={viewMode}
+                            onChange={setViewMode}
+                            options={[
+                                { label: <span><Icon as={UnorderedListOutlined} /> 列表</span>, value: "list" },
+                                { label: <span><Icon as={AppstoreOutlined} /> 卡片</span>, value: "grid" },
+                                { label: <span><Icon as={UserOutlined} /> 演员</span>, value: "actors" },
+                            ]}
+                        />
+                        <Select
+                            value={sortRule}
+                            onChange={setSortRule}
+                            options={LOCAL_LIBRARY_SORT_OPTIONS}
+                            aria-label="影视库排序"
+                        />
+                        <Segmented
+                            className="jav-library-theme-toggle"
+                            value={libraryTheme}
+                            onChange={handleLibraryThemeChange}
+                            options={LOCAL_LIBRARY_THEME_OPTIONS}
+                        />
+                        {viewMode !== "actors" && <div className="jav-library-size-control">
+                            <Text type="secondary">大小</Text>
+                            <Slider
+                                min={viewMode === "grid" ? 120 : 44}
+                                max={viewMode === "grid" ? 240 : 96}
+                                step={4}
+                                value={viewMode === "grid" ? gridPosterSize : listPosterSize}
+                                onChange={viewMode === "grid" ? setGridPosterSize : setListPosterSize}
+                                tooltip={{ formatter: (value) => `${value}px` }}
+                            />
+                        </div>}
+                        <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
+                            筛选{activeFilterCount ? ` (${activeFilterCount})` : ""}
+                        </Button>
+                        <Button type="primary" icon={<Icon as={FolderOpenOutlined} />} onClick={openScanDrawer} loading={settingsLoading}>
+                            路径配置
+                        </Button>
+                        <Button icon={<Icon as={SearchOutlined} />} onClick={openInformationCheck} loading={checkingInformation}>
+                            检查信息
+                        </Button>
+                        <Button icon={<Icon as={ReloadOutlined} />} onClick={loadLibrary} loading={loading}>
+                            刷新
+                        </Button>
+                        <Popconfirm
+                            title="清洗无效文件？"
+                            description="会重新读取分辨率和码率，删除仍读取不到媒体信息的本地视频文件。"
+                            okText="清洗"
+                            cancelText="取消"
+                            onConfirm={handleCleanInvalidFiles}
+                        >
+                            <Button danger icon={<Icon as={DeleteOutlined} />} loading={cleaningInvalidFiles} disabled={!library.total_files}>
+                                清洗无效文件
+                            </Button>
+                        </Popconfirm>
+                        <Popconfirm title="确认清空影视库数据库？" onConfirm={handleClear} okText="清空" cancelText="取消">
+                            <Button danger loading={loading}>清空</Button>
+                        </Popconfirm>
+                    </div>
+                    {activeFilterCount > 0 && (
+                        <div className="jav-library-active-filters">
+                            {filters.keyword.trim() && (
+                                <Tag
+                                    closable
+                                    onClose={handleKeywordClear}
+                                >
+                                    搜索: {filters.keyword.trim()}
+                                </Tag>
+                            )}
+                            {activeFilterTags()}
+                            <Button size="small" type="link" onClick={clearFilters}>清除全部</Button>
+                        </div>
+                    )}
+                    <div className="jav-kpi-grid jav-local-kpis jav-library-kpis">
+                        <div className="jav-kpi-card">
+                            <span className="jav-kpi-label">影片</span>
+                            <strong>{library.total_movies || 0}</strong>
+                            <span className="jav-kpi-note">数据库记录</span>
+                        </div>
+                        <div className="jav-kpi-card">
+                            <span className="jav-kpi-label">文件</span>
+                            <strong>{library.total_files || 0}</strong>
+                            <span className="jav-kpi-note">本地视频</span>
+                        </div>
+                        <div className="jav-kpi-card">
+                            <span className="jav-kpi-label">容量</span>
+                            <strong>{formatBytes(library.total_size)}</strong>
+                            <span className="jav-kpi-note">总大小</span>
+                        </div>
+                        <div className="jav-kpi-card">
+                            <span className="jav-kpi-label">筛选</span>
+                            <strong>{filteredRecords.length}</strong>
+                            <span className="jav-kpi-note">当前结果</span>
+                        </div>
+                        <div className="jav-kpi-card">
+                            <span className="jav-kpi-label">信息</span>
+                            <strong>{informationCheck ? informationCheck.incomplete_count : "-"}</strong>
+                            <span className="jav-kpi-note">缺失资料</span>
+                        </div>
+                    </div>
+                    {informationCheck && (
+                        <Alert
+                            style={{ marginTop: 14 }}
+                            type={informationCheck.incomplete_count > 0 ? "warning" : "success"}
+                            showIcon
+                            message={`信息检查：完整 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`}
+                            description={
+                                informationCheck.incomplete_count > 0
+                                    ? `缺失 ${informationCheck.incomplete_count} 部，可在“检查信息”窗口中下载缺失信息。`
+                                    : "当前已入库影片信息和本地资料完整。"
+                            }
+                        />
+                    )}
+                    <Divider className="jav-section-divider" />
+                    {viewMode === "actors" ? (
+                        renderActorLibraryView()
+                    ) : viewMode === "grid" ? (
+                        sortedRecords.length ? (
+                            <>
+                                <div className="jav-library-grid-toolbar">
+                                    <Text type="secondary">
+                                        {gridVisibleCount > 0 ? `1-${gridVisibleCount}` : 0} / {sortedRecords.length}
+                                    </Text>
+                                    <Pagination
+                                        current={gridPage}
+                                        pageSize={LOCAL_LIBRARY_GRID_PAGE_SIZE}
+                                        total={sortedRecords.length}
+                                        showSizeChanger={false}
+                                        onChange={handleGridPageChange}
+                                    />
+                                </div>
+                                <div className="jav-library-grid-wrap">
+                                    {gridPageLoading && (
+                                        <div className="jav-library-grid-loading" aria-live="polite">
+                                            <span className="jav-library-grid-loading-icon" />
+                                            <span>正在加载本地封面</span>
+                                        </div>
+                                    )}
+                                    <div
+                                        className="jav-library-poster-grid"
+                                        style={{ "--jav-library-card-min": `${gridPosterSize}px` }}
+                                    >
+                                        {visibleGridRecords.map((record) => (
+                                    <Card
+                                        key={record.movie_id}
+                                        hoverable
+                                        className="jav-library-poster-card"
+                                        cover={<MoviePoster record={record} variant="thumbnail" />}
+                                        onClick={() => openRecordPreview(record)}
+                                    >
+                                        <Text strong ellipsis={{ tooltip: record.title }} className="jav-library-poster-title">
+                                            {record.title || record.movie_id}
+                                        </Text>
+                                        <div className="jav-library-poster-meta">
+                                            <Tag color="blue">{record.movie_id}</Tag>
+                                            {record.date && <Text type="secondary">{String(record.date).slice(0, 4)}</Text>}
+                                        </div>
+                                        {renderMediaTags(primaryMediaInfo(record))}
+                                        <Popconfirm
+                                            title={`从影视库移除 ${record.movie_id}？`}
+                                            description="只删除数据库记录，不删除本地视频文件。"
+                                            okText="移除"
+                                            cancelText="取消"
+                                            onConfirm={(event) => {
+                                                event?.stopPropagation?.();
+                                                return handleDeleteMovie(record);
+                                            }}
+                                        >
+                                            <Button
+                                                danger
+                                                size="small"
+                                                icon={<Icon as={DeleteOutlined} />}
+                                                loading={deletingMovieId === record.movie_id}
+                                                onClick={(event) => event.stopPropagation()}
+                                                style={{ marginTop: 8 }}
+                                            >
+                                                移除
+                                            </Button>
+                                        </Popconfirm>
+                                        <div className="jav-library-poster-tags">
+                                            {(record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta"))}
+                                            {(record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan"))}
+                                        </div>
+                                    </Card>
+                                        ))}
+                                    </div>
+                                </div>
+                                <Pagination
+                                    className="jav-library-grid-pagination-bottom"
+                                    current={gridPage}
+                                    pageSize={LOCAL_LIBRARY_GRID_PAGE_SIZE}
+                                    total={sortedRecords.length}
+                                    showSizeChanger={false}
+                                    onChange={handleGridPageChange}
+                                />
+                                {renderAutoLoadFooter({
+                                    visibleCount: gridVisibleCount,
+                                    total: sortedRecords.length,
+                                    hasMore: hasMoreGridRecords,
+                                    loading: gridPageLoading,
+                                    onLoadMore: loadNextGridPage,
+                                    sentinelRef: gridAutoLoadSentinelRef,
+                                })}
+                            </>
+                        ) : (
+                            <div className="jav-state-panel jav-library-empty-state">
+                                <Text type="secondary">暂无影视库记录，请先扫描目录</Text>
+                            </div>
+                        )
+                    ) : (
+                        <>
+                        <Table
+                            rowKey="movie_id"
+                            size="small"
+                            dataSource={visibleListRecords}
+                            columns={columns}
+                            loading={loading}
+                            pagination={false}
+                            onRow={(record) => ({
+                                onClick: () => openRecordPreview(record),
+                            })}
+                            locale={{ emptyText: "暂无影视库记录，请先扫描目录" }}
+                        />
+                        {sortedRecords.length > 0 && (
+                            <>
+                                <Pagination
+                                    className="jav-library-list-pagination-bottom"
+                                    current={listPage}
+                                    pageSize={listPageSize}
+                                    total={sortedRecords.length}
+                                    showSizeChanger
+                                    pageSizeOptions={[10, 20, 30, 50, 100]}
+                                    showTotal={(total) => `${listVisibleCount} / ${total}`}
+                                    onShowSizeChange={handleListPageSizeChange}
+                                    onChange={handleListPageChange}
+                                />
+                                {renderAutoLoadFooter({
+                                    visibleCount: listVisibleCount,
+                                    total: sortedRecords.length,
+                                    hasMore: hasMoreListRecords,
+                                    loading: listPageLoading,
+                                    onLoadMore: loadNextListPage,
+                                    sentinelRef: listAutoLoadSentinelRef,
+                                })}
+                            </>
+                        )}
+                        </>
+                    )}
+                    <Drawer
+                        title="影视库路径配置"
+                        placement="right"
+                        width={560}
+                        open={scanOpen}
+                        onClose={() => setScanOpen(false)}
+                        rootClassName={isDarkMode ? "jav-library-dark-surface" : ""}
+                        destroyOnClose={false}
+                    >
+                        <Form
+                            form={scanForm}
+                            layout="vertical"
+                            initialValues={{
+                                directories: buildPathFormItems(DEFAULT_LOCAL_LIBRARY_DIRECTORIES),
+                                ignoredPaths: [],
+                                recursive: true,
+                                removeMissing: true,
+                                probeMedia: false,
+                                regularizeFiles: false,
+                            }}
+                            onFinish={handleScan}
+                        >
+                            <div className="jav-library-scan-path-section">
+                                <div className="jav-library-scan-path-section-title">
+                                    <Text strong>影视库路径</Text>
+                                    <Tag color="blue">{normalizePathItems(librarySettings.directories).length || 0}</Tag>
+                                </div>
+                                <Form.List name="directories">
+                                    {(fields, { add, remove }) => (
+                                        <div className="jav-library-scan-paths">
+                                            {fields.map((field) => {
+                                                const scanDirectoryPath = scanForm.getFieldValue(["directories", field.name, "path"]) || "";
+                                                return (
+                                                    <div className="jav-library-scan-path-row" key={field.key} title={scanDirectoryPath}>
+                                                        <Form.Item
+                                                            {...field}
+                                                            name={[field.name, "path"]}
+                                                            rules={[{ required: true, message: "请选择影视库路径" }]}
+                                                            style={{ marginBottom: 0, flex: 1 }}
+                                                        >
+                                                            <DirectoryInput placeholder="/app/data/JAV 或 /media/jav1" />
+                                                        </Form.Item>
+                                                        <Button
+                                                            danger
+                                                            icon={<Icon as={DeleteOutlined} />}
+                                                            disabled={fields.length <= 1}
+                                                            onClick={() => remove(field.name)}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                            <Button htmlType="button" icon={<Icon as={PlusOutlined} />} onClick={() => add({ path: "" })}>
+                                                添加影视库路径
+                                            </Button>
+                                        </div>
+                                    )}
+                                </Form.List>
+                            </div>
+
+                            <div className="jav-library-scan-path-section">
+                                <div className="jav-library-scan-path-section-title">
+                                    <Text strong>忽略路径</Text>
+                                    <Tag color="default">{normalizePathItems(librarySettings.ignored_paths).length || 0}</Tag>
+                                </div>
+                                <Form.List name="ignoredPaths">
+                                    {(fields, { add, remove }) => (
+                                        <div className="jav-library-scan-paths">
+                                            {fields.map((field) => {
+                                                const ignoredDirectoryPath = scanForm.getFieldValue(["ignoredPaths", field.name, "path"]) || "";
+                                                return (
+                                                    <div className="jav-library-scan-path-row" key={field.key} title={ignoredDirectoryPath}>
+                                                        <Form.Item
+                                                            {...field}
+                                                            name={[field.name, "path"]}
+                                                            style={{ marginBottom: 0, flex: 1 }}
+                                                        >
+                                                            <DirectoryInput placeholder="/app/data/cache 或 sample" />
+                                                        </Form.Item>
+                                                        <Button
+                                                            danger
+                                                            icon={<Icon as={DeleteOutlined} />}
+                                                            onClick={() => remove(field.name)}
+                                                        />
+                                                    </div>
+                                                );
+                                            })}
+                                            <Button htmlType="button" icon={<Icon as={PlusOutlined} />} onClick={() => add({ path: "" })}>
+                                                添加忽略路径
+                                            </Button>
+                                        </div>
+                                    )}
+                                </Form.List>
+                            </div>
+
+                            <Divider />
+                            <Space wrap align="center">
+                                <Form.Item name="recursive" valuePropName="checked">
+                                    <Checkbox>递归扫描</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="removeMissing" valuePropName="checked">
+                                    <Checkbox>移除缺失文件</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="probeMedia" valuePropName="checked">
+                                    <Checkbox>探测媒体信息</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="regularizeFiles" valuePropName="checked">
+                                    <Checkbox>整理文件</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="maxDepth" label="最大深度">
+                                    <InputNumber min={1} max={20} placeholder="不限" />
+                                </Form.Item>
+                            </Space>
+                            <Space wrap className="jav-library-scan-actions">
+                                <Button icon={<Icon as={SaveOutlined} />} onClick={handleSaveLibrarySettings} loading={savingLibrarySettings}>
+                                    保存配置
+                                </Button>
+                                <Button type="primary" htmlType="submit" loading={scanningLibrary} icon={<Icon as={FolderOpenOutlined} />}>
+                                    保存并扫描
+                                </Button>
+                            </Space>
+                        </Form>
+
+                        {scanTask && scanningLibrary && (
+                            <Alert
+                                type="info"
+                                showIcon
+                                message={`后台扫描中 ${scanTask.percent || 0}%`}
+                                description={scanTask.message || scanTask.current || "正在后台扫描影视库"}
+                            />
+                        )}
+
+                        {scanResult && (
+                            <div className="jav-library-scan-result-list">
+                                <Alert
+                                    type={scanResult.success ? "success" : scanResult.scan_count > 0 ? "warning" : "error"}
+                                    showIcon
+                                    message={`扫描路径 ${scanResult.scan_count ?? (scanResult.success ? 1 : 0)} 个，失败 ${scanResult.failed_count || 0} 个`}
+                                    description={`文件 ${scanResult.scanned_files || 0} 个，识别 ${scanResult.recognized_files || 0} 个，移除 ${scanResult.removed_file_count || 0} 个，整理头像 ${scanResult.regularized_actor_avatar_count || 0} 个，删除重复 ${scanResult.deleted_duplicate_file_count || 0} 个`}
+                                />
+                                {(scanResult.scans || [scanResult]).map((result, index) => (
+                                    <div className="jav-library-scan-result-row" key={`${result.directory || result.scan_root || index}`}>
+                                        <Text copyable={!!(result.directory || result.scan_root)} ellipsis>
+                                            {result.directory || result.scan_root || result.message || "扫描路径"}
+                                        </Text>
+                                        <Tag color={result.success ? "success" : "error"}>
+                                            {result.success ? `${result.recognized_files || 0}/${result.scanned_files || 0}` : result.error || "失败"}
+                                        </Tag>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </Drawer>
+                    <Drawer
+                        title="检查信息"
+                        placement="right"
+                        width={460}
+                        open={informationCheckOpen}
+                        onClose={() => setInformationCheckOpen(false)}
+                        rootClassName={isDarkMode ? "jav-library-dark-surface" : ""}
+                    >
+                        <div className="jav-library-filter-help">
+                            <Text type="secondary">先设置本次检查标准，再开始检查。默认检查全部信息项，保存后下次会自动沿用。</Text>
+                        </div>
+                        <Form
+                            form={informationCheckForm}
+                            layout="vertical"
+                            initialValues={{ fields: informationCheckFields }}
+                            onFinish={loadInformationCheck}
+                        >
+                            <Form.Item
+                                name="fields"
+                                label="检查标准"
+                                rules={[{ required: true, message: "请至少选择一个检查项" }]}
+                            >
+                                <Checkbox.Group options={INFORMATION_CHECK_FIELD_OPTIONS} />
+                            </Form.Item>
+                            <Space wrap>
+                                <Button type="primary" htmlType="submit" loading={checkingInformation} icon={<Icon as={SearchOutlined} />}>
+                                    开始检查
+                                </Button>
+                                <Button onClick={handleSaveInformationCheckSettings}>
+                                    保存标准
+                                </Button>
+                            </Space>
+                        </Form>
+
+                        {informationCheck && (
+                            <>
+                                <Divider />
+                                <Alert
+                                    type={informationCheck.incomplete_count > 0 ? "warning" : "success"}
+                                    showIcon
+                                    message={`检查结果：完整 ${informationCheck.complete_count || 0} / ${informationCheck.total_movies || 0}`}
+                                    description={
+                                        informationCheck.incomplete_count > 0
+                                            ? `按当前标准仍有 ${informationCheck.incomplete_count} 部缺失信息。`
+                                            : "当前标准下影视库信息完整。"
+                                    }
+                                />
+                                {informationCheck.incomplete_count > 0 && (
+                                    <>
+                                        <Table
+                                            size="small"
+                                            rowKey="movie_id"
+                                            style={{ marginTop: 12 }}
+                                            dataSource={informationCheck.incomplete_records || []}
+                                            pagination={{ pageSize: 5, size: "small" }}
+                                            columns={[
+                                                {
+                                                    title: "番号",
+                                                    dataIndex: "movie_id",
+                                                    key: "movie_id",
+                                                    width: 110,
+                                                },
+                                                {
+                                                    title: "缺失项",
+                                                    key: "missing_labels",
+                                                    render: (_, record) => (
+                                                        <Space size={[4, 4]} wrap>
+                                                            {(record.missing_labels || []).map((label) => (
+                                                                <Tag key={label} color="warning">{label}</Tag>
+                                                            ))}
+                                                        </Space>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                        <Divider />
+                                        <div className="jav-library-filter-help">
+                                            <Text type="secondary">按上面的检查结果补全缺失影片，并可写入与本地刮削相同类型的本地资料文件。</Text>
+                                        </div>
+                                    </>
+                                )}
+                            </>
+                        )}
+
+                        {informationCheck && informationCheck.incomplete_count > 0 && (
+                        <Form
+                            form={informationDownloadForm}
+                            layout="vertical"
+                            initialValues={{
+                                writeNfo: true,
+                                downloadImages: true,
+                                downloadSampleImages: false,
+                                downloadActorImages: false,
+                                downloadListThumbnail: false,
+                                overwriteExisting: false,
+                                concurrent: 3,
+                            }}
+                            onFinish={handleDownloadMissingInformation}
+                        >
+                            <Space wrap>
+                                <Form.Item name="writeNfo" valuePropName="checked">
+                                    <Checkbox>写入 NFO</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadImages" valuePropName="checked">
+                                    <Checkbox>下载封面</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadSampleImages" valuePropName="checked">
+                                    <Checkbox>下载样品图</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadActorImages" valuePropName="checked">
+                                    <Checkbox>下载演员头像</Checkbox>
+                                </Form.Item>
+                                <Form.Item name="downloadListThumbnail" valuePropName="checked">
+                                    <Checkbox>下载列表缩略图</Checkbox>
+                                </Form.Item>
+                            </Space>
+                            <Space align="center" wrap>
+                                <Form.Item name="concurrent" label="刮削并发">
+                                    <InputNumber min={1} max={5} />
+                                </Form.Item>
+                                <Form.Item name="overwriteExisting" label="覆盖已有文件" valuePropName="checked">
+                                    <Checkbox />
+                                </Form.Item>
+                            </Space>
+                            <Button type="primary" htmlType="submit" block loading={downloadingInformation} icon={<Icon as={DownloadOutlined} />}>
+                                下载缺失信息
+                            </Button>
+                        </Form>
+                        )}
+                    </Drawer>
+                    <Drawer
+                        title="筛选"
+                        placement="right"
+                        width={420}
+                        open={filterOpen}
+                        onClose={() => setFilterOpen(false)}
+                        rootClassName={isDarkMode ? "jav-library-dark-surface" : ""}
+                        extra={<Button type="link" onClick={clearFilters}>清除全部</Button>}
+                    >
+                        <div className="jav-library-filter-help">
+                            <Text type="secondary">同一字段内为“任一匹配”，不同字段之间为“同时满足”。</Text>
+                        </div>
+                        <div className="jav-library-filters">
+                            {filterBlock("标签", "genres")}
+                            {filterBlock("演员", "stars")}
+                            {filterBlock("制作商", "studios")}
+                            {filterBlock("发行商", "publishers")}
+                            {filterBlock("系列", "series")}
+                            {filterBlock("年份", "years")}
+                            {filterBlock("扫描目录", "roots")}
+                        </div>
+                    </Drawer>
+                </section>
+            </div>
+        </div>
+        </ConfigProvider>
+    );
+}

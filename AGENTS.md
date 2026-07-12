@@ -40,9 +40,8 @@ Read these before changing code:
 3. `modules/common/runtime.py`
 4. the router and service in the module you are touching
 5. `frontend/src/main.jsx`
-6. `frontend/src/workbench/WorkbenchApp.jsx`
-7. the relevant page in `frontend/src/workbench/pages/`
-8. `templates/index.html`
+6. `frontend/src/components/JavPage.jsx` or `frontend/src/components/WebDavPage.jsx`
+7. `templates/index.html`
 
 If the task affects runtime, deploy, or dependencies, also read:
 
@@ -104,10 +103,8 @@ Use this as the source-of-truth ownership map.
 - `modules/proxy/`
   - final catch-all API route
   - explicit 404 for unknown API paths
-- `frontend/src/workbench/`
-  - editable frontend application shell, pages, shared UI, and styles
-- `frontend/src/utils/`
-  - frontend workflow helpers with focused tests
+- `frontend/src/`
+  - editable frontend source
 - `static/app.js`
   - generated frontend bundle
   - never hand-edit
