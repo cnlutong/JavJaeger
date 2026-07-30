@@ -188,16 +188,23 @@ test("local library KPI cards use a compact single-line layout", () => {
     assert.match(css, /\.jav-library-kpis \.jav-kpi-label,[\s\S]*\.jav-library-kpis \.jav-kpi-note\s*\{[\s\S]*white-space:\s*nowrap;/);
 });
 
-test("local library dark mode becomes an Astryx-inspired immersive TV gallery", () => {
-    assert.match(localLibraryPage, /沉浸/);
-    assert.match(localLibraryPage, /电视墙式浏览本地影片/);
-    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*--color-background-body:\s*#111112;[\s\S]*--color-accent:\s*#2694FE;/);
-    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*radial-gradient\(circle at 20% 0%/);
-    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-toolbar\s*\{[\s\S]*display:\s*grid;/);
-    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(max\(var\(--jav-library-card-min,\s*156px\),\s*180px\),\s*1fr\)\)/);
-    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:hover,[\s\S]*\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:focus-within,[\s\S]*\.jav-library-page\.is-dark \.jav-library-actor-card:hover\s*\{[\s\S]*transform:\s*translateY\(-6px\) scale\(1\.025\)/);
-    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:focus-within\s*\{/);
-    assert.match(css, /@media \(max-width:\s*760px\)\s*\{[\s\S]*\.jav-library-page\.is-dark \.jav-library-toolbar \.ant-select,[\s\S]*max-width:\s*none;[\s\S]*width:\s*100%;/);
+test("local library immersive mode offers three switchable cinema layouts", () => {
+    assert.match(localLibraryPage, /LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger\.localLibrary\.immersiveLayout"/);
+    assert.match(localLibraryPage, /const \[immersiveLayout, setImmersiveLayout\] = React\.useState\(\(\) => loadImmersiveLayout\(\)\)/);
+    assert.match(localLibraryPage, /aria-label="沉浸布局"/);
+    assert.match(localLibraryPage, /海报墙/);
+    assert.match(localLibraryPage, /焦点剧场/);
+    assert.match(localLibraryPage, /封面走廊/);
+    assert.match(localLibraryPage, /className="jav-library-immersive-grid"/);
+    assert.match(localLibraryPage, /className="jav-library-immersive-shelf"/);
+    assert.match(localLibraryPage, /className="jav-library-immersive-corridor"/);
+    assert.match(localLibraryPage, /saveImmersiveLayout\(nextLayout\)/);
+    assert.match(css, /\.jav-app:has\(\.jav-library-page\.is-dark\) \.jav-header\s*\{[\s\S]*display:\s*none;/);
+    assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*min-height:\s*100vh;[\s\S]*background:\s*#050608;/);
+    assert.match(css, /\.jav-library-immersive-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/);
+    assert.match(css, /\.jav-library-immersive-shelf-hero\s*\{[\s\S]*min-height:\s*min\(60vh,\s*620px\)/);
+    assert.match(css, /\.jav-library-immersive-corridor-stage\s*\{[\s\S]*perspective:\s*1200px;/);
+    assert.match(css, /@media \(max-width:\s*760px\)\s*\{[\s\S]*\.jav-library-immersive-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
 });
 
 test("local library preview exposes a click-to-play video player", () => {
@@ -274,7 +281,7 @@ test("local library exposes a persistent scoped dark mode", () => {
     assert.match(localLibraryPage, /const isDarkMode = libraryTheme === "dark";/);
     assert.match(localLibraryPage, /const libraryThemeConfig = React\.useMemo/);
     assert.match(localLibraryPage, /<ConfigProvider theme=\{libraryThemeConfig\}>/);
-    assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page \$\{isDarkMode \? "is-dark" : ""\}`\}/);
+    assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page is-dark is-immersive-\$\{immersiveLayout\}`\}/);
     assert.match(localLibraryPage, /className="jav-library-theme-toggle"/);
     assert.match(localLibraryPage, /saveLocalLibraryTheme\(nextTheme\)/);
     assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*--color-background-body:\s*#111112;/);

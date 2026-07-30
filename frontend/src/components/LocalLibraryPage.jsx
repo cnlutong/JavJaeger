@@ -52,6 +52,7 @@ const antTheme = antd.theme || {};
 const Icon = ({ as: Component }) => Component ? <Component /> : null;
 const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
 const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
+const LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger.localLibrary.immersiveLayout";
 const DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
 const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
 const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
@@ -83,6 +84,11 @@ const LOCAL_LIBRARY_THEME_OPTIONS = [
     { label: <span><Icon as={SunOutlined} /> 浅色</span>, value: "light" },
     { label: <span><Icon as={MoonOutlined} /> 沉浸</span>, value: "dark" },
 ];
+const LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS = [
+    { label: <span><Icon as={AppstoreOutlined} /> 海报墙</span>, value: "grid" },
+    { label: <span><Icon as={PlayCircleOutlined} /> 焦点剧场</span>, value: "shelf" },
+    { label: <span><Icon as={UnorderedListOutlined} /> 封面走廊</span>, value: "corridor" },
+];
 
 const normalizeLocalLibraryTheme = (theme) => theme === "dark" ? "dark" : "light";
 
@@ -97,6 +103,26 @@ const loadLocalLibraryTheme = () => {
 const saveLocalLibraryTheme = (theme) => {
     try {
         window.localStorage.setItem(LOCAL_LIBRARY_THEME_STORAGE_KEY, normalizeLocalLibraryTheme(theme));
+    } catch (error) {
+        /* ignore storage errors */
+    }
+};
+
+const normalizeImmersiveLayout = (layout) => (
+    ["grid", "shelf", "corridor"].includes(layout) ? layout : "grid"
+);
+
+const loadImmersiveLayout = () => {
+    try {
+        return normalizeImmersiveLayout(window.localStorage.getItem(LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY));
+    } catch (error) {
+        return "grid";
+    }
+};
+
+const saveImmersiveLayout = (layout) => {
+    try {
+        window.localStorage.setItem(LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY, normalizeImmersiveLayout(layout));
     } catch (error) {
         /* ignore storage errors */
     }
@@ -551,6 +577,8 @@ export default function LocalLibraryPage() {
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React.useState({});
     const [viewMode, setViewMode] = React.useState("list");
     const [libraryTheme, setLibraryTheme] = React.useState(() => loadLocalLibraryTheme());
+    const [immersiveLayout, setImmersiveLayout] = React.useState(() => loadImmersiveLayout());
+    const [immersiveIndex, setImmersiveIndex] = React.useState(0);
     const [sortRule, setSortRule] = React.useState("date_desc");
     const [gridPage, setGridPage] = React.useState(1);
     const [gridPageLoading, setGridPageLoading] = React.useState(false);
@@ -684,10 +712,12 @@ export default function LocalLibraryPage() {
     const visibleListRecords = React.useMemo(() => sortedRecords.slice(0, listVisibleCount), [sortedRecords, listVisibleCount]);
     const hasMoreGridRecords = gridVisibleCount < sortedRecords.length;
     const hasMoreListRecords = listVisibleCount < sortedRecords.length;
+    const immersiveRecord = sortedRecords[Math.min(immersiveIndex, Math.max(0, sortedRecords.length - 1))] || null;
 
     React.useEffect(() => {
         setGridPage(1);
         setListPage(1);
+        setImmersiveIndex(0);
     }, [records, filters, sortRule, vrFilter]);
 
     React.useEffect(() => () => {
@@ -808,6 +838,18 @@ export default function LocalLibraryPage() {
         const normalizedTheme = normalizeLocalLibraryTheme(nextTheme);
         setLibraryTheme(normalizedTheme);
         saveLocalLibraryTheme(nextTheme);
+    };
+
+    const handleImmersiveLayoutChange = (nextLayout) => {
+        setImmersiveLayout(normalizeImmersiveLayout(nextLayout));
+        saveImmersiveLayout(nextLayout);
+    };
+
+    const moveImmersiveFocus = (step) => {
+        if (!sortedRecords.length) {
+            return;
+        }
+        setImmersiveIndex((index) => (index + step + sortedRecords.length) % sortedRecords.length);
     };
 
     const clearFilters = () => {
@@ -1557,6 +1599,270 @@ export default function LocalLibraryPage() {
         );
     };
 
+    const renderImmersivePosterButton = (record, index, className) => (
+        <button
+            key={`${className}-${record.movie_id}`}
+            type="button"
+            className={`${className} ${index === immersiveIndex ? "is-active" : ""}`}
+            onMouseEnter={() => setImmersiveIndex(index)}
+            onFocus={() => setImmersiveIndex(index)}
+            onClick={() => openRecordPreview(record)}
+            aria-label={`查看 ${record.title || record.movie_id}`}
+        >
+            <MoviePoster record={record} variant="thumbnail" />
+            <span className="jav-library-immersive-card-shade" />
+            <span className="jav-library-immersive-card-copy">
+                <strong>{record.title || record.movie_id}</strong>
+                <span>{record.movie_id}{record.date ? ` · ${String(record.date).slice(0, 4)}` : ""}</span>
+            </span>
+            <span className="jav-library-immersive-card-play"><Icon as={PlayCircleOutlined} /></span>
+        </button>
+    );
+
+    const renderImmersiveGrid = () => (
+        <main className="jav-library-immersive-grid" aria-label="海报墙">
+            {sortedRecords.map((record, index) => renderImmersivePosterButton(
+                record,
+                index,
+                "jav-library-immersive-grid-card",
+            ))}
+        </main>
+    );
+
+    const renderImmersiveShelf = () => {
+        if (!immersiveRecord) {
+            return null;
+        }
+        const backdropSource = posterSource(immersiveRecord) || thumbnailSource(immersiveRecord);
+        const backdropStyle = backdropSource
+            ? { "--jav-library-immersive-backdrop": `url("${backdropSource.replace(/"/g, '\\"')}")` }
+            : undefined;
+        const railSize = Math.min(8, sortedRecords.length);
+        const secondRail = sortedRecords.slice(railSize, railSize * 2);
+        return (
+            <main className="jav-library-immersive-shelf">
+                <section className="jav-library-immersive-shelf-hero" style={backdropStyle}>
+                    <div className="jav-library-immersive-shelf-hero-poster">
+                        <MoviePoster record={immersiveRecord} />
+                    </div>
+                    <div className="jav-library-immersive-shelf-hero-copy">
+                        <span className="jav-library-immersive-eyebrow">本地精选 · {immersiveRecord.movie_id}</span>
+                        <h1>{immersiveRecord.title || immersiveRecord.movie_id}</h1>
+                        <p>
+                            {[
+                                immersiveRecord.date && String(immersiveRecord.date).slice(0, 4),
+                                immersiveRecord.studio,
+                                formatResolution(primaryMediaInfo(immersiveRecord)),
+                            ].filter((value) => value && value !== "-").join(" · ")}
+                        </p>
+                        <div className="jav-library-immersive-hero-tags">
+                            {(immersiveRecord.genres || []).slice(0, 4).map((genre) => <span key={genre}>{genre}</span>)}
+                        </div>
+                        <Button
+                            type="primary"
+                            size="large"
+                            icon={<Icon as={PlayCircleOutlined} />}
+                            onClick={() => openRecordPreview(immersiveRecord)}
+                        >
+                            播放影片
+                        </Button>
+                    </div>
+                </section>
+                <section className="jav-library-immersive-rail-section">
+                    <div className="jav-library-immersive-section-heading">
+                        <h2>最近入库</h2>
+                        <span>{sortedRecords.length} 部影片</span>
+                    </div>
+                    <div className="jav-library-immersive-rail">
+                        {sortedRecords.slice(0, railSize).map((record, index) => renderImmersivePosterButton(
+                            record,
+                            index,
+                            "jav-library-immersive-rail-card",
+                        ))}
+                    </div>
+                </section>
+                {secondRail.length > 0 && (
+                    <section className="jav-library-immersive-rail-section">
+                        <div className="jav-library-immersive-section-heading">
+                            <h2>继续探索</h2>
+                            <span>按当前排序</span>
+                        </div>
+                        <div className="jav-library-immersive-rail">
+                            {secondRail.map((record, offset) => renderImmersivePosterButton(
+                                record,
+                                railSize + offset,
+                                "jav-library-immersive-rail-card",
+                            ))}
+                        </div>
+                    </section>
+                )}
+            </main>
+        );
+    };
+
+    const renderImmersiveCorridor = () => {
+        if (!immersiveRecord) {
+            return null;
+        }
+        const corridorOffsets = sortedRecords.length === 1
+            ? [0]
+            : sortedRecords.length === 2
+                ? [0, 1]
+                : sortedRecords.length === 3
+                    ? [-1, 0, 1]
+                    : sortedRecords.length === 4
+                        ? [-2, -1, 0, 1]
+                        : [-2, -1, 0, 1, 2];
+        return (
+            <main className="jav-library-immersive-corridor">
+                <section className="jav-library-immersive-corridor-stage" aria-label="封面走廊">
+                    <Button
+                        className="jav-library-immersive-corridor-arrow is-previous"
+                        shape="circle"
+                        icon={<Icon as={ArrowLeftOutlined} />}
+                        onClick={() => moveImmersiveFocus(-1)}
+                        aria-label="上一部"
+                    />
+                    {corridorOffsets.map((offset) => {
+                        const index = (immersiveIndex + offset + sortedRecords.length) % sortedRecords.length;
+                        const record = sortedRecords[index];
+                        return (
+                            <button
+                                key={`${record.movie_id}-${offset}`}
+                                type="button"
+                                className={`jav-library-immersive-corridor-card is-offset-${offset < 0 ? `n${Math.abs(offset)}` : offset}`}
+                                onClick={() => offset === 0 ? openRecordPreview(record) : setImmersiveIndex(index)}
+                                aria-current={offset === 0 ? "true" : undefined}
+                                aria-label={offset === 0 ? `查看 ${record.title || record.movie_id}` : `聚焦 ${record.title || record.movie_id}`}
+                            >
+                                <MoviePoster record={record} variant="thumbnail" />
+                            </button>
+                        );
+                    })}
+                    <Button
+                        className="jav-library-immersive-corridor-arrow is-next"
+                        shape="circle"
+                        icon={<Icon as={ArrowLeftOutlined} />}
+                        onClick={() => moveImmersiveFocus(1)}
+                        aria-label="下一部"
+                    />
+                </section>
+                <section className="jav-library-immersive-corridor-copy">
+                    <span>{immersiveRecord.movie_id}</span>
+                    <h1>{immersiveRecord.title || immersiveRecord.movie_id}</h1>
+                    <p>
+                        {[
+                            immersiveRecord.date,
+                            ...(immersiveRecord.stars || []).slice(0, 2),
+                            formatResolution(primaryMediaInfo(immersiveRecord)),
+                        ].filter((value) => value && value !== "-").join(" · ")}
+                    </p>
+                    <Button
+                        type="primary"
+                        size="large"
+                        shape="round"
+                        icon={<Icon as={PlayCircleOutlined} />}
+                        onClick={() => openRecordPreview(immersiveRecord)}
+                    >
+                        播放影片
+                    </Button>
+                </section>
+                <nav className="jav-library-immersive-thumbs" aria-label="快速选择影片">
+                    {sortedRecords.slice(0, 18).map((record, index) => (
+                        <button
+                            key={record.movie_id}
+                            type="button"
+                            className={index === immersiveIndex ? "is-active" : ""}
+                            onClick={() => setImmersiveIndex(index)}
+                            aria-label={`聚焦 ${record.title || record.movie_id}`}
+                        >
+                            <MoviePoster record={record} variant="thumbnail" />
+                        </button>
+                    ))}
+                </nav>
+            </main>
+        );
+    };
+
+    const renderImmersiveView = () => (
+        <div className="jav-library-immersive-shell">
+            <header className="jav-library-immersive-header">
+                <div className="jav-library-immersive-brand">
+                    <span className="jav-library-immersive-brand-icon"><Icon as={DatabaseOutlined} /></span>
+                    <span><strong>JavJaeger</strong><small>影视库</small></span>
+                </div>
+                <div className="jav-library-immersive-controls">
+                    <Input
+                        className="jav-library-immersive-search"
+                        allowClear
+                        prefix={<Icon as={SearchOutlined} />}
+                        placeholder="搜索影片"
+                        value={keywordDraft}
+                        onChange={(event) => setKeywordDraft(event.target.value)}
+                        onPressEnter={handleKeywordSearch}
+                        aria-label="搜索影片"
+                    />
+                    <Button icon={<Icon as={SearchOutlined} />} onClick={handleKeywordSearch} aria-label="执行搜索" />
+                    <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
+                        筛选{activeFilterCount ? ` ${activeFilterCount}` : ""}
+                    </Button>
+                    <Select
+                        className="jav-library-immersive-sort"
+                        value={sortRule}
+                        onChange={setSortRule}
+                        options={LOCAL_LIBRARY_SORT_OPTIONS}
+                        aria-label="影视库排序"
+                    />
+                    <Segmented
+                        className="jav-library-immersive-layout-switch"
+                        aria-label="沉浸布局"
+                        value={immersiveLayout}
+                        onChange={handleImmersiveLayoutChange}
+                        options={LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS}
+                    />
+                    <Button icon={<Icon as={SunOutlined} />} onClick={() => handleLibraryThemeChange("light")}>
+                        管理模式
+                    </Button>
+                </div>
+            </header>
+            {sortedRecords.length ? (
+                immersiveLayout === "shelf"
+                    ? renderImmersiveShelf()
+                    : immersiveLayout === "corridor"
+                        ? renderImmersiveCorridor()
+                        : renderImmersiveGrid()
+            ) : (
+                <div className="jav-library-immersive-empty">
+                    <Icon as={DatabaseOutlined} />
+                    <strong>{loading ? "正在载入影视库" : "没有找到影片"}</strong>
+                    <span>退出沉浸模式后可扫描目录或调整筛选条件</span>
+                </div>
+            )}
+            <Drawer
+                title="筛选"
+                placement="right"
+                width={420}
+                open={filterOpen}
+                onClose={() => setFilterOpen(false)}
+                rootClassName="jav-library-dark-surface"
+                extra={<Button type="link" onClick={clearFilters}>清除全部</Button>}
+            >
+                <div className="jav-library-filter-help">
+                    <Text type="secondary">同一字段内为“任一匹配”，不同字段之间为“同时满足”。</Text>
+                </div>
+                <div className="jav-library-filters">
+                    {filterBlock("标签", "genres")}
+                    {filterBlock("演员", "stars")}
+                    {filterBlock("制作商", "studios")}
+                    {filterBlock("发行商", "publishers")}
+                    {filterBlock("系列", "series")}
+                    {filterBlock("年份", "years")}
+                    {filterBlock("扫描目录", "roots")}
+                </div>
+            </Drawer>
+        </div>
+    );
+
     const columns = [
         {
             title: "封面",
@@ -1708,6 +2014,16 @@ export default function LocalLibraryPage() {
                             {renderRecordPreview()}
                         </section>
                     </div>
+                </div>
+            </ConfigProvider>
+        );
+    }
+
+    if (isDarkMode) {
+        return (
+            <ConfigProvider theme={libraryThemeConfig}>
+                <div className={`jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}`}>
+                    {renderImmersiveView()}
                 </div>
             </ConfigProvider>
         );

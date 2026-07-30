@@ -5690,11 +5690,9 @@ body:has(.jav-app),
     --radius-container: 12px;
     --shadow-high: 0 2px 2px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.3);
     --shadow-inset-selected: inset 0 0 0 2px rgba(1, 113, 227, 0.5);
+    min-height: 100vh;
     color: var(--color-text-primary);
-    background:
-        radial-gradient(circle at 20% 0%, rgba(38, 148, 254, 0.2) 0, transparent 32%),
-        radial-gradient(circle at 84% 12%, rgba(242, 192, 11, 0.12) 0, transparent 24%),
-        linear-gradient(180deg, #070A12 0%, var(--color-background-body) 45%, #08090C 100%);
+    background: #050608;
 }
 
 .jav-library-page.is-dark .jav-library-layout {
@@ -6029,4 +6027,652 @@ body:has(.jav-app),
 
 .jav-library-dark-surface .ant-typography-secondary {
     color: var(--color-text-secondary, #AAAFB5) !important;
+}
+
+/* Full-screen local library cinema. */
+.jav-app:has(.jav-library-page.is-dark) {
+    background: #050608;
+}
+
+.jav-app:has(.jav-library-page.is-dark) .jav-header {
+    display: none;
+}
+
+.jav-app:has(.jav-library-page.is-dark) .jav-page-workspace,
+.jav-app:has(.jav-library-page.is-dark) .jav-page-content,
+.jav-app:has(.jav-library-page.is-dark) .jav-page-panel {
+    min-height: 100vh;
+    padding: 0;
+    background: #050608 !important;
+}
+
+.jav-library-immersive-shell {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    color: #f5f7fa;
+    background:
+        radial-gradient(circle at 50% -16%, rgba(50, 91, 143, 0.18), transparent 36rem),
+        #050608;
+}
+
+.jav-library-immersive-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    min-height: 72px;
+    padding: 12px clamp(18px, 3vw, 48px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(5, 6, 8, 0.84);
+    backdrop-filter: blur(24px);
+}
+
+.jav-library-immersive-brand,
+.jav-library-immersive-controls,
+.jav-library-immersive-section-heading {
+    display: flex;
+    align-items: center;
+}
+
+.jav-library-immersive-brand {
+    flex: 0 0 auto;
+    gap: 11px;
+}
+
+.jav-library-immersive-brand-icon {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 50%;
+    color: #fff;
+    background: #11151b;
+}
+
+.jav-library-immersive-brand > span:last-child {
+    display: grid;
+    line-height: 1.05;
+}
+
+.jav-library-immersive-brand strong {
+    color: #fff;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+}
+
+.jav-library-immersive-brand small {
+    margin-top: 5px;
+    color: #858c96;
+    font-size: 12px;
+}
+
+.jav-library-immersive-controls {
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+}
+
+.jav-library-immersive-search {
+    width: min(240px, 18vw);
+}
+
+.jav-library-immersive-sort {
+    width: 152px;
+}
+
+.jav-library-immersive-layout-switch .ant-segmented-item-label > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.jav-library-immersive-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: clamp(12px, 1.4vw, 24px);
+    max-width: 1720px;
+    margin: 0 auto;
+    padding: clamp(22px, 3vw, 48px);
+}
+
+.jav-library-immersive-grid-card,
+.jav-library-immersive-rail-card,
+.jav-library-immersive-corridor-card,
+.jav-library-immersive-thumbs button {
+    position: relative;
+    min-width: 0;
+    padding: 0 !important;
+    overflow: hidden;
+    appearance: none;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    color: inherit;
+    background: #111318 !important;
+    cursor: pointer;
+}
+
+.jav-library-immersive-grid-card {
+    aspect-ratio: 2 / 3;
+    border-radius: 10px;
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.36);
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.jav-library-immersive-grid-card:hover,
+.jav-library-immersive-grid-card:focus-visible,
+.jav-library-immersive-grid-card.is-active {
+    z-index: 2;
+    border-color: rgba(255, 255, 255, 0.86);
+    outline: none;
+    transform: translateY(-5px) scale(1.035);
+    box-shadow: 0 26px 58px rgba(0, 0, 0, 0.62);
+}
+
+.jav-library-immersive-grid-card .jav-library-poster,
+.jav-library-immersive-rail-card .jav-library-poster,
+.jav-library-immersive-corridor-card .jav-library-poster,
+.jav-library-immersive-thumbs .jav-library-poster {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border-radius: inherit;
+}
+
+.jav-library-page.is-dark .jav-library-immersive-shell .jav-library-poster.is-placeholder {
+    padding: 0;
+    border: 0;
+    color: #6f7782;
+    background:
+        radial-gradient(circle at 50% 38%, rgba(50, 71, 101, 0.22), transparent 38%),
+        #0b0e14 !important;
+}
+
+.jav-library-immersive-grid-card .jav-library-poster img,
+.jav-library-immersive-rail-card .jav-library-poster img,
+.jav-library-immersive-corridor-card .jav-library-poster img,
+.jav-library-immersive-thumbs .jav-library-poster img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.jav-library-immersive-card-shade {
+    position: absolute;
+    inset: 32% 0 0;
+    background: linear-gradient(180deg, transparent, rgba(3, 4, 6, 0.94));
+    pointer-events: none;
+}
+
+.jav-library-immersive-card-copy {
+    position: absolute;
+    inset: auto 12px 12px;
+    z-index: 1;
+    display: grid;
+    gap: 4px;
+    text-align: left;
+}
+
+.jav-library-immersive-card-copy strong {
+    overflow: hidden;
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jav-library-immersive-card-copy > span {
+    color: #a6acb5;
+    font-size: 12px;
+}
+
+.jav-library-immersive-card-play {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid rgba(255, 255, 255, 0.34);
+    border-radius: 50%;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.58);
+    opacity: 0;
+    transform: scale(0.86);
+    transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.jav-library-immersive-grid-card:hover .jav-library-immersive-card-play,
+.jav-library-immersive-grid-card:focus-visible .jav-library-immersive-card-play,
+.jav-library-immersive-grid-card.is-active .jav-library-immersive-card-play,
+.jav-library-immersive-rail-card:hover .jav-library-immersive-card-play,
+.jav-library-immersive-rail-card:focus-visible .jav-library-immersive-card-play {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.jav-library-immersive-shelf {
+    min-height: calc(100vh - 72px);
+    padding-bottom: 54px;
+}
+
+.jav-library-immersive-shelf-hero {
+    position: relative;
+    display: grid;
+    grid-template-areas: "copy poster";
+    grid-template-columns: minmax(0, 680px) minmax(210px, 360px);
+    align-items: center;
+    gap: clamp(30px, 5vw, 76px);
+    min-height: min(60vh, 620px);
+    padding: clamp(40px, 6vw, 88px) clamp(24px, 7vw, 110px);
+    isolation: isolate;
+}
+
+.jav-library-immersive-shelf-hero::before,
+.jav-library-immersive-shelf-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+}
+
+.jav-library-immersive-shelf-hero::before {
+    background-image: var(--jav-library-immersive-backdrop);
+    background-position: center 28%;
+    background-size: cover;
+    filter: blur(12px) saturate(0.78);
+    opacity: 0.6;
+    transform: scale(1.05);
+}
+
+.jav-library-immersive-shelf-hero::after {
+    z-index: -1;
+    background:
+        linear-gradient(90deg, rgba(5, 6, 8, 0.98) 5%, rgba(5, 6, 8, 0.7) 56%, rgba(5, 6, 8, 0.9) 100%),
+        linear-gradient(0deg, #050608 0%, transparent 42%);
+}
+
+.jav-library-immersive-shelf-hero-poster {
+    grid-area: poster;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.17);
+    border-radius: 10px;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.58);
+}
+
+.jav-library-immersive-shelf-hero-poster .jav-library-poster {
+    width: 100%;
+    border-radius: inherit;
+}
+
+.jav-library-immersive-shelf-hero-copy {
+    grid-area: copy;
+    min-width: 0;
+}
+
+.jav-library-immersive-eyebrow {
+    color: #9ca4af;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.jav-library-immersive-shelf-hero h1,
+.jav-library-immersive-corridor-copy h1 {
+    margin: 14px 0 12px;
+    color: #fff;
+    font-size: clamp(30px, 4vw, 62px);
+    line-height: 1.04;
+    letter-spacing: -0.045em;
+}
+
+.jav-library-immersive-shelf-hero p,
+.jav-library-immersive-corridor-copy p {
+    margin: 0 0 20px;
+    color: #b3b8c0;
+    font-size: 14px;
+}
+
+.jav-library-immersive-hero-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-bottom: 24px;
+}
+
+.jav-library-immersive-hero-tags span {
+    padding: 5px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    color: #c7ccd3;
+    background: rgba(10, 12, 16, 0.46);
+    font-size: 12px;
+}
+
+.jav-library-immersive-rail-section {
+    padding: 12px clamp(24px, 5vw, 80px) 26px;
+}
+
+.jav-library-immersive-section-heading {
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.jav-library-immersive-section-heading h2 {
+    margin: 0;
+    color: #f4f5f7;
+    font-size: 18px;
+}
+
+.jav-library-immersive-section-heading span {
+    color: #757c86;
+    font-size: 12px;
+}
+
+.jav-library-immersive-rail {
+    display: grid;
+    grid-auto-columns: clamp(230px, 21vw, 330px);
+    grid-auto-flow: column;
+    gap: 14px;
+    padding: 4px 2px 18px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+}
+
+.jav-library-immersive-rail-card {
+    aspect-ratio: 16 / 9;
+    border-radius: 8px;
+    scroll-snap-align: start;
+    transition: transform 160ms ease, border-color 160ms ease;
+}
+
+.jav-library-immersive-rail-card:hover,
+.jav-library-immersive-rail-card:focus-visible,
+.jav-library-immersive-rail-card.is-active {
+    border-color: rgba(255, 255, 255, 0.72);
+    outline: none;
+    transform: translateY(-3px);
+}
+
+.jav-library-immersive-corridor {
+    display: grid;
+    align-content: start;
+    min-height: calc(100vh - 72px);
+    padding: 22px 28px 0;
+    background:
+        radial-gradient(ellipse at 50% 38%, rgba(59, 71, 92, 0.26), transparent 42%),
+        linear-gradient(180deg, #090b0f, #030405);
+}
+
+.jav-library-immersive-corridor-stage {
+    position: relative;
+    min-height: 540px;
+    perspective: 1200px;
+}
+
+.jav-library-immersive-corridor-card {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: clamp(210px, 18vw, 300px);
+    aspect-ratio: 2 / 3;
+    border-radius: 10px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.66);
+    outline: none;
+    transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease, filter 260ms ease;
+}
+
+.jav-library-immersive-corridor-card.is-offset-0 {
+    z-index: 5;
+    border-color: rgba(255, 255, 255, 0.8);
+    transform: translate(-50%, -50%) translateZ(80px);
+}
+
+.jav-library-immersive-corridor-card.is-offset-n1 {
+    z-index: 4;
+    transform: translate(-128%, -50%) rotateY(18deg) scale(0.82);
+    opacity: 0.72;
+    filter: brightness(0.72);
+}
+
+.jav-library-immersive-corridor-card.is-offset-1 {
+    z-index: 4;
+    transform: translate(28%, -50%) rotateY(-18deg) scale(0.82);
+    opacity: 0.72;
+    filter: brightness(0.72);
+}
+
+.jav-library-immersive-corridor-card.is-offset-n2 {
+    z-index: 3;
+    transform: translate(-192%, -50%) rotateY(24deg) scale(0.64);
+    opacity: 0.34;
+    filter: brightness(0.55);
+}
+
+.jav-library-immersive-corridor-card.is-offset-2 {
+    z-index: 3;
+    transform: translate(92%, -50%) rotateY(-24deg) scale(0.64);
+    opacity: 0.34;
+    filter: brightness(0.55);
+}
+
+.jav-library-immersive-corridor-card:focus-visible {
+    border-color: #2694fe;
+    box-shadow: 0 0 0 3px rgba(38, 148, 254, 0.35), 0 30px 80px rgba(0, 0, 0, 0.66);
+}
+
+.jav-library-immersive-corridor-arrow.ant-btn {
+    position: absolute;
+    top: 50%;
+    z-index: 12;
+    width: 46px;
+    height: 46px;
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    background: rgba(14, 16, 21, 0.72);
+    transform: translateY(-50%);
+}
+
+.jav-library-immersive-corridor-arrow.is-previous {
+    left: clamp(6px, 5vw, 72px);
+}
+
+.jav-library-immersive-corridor-arrow.is-next {
+    right: clamp(6px, 5vw, 72px);
+}
+
+.jav-library-immersive-corridor-arrow.is-next .anticon {
+    transform: rotate(180deg);
+}
+
+.jav-library-immersive-corridor-copy {
+    z-index: 8;
+    margin-top: -18px;
+    text-align: center;
+}
+
+.jav-library-immersive-corridor-copy > span {
+    color: #9ba2ac;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+}
+
+.jav-library-immersive-corridor-copy h1 {
+    margin: 10px auto 8px;
+    max-width: 860px;
+    font-size: clamp(26px, 3.4vw, 48px);
+}
+
+.jav-library-immersive-thumbs {
+    display: grid;
+    grid-auto-columns: 62px;
+    grid-auto-flow: column;
+    justify-content: center;
+    gap: 8px;
+    width: min(100%, 1240px);
+    margin: 26px auto 0;
+    padding: 12px 18px 18px;
+    overflow-x: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.jav-library-immersive-thumbs button {
+    width: 62px;
+    height: 82px;
+    border-radius: 5px;
+    opacity: 0.42;
+    transition: opacity 150ms ease, transform 150ms ease, border-color 150ms ease;
+}
+
+.jav-library-immersive-thumbs button:hover,
+.jav-library-immersive-thumbs button:focus-visible,
+.jav-library-immersive-thumbs button.is-active {
+    border-color: #fff;
+    outline: none;
+    opacity: 1;
+    transform: translateY(-3px);
+}
+
+.jav-library-immersive-empty {
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 10px;
+    min-height: calc(100vh - 72px);
+    color: #7d8590;
+    text-align: center;
+}
+
+.jav-library-immersive-empty .anticon {
+    font-size: 36px;
+}
+
+.jav-library-immersive-empty strong {
+    color: #d9dde3;
+    font-size: 18px;
+}
+
+@media (max-width: 1180px) {
+    .jav-library-immersive-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .jav-library-immersive-controls {
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    .jav-library-immersive-search {
+        flex: 1 0 210px;
+        width: auto;
+    }
+
+    .jav-library-immersive-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .jav-library-immersive-header {
+        min-height: 64px;
+        padding: 10px 14px;
+    }
+
+    .jav-library-immersive-controls {
+        padding-bottom: 3px;
+    }
+
+    .jav-library-immersive-sort {
+        flex: 0 0 148px;
+    }
+
+    .jav-library-immersive-layout-switch {
+        flex: 0 0 auto;
+    }
+
+    .jav-library-immersive-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding: 18px 14px 30px;
+    }
+
+    .jav-library-immersive-grid-card.is-active {
+        transform: none;
+    }
+
+    .jav-library-immersive-shelf-hero {
+        grid-template-areas:
+            "poster"
+            "copy";
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 580px;
+        padding: 52px 20px 34px;
+    }
+
+    .jav-library-immersive-shelf-hero-poster {
+        width: min(54vw, 220px);
+    }
+
+    .jav-library-immersive-shelf-hero-copy h1 {
+        font-size: 32px;
+    }
+
+    .jav-library-immersive-rail-section {
+        padding-inline: 14px;
+    }
+
+    .jav-library-immersive-corridor {
+        padding: 10px 10px 0;
+    }
+
+    .jav-library-immersive-corridor-stage {
+        min-height: 430px;
+    }
+
+    .jav-library-immersive-corridor-card {
+        width: min(58vw, 250px);
+    }
+
+    .jav-library-immersive-corridor-card.is-offset-n2,
+    .jav-library-immersive-corridor-card.is-offset-2 {
+        display: none;
+    }
+
+    .jav-library-immersive-corridor-card.is-offset-n1 {
+        transform: translate(-105%, -50%) scale(0.7);
+    }
+
+    .jav-library-immersive-corridor-card.is-offset-1 {
+        transform: translate(5%, -50%) scale(0.7);
+    }
+
+    .jav-library-immersive-corridor-copy {
+        margin-top: 0;
+    }
+
+    .jav-library-immersive-corridor-copy h1 {
+        font-size: 28px;
+    }
+
+    .jav-library-immersive-thumbs {
+        justify-content: start;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jav-library-immersive-grid-card,
+    .jav-library-immersive-rail-card,
+    .jav-library-immersive-corridor-card,
+    .jav-library-immersive-thumbs button {
+        transition: none;
+    }
 }

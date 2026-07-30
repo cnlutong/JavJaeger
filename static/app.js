@@ -2798,6 +2798,7 @@
   var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React5.createElement(Component, null) : null;
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
   var LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
+  var LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger.localLibrary.immersiveLayout";
   var DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
   var LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
   var LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
@@ -2829,6 +2830,11 @@
     { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: SunOutlined }), " \u6D45\u8272"), value: "light" },
     { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: MoonOutlined }), " \u6C89\u6D78"), value: "dark" }
   ];
+  var LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS = [
+    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: AppstoreOutlined }), " \u6D77\u62A5\u5899"), value: "grid" },
+    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: PlayCircleOutlined3 }), " \u7126\u70B9\u5267\u573A"), value: "shelf" },
+    { label: /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement(Icon3, { as: UnorderedListOutlined }), " \u5C01\u9762\u8D70\u5ECA"), value: "corridor" }
+  ];
   var normalizeLocalLibraryTheme = (theme) => theme === "dark" ? "dark" : "light";
   var loadLocalLibraryTheme = () => {
     try {
@@ -2840,6 +2846,20 @@
   var saveLocalLibraryTheme = (theme) => {
     try {
       window.localStorage.setItem(LOCAL_LIBRARY_THEME_STORAGE_KEY, normalizeLocalLibraryTheme(theme));
+    } catch (error) {
+    }
+  };
+  var normalizeImmersiveLayout = (layout) => ["grid", "shelf", "corridor"].includes(layout) ? layout : "grid";
+  var loadImmersiveLayout = () => {
+    try {
+      return normalizeImmersiveLayout(window.localStorage.getItem(LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY));
+    } catch (error) {
+      return "grid";
+    }
+  };
+  var saveImmersiveLayout = (layout) => {
+    try {
+      window.localStorage.setItem(LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY, normalizeImmersiveLayout(layout));
     } catch (error) {
     }
   };
@@ -3205,6 +3225,8 @@
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React5.useState({});
     const [viewMode, setViewMode] = React5.useState("list");
     const [libraryTheme, setLibraryTheme] = React5.useState(() => loadLocalLibraryTheme());
+    const [immersiveLayout, setImmersiveLayout] = React5.useState(() => loadImmersiveLayout());
+    const [immersiveIndex, setImmersiveIndex] = React5.useState(0);
     const [sortRule, setSortRule] = React5.useState("date_desc");
     const [gridPage, setGridPage] = React5.useState(1);
     const [gridPageLoading, setGridPageLoading] = React5.useState(false);
@@ -3326,9 +3348,11 @@ ${record.full_text || ""}`.toLowerCase();
     const visibleListRecords = React5.useMemo(() => sortedRecords.slice(0, listVisibleCount), [sortedRecords, listVisibleCount]);
     const hasMoreGridRecords = gridVisibleCount < sortedRecords.length;
     const hasMoreListRecords = listVisibleCount < sortedRecords.length;
+    const immersiveRecord = sortedRecords[Math.min(immersiveIndex, Math.max(0, sortedRecords.length - 1))] || null;
     React5.useEffect(() => {
       setGridPage(1);
       setListPage(1);
+      setImmersiveIndex(0);
     }, [records, filters, sortRule, vrFilter]);
     React5.useEffect(() => () => {
       if (gridPageLoadingTimerRef.current) {
@@ -3436,6 +3460,16 @@ ${record.full_text || ""}`.toLowerCase();
       const normalizedTheme = normalizeLocalLibraryTheme(nextTheme);
       setLibraryTheme(normalizedTheme);
       saveLocalLibraryTheme(nextTheme);
+    };
+    const handleImmersiveLayoutChange = (nextLayout) => {
+      setImmersiveLayout(normalizeImmersiveLayout(nextLayout));
+      saveImmersiveLayout(nextLayout);
+    };
+    const moveImmersiveFocus = (step) => {
+      if (!sortedRecords.length) {
+        return;
+      }
+      setImmersiveIndex((index) => (index + step + sortedRecords.length) % sortedRecords.length);
     };
     const clearFilters = () => {
       setKeywordDraft("");
@@ -4035,6 +4069,166 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         "\u64AD\u653E"
       )), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", ellipsis: { tooltip: file.path } }, formatBytes2(file.size), " \xB7 ", file.path), renderMediaTags(file)))))));
     };
+    const renderImmersivePosterButton = (record, index, className) => /* @__PURE__ */ React5.createElement(
+      "button",
+      {
+        key: `${className}-${record.movie_id}`,
+        type: "button",
+        className: `${className} ${index === immersiveIndex ? "is-active" : ""}`,
+        onMouseEnter: () => setImmersiveIndex(index),
+        onFocus: () => setImmersiveIndex(index),
+        onClick: () => openRecordPreview(record),
+        "aria-label": `\u67E5\u770B ${record.title || record.movie_id}`
+      },
+      /* @__PURE__ */ React5.createElement(MoviePoster, { record, variant: "thumbnail" }),
+      /* @__PURE__ */ React5.createElement("span", { className: "jav-library-immersive-card-shade" }),
+      /* @__PURE__ */ React5.createElement("span", { className: "jav-library-immersive-card-copy" }, /* @__PURE__ */ React5.createElement("strong", null, record.title || record.movie_id), /* @__PURE__ */ React5.createElement("span", null, record.movie_id, record.date ? ` \xB7 ${String(record.date).slice(0, 4)}` : "")),
+      /* @__PURE__ */ React5.createElement("span", { className: "jav-library-immersive-card-play" }, /* @__PURE__ */ React5.createElement(Icon3, { as: PlayCircleOutlined3 }))
+    );
+    const renderImmersiveGrid = () => /* @__PURE__ */ React5.createElement("main", { className: "jav-library-immersive-grid", "aria-label": "\u6D77\u62A5\u5899" }, sortedRecords.map((record, index) => renderImmersivePosterButton(
+      record,
+      index,
+      "jav-library-immersive-grid-card"
+    )));
+    const renderImmersiveShelf = () => {
+      if (!immersiveRecord) {
+        return null;
+      }
+      const backdropSource = posterSource(immersiveRecord) || thumbnailSource(immersiveRecord);
+      const backdropStyle = backdropSource ? { "--jav-library-immersive-backdrop": `url("${backdropSource.replace(/"/g, '\\"')}")` } : void 0;
+      const railSize = Math.min(8, sortedRecords.length);
+      const secondRail = sortedRecords.slice(railSize, railSize * 2);
+      return /* @__PURE__ */ React5.createElement("main", { className: "jav-library-immersive-shelf" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-library-immersive-shelf-hero", style: backdropStyle }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-shelf-hero-poster" }, /* @__PURE__ */ React5.createElement(MoviePoster, { record: immersiveRecord })), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-shelf-hero-copy" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-library-immersive-eyebrow" }, "\u672C\u5730\u7CBE\u9009 \xB7 ", immersiveRecord.movie_id), /* @__PURE__ */ React5.createElement("h1", null, immersiveRecord.title || immersiveRecord.movie_id), /* @__PURE__ */ React5.createElement("p", null, [
+        immersiveRecord.date && String(immersiveRecord.date).slice(0, 4),
+        immersiveRecord.studio,
+        formatResolution2(primaryMediaInfo(immersiveRecord))
+      ].filter((value) => value && value !== "-").join(" \xB7 ")), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-hero-tags" }, (immersiveRecord.genres || []).slice(0, 4).map((genre) => /* @__PURE__ */ React5.createElement("span", { key: genre }, genre))), /* @__PURE__ */ React5.createElement(
+        Button5,
+        {
+          type: "primary",
+          size: "large",
+          icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlayCircleOutlined3 }),
+          onClick: () => openRecordPreview(immersiveRecord)
+        },
+        "\u64AD\u653E\u5F71\u7247"
+      ))), /* @__PURE__ */ React5.createElement("section", { className: "jav-library-immersive-rail-section" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-section-heading" }, /* @__PURE__ */ React5.createElement("h2", null, "\u6700\u8FD1\u5165\u5E93"), /* @__PURE__ */ React5.createElement("span", null, sortedRecords.length, " \u90E8\u5F71\u7247")), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-rail" }, sortedRecords.slice(0, railSize).map((record, index) => renderImmersivePosterButton(
+        record,
+        index,
+        "jav-library-immersive-rail-card"
+      )))), secondRail.length > 0 && /* @__PURE__ */ React5.createElement("section", { className: "jav-library-immersive-rail-section" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-section-heading" }, /* @__PURE__ */ React5.createElement("h2", null, "\u7EE7\u7EED\u63A2\u7D22"), /* @__PURE__ */ React5.createElement("span", null, "\u6309\u5F53\u524D\u6392\u5E8F")), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-rail" }, secondRail.map((record, offset) => renderImmersivePosterButton(
+        record,
+        railSize + offset,
+        "jav-library-immersive-rail-card"
+      )))));
+    };
+    const renderImmersiveCorridor = () => {
+      if (!immersiveRecord) {
+        return null;
+      }
+      const corridorOffsets = sortedRecords.length === 1 ? [0] : sortedRecords.length === 2 ? [0, 1] : sortedRecords.length === 3 ? [-1, 0, 1] : sortedRecords.length === 4 ? [-2, -1, 0, 1] : [-2, -1, 0, 1, 2];
+      return /* @__PURE__ */ React5.createElement("main", { className: "jav-library-immersive-corridor" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-library-immersive-corridor-stage", "aria-label": "\u5C01\u9762\u8D70\u5ECA" }, /* @__PURE__ */ React5.createElement(
+        Button5,
+        {
+          className: "jav-library-immersive-corridor-arrow is-previous",
+          shape: "circle",
+          icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ArrowLeftOutlined }),
+          onClick: () => moveImmersiveFocus(-1),
+          "aria-label": "\u4E0A\u4E00\u90E8"
+        }
+      ), corridorOffsets.map((offset) => {
+        const index = (immersiveIndex + offset + sortedRecords.length) % sortedRecords.length;
+        const record = sortedRecords[index];
+        return /* @__PURE__ */ React5.createElement(
+          "button",
+          {
+            key: `${record.movie_id}-${offset}`,
+            type: "button",
+            className: `jav-library-immersive-corridor-card is-offset-${offset < 0 ? `n${Math.abs(offset)}` : offset}`,
+            onClick: () => offset === 0 ? openRecordPreview(record) : setImmersiveIndex(index),
+            "aria-current": offset === 0 ? "true" : void 0,
+            "aria-label": offset === 0 ? `\u67E5\u770B ${record.title || record.movie_id}` : `\u805A\u7126 ${record.title || record.movie_id}`
+          },
+          /* @__PURE__ */ React5.createElement(MoviePoster, { record, variant: "thumbnail" })
+        );
+      }), /* @__PURE__ */ React5.createElement(
+        Button5,
+        {
+          className: "jav-library-immersive-corridor-arrow is-next",
+          shape: "circle",
+          icon: /* @__PURE__ */ React5.createElement(Icon3, { as: ArrowLeftOutlined }),
+          onClick: () => moveImmersiveFocus(1),
+          "aria-label": "\u4E0B\u4E00\u90E8"
+        }
+      )), /* @__PURE__ */ React5.createElement("section", { className: "jav-library-immersive-corridor-copy" }, /* @__PURE__ */ React5.createElement("span", null, immersiveRecord.movie_id), /* @__PURE__ */ React5.createElement("h1", null, immersiveRecord.title || immersiveRecord.movie_id), /* @__PURE__ */ React5.createElement("p", null, [
+        immersiveRecord.date,
+        ...(immersiveRecord.stars || []).slice(0, 2),
+        formatResolution2(primaryMediaInfo(immersiveRecord))
+      ].filter((value) => value && value !== "-").join(" \xB7 ")), /* @__PURE__ */ React5.createElement(
+        Button5,
+        {
+          type: "primary",
+          size: "large",
+          shape: "round",
+          icon: /* @__PURE__ */ React5.createElement(Icon3, { as: PlayCircleOutlined3 }),
+          onClick: () => openRecordPreview(immersiveRecord)
+        },
+        "\u64AD\u653E\u5F71\u7247"
+      )), /* @__PURE__ */ React5.createElement("nav", { className: "jav-library-immersive-thumbs", "aria-label": "\u5FEB\u901F\u9009\u62E9\u5F71\u7247" }, sortedRecords.slice(0, 18).map((record, index) => /* @__PURE__ */ React5.createElement(
+        "button",
+        {
+          key: record.movie_id,
+          type: "button",
+          className: index === immersiveIndex ? "is-active" : "",
+          onClick: () => setImmersiveIndex(index),
+          "aria-label": `\u805A\u7126 ${record.title || record.movie_id}`
+        },
+        /* @__PURE__ */ React5.createElement(MoviePoster, { record, variant: "thumbnail" })
+      ))));
+    };
+    const renderImmersiveView = () => /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-shell" }, /* @__PURE__ */ React5.createElement("header", { className: "jav-library-immersive-header" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-brand" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-library-immersive-brand-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), /* @__PURE__ */ React5.createElement("span", null, /* @__PURE__ */ React5.createElement("strong", null, "JavJaeger"), /* @__PURE__ */ React5.createElement("small", null, "\u5F71\u89C6\u5E93"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-controls" }, /* @__PURE__ */ React5.createElement(
+      Input5,
+      {
+        className: "jav-library-immersive-search",
+        allowClear: true,
+        prefix: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }),
+        placeholder: "\u641C\u7D22\u5F71\u7247",
+        value: keywordDraft,
+        onChange: (event) => setKeywordDraft(event.target.value),
+        onPressEnter: handleKeywordSearch,
+        "aria-label": "\u641C\u7D22\u5F71\u7247"
+      }
+    ), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SearchOutlined2 }), onClick: handleKeywordSearch, "aria-label": "\u6267\u884C\u641C\u7D22" }), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: FilterOutlined }), onClick: () => setFilterOpen(true) }, "\u7B5B\u9009", activeFilterCount ? ` ${activeFilterCount}` : ""), /* @__PURE__ */ React5.createElement(
+      Select2,
+      {
+        className: "jav-library-immersive-sort",
+        value: sortRule,
+        onChange: setSortRule,
+        options: LOCAL_LIBRARY_SORT_OPTIONS,
+        "aria-label": "\u5F71\u89C6\u5E93\u6392\u5E8F"
+      }
+    ), /* @__PURE__ */ React5.createElement(
+      Segmented,
+      {
+        className: "jav-library-immersive-layout-switch",
+        "aria-label": "\u6C89\u6D78\u5E03\u5C40",
+        value: immersiveLayout,
+        onChange: handleImmersiveLayoutChange,
+        options: LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS
+      }
+    ), /* @__PURE__ */ React5.createElement(Button5, { icon: /* @__PURE__ */ React5.createElement(Icon3, { as: SunOutlined }), onClick: () => handleLibraryThemeChange("light") }, "\u7BA1\u7406\u6A21\u5F0F"))), sortedRecords.length ? immersiveLayout === "shelf" ? renderImmersiveShelf() : immersiveLayout === "corridor" ? renderImmersiveCorridor() : renderImmersiveGrid() : /* @__PURE__ */ React5.createElement("div", { className: "jav-library-immersive-empty" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 }), /* @__PURE__ */ React5.createElement("strong", null, loading ? "\u6B63\u5728\u8F7D\u5165\u5F71\u89C6\u5E93" : "\u6CA1\u6709\u627E\u5230\u5F71\u7247"), /* @__PURE__ */ React5.createElement("span", null, "\u9000\u51FA\u6C89\u6D78\u6A21\u5F0F\u540E\u53EF\u626B\u63CF\u76EE\u5F55\u6216\u8C03\u6574\u7B5B\u9009\u6761\u4EF6")), /* @__PURE__ */ React5.createElement(
+      Drawer2,
+      {
+        title: "\u7B5B\u9009",
+        placement: "right",
+        width: 420,
+        open: filterOpen,
+        onClose: () => setFilterOpen(false),
+        rootClassName: "jav-library-dark-surface",
+        extra: /* @__PURE__ */ React5.createElement(Button5, { type: "link", onClick: clearFilters }, "\u6E05\u9664\u5168\u90E8")
+      },
+      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React5.createElement(Text5, { type: "secondary" }, "\u540C\u4E00\u5B57\u6BB5\u5185\u4E3A\u201C\u4EFB\u4E00\u5339\u914D\u201D\uFF0C\u4E0D\u540C\u5B57\u6BB5\u4E4B\u95F4\u4E3A\u201C\u540C\u65F6\u6EE1\u8DB3\u201D\u3002")),
+      /* @__PURE__ */ React5.createElement("div", { className: "jav-library-filters" }, filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
+    ));
     const columns = [
       {
         title: "\u5C01\u9762",
@@ -4136,6 +4330,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           renderRecordPreview()
         )
       )));
+    }
+    if (isDarkMode) {
+      return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()));
     }
     return /* @__PURE__ */ React5.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React5.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React5.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React5.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React5.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React5.createElement(Text5, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-toolbar-row is-primary" }, /* @__PURE__ */ React5.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React5.createElement(
       Input5,
