@@ -1,4 +1,5 @@
 import DirectoryInput from "./DirectoryInput.jsx";
+import { matchesVrFilter } from "../utils/localLibraryFilters.mjs";
 
 const React = window.React;
 const antd = window.antd;
@@ -30,6 +31,7 @@ const { Text, Title } = Typography;
 const {
     ArrowLeftOutlined,
     AppstoreOutlined,
+    CloseOutlined,
     DatabaseOutlined,
     DeleteOutlined,
     DownloadOutlined,
@@ -558,6 +560,7 @@ export default function LocalLibraryPage() {
     const [listPosterSize, setListPosterSize] = React.useState(56);
     const [gridPosterSize, setGridPosterSize] = React.useState(156);
     const [keywordDraft, setKeywordDraft] = React.useState("");
+    const [vrFilter, setVrFilter] = React.useState("all");
     const [filters, setFilters] = React.useState({
         keyword: "",
         genres: [],
@@ -646,12 +649,15 @@ export default function LocalLibraryPage() {
                 return count + (String(value || "").trim() ? 1 : 0);
             }
             return count + (Array.isArray(value) ? value.length : 0);
-        }, 0)
-    ), [filters]);
+        }, vrFilter === "all" ? 0 : 1)
+    ), [filters, vrFilter]);
 
     const filteredRecords = React.useMemo(() => {
         const keyword = filters.keyword.trim().toLowerCase();
         return records.filter((record) => {
+            if (!matchesVrFilter(record, vrFilter)) {
+                return false;
+            }
             if (keyword) {
                 const text = `${record.movie_id || ""}\n${record.title || ""}\n${record.full_text || ""}`.toLowerCase();
                 if (!text.includes(keyword)) {
@@ -668,7 +674,7 @@ export default function LocalLibraryPage() {
                 matchesAny(record.scan_roots, filters.roots)
             );
         });
-    }, [records, filters]);
+    }, [records, filters, vrFilter]);
     const sortedRecords = React.useMemo(() => sortLocalLibraryRecords(filteredRecords, sortRule), [filteredRecords, sortRule]);
     const maxGridPage = Math.max(1, Math.ceil(sortedRecords.length / LOCAL_LIBRARY_GRID_PAGE_SIZE));
     const gridVisibleCount = Math.min(gridPage * LOCAL_LIBRARY_GRID_PAGE_SIZE, sortedRecords.length);
@@ -682,7 +688,7 @@ export default function LocalLibraryPage() {
     React.useEffect(() => {
         setGridPage(1);
         setListPage(1);
-    }, [records, filters, sortRule]);
+    }, [records, filters, sortRule, vrFilter]);
 
     React.useEffect(() => () => {
         if (gridPageLoadingTimerRef.current) {
@@ -806,6 +812,7 @@ export default function LocalLibraryPage() {
 
     const clearFilters = () => {
         setKeywordDraft("");
+        setVrFilter("all");
         setFilters({
             keyword: "",
             genres: [],
@@ -1725,80 +1732,110 @@ export default function LocalLibraryPage() {
                         </div>
                     </div>
                     <div className="jav-library-toolbar">
-                        <div className="jav-library-search-row">
-                            <Input
-                                allowClear
-                                prefix={<Icon as={SearchOutlined} />}
-                                placeholder="搜索番号、标题、演员、标签"
-                                value={keywordDraft}
-                                onChange={(event) => setKeywordDraft(event.target.value)}
-                                onPressEnter={handleKeywordSearch}
-                            />
-                            <Button type="primary" icon={<Icon as={SearchOutlined} />} onClick={handleKeywordSearch}>
-                                搜索
-                            </Button>
-                            <Button onClick={handleKeywordClear}>
-                                清空
-                            </Button>
+                        <div className="jav-library-toolbar-row is-primary">
+                            <div className="jav-library-search-row">
+                                <Input
+                                    allowClear
+                                    prefix={<Icon as={SearchOutlined} />}
+                                    placeholder="搜索番号、标题、演员、标签"
+                                    value={keywordDraft}
+                                    onChange={(event) => setKeywordDraft(event.target.value)}
+                                    onPressEnter={handleKeywordSearch}
+                                />
+                                <Button type="primary" icon={<Icon as={SearchOutlined} />} onClick={handleKeywordSearch}>
+                                    搜索
+                                </Button>
+                                <Button icon={<Icon as={CloseOutlined} />} onClick={handleKeywordClear}>
+                                    清空
+                                </Button>
+                            </div>
+                            <div className="jav-library-toolbar-group is-browse-actions">
+                                <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
+                                    筛选{activeFilterCount ? ` (${activeFilterCount})` : ""}
+                                </Button>
+                                <Button icon={<Icon as={ReloadOutlined} />} onClick={loadLibrary} loading={loading}>
+                                    刷新
+                                </Button>
+                            </div>
+                            <div className="jav-library-toolbar-group is-library-actions">
+                                <Button icon={<Icon as={FolderOpenOutlined} />} onClick={openScanDrawer} loading={settingsLoading}>
+                                    路径配置
+                                </Button>
+                                <Button icon={<Icon as={SearchOutlined} />} onClick={openInformationCheck} loading={checkingInformation}>
+                                    检查信息
+                                </Button>
+                            </div>
+                            <div className="jav-library-toolbar-group is-danger-actions">
+                                <Popconfirm
+                                    title="清洗无效文件？"
+                                    description="会重新读取分辨率和码率，删除仍读取不到媒体信息的本地视频文件。"
+                                    okText="清洗"
+                                    cancelText="取消"
+                                    onConfirm={handleCleanInvalidFiles}
+                                >
+                                    <Button danger icon={<Icon as={DeleteOutlined} />} loading={cleaningInvalidFiles} disabled={!library.total_files}>
+                                        清洗无效文件
+                                    </Button>
+                                </Popconfirm>
+                                <Popconfirm
+                                    title="确认清空影视库数据库？"
+                                    description="此操作只清空影视库索引，不会删除本地影片文件。"
+                                    onConfirm={handleClear}
+                                    okText="清空"
+                                    cancelText="取消"
+                                >
+                                    <Button danger icon={<Icon as={DeleteOutlined} />} loading={loading}>清空影视库</Button>
+                                </Popconfirm>
+                            </div>
                         </div>
-                        <Segmented
-                            value={viewMode}
-                            onChange={setViewMode}
-                            options={[
-                                { label: <span><Icon as={UnorderedListOutlined} /> 列表</span>, value: "list" },
-                                { label: <span><Icon as={AppstoreOutlined} /> 卡片</span>, value: "grid" },
-                                { label: <span><Icon as={UserOutlined} /> 演员</span>, value: "actors" },
-                            ]}
-                        />
-                        <Select
-                            value={sortRule}
-                            onChange={setSortRule}
-                            options={LOCAL_LIBRARY_SORT_OPTIONS}
-                            aria-label="影视库排序"
-                        />
-                        <Segmented
-                            className="jav-library-theme-toggle"
-                            value={libraryTheme}
-                            onChange={handleLibraryThemeChange}
-                            options={LOCAL_LIBRARY_THEME_OPTIONS}
-                        />
-                        {viewMode !== "actors" && <div className="jav-library-size-control">
-                            <Text type="secondary">大小</Text>
-                            <Slider
-                                min={viewMode === "grid" ? 120 : 44}
-                                max={viewMode === "grid" ? 240 : 96}
-                                step={4}
-                                value={viewMode === "grid" ? gridPosterSize : listPosterSize}
-                                onChange={viewMode === "grid" ? setGridPosterSize : setListPosterSize}
-                                tooltip={{ formatter: (value) => `${value}px` }}
+                        <div className="jav-library-toolbar-row is-secondary">
+                            <Segmented
+                                value={viewMode}
+                                onChange={setViewMode}
+                                options={[
+                                    { label: <span><Icon as={UnorderedListOutlined} /> 列表</span>, value: "list" },
+                                    { label: <span><Icon as={AppstoreOutlined} /> 卡片</span>, value: "grid" },
+                                    { label: <span><Icon as={UserOutlined} /> 演员</span>, value: "actors" },
+                                ]}
                             />
-                        </div>}
-                        <Button icon={<Icon as={FilterOutlined} />} onClick={() => setFilterOpen(true)}>
-                            筛选{activeFilterCount ? ` (${activeFilterCount})` : ""}
-                        </Button>
-                        <Button type="primary" icon={<Icon as={FolderOpenOutlined} />} onClick={openScanDrawer} loading={settingsLoading}>
-                            路径配置
-                        </Button>
-                        <Button icon={<Icon as={SearchOutlined} />} onClick={openInformationCheck} loading={checkingInformation}>
-                            检查信息
-                        </Button>
-                        <Button icon={<Icon as={ReloadOutlined} />} onClick={loadLibrary} loading={loading}>
-                            刷新
-                        </Button>
-                        <Popconfirm
-                            title="清洗无效文件？"
-                            description="会重新读取分辨率和码率，删除仍读取不到媒体信息的本地视频文件。"
-                            okText="清洗"
-                            cancelText="取消"
-                            onConfirm={handleCleanInvalidFiles}
-                        >
-                            <Button danger icon={<Icon as={DeleteOutlined} />} loading={cleaningInvalidFiles} disabled={!library.total_files}>
-                                清洗无效文件
-                            </Button>
-                        </Popconfirm>
-                        <Popconfirm title="确认清空影视库数据库？" onConfirm={handleClear} okText="清空" cancelText="取消">
-                            <Button danger loading={loading}>清空</Button>
-                        </Popconfirm>
+                            <Select
+                                className="jav-library-sort-control"
+                                value={sortRule}
+                                onChange={setSortRule}
+                                options={LOCAL_LIBRARY_SORT_OPTIONS}
+                                aria-label="影视库排序"
+                            />
+                            <Segmented
+                                className="jav-library-theme-toggle"
+                                value={libraryTheme}
+                                onChange={handleLibraryThemeChange}
+                                options={LOCAL_LIBRARY_THEME_OPTIONS}
+                            />
+                            {viewMode !== "actors" && <div className="jav-library-size-control">
+                                <Text type="secondary">封面大小</Text>
+                                <Slider
+                                    min={viewMode === "grid" ? 120 : 44}
+                                    max={viewMode === "grid" ? 240 : 96}
+                                    step={4}
+                                    value={viewMode === "grid" ? gridPosterSize : listPosterSize}
+                                    onChange={viewMode === "grid" ? setGridPosterSize : setListPosterSize}
+                                    tooltip={{ formatter: (value) => `${value}px` }}
+                                />
+                            </div>}
+                            <div className="jav-library-vr-filter">
+                                <Text type="secondary">VR影片</Text>
+                                <Segmented
+                                    aria-label="VR影片筛选"
+                                    value={vrFilter}
+                                    onChange={setVrFilter}
+                                    options={[
+                                        { label: "全部", value: "all" },
+                                        { label: "隐藏VR", value: "exclude" },
+                                        { label: "仅VR", value: "only" },
+                                    ]}
+                                />
+                            </div>
+                        </div>
                     </div>
                     {activeFilterCount > 0 && (
                         <div className="jav-library-active-filters">
@@ -1808,6 +1845,11 @@ export default function LocalLibraryPage() {
                                     onClose={handleKeywordClear}
                                 >
                                     搜索: {filters.keyword.trim()}
+                                </Tag>
+                            )}
+                            {vrFilter !== "all" && (
+                                <Tag closable onClose={() => setVrFilter("all")}>
+                                    VR: {vrFilter === "only" ? "仅VR" : "隐藏VR"}
                                 </Tag>
                             )}
                             {activeFilterTags()}

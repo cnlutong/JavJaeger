@@ -105,6 +105,27 @@ test("local library search box keeps search and clear actions in the same row", 
     assert.match(css, /\.jav-library-search-row\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+auto;/);
 });
 
+test("local library toolbar separates routine, display, and destructive actions", () => {
+    assert.match(localLibraryPage, /className="jav-library-toolbar-row is-primary"/);
+    assert.match(localLibraryPage, /className="jav-library-toolbar-row is-secondary"/);
+    assert.match(localLibraryPage, /className="jav-library-toolbar-group is-danger-actions"/);
+    assert.match(css, /\.jav-library-toolbar-row\.is-primary\s*\{[\s\S]*border-bottom:/);
+    assert.match(css, /\.jav-library-toolbar-group\.is-danger-actions\s*\{[\s\S]*border-left:/);
+});
+
+test("local library exposes a three-state VR quick filter", () => {
+    assert.match(localLibraryPage, /const \[vrFilter, setVrFilter\] = React\.useState\("all"\)/);
+    assert.match(localLibraryPage, /matchesVrFilter\(record, vrFilter\)/);
+    assert.match(localLibraryPage, /aria-label="VR影片筛选"/);
+    assert.match(localLibraryPage, /label: "全部", value: "all"/);
+    assert.match(localLibraryPage, /label: "隐藏VR", value: "exclude"/);
+    assert.match(localLibraryPage, /label: "仅VR", value: "only"/);
+});
+
+test("clearing the library still requires explicit confirmation", () => {
+    assert.match(localLibraryPage, /<Popconfirm[\s\S]*title="确认清空影视库数据库？"[\s\S]*onConfirm=\{handleClear\}[\s\S]*okText="清空"/);
+});
+
 test("local library page exposes multi-path scan import controls", () => {
     assert.match(localLibraryPage, /import DirectoryInput from "\.\/DirectoryInput\.jsx"/);
     assert.match(localLibraryPage, /const \[librarySettings, setLibrarySettings\] = React\.useState/);
@@ -172,7 +193,7 @@ test("local library dark mode becomes an Astryx-inspired immersive TV gallery", 
     assert.match(localLibraryPage, /电视墙式浏览本地影片/);
     assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*--color-background-body:\s*#111112;[\s\S]*--color-accent:\s*#2694FE;/);
     assert.match(css, /\.jav-library-page\.is-dark\s*\{[\s\S]*radial-gradient\(circle at 20% 0%/);
-    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-toolbar\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;/);
+    assert.match(css, /\.jav-library-page\.is-dark \.jav-library-toolbar\s*\{[\s\S]*display:\s*grid;/);
     assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(max\(var\(--jav-library-card-min,\s*156px\),\s*180px\),\s*1fr\)\)/);
     assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:hover,[\s\S]*\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:focus-within,[\s\S]*\.jav-library-page\.is-dark \.jav-library-actor-card:hover\s*\{[\s\S]*transform:\s*translateY\(-6px\) scale\(1\.025\)/);
     assert.match(css, /\.jav-library-page\.is-dark \.jav-library-poster-card\.ant-card:focus-within\s*\{/);
