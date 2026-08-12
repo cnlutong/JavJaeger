@@ -10,6 +10,7 @@ from .local_library import (
     clean_invalid_local_library_files,
     clear_local_library,
     delete_local_library_movie,
+    delete_local_library_movie_files,
     download_missing_local_library_information,
     get_local_library_information_check,
     get_local_library_payload,
@@ -217,6 +218,15 @@ async def play_local_movie_library_file(movie_id: str, file_index: int = 0):
         raise HTTPException(status_code=404, detail="video_not_found")
     media_type = mimetypes.guess_type(str(video_path))[0] or "application/octet-stream"
     return FileResponse(video_path, media_type=media_type, filename=video_path.name)
+
+
+@router.delete("/api/movies/local-library/{movie_id}/files")
+async def delete_local_movie_library_movie_files(movie_id: str):
+    try:
+        return await delete_local_library_movie_files(movie_id)
+    except Exception as exc:
+        logger.error("Local library movie file delete failed: %s", exc)
+        return {"success": False, "error": "library_movie_file_delete_failed", "message": "彻底删除影视库影片失败"}
 
 
 @router.get("/api/movies/local-library/{movie_id}")

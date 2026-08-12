@@ -264,6 +264,15 @@ def test_local_library_delete_movie_route_is_registered():
     assert any("DELETE" in getattr(route, "methods", set()) for route in movie_routes)
 
 
+def test_local_library_permanent_delete_route_is_registered():
+    movie_file_routes = [
+        route for route in main.app.routes
+        if getattr(route, "path", "") == "/api/movies/local-library/{movie_id}/files"
+    ]
+
+    assert any("DELETE" in getattr(route, "methods", set()) for route in movie_file_routes)
+
+
 def test_client_config_redacts_sensitive_values(monkeypatch):
     test_config = runtime.merge_config(
         runtime.DEFAULT_CONFIG,
@@ -4483,6 +4492,144 @@ def test_local_library_delete_movie_removes_only_requested_record(tmp_path):
     assert set(saved["movies"].keys()) == {"ABP-124"}
     assert first_video.exists()
     assert second_video.exists()
+
+
+def test_local_library_permanent_delete_removes_video_related_files_and_record(tmp_path, monkeypatch):
+    scan_root = tmp_path / "library"
+    movie_dir = scan_root / "ABP-123"
+    fanart_dir = movie_dir / "extrafanart"
+    movie_dir.mkdir(parents=True)
+    fanart_dir.mkdir()
+
+    video = movie_dir / "ABP-123.mp4"
+    nfo = movie_dir / "ABP-123.nfo"
+    poster = movie_dir / "ABP-123-poster.jpg"
+    thumbnail = movie_dir / "ABP-123-thumb.jpg"
+    subtitle = movie_dir / "ABP-123.zh-CN.ass"
+    folder_poster = movie_dir / "folder.jpg"
+    sample = fanart_dir / "fanart1.jpg"
+    unrelated = movie_dir / "keep.txt"
+
+    video.write_bytes(b"video")
+    nfo.write_text("<movie><thumb>extrafanart/fanart1.jpg</thumb></movie>", encoding="utf-8")
+    for path in (poster, thumbnail, subtitle, folder_poster, sample, unrelated):
+        path.write_bytes(path.name.encode("utf-8"))
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(scan_root),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(video),
+                    "relative_path": str(video.relative_to(scan_root)),
+                    "file_name": video.name,
+                    "size": video.stat().st_size,
+                },
+            ],
+        )
+        result = await movies_local_library.delete_local_library_movie_files("abp-123")
+        return result, await service.get_summary()
+
+    result, summary = asyncio.run(exercise())
+
+    assert result["success"] is True
+    assert result["deleted"] is True
+    assert result["movie_id"] == "ABP-123"
+    assert result["deleted_video_count"] == 1
+    assert result["deleted_related_file_count"] == 6
+    assert summary["records"] == []
+    for deleted_path in (video, nfo, poster, thumbnail, subtitle, folder_poster, sample):
+        assert not deleted_path.exists()
+    assert unrelated.exists()
+
+
+def test_local_library_permanent_delete_rejects_paths_outside_recorded_scan_root(tmp_path, monkeypatch):
+    scan_root = tmp_path / "library"
+    scan_root.mkdir()
+    outside_video = tmp_path / "ABP-123.mp4"
+    outside_video.write_bytes(b"video")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(scan_root),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(outside_video),
+                    "relative_path": outside_video.name,
+                    "file_name": outside_video.name,
+                    "size": outside_video.stat().st_size,
+                },
+            ],
+        )
+        result = await movies_local_library.delete_local_library_movie_files("ABP-123")
+        return result, await service.get_status("ABP-123")
+
+    result, status = asyncio.run(exercise())
+
+    assert result["success"] is False
+    assert result["deleted"] is False
+    assert result["error"] == "unsafe_library_path"
+    assert status["in_local_library"] is True
+    assert outside_video.exists()
+
+
+def test_local_library_permanent_delete_keeps_folder_assets_shared_by_another_movie(tmp_path, monkeypatch):
+    scan_root = tmp_path / "library"
+    scan_root.mkdir()
+    first_video = scan_root / "ABP-123.mp4"
+    second_video = scan_root / "ABP-124.mp4"
+    first_nfo = scan_root / "ABP-123.nfo"
+    folder_poster = scan_root / "folder.jpg"
+    sample_dir = scan_root / "extrafanart"
+    sample = sample_dir / "fanart1.jpg"
+    sample_dir.mkdir()
+
+    first_video.write_bytes(b"first")
+    second_video.write_bytes(b"second")
+    first_nfo.write_text("<movie><thumb>extrafanart/fanart1.jpg</thumb></movie>", encoding="utf-8")
+    folder_poster.write_bytes(b"poster")
+    sample.write_bytes(b"sample")
+
+    async def exercise():
+        service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+        monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+        await service.update_from_scan(
+            str(scan_root),
+            [
+                {
+                    "movie_id": "ABP-123",
+                    "path": str(first_video),
+                    "relative_path": first_video.name,
+                    "file_name": first_video.name,
+                    "size": first_video.stat().st_size,
+                },
+                {
+                    "movie_id": "ABP-124",
+                    "path": str(second_video),
+                    "relative_path": second_video.name,
+                    "file_name": second_video.name,
+                    "size": second_video.stat().st_size,
+                },
+            ],
+        )
+        result = await movies_local_library.delete_local_library_movie_files("ABP-123")
+        return result, await service.get_summary()
+
+    result, summary = asyncio.run(exercise())
+
+    assert result["success"] is True
+    assert not first_video.exists()
+    assert not first_nfo.exists()
+    assert second_video.exists()
+    assert folder_poster.exists()
+    assert sample.exists()
+    assert [record["movie_id"] for record in summary["records"]] == ["ABP-124"]
 
 
 def test_local_library_actor_avatar_path_comes_from_shared_actor_directory(tmp_path):

@@ -561,6 +561,7 @@ export default function LocalLibraryPage() {
     const [settingsLoading, setSettingsLoading] = React.useState(false);
     const [savingLibrarySettings, setSavingLibrarySettings] = React.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React.useState("");
+    const [deletingMovieFilesId, setDeletingMovieFilesId] = React.useState("");
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
     const [scanResult, setScanResult] = React.useState(null);
@@ -1178,6 +1179,28 @@ export default function LocalLibraryPage() {
         }
     };
 
+    const removeMovieFromCurrentView = async (movieId) => {
+        if (selectedRecord?.movie_id === movieId) {
+            closeRecordPreview();
+        }
+        setInformationCheck((current) => {
+            if (!current?.records) {
+                return current;
+            }
+            const records = current.records.filter((item) => String(item.movie_id || "").toUpperCase() !== movieId.toUpperCase());
+            const incompleteRecords = records.filter((item) => !item.info_complete);
+            return {
+                ...current,
+                records,
+                incomplete_records: incompleteRecords,
+                total_movies: records.length,
+                complete_count: records.length - incompleteRecords.length,
+                incomplete_count: incompleteRecords.length,
+            };
+        });
+        await loadLibrary();
+    };
+
     const handleDeleteMovie = async (record) => {
         const movieId = String(record?.movie_id || "").trim();
         if (!movieId) {
@@ -1191,30 +1214,36 @@ export default function LocalLibraryPage() {
             if (!data.success) {
                 throw new Error(data.message || "删除失败");
             }
-            if (selectedRecord?.movie_id === movieId) {
-                closeRecordPreview();
-            }
-            setInformationCheck((current) => {
-                if (!current?.records) {
-                    return current;
-                }
-                const records = current.records.filter((item) => String(item.movie_id || "").toUpperCase() !== movieId.toUpperCase());
-                const incompleteRecords = records.filter((item) => !item.info_complete);
-                return {
-                    ...current,
-                    records,
-                    incomplete_records: incompleteRecords,
-                    total_movies: records.length,
-                    complete_count: records.length - incompleteRecords.length,
-                    incomplete_count: incompleteRecords.length,
-                };
-            });
-            await loadLibrary();
+            await removeMovieFromCurrentView(movieId);
             message.success(`已从影视库移除 ${movieId}`);
         } catch (error) {
             message.error(`删除影片失败：${error.message}`);
         } finally {
             setDeletingMovieId("");
+        }
+    };
+
+    const handleDeleteMovieFiles = async (record) => {
+        const movieId = String(record?.movie_id || "").trim();
+        if (!movieId) {
+            message.warning("影片番号无效");
+            return;
+        }
+        setDeletingMovieFilesId(movieId);
+        try {
+            const response = await fetch(`/api/movies/local-library/${encodeURIComponent(movieId)}/files`, { method: "DELETE" });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || "彻底删除失败");
+            }
+            await removeMovieFromCurrentView(movieId);
+            message.success(
+                `已彻底删除 ${movieId}：${data.deleted_video_count || 0} 个视频，${data.deleted_related_file_count || 0} 个关联文件`,
+            );
+        } catch (error) {
+            message.error(`彻底删除影片失败：${error.message}`);
+        } finally {
+            setDeletingMovieFilesId("");
         }
     };
 
@@ -1525,6 +1554,23 @@ export default function LocalLibraryPage() {
                                     loading={deletingMovieId === selectedRecord.movie_id}
                                 >
                                     移除
+                                </Button>
+                            </Popconfirm>
+                            <Popconfirm
+                                title={`彻底删除 ${selectedRecord.movie_id}？`}
+                                description="永久删除本地视频及关联文件，并移除影视库记录。此操作不可恢复。"
+                                okText="彻底删除"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                                onConfirm={() => handleDeleteMovieFiles(selectedRecord)}
+                            >
+                                <Button
+                                    danger
+                                    type="primary"
+                                    icon={<Icon as={DeleteOutlined} />}
+                                    loading={deletingMovieFilesId === selectedRecord.movie_id}
+                                >
+                                    彻底删除
                                 </Button>
                             </Popconfirm>
                             <Tag color="blue">{selectedRecord.movie_id}</Tag>
@@ -1965,28 +2011,51 @@ export default function LocalLibraryPage() {
         {
             title: "操作",
             key: "actions",
-            width: 96,
+            width: 180,
             render: (_, record) => (
-                <Popconfirm
-                    title={`从影视库移除 ${record.movie_id}？`}
-                    description="只删除数据库记录，不删除本地视频文件。"
-                    okText="移除"
-                    cancelText="取消"
-                    onConfirm={(event) => {
-                        event?.stopPropagation?.();
-                        return handleDeleteMovie(record);
-                    }}
-                >
-                    <Button
-                        danger
-                        size="small"
-                        icon={<Icon as={DeleteOutlined} />}
-                        loading={deletingMovieId === record.movie_id}
-                        onClick={(event) => event.stopPropagation()}
+                <Space size={4} wrap>
+                    <Popconfirm
+                        title={`从影视库移除 ${record.movie_id}？`}
+                        description="只删除数据库记录，不删除本地视频文件。"
+                        okText="移除"
+                        cancelText="取消"
+                        onConfirm={(event) => {
+                            event?.stopPropagation?.();
+                            return handleDeleteMovie(record);
+                        }}
                     >
-                        移除
-                    </Button>
-                </Popconfirm>
+                        <Button
+                            danger
+                            size="small"
+                            loading={deletingMovieId === record.movie_id}
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            移除
+                        </Button>
+                    </Popconfirm>
+                    <Popconfirm
+                        title={`彻底删除 ${record.movie_id}？`}
+                        description="永久删除本地视频及关联文件，并移除影视库记录。此操作不可恢复。"
+                        okText="彻底删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                        onConfirm={(event) => {
+                            event?.stopPropagation?.();
+                            return handleDeleteMovieFiles(record);
+                        }}
+                    >
+                        <Button
+                            danger
+                            type="primary"
+                            size="small"
+                            icon={<Icon as={DeleteOutlined} />}
+                            loading={deletingMovieFilesId === record.movie_id}
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            彻底删除
+                        </Button>
+                    </Popconfirm>
+                </Space>
             ),
         },
     ];
@@ -2276,6 +2345,29 @@ export default function LocalLibraryPage() {
                                                 style={{ marginTop: 8 }}
                                             >
                                                 移除
+                                            </Button>
+                                        </Popconfirm>
+                                        <Popconfirm
+                                            title={`彻底删除 ${record.movie_id}？`}
+                                            description="永久删除本地视频及关联文件，并移除影视库记录。此操作不可恢复。"
+                                            okText="彻底删除"
+                                            cancelText="取消"
+                                            okButtonProps={{ danger: true }}
+                                            onConfirm={(event) => {
+                                                event?.stopPropagation?.();
+                                                return handleDeleteMovieFiles(record);
+                                            }}
+                                        >
+                                            <Button
+                                                danger
+                                                type="primary"
+                                                size="small"
+                                                icon={<Icon as={DeleteOutlined} />}
+                                                loading={deletingMovieFilesId === record.movie_id}
+                                                onClick={(event) => event.stopPropagation()}
+                                                style={{ marginTop: 8, marginLeft: 6 }}
+                                            >
+                                                彻底删除
                                             </Button>
                                         </Popconfirm>
                                         <div className="jav-library-poster-tags">

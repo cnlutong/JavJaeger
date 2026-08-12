@@ -3209,6 +3209,7 @@
     const [settingsLoading, setSettingsLoading] = React5.useState(false);
     const [savingLibrarySettings, setSavingLibrarySettings] = React5.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React5.useState("");
+    const [deletingMovieFilesId, setDeletingMovieFilesId] = React5.useState("");
     const [filterOpen, setFilterOpen] = React5.useState(false);
     const [scanOpen, setScanOpen] = React5.useState(false);
     const [scanResult, setScanResult] = React5.useState(null);
@@ -3772,6 +3773,27 @@ ${record.full_text || ""}`.toLowerCase();
         setScanningLibrary(false);
       }
     };
+    const removeMovieFromCurrentView = async (movieId) => {
+      if (selectedRecord?.movie_id === movieId) {
+        closeRecordPreview();
+      }
+      setInformationCheck((current) => {
+        if (!current?.records) {
+          return current;
+        }
+        const records2 = current.records.filter((item) => String(item.movie_id || "").toUpperCase() !== movieId.toUpperCase());
+        const incompleteRecords = records2.filter((item) => !item.info_complete);
+        return {
+          ...current,
+          records: records2,
+          incomplete_records: incompleteRecords,
+          total_movies: records2.length,
+          complete_count: records2.length - incompleteRecords.length,
+          incomplete_count: incompleteRecords.length
+        };
+      });
+      await loadLibrary();
+    };
     const handleDeleteMovie = async (record) => {
       const movieId = String(record?.movie_id || "").trim();
       if (!movieId) {
@@ -3785,30 +3807,35 @@ ${record.full_text || ""}`.toLowerCase();
         if (!data.success) {
           throw new Error(data.message || "\u5220\u9664\u5931\u8D25");
         }
-        if (selectedRecord?.movie_id === movieId) {
-          closeRecordPreview();
-        }
-        setInformationCheck((current) => {
-          if (!current?.records) {
-            return current;
-          }
-          const records2 = current.records.filter((item) => String(item.movie_id || "").toUpperCase() !== movieId.toUpperCase());
-          const incompleteRecords = records2.filter((item) => !item.info_complete);
-          return {
-            ...current,
-            records: records2,
-            incomplete_records: incompleteRecords,
-            total_movies: records2.length,
-            complete_count: records2.length - incompleteRecords.length,
-            incomplete_count: incompleteRecords.length
-          };
-        });
-        await loadLibrary();
+        await removeMovieFromCurrentView(movieId);
         message5.success(`\u5DF2\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${movieId}`);
       } catch (error) {
         message5.error(`\u5220\u9664\u5F71\u7247\u5931\u8D25\uFF1A${error.message}`);
       } finally {
         setDeletingMovieId("");
+      }
+    };
+    const handleDeleteMovieFiles = async (record) => {
+      const movieId = String(record?.movie_id || "").trim();
+      if (!movieId) {
+        message5.warning("\u5F71\u7247\u756A\u53F7\u65E0\u6548");
+        return;
+      }
+      setDeletingMovieFilesId(movieId);
+      try {
+        const response = await fetch(`/api/movies/local-library/${encodeURIComponent(movieId)}/files`, { method: "DELETE" });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || "\u5F7B\u5E95\u5220\u9664\u5931\u8D25");
+        }
+        await removeMovieFromCurrentView(movieId);
+        message5.success(
+          `\u5DF2\u5F7B\u5E95\u5220\u9664 ${movieId}\uFF1A${data.deleted_video_count || 0} \u4E2A\u89C6\u9891\uFF0C${data.deleted_related_file_count || 0} \u4E2A\u5173\u8054\u6587\u4EF6`
+        );
+      } catch (error) {
+        message5.error(`\u5F7B\u5E95\u5220\u9664\u5F71\u7247\u5931\u8D25\uFF1A${error.message}`);
+      } finally {
+        setDeletingMovieFilesId("");
       }
     };
     const handleDownloadMissingInformation = async (values = {}) => {
@@ -4051,6 +4078,26 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           },
           "\u79FB\u9664"
         )
+      ), /* @__PURE__ */ React5.createElement(
+        Popconfirm4,
+        {
+          title: `\u5F7B\u5E95\u5220\u9664 ${selectedRecord.movie_id}\uFF1F`,
+          description: "\u6C38\u4E45\u5220\u9664\u672C\u5730\u89C6\u9891\u53CA\u5173\u8054\u6587\u4EF6\uFF0C\u5E76\u79FB\u9664\u5F71\u89C6\u5E93\u8BB0\u5F55\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\u3002",
+          okText: "\u5F7B\u5E95\u5220\u9664",
+          cancelText: "\u53D6\u6D88",
+          okButtonProps: { danger: true },
+          onConfirm: () => handleDeleteMovieFiles(selectedRecord)
+        },
+        /* @__PURE__ */ React5.createElement(
+          Button5,
+          {
+            danger: true,
+            type: "primary",
+            icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
+            loading: deletingMovieFilesId === selectedRecord.movie_id
+          },
+          "\u5F7B\u5E95\u5220\u9664"
+        )
       ), /* @__PURE__ */ React5.createElement(Tag4, { color: "blue" }, selectedRecord.movie_id))), /* @__PURE__ */ React5.createElement("div", null, /* @__PURE__ */ React5.createElement(Title4, { level: 3, className: "jav-library-preview-title" }, selectedRecord.title || selectedRecord.movie_id), selectedRecord.scrape_error && /* @__PURE__ */ React5.createElement(
         Alert2,
         {
@@ -4281,8 +4328,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       {
         title: "\u64CD\u4F5C",
         key: "actions",
-        width: 96,
-        render: (_, record) => /* @__PURE__ */ React5.createElement(
+        width: 180,
+        render: (_, record) => /* @__PURE__ */ React5.createElement(Space5, { size: 4, wrap: true }, /* @__PURE__ */ React5.createElement(
           Popconfirm4,
           {
             title: `\u4ECE\u5F71\u89C6\u5E93\u79FB\u9664 ${record.movie_id}\uFF1F`,
@@ -4299,13 +4346,37 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             {
               danger: true,
               size: "small",
-              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
               loading: deletingMovieId === record.movie_id,
               onClick: (event) => event.stopPropagation()
             },
             "\u79FB\u9664"
           )
-        )
+        ), /* @__PURE__ */ React5.createElement(
+          Popconfirm4,
+          {
+            title: `\u5F7B\u5E95\u5220\u9664 ${record.movie_id}\uFF1F`,
+            description: "\u6C38\u4E45\u5220\u9664\u672C\u5730\u89C6\u9891\u53CA\u5173\u8054\u6587\u4EF6\uFF0C\u5E76\u79FB\u9664\u5F71\u89C6\u5E93\u8BB0\u5F55\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\u3002",
+            okText: "\u5F7B\u5E95\u5220\u9664",
+            cancelText: "\u53D6\u6D88",
+            okButtonProps: { danger: true },
+            onConfirm: (event) => {
+              event?.stopPropagation?.();
+              return handleDeleteMovieFiles(record);
+            }
+          },
+          /* @__PURE__ */ React5.createElement(
+            Button5,
+            {
+              danger: true,
+              type: "primary",
+              size: "small",
+              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
+              loading: deletingMovieFilesId === record.movie_id,
+              onClick: (event) => event.stopPropagation()
+            },
+            "\u5F7B\u5E95\u5220\u9664"
+          )
+        ))
       }
     ];
     if (selectedRecord) {
@@ -4481,6 +4552,33 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               style: { marginTop: 8 }
             },
             "\u79FB\u9664"
+          )
+        ),
+        /* @__PURE__ */ React5.createElement(
+          Popconfirm4,
+          {
+            title: `\u5F7B\u5E95\u5220\u9664 ${record.movie_id}\uFF1F`,
+            description: "\u6C38\u4E45\u5220\u9664\u672C\u5730\u89C6\u9891\u53CA\u5173\u8054\u6587\u4EF6\uFF0C\u5E76\u79FB\u9664\u5F71\u89C6\u5E93\u8BB0\u5F55\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\u3002",
+            okText: "\u5F7B\u5E95\u5220\u9664",
+            cancelText: "\u53D6\u6D88",
+            okButtonProps: { danger: true },
+            onConfirm: (event) => {
+              event?.stopPropagation?.();
+              return handleDeleteMovieFiles(record);
+            }
+          },
+          /* @__PURE__ */ React5.createElement(
+            Button5,
+            {
+              danger: true,
+              type: "primary",
+              size: "small",
+              icon: /* @__PURE__ */ React5.createElement(Icon3, { as: DeleteOutlined4 }),
+              loading: deletingMovieFilesId === record.movie_id,
+              onClick: (event) => event.stopPropagation(),
+              style: { marginTop: 8, marginLeft: 6 }
+            },
+            "\u5F7B\u5E95\u5220\u9664"
           )
         ),
         /* @__PURE__ */ React5.createElement("div", { className: "jav-library-poster-tags" }, (record.stars || []).slice(0, 2).map((star) => renderFilterTag("stars", star, "magenta")), (record.genres || []).slice(0, 2).map((genre) => renderFilterTag("genres", genre, "cyan")))

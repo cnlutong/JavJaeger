@@ -36,6 +36,10 @@ from .service import movie_detail_is_vr
 logger = logging.getLogger(__name__)
 ACTOR_AVATAR_EXTENSIONS = {".jpg", ".jpeg"}
 HASH_BLOCK_SIZE = 1024 * 1024
+LOCAL_LIBRARY_SUBTITLE_EXTENSIONS = {".ass", ".idx", ".srt", ".ssa", ".sub", ".sup", ".vtt"}
+LOCAL_LIBRARY_IMAGE_EXTENSIONS = {".jpeg", ".jpg", ".png", ".webp"}
+LOCAL_LIBRARY_IMAGE_ROLES = {"banner", "fanart", "landscape", "poster", "thumb", "thumbnail"}
+LOCAL_LIBRARY_FOLDER_ASSET_STEMS = {"cover", "fanart", "folder", "poster", "thumb", "thumbnail"}
 
 
 def _iso_mtime(path: Path) -> str:
@@ -816,3 +820,237 @@ async def clear_local_library() -> dict[str, Any]:
 
 async def delete_local_library_movie(movie_id: str) -> dict[str, Any]:
     return await local_movie_library_service.delete_movie(movie_id)
+
+
+def _normalized_file_key(path: Path) -> str:
+    return os.path.normcase(str(path.resolve(strict=False)))
+
+
+def _path_is_within(path: Path, parent: Path) -> bool:
+    try:
+        return path == parent or path.is_relative_to(parent)
+    except (AttributeError, ValueError):
+        return _is_relative_to(path, parent)
+
+
+def _existing_or_symlink(path: Path) -> bool:
+    try:
+        return path.exists() or path.is_symlink()
+    except OSError:
+        return False
+
+
+def _nfo_referenced_local_assets(nfo_path: Path, video_directory: Path) -> list[Path]:
+    if not nfo_path.exists() or not nfo_path.is_file():
+        return []
+    try:
+        root = ET.parse(nfo_path).getroot()
+    except (OSError, ET.ParseError) as exc:
+        logger.warning("Local library delete could not inspect NFO %s: %s", nfo_path, exc)
+        return []
+
+    assets: list[Path] = []
+    resolved_directory = video_directory.resolve(strict=False)
+    for node in root.iter():
+        if node.tag not in {"thumb", "poster"}:
+            continue
+        value = str(node.text or "").strip()
+        if not value or "://" in value or value.startswith("data:"):
+            continue
+        relative_path = Path(value)
+        if relative_path.is_absolute():
+            continue
+        candidate = video_directory / relative_path
+        try:
+            resolved_candidate = candidate.resolve(strict=False)
+        except OSError:
+            continue
+        if resolved_candidate != resolved_directory and _path_is_within(resolved_candidate, resolved_directory):
+            assets.append(candidate)
+    return assets
+
+
+def _video_sidecar_candidates(video_path: Path, include_folder_assets: bool) -> tuple[set[Path], set[Path]]:
+    candidates: set[Path] = {video_path.with_suffix(".nfo")}
+    removable_directories: set[Path] = {video_path.parent}
+    stem_key = video_path.stem.casefold()
+
+    try:
+        siblings = list(video_path.parent.iterdir())
+    except OSError as exc:
+        raise OSError(f"无法读取影片目录：{video_path.parent}") from exc
+
+    for sibling in siblings:
+        if not sibling.is_file() and not sibling.is_symlink():
+            continue
+        name_key = sibling.name.casefold()
+        suffix_key = sibling.suffix.casefold()
+        if suffix_key in LOCAL_LIBRARY_SUBTITLE_EXTENSIONS and (
+            name_key.startswith(f"{stem_key}.") or name_key.startswith(f"{stem_key}-")
+        ):
+            candidates.add(sibling)
+            continue
+        if suffix_key not in LOCAL_LIBRARY_IMAGE_EXTENSIONS:
+            continue
+        sibling_stem_key = sibling.stem.casefold()
+        is_named_sidecar = sibling_stem_key == stem_key or any(
+            sibling_stem_key == f"{stem_key}-{role}" for role in LOCAL_LIBRARY_IMAGE_ROLES
+        )
+        is_unshared_folder_asset = include_folder_assets and sibling_stem_key in LOCAL_LIBRARY_FOLDER_ASSET_STEMS
+        if is_named_sidecar or is_unshared_folder_asset:
+            candidates.add(sibling)
+
+    nfo_path = video_path.with_suffix(".nfo")
+    if include_folder_assets:
+        for asset_path in _nfo_referenced_local_assets(nfo_path, video_path.parent):
+            candidates.add(asset_path)
+            removable_directories.add(asset_path.parent)
+    return candidates, removable_directories
+
+
+def _permanent_delete_error(movie_id: str, error: str, message: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "deleted": False,
+        "movie_id": movie_id,
+        "error": error,
+        "message": message,
+    }
+
+
+async def delete_local_library_movie_files(movie_id: str) -> dict[str, Any]:
+    normalized = str(movie_id or "").strip().upper()
+    if not normalized:
+        return _permanent_delete_error("", "invalid_movie_id", "影片番号无效")
+
+    status = await local_movie_library_service.get_status(normalized)
+    record = status.get("record") if isinstance(status, dict) else None
+    if not isinstance(record, dict):
+        return _permanent_delete_error(normalized, "movie_not_found", "影片不在影视库中")
+
+    file_records = [item for item in record.get("files", []) if isinstance(item, dict)]
+    all_records = await local_movie_library_service.get_all()
+    other_video_keys: set[str] = set()
+    other_video_parent_keys: set[str] = set()
+    for other_record in all_records:
+        if str(other_record.get("movie_id") or "").strip().upper() == normalized:
+            continue
+        for other_file in other_record.get("files", []):
+            if not isinstance(other_file, dict) or not other_file.get("path"):
+                continue
+            other_path = Path(str(other_file["path"]))
+            try:
+                other_video_keys.add(_normalized_file_key(other_path))
+                other_video_parent_keys.add(_normalized_file_key(other_path.parent))
+            except OSError:
+                continue
+
+    video_targets: list[tuple[Path, Path]] = []
+    deletion_targets: dict[str, tuple[Path, Path, str]] = {}
+    removable_directories: set[tuple[Path, Path]] = set()
+
+    for file_record in file_records:
+        path_value = str(file_record.get("path") or "").strip()
+        scan_root_value = str(file_record.get("scan_root") or "").strip()
+        if not path_value or not scan_root_value:
+            return _permanent_delete_error(normalized, "unsafe_library_path", "影视库记录缺少安全删除所需的路径信息")
+
+        video_path = Path(path_value)
+        scan_root = Path(scan_root_value)
+        if not video_path.is_absolute() or not scan_root.is_absolute():
+            return _permanent_delete_error(normalized, "unsafe_library_path", "影视库记录包含非绝对路径，已拒绝删除")
+        try:
+            resolved_video = video_path.resolve(strict=False)
+            resolved_root = scan_root.resolve(strict=False)
+        except OSError:
+            return _permanent_delete_error(normalized, "unsafe_library_path", "无法验证影片文件的安全删除范围")
+        if not resolved_root.exists() or not resolved_root.is_dir():
+            return _permanent_delete_error(normalized, "scan_root_unavailable", "影片所在的扫描目录当前不可访问，已保留影视库记录")
+        if resolved_video == resolved_root or not _path_is_within(resolved_video, resolved_root):
+            return _permanent_delete_error(normalized, "unsafe_library_path", "影片文件超出原扫描目录，已拒绝删除")
+        if _normalized_file_key(video_path) in other_video_keys:
+            return _permanent_delete_error(normalized, "shared_library_file", "影片文件仍被其他影视库记录引用，已拒绝删除")
+        if _existing_or_symlink(video_path) and not video_path.is_file() and not video_path.is_symlink():
+            return _permanent_delete_error(normalized, "invalid_library_file", "影视库记录指向的路径不是文件，已拒绝删除")
+
+        video_targets.append((video_path, resolved_root))
+
+    for video_path, resolved_root in video_targets:
+        include_folder_assets = _normalized_file_key(video_path.parent) not in other_video_parent_keys
+        try:
+            sidecars, sidecar_directories = _video_sidecar_candidates(video_path, include_folder_assets)
+        except OSError as exc:
+            return _permanent_delete_error(normalized, "related_file_scan_failed", str(exc))
+
+        for target, kind in [(path, "related") for path in sidecars] + [(video_path, "video")]:
+            try:
+                resolved_target = target.resolve(strict=False)
+            except OSError:
+                return _permanent_delete_error(normalized, "unsafe_library_path", "无法验证关联文件的安全删除范围")
+            if resolved_target == resolved_root or not _path_is_within(resolved_target, resolved_root):
+                return _permanent_delete_error(normalized, "unsafe_library_path", "关联文件超出原扫描目录，已拒绝删除")
+            if _existing_or_symlink(target) and not target.is_file() and not target.is_symlink():
+                return _permanent_delete_error(normalized, "invalid_related_file", "关联文件路径不是普通文件，已拒绝删除")
+            deletion_targets[_normalized_file_key(target)] = (target, resolved_root, kind)
+        for directory in sidecar_directories:
+            removable_directories.add((directory, resolved_root))
+
+    deleted_paths: list[str] = []
+    deleted_video_count = 0
+    deleted_related_file_count = 0
+    deleted_size = 0
+    ordered_targets = sorted(deletion_targets.values(), key=lambda item: (item[2] == "video", str(item[0])))
+    for target, _scan_root, kind in ordered_targets:
+        if not _existing_or_symlink(target):
+            continue
+        try:
+            try:
+                deleted_size += int(target.stat().st_size)
+            except OSError:
+                pass
+            target.unlink()
+        except OSError as exc:
+            logger.warning("Local library permanent delete failed for %s: %s", target, exc)
+            result = _permanent_delete_error(normalized, "file_delete_failed", f"删除文件失败：{target.name}")
+            result.update({
+                "deleted_file_count": len(deleted_paths),
+                "deleted_video_count": deleted_video_count,
+                "deleted_related_file_count": deleted_related_file_count,
+                "deleted_size": deleted_size,
+            })
+            return result
+        deleted_paths.append(str(target))
+        if kind == "video":
+            deleted_video_count += 1
+        else:
+            deleted_related_file_count += 1
+
+    for directory, scan_root in sorted(removable_directories, key=lambda item: len(item[0].parts), reverse=True):
+        try:
+            resolved_directory = directory.resolve(strict=False)
+            if resolved_directory != scan_root and _path_is_within(resolved_directory, scan_root):
+                directory.rmdir()
+        except OSError:
+            pass
+
+    record_result = await local_movie_library_service.delete_movie(normalized)
+    if not record_result.get("success"):
+        result = _permanent_delete_error(normalized, "library_record_delete_failed", "文件已删除，但影视库记录删除失败")
+        result.update({
+            "deleted_file_count": len(deleted_paths),
+            "deleted_video_count": deleted_video_count,
+            "deleted_related_file_count": deleted_related_file_count,
+            "deleted_size": deleted_size,
+        })
+        return result
+
+    return {
+        "success": True,
+        "deleted": True,
+        "movie_id": normalized,
+        "deleted_file_count": len(deleted_paths),
+        "deleted_video_count": deleted_video_count,
+        "deleted_related_file_count": deleted_related_file_count,
+        "deleted_size": deleted_size,
+        "message": "影片文件、关联文件和影视库记录已永久删除",
+    }
