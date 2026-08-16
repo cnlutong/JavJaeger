@@ -559,9 +559,16 @@ class TranscodingService:
                     except (TypeError, ValueError):
                         pass
                 if "eta_seconds" in values:
-                    current.eta_seconds = max(0, int(values["eta_seconds"]))
+                    eta_seconds = values["eta_seconds"]
+                    try:
+                        current.eta_seconds = max(0, int(eta_seconds)) if eta_seconds is not None else None
+                    except (TypeError, ValueError):
+                        current.eta_seconds = None
                 if "output_size" in values:
-                    current.output_size = max(0, int(values["output_size"]))
+                    try:
+                        current.output_size = max(0, int(values["output_size"]))
+                    except (TypeError, ValueError):
+                        pass
                 current.elapsed_seconds = max(0, int(time.monotonic() - started))
                 current.stage = "正在转码"
                 now = time.monotonic()

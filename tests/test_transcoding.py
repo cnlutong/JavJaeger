@@ -126,6 +126,45 @@ def test_successful_background_task_atomically_replaces_source_and_updates_libra
     assert not list(tmp_path.glob(".*.javjaeger-*.mkv"))
 
 
+def test_unknown_progress_metrics_do_not_fail_transcoding_task(tmp_path: Path):
+    source = tmp_path / "UNKNOWN-001.mp4"
+    source.write_bytes(b"original-video")
+    library = FakeLibraryService({"UNKNOWN-001": source})
+
+    async def executor_with_unknown_metrics(task, source_path, temporary_path, progress, cancel_event):
+        await progress(
+            {
+                "progress": 0.0,
+                "speed": "",
+                "fps": None,
+                "eta_seconds": None,
+                "output_size": None,
+            }
+        )
+        temporary_path.write_bytes(b"encoded-video")
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=executor_with_unknown_metrics,
+            require_binaries=False,
+        )
+        await service.startup()
+        try:
+            created = await service.create_task(TranscodingTaskCreate(movie_id="UNKNOWN-001"))
+            return await wait_for_terminal(service, created.id)
+        finally:
+            await service.shutdown()
+
+    task = asyncio.run(exercise())
+
+    assert task.status == "completed"
+    assert task.eta_seconds == 0
+    assert task.output_size == len(b"encoded-video")
+    assert source.read_bytes() == b"encoded-video"
+
+
 def test_failed_transcode_keeps_original_and_removes_partial_output(tmp_path: Path):
     source = tmp_path / "FAIL-001.mp4"
     source.write_bytes(b"keep-me")
