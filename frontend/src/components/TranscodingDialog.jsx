@@ -95,7 +95,7 @@ export default function TranscodingDialog({
                 }
                 if (!active) return;
                 setCapabilities(payload);
-                const defaultPreset = payload.presets?.find((item) => item.id === "balanced_h264") || payload.presets?.[0];
+                const defaultPreset = payload.presets?.find((item) => item.id === "quality_h265") || payload.presets?.[0];
                 form.resetFields();
                 form.setFieldsValue({ file_index: initialFileIndex, preset_id: defaultPreset?.id });
                 if (defaultPreset) {
@@ -164,8 +164,8 @@ export default function TranscodingDialog({
                 <Alert
                     type="warning"
                     showIcon
-                    message="任务完成后将安全覆盖原文件"
-                    description="FFmpeg 会先在原文件目录生成临时文件，编码成功后再原子替换；失败或取消不会改动原片。转码期间请勿移动、播放或删除该文件。"
+                    message="只在输出文件更小时覆盖原文件"
+                    description="FFmpeg 会先生成临时文件并比较实际体积；只有输出严格小于原文件才会原子替换，相等或更大将自动丢弃，原片保持不变。转码期间请勿移动、播放或删除该文件。"
                 />
                 {ffmpegUnavailable && (
                     <Alert type="error" showIcon message="服务器未检测到 FFmpeg" description="请安装 FFmpeg 并确保 ffmpeg、ffprobe 可执行文件位于 PATH。" />

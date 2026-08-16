@@ -59,49 +59,43 @@ def _options(**values: Any) -> TranscodingOptions:
 
 TRANSCODING_PRESETS: tuple[TranscodingPreset, ...] = (
     TranscodingPreset(
-        id="balanced_h264",
-        name="H.264 均衡兼容",
-        description="兼顾画质、体积与播放兼容性，适合作为通用默认方案。",
-        category="通用",
-        options=_options(),
+        id="quality_h265",
+        name="H.265 高画质压缩",
+        description="尽量保持原始视觉质量，使用较慢编码换取更小体积；适合日常收藏。",
+        category="画质基本保持",
+        options=_options(video_codec="libx265", crf=20, speed_preset="slow", tune="grain", audio_bitrate_kbps=192),
     ),
     TranscodingPreset(
-        id="quality_h265",
-        name="H.265 高画质收藏",
-        description="更高压缩效率与较慢编码速度，适合长期收藏。",
-        category="高画质",
-        options=_options(video_codec="libx265", crf=18, speed_preset="slow", tune="grain", audio_bitrate_kbps=256),
+        id="archive_av1",
+        name="AV1 高画质压缩",
+        description="尽量保持原始视觉质量并追求更高压缩率；编码耗时较长且需播放器支持 AV1。",
+        category="画质基本保持",
+        options=_options(video_codec="libsvtav1", crf=24, speed_preset="slow", tune=None, audio_bitrate_kbps=160),
     ),
     TranscodingPreset(
         id="compact_h265",
-        name="H.265 节省空间",
-        description="显著降低文件体积，保留适合大多数屏幕的观感。",
-        category="省空间",
+        name="H.265 标准省空间",
+        description="适度降低画质以显著缩小体积，同时保持原分辨率与帧率。",
+        category="降低画质",
         options=_options(video_codec="libx265", crf=26, tune=None, audio_bitrate_kbps=128),
     ),
     TranscodingPreset(
         id="compatible_1080p",
-        name="1080p 设备兼容",
-        description="限制为 1080p、H.264 与双声道 AAC，适合电视和移动设备。",
-        category="设备兼容",
-        options=_options(crf=21, speed_preset="slow", max_height=1080, audio_bitrate_kbps=192, audio_channels=2),
+        name="H.265 1080p 轻量版",
+        description="适度降低画质并限制到 1080p，适合电视、平板和远程播放。",
+        category="降低画质",
+        options=_options(video_codec="libx265", crf=25, tune=None, max_height=1080, audio_bitrate_kbps=128, audio_channels=2),
     ),
     TranscodingPreset(
         id="mobile_720p",
-        name="720p 移动版",
-        description="快速生成适合手机与远程播放的小体积版本。",
-        category="移动播放",
-        options=_options(crf=23, speed_preset="fast", max_height=720, audio_bitrate_kbps=128, audio_channels=2),
-    ),
-    TranscodingPreset(
-        id="archive_av1",
-        name="AV1 极致压缩",
-        description="使用 SVT-AV1 获得更高压缩率，编码耗时较长且需播放器支持 AV1。",
-        category="归档",
-        options=_options(video_codec="libsvtav1", crf=28, speed_preset="slow", tune=None, audio_bitrate_kbps=160),
+        name="H.265 720p 极小版",
+        description="明显降低画质并限制到 720p，优先获得适合手机和远程播放的小体积。",
+        category="降低画质",
+        options=_options(video_codec="libx265", crf=28, speed_preset="fast", tune=None, max_height=720, audio_bitrate_kbps=96, audio_channels=2),
     ),
 )
 PRESETS_BY_ID = {preset.id: preset for preset in TRANSCODING_PRESETS}
+LEGACY_PRESET_ALIASES = {"balanced_h264": "quality_h265"}
 
 
 class TranscodingError(ValueError):
@@ -132,6 +126,10 @@ class TranscodingCancelledError(RuntimeError):
     pass
 
 
+class TranscodingOutputNotSmallerError(RuntimeError):
+    pass
+
+
 def _model_dump(model: Any) -> dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump()
@@ -142,7 +140,8 @@ def resolve_transcoding_options(
     preset_id: str,
     overrides: TranscodingOptionsOverride | None = None,
 ) -> TranscodingOptions:
-    preset = PRESETS_BY_ID.get(str(preset_id or ""))
+    resolved_preset_id = LEGACY_PRESET_ALIASES.get(str(preset_id or ""), str(preset_id or ""))
+    preset = PRESETS_BY_ID.get(resolved_preset_id)
     if preset is None:
         raise TranscodingError("未知的转码预设")
     values = _model_dump(preset.options)
@@ -403,8 +402,9 @@ class TranscodingService:
         if not source_path.is_file():
             raise TranscodingNotFoundError("影视库记录指向的不是普通文件")
 
-        options = resolve_transcoding_options(payload.preset_id, payload.options)
-        preset = PRESETS_BY_ID[payload.preset_id]
+        resolved_preset_id = LEGACY_PRESET_ALIASES.get(payload.preset_id, payload.preset_id)
+        options = resolve_transcoding_options(resolved_preset_id, payload.options)
+        preset = PRESETS_BY_ID[resolved_preset_id]
         now = datetime.datetime.now().isoformat()
         task = TranscodingTask(
             id=uuid.uuid4().hex,
@@ -492,6 +492,7 @@ class TranscodingService:
         encoders = set(result.get("available_encoders") or [])
         result["success"] = True
         result["max_concurrent_tasks"] = self.max_concurrent_tasks
+        result["output_must_be_smaller"] = True
         result["presets"] = [
             {
                 **_model_dump(preset),
@@ -583,6 +584,12 @@ class TranscodingService:
             if not temporary_path.exists() or not temporary_path.is_file() or temporary_path.stat().st_size <= 0:
                 raise RuntimeError("FFmpeg 未生成有效的输出文件")
             output_size = temporary_path.stat().st_size
+            if output_size >= task.input_size:
+                async with self._lock:
+                    current = self._tasks.get(task_id)
+                    if current:
+                        current.output_size = output_size
+                raise TranscodingOutputNotSmallerError("转码结果体积未减小，已丢弃临时文件并保留原文件")
             os.replace(temporary_path, source_path)
             media_info = await self._probe_media(source_path)
             file_stat = source_path.stat()
@@ -611,6 +618,13 @@ class TranscodingService:
                     await self._save_unlocked()
         except TranscodingCancelledError:
             await self._mark_cancelled(task_id, started)
+        except TranscodingOutputNotSmallerError as exc:
+            await self._mark_failed(
+                task_id,
+                self._safe_error(exc),
+                started,
+                stage="未覆盖：输出体积未减小，原文件保持不变",
+            )
         except asyncio.CancelledError:
             if self._shutting_down:
                 await self._mark_failed(task_id, "应用停止，任务中断；原文件保持不变", started)
@@ -646,12 +660,18 @@ class TranscodingService:
                 self._active_sources.discard(self._source_key(Path(task.source_path)))
                 await self._save_unlocked()
 
-    async def _mark_failed(self, task_id: str, error: str, started: float) -> None:
+    async def _mark_failed(
+        self,
+        task_id: str,
+        error: str,
+        started: float,
+        stage: str = "转码失败，原文件保持不变",
+    ) -> None:
         async with self._lock:
             task = self._tasks.get(task_id)
             if task:
                 task.status = "failed"
-                task.stage = "转码失败，原文件保持不变"
+                task.stage = stage
                 task.elapsed_seconds = max(0, int(time.monotonic() - started))
                 task.completed_at = datetime.datetime.now().isoformat()
                 task.error = error

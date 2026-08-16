@@ -53,7 +53,7 @@ class TranscodingPreset(BaseModel):
 class TranscodingTaskCreate(BaseModel):
     movie_id: str
     file_index: int = Field(default=0, ge=0)
-    preset_id: str = "balanced_h264"
+    preset_id: str = "quality_h265"
     options: TranscodingOptionsOverride = Field(default_factory=TranscodingOptionsOverride)
 
 

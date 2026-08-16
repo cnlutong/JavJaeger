@@ -32,7 +32,8 @@ test("transcoding dialog provides presets and professional overrides", () => {
     assert.match(dialog, /audio_codec/);
     assert.match(dialog, /copy_subtitles/);
     assert.match(dialog, /deinterlace/);
-    assert.match(dialog, /覆盖原文件/);
+    assert.match(dialog, /quality_h265/);
+    assert.match(dialog, /只在输出文件更小时覆盖/);
 });
 
 test("transcoding panel polls and manages background tasks", () => {
@@ -43,4 +44,5 @@ test("transcoding panel polls and manages background tasks", () => {
     assert.match(panel, /retry/);
     assert.match(panel, /DELETE/);
     assert.match(panel, /并发上限/);
+    assert.match(panel, /只保留更小的转码结果/);
 });

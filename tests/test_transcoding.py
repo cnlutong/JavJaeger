@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from modules.movies.transcoding import (
+    TRANSCODING_PRESETS,
     TranscodingConflictError,
     TranscodingError,
     TranscodingService,
@@ -75,7 +76,7 @@ def test_professional_options_build_a_shell_free_ffmpeg_command():
 
     assert command[:6] == ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", str(Path("D:/media/input movie.mkv"))]
     assert command[command.index("-c:v") + 1] == "libx265"
-    assert command[command.index("-crf") + 1] == "18"
+    assert command[command.index("-crf") + 1] == "20"
     assert command[command.index("-r") + 1] == "30"
     assert command[command.index("-ac") + 1] == "2"
     assert "yadif" in command[command.index("-vf") + 1]
@@ -84,9 +85,27 @@ def test_professional_options_build_a_shell_free_ffmpeg_command():
     assert command[-1] == str(Path("D:/media/.input movie.javjaeger-task.mkv"))
     with pytest.raises(TranscodingError):
         resolve_transcoding_options(
-            "balanced_h264",
+            "quality_h265",
             TranscodingOptionsOverride(video_codec="libx264; Remove-Item *"),
         )
+
+
+def test_presets_only_offer_smaller_file_strategies():
+    assert [preset.id for preset in TRANSCODING_PRESETS] == [
+        "quality_h265",
+        "archive_av1",
+        "compact_h265",
+        "compatible_1080p",
+        "mobile_720p",
+    ]
+    assert {preset.category for preset in TRANSCODING_PRESETS} == {"画质基本保持", "降低画质"}
+    assert all(preset.options.video_codec in {"libx265", "libsvtav1"} for preset in TRANSCODING_PRESETS)
+    assert all(
+        preset.options.crf >= 25
+        for preset in TRANSCODING_PRESETS
+        if preset.category == "降低画质"
+    )
+    assert resolve_transcoding_options("balanced_h264").video_codec == "libx265"
 
 
 def test_successful_background_task_atomically_replaces_source_and_updates_library(tmp_path: Path):
@@ -109,7 +128,7 @@ def test_successful_background_task_atomically_replaces_source_and_updates_libra
         )
         await service.startup()
         try:
-            created = await service.create_task(TranscodingTaskCreate(movie_id="abc-123", preset_id="balanced_h264"))
+            created = await service.create_task(TranscodingTaskCreate(movie_id="abc-123", preset_id="quality_h265"))
             return await wait_for_terminal(service, created.id)
         finally:
             await service.shutdown()
@@ -165,6 +184,40 @@ def test_unknown_progress_metrics_do_not_fail_transcoding_task(tmp_path: Path):
     assert source.read_bytes() == b"encoded-video"
 
 
+@pytest.mark.parametrize("encoded", [b"same-len", b"larger-output"])
+def test_output_that_is_not_smaller_never_replaces_source(tmp_path: Path, encoded: bytes):
+    source = tmp_path / "SIZE-001.mp4"
+    source.write_bytes(b"original")
+    library = FakeLibraryService({"SIZE-001": source})
+
+    async def non_reducing_executor(task, source_path, temporary_path, progress, cancel_event):
+        temporary_path.write_bytes(encoded)
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=non_reducing_executor,
+            require_binaries=False,
+        )
+        await service.startup()
+        try:
+            created = await service.create_task(TranscodingTaskCreate(movie_id="SIZE-001"))
+            return await wait_for_terminal(service, created.id)
+        finally:
+            await service.shutdown()
+
+    task = asyncio.run(exercise())
+
+    assert task.status == "failed"
+    assert "未覆盖" in task.stage
+    assert "体积未减小" in task.error
+    assert task.output_size == len(encoded)
+    assert source.read_bytes() == b"original"
+    assert library.updates == []
+    assert not list(tmp_path.glob(".*.javjaeger-*.mp4"))
+
+
 def test_failed_transcode_keeps_original_and_removes_partial_output(tmp_path: Path):
     source = tmp_path / "FAIL-001.mp4"
     source.write_bytes(b"keep-me")
@@ -200,8 +253,8 @@ def test_failed_transcode_keeps_original_and_removes_partial_output(tmp_path: Pa
 def test_distinct_movies_can_transcode_concurrently_and_same_source_is_rejected(tmp_path: Path):
     first_source = tmp_path / "ONE-001.mkv"
     second_source = tmp_path / "TWO-002.mkv"
-    first_source.write_bytes(b"one")
-    second_source.write_bytes(b"two")
+    first_source.write_bytes(b"one" * 20)
+    second_source.write_bytes(b"two" * 20)
     library = FakeLibraryService({"ONE-001": first_source, "TWO-002": second_source})
     both_running = asyncio.Event()
     release = asyncio.Event()

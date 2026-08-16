@@ -229,7 +229,7 @@ export default function TranscodingPage() {
             <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
                 <div>
                     <Title level={3} style={{ marginBottom: 4 }}><VideoCameraOutlined /> 转码面板</Title>
-                    <Text type="secondary">管理多任务 FFmpeg 转码；成功后安全覆盖影视库原文件。</Text>
+                    <Text type="secondary">管理多任务 FFmpeg 转码；只保留更小的转码结果，视觉质量与省空间可按预设选择。</Text>
                 </div>
                 <Space wrap>
                     <Tag color="blue">并发上限 {payload.max_concurrent_tasks || capabilities?.max_concurrent_tasks || 0}</Tag>
@@ -242,6 +242,9 @@ export default function TranscodingPage() {
             )}
             {capabilities?.ffmpeg_available && !capabilities.ffprobe_available && (
                 <Alert type="warning" showIcon message="ffprobe 不可用" description="任务仍可执行，但进度百分比、剩余时间和完成后的媒体信息可能不完整。" />
+            )}
+            {capabilities?.output_must_be_smaller && (
+                <Alert type="success" showIcon message="体积保护已启用" description="转码结果必须严格小于原文件才会覆盖；相等或更大时自动保留原片。" />
             )}
 
             <Row gutter={[16, 16]}>
