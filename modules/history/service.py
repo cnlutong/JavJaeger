@@ -910,6 +910,48 @@ class LocalMovieLibraryService:
                 await self._save_locked()
             return changed
 
+    async def update_file_after_transcode(self, movie_id: str, path: str, media_info: dict[str, Any]) -> bool:
+        """Refresh the indexed file facts after an atomic in-place transcode."""
+        await self.load_records()
+        normalized = str(movie_id or "").strip().upper()
+        normalized_path = os.path.normcase(os.path.abspath(str(path or "")))
+        if not normalized or not normalized_path:
+            return False
+
+        allowed_fields = {
+            "width",
+            "height",
+            "resolution_pixels",
+            "bitrate",
+            "codec",
+            "container",
+            "duration_seconds",
+            "size",
+            "modified_at",
+        }
+        async with self._lock:
+            record = self._cache.get(normalized)
+            if not record:
+                return False
+            target = next(
+                (
+                    file_record
+                    for file_record in record.get("files", [])
+                    if os.path.normcase(os.path.abspath(str(file_record.get("path") or ""))) == normalized_path
+                ),
+                None,
+            )
+            if target is None:
+                return False
+            for key in allowed_fields:
+                value = media_info.get(key)
+                if value not in (None, ""):
+                    target[key] = value
+            now = datetime.datetime.now().isoformat()
+            self._refresh_record_totals(record, now)
+            await self._save_locked()
+            return True
+
     async def clean_file_records(
         self,
         invalid_paths_by_movie: dict[str, list[str]],

@@ -96,5 +96,8 @@
     "directories": [],
     "ignored_paths": [],
     "actor_image_directory": "data/actor_images"
+  },
+  "transcoding": {
+    "max_concurrent_tasks": 2
   }
 }

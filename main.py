@@ -14,6 +14,7 @@ from modules.javbus_api import javbus_api_service
 from modules.javbus_api.router import router as javbus_api_router
 from modules.magnets.router import router as magnets_router
 from modules.movies.router import router as movies_router
+from modules.movies.transcoding import transcoding_service
 from modules.pan115.router import router as pan115_router
 from modules.pikpak.router import router as pikpak_router
 from modules.proxy.router import router as proxy_router
@@ -87,6 +88,7 @@ async def startup_event():
     await javbus_api_service.startup()
     await download_history_service.load_records()
     await automation_service.startup()
+    await transcoding_service.startup()
     logger.info("JavJaeger 应用启动完成")
 
 
@@ -94,6 +96,7 @@ async def startup_event():
 async def shutdown_event():
     await javbus_api_service.shutdown()
     await automation_service.shutdown()
+    await transcoding_service.shutdown()
     await webdav_session_store.close_all()
 
 

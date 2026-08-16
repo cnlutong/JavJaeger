@@ -16,7 +16,7 @@
 ### 0. 部署前检查
 
 1. 确认当前目录是仓库根目录，并已拉取目标版本。
-2. 备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json`、`data/automation_tasks.json` 和 `actor_images/`。
+2. 备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json`、`data/automation_tasks.json`、`data/transcoding_tasks.json` 和 `actor_images/`。
 3. 确认宿主机 `./data` 目录存在且对 Docker 进程可写。
 4. 准备强随机 `APP_SESSION_SECRET`，不要使用示例值。
 5. 确认配置文件路径使用可写持久化路径：`JAVJAEGER_CONFIG_PATH=/app/data/config.json`。
@@ -53,6 +53,8 @@ services:
 ```
 
 然后在影视库页面的“路径配置”里保存 `/media/jav1` 和 `/media/jav2`。演员头像始终写入 `/app/actor_images`，不会落到任一媒体数据源路径里；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到这里，并删除同番号、同大小且内容完全相同的重复视频文件。如果有缓存、样品图或整理临时目录，可以在忽略路径里填写容器内绝对路径，例如 `/media/jav1/cache`，也可以填写相对扫描根目录的 `cache`。每个路径会作为独立 `scan_root` 记录，后续只重扫其中一个路径时不会清理另一个路径的索引。
+
+影视库转码会在媒体文件所在目录创建临时输出并在成功后原子覆盖源文件，因此媒体 volume 必须可写。`transcoding.max_concurrent_tasks` 默认是 `2`；请结合 CPU/GPU、内存和磁盘吞吐设置为 1–8，修改后重启容器。
 
 硬性要求：
 
@@ -208,6 +210,9 @@ volumes:
     "directories": ["/media/jav1", "/media/jav2"],
     "ignored_paths": ["cache", "/media/jav1/sample"],
     "actor_image_directory": "/app/actor_images"
+  },
+  "transcoding": {
+    "max_concurrent_tasks": 2
   }
 }
 ```
@@ -302,6 +307,7 @@ volumes:
 
 - 构建镜像时会自动生成 `static/app.js`
 - 容器内自带 `ffprobe`，本地刮削可以比较冲突视频的分辨率和码率
+- 容器内自带 `ffmpeg`，影视库可以执行后台转码并安全覆盖源文件
 - 即使宿主机没有提前执行 `npm run build:frontend`，容器镜像也能完成前端打包
 - 如果你修改了 `frontend/src/`，重新执行 `docker-compose up -d --build` 即可
 

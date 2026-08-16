@@ -82,6 +82,8 @@ Use this as the source-of-truth ownership map.
   - scraped local movie metadata and full-text persistence
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
+  - persisted background FFmpeg transcoding tasks
+  - safe in-place replacement of indexed local movie files
 - `modules/magnets/`
   - magnet lookup and selection policy
 - `modules/pikpak/`

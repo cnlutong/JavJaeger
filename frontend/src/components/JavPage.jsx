@@ -4,6 +4,7 @@ import DownloadManagementPage from "./DownloadManagementPage.jsx";
 import LocalLibraryPage from "./LocalLibraryPage.jsx";
 import SettingsPage from "./SettingsPage.jsx";
 import AutomationPage from "./AutomationPage.jsx";
+import TranscodingPage from "./TranscodingPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
 import { buildHistoryRedispatchPayload } from "../utils/historyRedispatch.mjs";
 import { buildMagnetDataMapFromResults } from "../utils/magnets.mjs";
@@ -1735,8 +1736,9 @@ export default function JavPage() {
     const renderStandalonePage = (page) => {
         const pageContent = {
             localScrape: <LocalScrapePage />,
-            localLibrary: <LocalLibraryPage />,
+            localLibrary: <LocalLibraryPage onOpenTranscoding={() => setActivePage('transcoding')} />,
             automation: <AutomationPage />,
+            transcoding: <TranscodingPage />,
             settings: <SettingsPage />,
             webdav: <WebDavPage onOpenDownloadManagement={() => setActivePage('downloadManagement')} />,
             downloadManagement: <DownloadManagementPage />,
@@ -1803,6 +1805,7 @@ export default function JavPage() {
                                     { label: '刮削', value: 'localScrape' },
                                     { label: '影视库', value: 'localLibrary' },
                                     { label: '自动模式', value: 'automation' },
+                                    { label: '转码', value: 'transcoding' },
                                     { label: '网盘管理', value: 'webdav' },
                                     { label: '下载管理', value: 'downloadManagement' },
                                     { label: '设置', value: 'settings' }

@@ -1,4 +1,5 @@
 import DirectoryInput from "./DirectoryInput.jsx";
+import TranscodingDialog from "./TranscodingDialog.jsx";
 import { matchesVrFilter } from "../utils/localLibraryFilters.mjs";
 
 const React = window.React;
@@ -46,6 +47,7 @@ const {
     SunOutlined,
     UnorderedListOutlined,
     UserOutlined,
+    VideoCameraOutlined,
 } = icons;
 const antTheme = antd.theme || {};
 
@@ -548,7 +550,7 @@ const ActorLibraryAvatar = ({ actor }) => {
     );
 };
 
-export default function LocalLibraryPage() {
+export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
     const [library, setLibrary] = React.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
     const [actorLibrary, setActorLibrary] = React.useState({ actors: [], total_actors: 0 });
     const [informationCheck, setInformationCheck] = React.useState(null);
@@ -562,6 +564,8 @@ export default function LocalLibraryPage() {
     const [savingLibrarySettings, setSavingLibrarySettings] = React.useState(false);
     const [deletingMovieId, setDeletingMovieId] = React.useState("");
     const [deletingMovieFilesId, setDeletingMovieFilesId] = React.useState("");
+    const [transcodingTarget, setTranscodingTarget] = React.useState(null);
+    const [transcodingFileIndex, setTranscodingFileIndex] = React.useState(0);
     const [filterOpen, setFilterOpen] = React.useState(false);
     const [scanOpen, setScanOpen] = React.useState(false);
     const [scanResult, setScanResult] = React.useState(null);
@@ -1247,6 +1251,28 @@ export default function LocalLibraryPage() {
         }
     };
 
+    const openTranscodingDialog = (record, fileIndex = 0, event) => {
+        event?.stopPropagation?.();
+        const files = Array.isArray(record?.files) ? record.files : [];
+        if (!record?.movie_id || files.length === 0) {
+            message.warning("该影片没有可转码的本地文件");
+            return;
+        }
+        setTranscodingTarget(record);
+        setTranscodingFileIndex(Math.max(0, Math.min(fileIndex, files.length - 1)));
+    };
+
+    const renderTranscodingDialog = () => (
+        <TranscodingDialog
+            open={Boolean(transcodingTarget)}
+            record={transcodingTarget}
+            initialFileIndex={transcodingFileIndex}
+            onClose={() => setTranscodingTarget(null)}
+            onStarted={() => loadLibrary()}
+            onOpenPanel={onOpenTranscoding}
+        />
+    );
+
     const handleDownloadMissingInformation = async (values = {}) => {
         setDownloadingInformation(true);
         try {
@@ -1534,6 +1560,13 @@ export default function LocalLibraryPage() {
                         </Button>
                         <Space>
                             <Button
+                                icon={<Icon as={VideoCameraOutlined} />}
+                                disabled={!hasPlayableFile}
+                                onClick={(event) => openTranscodingDialog(selectedRecord, selectedPlayFileIndex, event)}
+                            >
+                                转码
+                            </Button>
+                            <Button
                                 type="primary"
                                 icon={<Icon as={PlayCircleOutlined} />}
                                 disabled={!hasPlayableFile}
@@ -1630,6 +1663,13 @@ export default function LocalLibraryPage() {
                                             onClick={() => handlePlaySelectedRecord(fileIndex)}
                                         >
                                             播放
+                                        </Button>
+                                        <Button
+                                            size="small"
+                                            icon={<Icon as={VideoCameraOutlined} />}
+                                            onClick={(event) => openTranscodingDialog(selectedRecord, fileIndex, event)}
+                                        >
+                                            转码
                                         </Button>
                                     </div>
                                     <Text type="secondary" ellipsis={{ tooltip: file.path }}>
@@ -2011,9 +2051,16 @@ export default function LocalLibraryPage() {
         {
             title: "操作",
             key: "actions",
-            width: 180,
+            width: 260,
             render: (_, record) => (
                 <Space size={4} wrap>
+                    <Button
+                        size="small"
+                        icon={<Icon as={VideoCameraOutlined} />}
+                        onClick={(event) => openTranscodingDialog(record, 0, event)}
+                    >
+                        转码
+                    </Button>
                     <Popconfirm
                         title={`从影视库移除 ${record.movie_id}？`}
                         description="只删除数据库记录，不删除本地视频文件。"
@@ -2084,6 +2131,7 @@ export default function LocalLibraryPage() {
                         </section>
                     </div>
                 </div>
+                {renderTranscodingDialog()}
             </ConfigProvider>
         );
     }
@@ -2094,6 +2142,7 @@ export default function LocalLibraryPage() {
                 <div className={`jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}`}>
                     {renderImmersiveView()}
                 </div>
+                {renderTranscodingDialog()}
             </ConfigProvider>
         );
     }
@@ -2326,6 +2375,14 @@ export default function LocalLibraryPage() {
                                             {record.date && <Text type="secondary">{String(record.date).slice(0, 4)}</Text>}
                                         </div>
                                         {renderMediaTags(primaryMediaInfo(record))}
+                                        <Button
+                                            size="small"
+                                            icon={<Icon as={VideoCameraOutlined} />}
+                                            onClick={(event) => openTranscodingDialog(record, 0, event)}
+                                            style={{ marginTop: 8 }}
+                                        >
+                                            转码
+                                        </Button>
                                         <Popconfirm
                                             title={`从影视库移除 ${record.movie_id}？`}
                                             description="只删除数据库记录，不删除本地视频文件。"
@@ -2746,6 +2803,7 @@ export default function LocalLibraryPage() {
                 </section>
             </div>
         </div>
+        {renderTranscodingDialog()}
         </ConfigProvider>
     );
 }

@@ -34,6 +34,8 @@ from .schemas import (
     MovieRecognitionRequest,
 )
 from .metadata_scrapers import apply_metadata_scraper_test_results, test_metadata_scraper_providers
+from .transcoding import TranscodingError, transcoding_service
+from .transcoding_schemas import TranscodingTaskCreate
 from .service import (
     get_all_movies_payload,
     get_movie_detail,
@@ -52,6 +54,13 @@ from .workflows import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["movies"])
+
+
+def _transcoding_http_error(exc: TranscodingError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"error": exc.code, "message": exc.message},
+    )
 
 
 @router.get("/api/movies")
@@ -245,6 +254,56 @@ async def delete_local_movie_library_movie(movie_id: str):
     except Exception as exc:
         logger.error("Local library movie delete failed: %s", exc)
         return {"success": False, "error": "library_movie_delete_failed", "message": "删除影视库影片失败"}
+
+
+@router.get("/api/movies/transcoding/presets")
+async def get_transcoding_presets():
+    return await transcoding_service.get_presets_and_capabilities()
+
+
+@router.get("/api/movies/transcoding/tasks")
+async def list_transcoding_tasks():
+    return await transcoding_service.list_tasks()
+
+
+@router.post("/api/movies/transcoding/tasks", status_code=202)
+async def create_transcoding_task(request: TranscodingTaskCreate):
+    try:
+        return await transcoding_service.create_task(request)
+    except TranscodingError as exc:
+        raise _transcoding_http_error(exc) from exc
+
+
+@router.get("/api/movies/transcoding/tasks/{task_id}")
+async def get_transcoding_task(task_id: str):
+    try:
+        return await transcoding_service.get_task(task_id)
+    except TranscodingError as exc:
+        raise _transcoding_http_error(exc) from exc
+
+
+@router.post("/api/movies/transcoding/tasks/{task_id}/cancel")
+async def cancel_transcoding_task(task_id: str):
+    try:
+        return await transcoding_service.cancel_task(task_id)
+    except TranscodingError as exc:
+        raise _transcoding_http_error(exc) from exc
+
+
+@router.post("/api/movies/transcoding/tasks/{task_id}/retry", status_code=202)
+async def retry_transcoding_task(task_id: str):
+    try:
+        return await transcoding_service.retry_task(task_id)
+    except TranscodingError as exc:
+        raise _transcoding_http_error(exc) from exc
+
+
+@router.delete("/api/movies/transcoding/tasks/{task_id}")
+async def delete_transcoding_task(task_id: str):
+    try:
+        return await transcoding_service.delete_task(task_id)
+    except TranscodingError as exc:
+        raise _transcoding_http_error(exc) from exc
 
 
 @router.post("/api/movies/local-scrape/preview/jobs")

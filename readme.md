@@ -1,6 +1,6 @@
 # JavJaeger
 
-JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。它把影片发现、元数据检索、磁力选择、PikPak/115 离线下载、WebDAV 浏览、Aria2 派发、本地影片库和自动化任务串在一个 FastAPI + React 应用里。
+JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。它把影片发现、元数据检索、磁力选择、PikPak/115 离线下载、WebDAV 浏览、Aria2 派发、本地影片库、后台转码和自动化任务串在一个 FastAPI + React 应用里。
 
 项目当前的工程约束是 Harness Engineering 和严格 TDD：有行为变化就先补可执行测试或等价验证，再改实现。仓库边界、模块归属和安全规则以 [AGENTS.md](AGENTS.md) 为准。
 
@@ -12,6 +12,7 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 - 将磁力任务派发到 PikPak、115 网盘或 Aria2。
 - 在网盘管理中浏览 WebDAV、115 网盘目录和服务端本地文件夹，并把 WebDAV 文件或目录批量发送给 Aria2。
 - 维护本地影片库和下载历史；本地影片库用于判断本机已有影片，下载历史记录已尝试的资源链接及来源，以避免反复派发失效链接。
+- 从影视库按文件启动后台 FFmpeg 转码，使用常用预设或专业参数调节编码、质量、分辨率、帧率、音频、字幕与元数据保留策略，并管理多个并发任务。
 - 通过自动模式保存发现、筛选、磁力选择和下载派发流程，并按计划执行。
 - 在设置页热更新 JavBus 访问参数。
 
@@ -22,7 +23,7 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 | 后端 | Python 3.11+、FastAPI、Uvicorn |
 | 前端 | React 18、Ant Design、esbuild |
 | 数据 | `data/` 下的本地 JSON 状态文件 |
-| 下载 | PikPak API、115 扫码/Cookie 离线下载、WebDAV、Aria2 JSON-RPC |
+| 下载与媒体 | PikPak API、115 扫码/Cookie 离线下载、WebDAV、Aria2 JSON-RPC、FFmpeg/ffprobe |
 | 部署 | Docker、docker compose、可选 Nginx 反向代理 |
 
 ## 快速开始
@@ -184,6 +185,9 @@ Copy-Item config.example.json config.json
     "directories": ["/app/data"],
     "ignored_paths": [],
     "actor_image_directory": "data/actor_images"
+  },
+  "transcoding": {
+    "max_concurrent_tasks": 2
   }
 }
 ```
@@ -198,6 +202,7 @@ Copy-Item config.example.json config.json
 - `magnet_health.enabled` 会在最佳磁力派发前按阈值剔除低健康度候选；`probe_with_aria2` 启用后会使用已配置 Aria2 做 metadata-only 探测并自动清理探测任务。
 - `local_library.directories` 和 `local_library.ignored_paths` 会由影视库页面的“路径配置”保存；Docker 中必须填写容器内可见路径。
 - `local_library.actor_image_directory` 保存演员头像；Docker 默认用 `JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images` 指向单独挂载目录。
+- `transcoding.max_concurrent_tasks` 控制同时运行的 FFmpeg 进程数，范围为 1–8，修改后重启应用生效；其余任务保持排队状态。
 - `/api/client-config` 只返回前端需要的脱敏默认值，不返回密码和 RPC secret。
 
 `scrapers.priority` 控制本地刮削的元数据 provider 顺序。配置结构参考 javinizer-go 的多 scraper 设计；当前 JavJaeger 已接入全部内置 provider：JavBus、R18.dev、DMM、LibreDMM、JAVLibrary、JavDB、JAV321、MGStage、TokyoHot、AVEntertainment、DLGetchu、Caribbeancom、FC2 和 JavStash。默认启用本环境实测可用的 JavBus、LibreDMM、JAV321、TokyoHot、DLGetchu 和 FC2；JavStash 需要配置 `api_key`，部分站点仍可能因地区、Cloudflare 或年龄验证拦截而在运行时不可达。
@@ -251,6 +256,7 @@ volumes:
 | `data/local_actor_library.json` | 本地演员信息库索引 |
 | `data/actor_images/` 或 Docker 默认 `/app/actor_images/` | 本地演员头像文件，独立于影视库扫描路径 |
 | `data/automation_tasks.json` | 自动化任务和运行记录 |
+| `data/transcoding_tasks.json` | 转码任务、参数、进度与运行结果；不包含媒体内容 |
 | `data/config.json` | Docker 默认可写运行配置 |
 
 Docker compose 默认挂载：
@@ -295,6 +301,14 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 扫描导入时会读取视频旁的同名 `.nfo`，用其中的番号、标题、演员、标签、片商、系列、封面和媒体流信息重建影视库索引；JavJaeger 新写出的 NFO 还包含完整规范化元数据，可无损恢复演员引用、样片、列表缩略图和刮削源原始字段。旧版或第三方 NFO 会继续按标准 XML 字段兼容导入。只有显式启用在线刮削时，在线结果才会覆盖这些 NFO 元数据。
 影片操作区同时提供“移除”和“彻底删除”：移除只清理影视库及演员关联记录，保留硬盘文件；彻底删除会永久删除该记录登记的视频、同名 NFO/封面/缩略图/字幕以及 NFO 引用的影片目录内资料文件，再清理影视库及演员关联记录。目录级图片或样片仍被同目录其他影片共享时会保留；任何登记路径超出原 `scan_root`，或扫描目录当前不可访问时，后端都会拒绝物理删除并保留记录。
 历史记录页可核对下载历史中的影片是否已经进入本地影片库；未入库记录会保留旧资源链接作为“已尝试”链接，并可一键自动重新选择可替换磁力后派发到当前下载工具。
+
+### 影视库转码
+
+1. 在影视库的列表、卡片或影片详情中点击“转码”；多文件影片可以在菜单中指定文件。
+2. 选择 H.264/H.265/AV1、1080p 兼容、720p 移动版等常用预设，也可以展开专业参数调整编码器、CRF/平均码率、速度、分辨率、帧率、像素格式、音频、字幕、章节和反交错。
+3. 启动后任务进入后台队列。顶栏“转码”面板会显示进度、速度、预计剩余时间和输出大小，并支持取消、失败重试、详情查看与清理历史记录。
+
+转码只允许选择影视库已经索引的本地文件，接口不接受任意服务器路径。同一个源文件同时只能有一个活动任务，不同文件可以并发处理。FFmpeg 始终先在源文件同目录写入临时文件；只有进程成功退出且输出非空时才通过原子替换覆盖原文件，失败或取消会删除临时输出并保留原片。任务完成后会用 ffprobe 刷新影视库中的大小、分辨率、码率、编码、封装格式和时长。
 
 ### 自动模式
 
@@ -344,6 +358,13 @@ GET    /api/movies/local-library/poster/{movie_id}
 GET    /api/movies/local-library/thumbnail/{movie_id}
 GET    /api/movies/local-library/{movie_id}/play
 GET    /api/movies/local-library/{movie_id}
+GET    /api/movies/transcoding/presets
+GET    /api/movies/transcoding/tasks
+POST   /api/movies/transcoding/tasks
+GET    /api/movies/transcoding/tasks/{task_id}
+POST   /api/movies/transcoding/tasks/{task_id}/cancel
+POST   /api/movies/transcoding/tasks/{task_id}/retry
+DELETE /api/movies/transcoding/tasks/{task_id}
 POST   /api/movies/local-scrape/preview
 POST   /api/movies/local-scrape/delete
 POST   /api/movies/local-scrape/apply

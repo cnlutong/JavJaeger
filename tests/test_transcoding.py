@@ -1,0 +1,253 @@
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from modules.movies.transcoding import (
+    TranscodingConflictError,
+    TranscodingError,
+    TranscodingService,
+    build_ffmpeg_command,
+    resolve_transcoding_options,
+)
+from modules.movies.transcoding_schemas import TranscodingOptionsOverride, TranscodingTaskCreate
+
+
+class FakeLibraryService:
+    def __init__(self, files_by_movie: dict[str, Path]):
+        self.files_by_movie = files_by_movie
+        self.updates: list[tuple[str, str, dict]] = []
+
+    async def get_status(self, movie_id: str):
+        source = self.files_by_movie.get(movie_id.upper())
+        return {
+            "success": True,
+            "in_local_library": source is not None,
+            "record": {
+                "movie_id": movie_id.upper(),
+                "files": [
+                    {
+                        "path": str(source),
+                        "scan_root": str(source.parent),
+                        "file_name": source.name,
+                        "size": source.stat().st_size,
+                    }
+                ],
+            }
+            if source
+            else None,
+        }
+
+    async def update_file_after_transcode(self, movie_id: str, path: str, media_info: dict):
+        self.updates.append((movie_id, path, media_info))
+        return True
+
+
+async def wait_for_terminal(service: TranscodingService, task_id: str, timeout: float = 2.0):
+    async def poll():
+        while True:
+            task = await service.get_task(task_id)
+            if task.status in {"completed", "failed", "cancelled"}:
+                return task
+            await asyncio.sleep(0.01)
+
+    return await asyncio.wait_for(poll(), timeout=timeout)
+
+
+def test_professional_options_build_a_shell_free_ffmpeg_command():
+    options = resolve_transcoding_options(
+        "quality_h265",
+        TranscodingOptionsOverride(
+            max_height=1080,
+            frame_rate=30,
+            audio_channels=2,
+            deinterlace=True,
+            copy_subtitles=False,
+        ),
+    )
+
+    command = build_ffmpeg_command(
+        Path("D:/media/input movie.mkv"),
+        Path("D:/media/.input movie.javjaeger-task.mkv"),
+        options,
+        ffmpeg_path="ffmpeg",
+    )
+
+    assert command[:6] == ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", str(Path("D:/media/input movie.mkv"))]
+    assert command[command.index("-c:v") + 1] == "libx265"
+    assert command[command.index("-crf") + 1] == "18"
+    assert command[command.index("-r") + 1] == "30"
+    assert command[command.index("-ac") + 1] == "2"
+    assert "yadif" in command[command.index("-vf") + 1]
+    assert "scale=-2:min(1080\\,ih)" in command[command.index("-vf") + 1]
+    assert "0:s?" not in command
+    assert command[-1] == str(Path("D:/media/.input movie.javjaeger-task.mkv"))
+    with pytest.raises(TranscodingError):
+        resolve_transcoding_options(
+            "balanced_h264",
+            TranscodingOptionsOverride(video_codec="libx264; Remove-Item *"),
+        )
+
+
+def test_successful_background_task_atomically_replaces_source_and_updates_library(tmp_path: Path):
+    source = tmp_path / "ABC-123.mkv"
+    source.write_bytes(b"original-video")
+    library = FakeLibraryService({"ABC-123": source})
+
+    async def successful_executor(task, source_path, temporary_path, progress, cancel_event):
+        assert source_path.read_bytes() == b"original-video"
+        await progress({"progress": 42.5, "speed": "1.7x", "output_size": 8})
+        temporary_path.write_bytes(b"encoded-video")
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=successful_executor,
+            max_concurrent_tasks=2,
+            require_binaries=False,
+        )
+        await service.startup()
+        try:
+            created = await service.create_task(TranscodingTaskCreate(movie_id="abc-123", preset_id="balanced_h264"))
+            return await wait_for_terminal(service, created.id)
+        finally:
+            await service.shutdown()
+
+    task = asyncio.run(exercise())
+
+    assert task.status == "completed"
+    assert task.progress == 100
+    assert task.input_size == len(b"original-video")
+    assert task.output_size == len(b"encoded-video")
+    assert source.read_bytes() == b"encoded-video"
+    assert library.updates[0][0] == "ABC-123"
+    assert library.updates[0][1] == str(source.resolve())
+    assert not list(tmp_path.glob(".*.javjaeger-*.mkv"))
+
+
+def test_failed_transcode_keeps_original_and_removes_partial_output(tmp_path: Path):
+    source = tmp_path / "FAIL-001.mp4"
+    source.write_bytes(b"keep-me")
+    library = FakeLibraryService({"FAIL-001": source})
+
+    async def failing_executor(task, source_path, temporary_path, progress, cancel_event):
+        temporary_path.write_bytes(b"partial")
+        raise RuntimeError("encoder failed")
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=failing_executor,
+            require_binaries=False,
+        )
+        await service.startup()
+        try:
+            created = await service.create_task(TranscodingTaskCreate(movie_id="FAIL-001"))
+            return await wait_for_terminal(service, created.id)
+        finally:
+            await service.shutdown()
+
+    task = asyncio.run(exercise())
+
+    assert task.status == "failed"
+    assert "encoder failed" in task.error
+    assert source.read_bytes() == b"keep-me"
+    assert library.updates == []
+    assert not list(tmp_path.glob(".*.javjaeger-*.mp4"))
+
+
+def test_distinct_movies_can_transcode_concurrently_and_same_source_is_rejected(tmp_path: Path):
+    first_source = tmp_path / "ONE-001.mkv"
+    second_source = tmp_path / "TWO-002.mkv"
+    first_source.write_bytes(b"one")
+    second_source.write_bytes(b"two")
+    library = FakeLibraryService({"ONE-001": first_source, "TWO-002": second_source})
+    both_running = asyncio.Event()
+    release = asyncio.Event()
+    running = 0
+
+    async def blocking_executor(task, source_path, temporary_path, progress, cancel_event):
+        nonlocal running
+        running += 1
+        if running == 2:
+            both_running.set()
+        await release.wait()
+        temporary_path.write_bytes(f"encoded-{task.movie_id}".encode())
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=blocking_executor,
+            max_concurrent_tasks=2,
+            require_binaries=False,
+        )
+        await service.startup()
+        try:
+            first = await service.create_task(TranscodingTaskCreate(movie_id="ONE-001"))
+            with pytest.raises(TranscodingConflictError):
+                await service.create_task(TranscodingTaskCreate(movie_id="ONE-001"))
+            second = await service.create_task(TranscodingTaskCreate(movie_id="TWO-002"))
+            await asyncio.wait_for(both_running.wait(), timeout=1)
+            assert (await service.get_task(first.id)).status == "running"
+            assert (await service.get_task(second.id)).status == "running"
+            release.set()
+            return await asyncio.gather(
+                wait_for_terminal(service, first.id),
+                wait_for_terminal(service, second.id),
+            )
+        finally:
+            release.set()
+            await service.shutdown()
+
+    first_result, second_result = asyncio.run(exercise())
+
+    assert first_result.status == "completed"
+    assert second_result.status == "completed"
+
+
+def test_running_task_can_be_cancelled_without_replacing_source(tmp_path: Path):
+    source = tmp_path / "STOP-001.mkv"
+    source.write_bytes(b"original")
+    library = FakeLibraryService({"STOP-001": source})
+    executor_started = asyncio.Event()
+
+    async def cancellable_executor(task, source_path, temporary_path, progress, cancel_event):
+        temporary_path.write_bytes(b"partial-output")
+        executor_started.set()
+        await cancel_event.wait()
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=cancellable_executor,
+            require_binaries=False,
+        )
+        await service.startup()
+        try:
+            created = await service.create_task(TranscodingTaskCreate(movie_id="STOP-001"))
+            await asyncio.wait_for(executor_started.wait(), timeout=1)
+            cancellation = await service.cancel_task(created.id)
+            result = await wait_for_terminal(service, created.id)
+            return cancellation, result
+        finally:
+            await service.shutdown()
+
+    cancellation, result = asyncio.run(exercise())
+    assert cancellation.cancel_requested is True
+    assert result.status == "cancelled"
+    assert source.read_bytes() == b"original"
+    assert not list(tmp_path.glob(".*.javjaeger-*.mkv"))
+
+
+def test_main_registers_transcoding_routes_before_proxy():
+    from main import app
+
+    paths = [getattr(route, "path", "") for route in app.routes]
+    assert "/api/movies/transcoding/presets" in paths
+    assert "/api/movies/transcoding/tasks" in paths
+    assert "/api/movies/transcoding/tasks/{task_id}/cancel" in paths
+    assert paths.index("/api/movies/transcoding/tasks") < paths.index("/api/{path:path}")

@@ -115,6 +115,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "ignored_paths": [],
         "actor_image_directory": DEFAULT_ACTOR_IMAGE_DIRECTORY,
     },
+    "transcoding": {
+        "max_concurrent_tasks": 2,
+    },
 }
 
 CONFIG_PATH = os.getenv("JAVJAEGER_CONFIG_PATH", "config.json")
@@ -282,6 +285,10 @@ def get_magnet_health_config() -> dict[str, Any]:
 
 def get_local_library_config() -> dict[str, Any]:
     return copy.deepcopy(config.get("local_library", DEFAULT_CONFIG["local_library"]))
+
+
+def get_transcoding_config() -> dict[str, Any]:
+    return copy.deepcopy(config.get("transcoding", DEFAULT_CONFIG["transcoding"]))
 
 
 def get_actor_image_directory() -> str:
