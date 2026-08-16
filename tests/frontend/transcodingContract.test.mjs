@@ -34,6 +34,9 @@ test("transcoding dialog provides presets and professional overrides", () => {
     assert.match(dialog, /deinterlace/);
     assert.match(dialog, /quality_h265/);
     assert.match(dialog, /只在输出文件更小时覆盖/);
+    assert.match(dialog, /gpu_available/);
+    assert.match(dialog, /GPU 硬件编码/);
+    assert.match(dialog, /未检测到可用 GPU/);
 });
 
 test("transcoding panel polls and manages background tasks", () => {
@@ -45,4 +48,8 @@ test("transcoding panel polls and manages background tasks", () => {
     assert.match(panel, /DELETE/);
     assert.match(panel, /并发上限/);
     assert.match(panel, /只保留更小的转码结果/);
+    assert.match(panel, /GPU 转码已启用/);
+    assert.match(panel, /hardware_acceleration_required/);
+    assert.match(panel, /selected_gpu/);
+    assert.match(panel, /hardware_backend/);
 });

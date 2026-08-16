@@ -67,6 +67,10 @@ class TranscodingTask(BaseModel):
     preset_id: str
     preset_name: str
     options: TranscodingOptions
+    gpu_name: str = ""
+    gpu_vendor: str = ""
+    hardware_backend: str = ""
+    hardware_device: str = ""
     status: TranscodingStatus = "queued"
     progress: float = 0.0
     stage: str = "等待执行"

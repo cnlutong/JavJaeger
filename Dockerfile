@@ -25,6 +25,10 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
+    intel-media-va-driver \
+    mesa-va-drivers \
+    pciutils \
+    vainfo \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./

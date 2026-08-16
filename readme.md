@@ -12,7 +12,7 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 - 将磁力任务派发到 PikPak、115 网盘或 Aria2。
 - 在网盘管理中浏览 WebDAV、115 网盘目录和服务端本地文件夹，并把 WebDAV 文件或目录批量发送给 Aria2。
 - 维护本地影片库和下载历史；本地影片库用于判断本机已有影片，下载历史记录已尝试的资源链接及来源，以避免反复派发失效链接。
-- 从影视库按文件启动后台 FFmpeg 转码，使用常用预设或专业参数调节编码、质量、分辨率、帧率、音频、字幕与元数据保留策略，并管理多个并发任务。
+- 从影视库按文件启动后台 FFmpeg GPU 转码，自动识别 NVIDIA、Intel、AMD 或 Apple 硬件编码能力，使用常用预设或专业参数调节质量、分辨率、帧率、音频、字幕与元数据保留策略，并管理多个并发任务。
 - 通过自动模式保存发现、筛选、磁力选择和下载派发流程，并按计划执行。
 - 在设置页热更新 JavBus 访问参数。
 
@@ -23,7 +23,7 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 | 后端 | Python 3.11+、FastAPI、Uvicorn |
 | 前端 | React 18、Ant Design、esbuild |
 | 数据 | `data/` 下的本地 JSON 状态文件 |
-| 下载与媒体 | PikPak API、115 扫码/Cookie 离线下载、WebDAV、Aria2 JSON-RPC、FFmpeg/ffprobe |
+| 下载与媒体 | PikPak API、115 扫码/Cookie 离线下载、WebDAV、Aria2 JSON-RPC、FFmpeg/ffprobe、NVENC/QSV/VAAPI/AMF/VideoToolbox |
 | 部署 | Docker、docker compose、可选 Nginx 反向代理 |
 
 ## 快速开始
@@ -202,7 +202,7 @@ Copy-Item config.example.json config.json
 - `magnet_health.enabled` 会在最佳磁力派发前按阈值剔除低健康度候选；`probe_with_aria2` 启用后会使用已配置 Aria2 做 metadata-only 探测并自动清理探测任务。
 - `local_library.directories` 和 `local_library.ignored_paths` 会由影视库页面的“路径配置”保存；Docker 中必须填写容器内可见路径。
 - `local_library.actor_image_directory` 保存演员头像；Docker 默认用 `JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images` 指向单独挂载目录。
-- `transcoding.max_concurrent_tasks` 控制同时运行的 FFmpeg 进程数，范围为 1–8，修改后重启应用生效；其余任务保持排队状态。
+- `transcoding.max_concurrent_tasks` 控制同时运行的 GPU FFmpeg 进程数，范围为 1–8，修改后重启应用生效；其余任务保持排队状态。新任务只使用通过实际硬件探针的编码器，未检测到 GPU 时不会回退到 CPU。
 - `/api/client-config` 只返回前端需要的脱敏默认值，不返回密码和 RPC secret。
 
 `scrapers.priority` 控制本地刮削的元数据 provider 顺序。配置结构参考 javinizer-go 的多 scraper 设计；当前 JavJaeger 已接入全部内置 provider：JavBus、R18.dev、DMM、LibreDMM、JAVLibrary、JavDB、JAV321、MGStage、TokyoHot、AVEntertainment、DLGetchu、Caribbeancom、FC2 和 JavStash。默认启用本环境实测可用的 JavBus、LibreDMM、JAV321、TokyoHot、DLGetchu 和 FC2；JavStash 需要配置 `api_key`，部分站点仍可能因地区、Cloudflare 或年龄验证拦截而在运行时不可达。
@@ -305,10 +305,10 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 ### 影视库转码
 
 1. 在影视库的列表、卡片或影片详情中点击“转码”；多文件影片可以在菜单中指定文件。
-2. 选择“画质基本保持”或“降低画质”两类省空间预设；内置预设只使用压缩效率更高的 H.265/AV1，并提供保持原分辨率、1080p 和 720p 等档位。也可以展开专业参数调整编码器、CRF/平均码率、速度、分辨率、帧率、像素格式、音频、字幕、章节和反交错。
+2. 系统会自动检测 GPU 型号，并对 FFmpeg 硬件编码器执行短时真实探针。选择“画质基本保持”或“降低画质”两类省空间预设；预设会自动绑定到当前 GPU 支持的 H.265/AV1 编码器，不支持的格式会禁用。也可以展开专业参数调整实际 GPU 编码器、恒定质量/平均码率、速度、分辨率、帧率、像素格式、音频、字幕、章节和反交错。
 3. 启动后任务进入后台队列。顶栏“转码”面板会显示进度、速度、预计剩余时间和输出大小，并支持取消、失败重试、详情查看与清理历史记录。
 
-转码只允许选择影视库已经索引的本地文件，接口不接受任意服务器路径。同一个源文件同时只能有一个活动任务，不同文件可以并发处理。FFmpeg 始终先在源文件同目录写入临时文件；只有进程成功退出、输出有效且实际体积严格小于原文件时才通过原子替换覆盖。输出相等或更大、失败或取消都会删除临时输出并保留原片。任务完成后会用 ffprobe 刷新影视库中的大小、分辨率、码率、编码、封装格式和时长。
+转码只允许选择影视库已经索引的本地文件，接口不接受任意服务器路径。同一个源文件同时只能有一个活动任务，不同文件可以并发处理。视频编码强制使用已通过硬件探针的 GPU 编码器；GPU 不可用或所选格式不受支持时任务会被拒绝，不会静默使用 CPU。FFmpeg 始终先在源文件同目录写入临时文件；只有进程成功退出、输出有效且实际体积严格小于原文件时才通过原子替换覆盖。输出相等或更大、失败或取消都会删除临时输出并保留原片。任务完成后会用 ffprobe 刷新影视库中的大小、分辨率、码率、编码、封装格式和时长。
 
 ### 自动模式
 

@@ -24,12 +24,20 @@ const { VideoCameraOutlined, SettingOutlined, ThunderboltOutlined } = icons;
 const { Text, Title } = Typography;
 
 const VIDEO_CODEC_LABELS = {
-    libx264: "H.264 / x264（高兼容）",
-    libx265: "H.265 / x265（高压缩）",
-    libsvtav1: "AV1 / SVT-AV1（极致压缩）",
     h264_nvenc: "H.264 / NVIDIA NVENC",
     hevc_nvenc: "H.265 / NVIDIA NVENC",
     av1_nvenc: "AV1 / NVIDIA NVENC",
+    h264_qsv: "H.264 / Intel Quick Sync",
+    hevc_qsv: "H.265 / Intel Quick Sync",
+    av1_qsv: "AV1 / Intel Quick Sync",
+    h264_vaapi: "H.264 / VAAPI",
+    hevc_vaapi: "H.265 / VAAPI",
+    av1_vaapi: "AV1 / VAAPI",
+    h264_amf: "H.264 / AMD AMF",
+    hevc_amf: "H.265 / AMD AMF",
+    av1_amf: "AV1 / AMD AMF",
+    h264_videotoolbox: "H.264 / Apple VideoToolbox",
+    hevc_videotoolbox: "H.265 / Apple VideoToolbox",
 };
 const AUDIO_CODEC_LABELS = {
     aac: "AAC",
@@ -95,7 +103,8 @@ export default function TranscodingDialog({
                 }
                 if (!active) return;
                 setCapabilities(payload);
-                const defaultPreset = payload.presets?.find((item) => item.id === "quality_h265") || payload.presets?.[0];
+                const defaultPreset = payload.presets?.find((item) => item.id === "quality_h265" && item.available !== false)
+                    || payload.presets?.find((item) => item.available !== false);
                 form.resetFields();
                 form.setFieldsValue({ file_index: initialFileIndex, preset_id: defaultPreset?.id });
                 if (defaultPreset) {
@@ -143,6 +152,11 @@ export default function TranscodingDialog({
 
     const selectedPreset = capabilities?.presets?.find((item) => item.id === selectedPresetId);
     const ffmpegUnavailable = capabilities && !capabilities.ffmpeg_available;
+    const gpuUnavailable = capabilities?.hardware_acceleration_required && !capabilities?.gpu_available;
+    const selectedGpu = capabilities?.selected_gpu;
+    const gpuDescription = selectedGpu
+        ? `${selectedGpu.name} · ${String(selectedGpu.backend || "GPU").toUpperCase()} · ${(selectedGpu.encoders || []).join("、")}`
+        : "";
 
     return (
         <Modal
@@ -170,6 +184,22 @@ export default function TranscodingDialog({
                 {ffmpegUnavailable && (
                     <Alert type="error" showIcon message="服务器未检测到 FFmpeg" description="请安装 FFmpeg 并确保 ffmpeg、ffprobe 可执行文件位于 PATH。" />
                 )}
+                {capabilities?.gpu_available && (
+                    <Alert
+                        type="success"
+                        showIcon
+                        message="GPU 硬件编码已启用"
+                        description={`${gpuDescription}。视频编码只使用已通过实际硬件探针的 GPU 编码器，不会回退到 CPU。`}
+                    />
+                )}
+                {gpuUnavailable && (
+                    <Alert
+                        type="error"
+                        showIcon
+                        message="未检测到可用 GPU"
+                        description={`${capabilities?.gpu_error || "GPU 硬件编码会话创建失败"}。为避免占用 CPU，当前禁止启动转码任务。`}
+                    />
+                )}
 
                 <Form form={form} layout="vertical" onFinish={handleSubmit}>
                     <Row gutter={16}>
@@ -191,7 +221,7 @@ export default function TranscodingDialog({
                                     options={(capabilities?.presets || []).map((preset) => ({
                                         value: preset.id,
                                         disabled: preset.available === false,
-                                        label: `${preset.name}${preset.available === false ? "（编码器不可用）" : ""}`,
+                                        label: `${preset.name}${preset.available === false ? `（${preset.unavailable_reason || "GPU 编码器不可用"}）` : ""}`,
                                     }))}
                                 />
                             </Form.Item>
@@ -226,9 +256,7 @@ export default function TranscodingDialog({
                                                         disabled: codec.available === false,
                                                     }))}
                                                     onChange={(value) => {
-                                                        if (!["libx264", "libx265"].includes(value) || (value === "libx265" && form.getFieldValue("tune") === "film")) {
-                                                            form.setFieldValue("tune", undefined);
-                                                        }
+                                                        form.setFieldValue("tune", undefined);
                                                     }}
                                                 />
                                             </Form.Item>
@@ -240,7 +268,7 @@ export default function TranscodingDialog({
                                         </Col>
                                         <Col xs={24} md={8}>
                                             <Form.Item name="quality_mode" label="质量控制" rules={[{ required: true }]}>
-                                                <Select options={[{ value: "crf", label: "恒定质量 CRF" }, { value: "bitrate", label: "平均码率" }]} />
+                                                <Select options={[{ value: "crf", label: "恒定质量（GPU QP/CQ）" }, { value: "bitrate", label: "平均码率" }]} />
                                             </Form.Item>
                                         </Col>
                                         <Col xs={24} md={8}>
@@ -249,7 +277,7 @@ export default function TranscodingDialog({
                                                     <InputNumber min={100} max={200000} step={500} style={{ width: "100%" }} />
                                                 </Form.Item>
                                             ) : (
-                                                <Form.Item name="crf" label="CRF（越低画质越高）" rules={[{ required: true }]}>
+                                                <Form.Item name="crf" label="质量值（越低画质越高）" rules={[{ required: true }]}>
                                                     <InputNumber min={0} max={51} style={{ width: "100%" }} />
                                                 </Form.Item>
                                             )}
@@ -283,7 +311,7 @@ export default function TranscodingDialog({
                                         </Col>
                                         <Col xs={24} md={8}>
                                             <Form.Item name="tune" label="内容调优">
-                                                <Select allowClear placeholder="不指定" options={[
+                                                <Select disabled allowClear placeholder="GPU 编码由驱动自动调优" options={[
                                                     { value: "film", label: "真人影片" },
                                                     { value: "animation", label: "动画" },
                                                     { value: "grain", label: "保留胶片颗粒" },
@@ -353,7 +381,7 @@ export default function TranscodingDialog({
                         <Button type="link" onClick={() => { onClose?.(); onOpenPanel?.(); }}>打开转码面板</Button>
                         <Space>
                             <Button onClick={onClose}>取消</Button>
-                            <Button type="primary" htmlType="submit" icon={<VideoCameraOutlined />} loading={submitting} disabled={ffmpegUnavailable}>
+                            <Button type="primary" htmlType="submit" icon={<VideoCameraOutlined />} loading={submitting} disabled={ffmpegUnavailable || gpuUnavailable}>
                                 启动后台转码
                             </Button>
                         </Space>

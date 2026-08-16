@@ -136,6 +136,10 @@ export default function TranscodingPage() {
     }, [tasks, filter]);
     const counts = payload.counts || {};
     const activeCount = (counts.queued || 0) + (counts.running || 0);
+    const selectedGpu = capabilities?.selected_gpu;
+    const gpuSummary = selectedGpu
+        ? `${selectedGpu.name} · ${String(selectedGpu.backend || "GPU").toUpperCase()} · ${(selectedGpu.encoders || []).join("、")}`
+        : "";
 
     const columns = [
         {
@@ -156,7 +160,8 @@ export default function TranscodingPage() {
             render: (value, task) => (
                 <Space direction="vertical" size={2}>
                     <Text>{value}</Text>
-                    <Text type="secondary">{task.options?.video_codec} · {task.options?.quality_mode === "crf" ? `CRF ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`}</Text>
+                    <Text type="secondary">{task.options?.video_codec} · {task.options?.quality_mode === "crf" ? `质量 ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`}</Text>
+                    {task.gpu_name ? <Tag color="purple">{task.gpu_name}</Tag> : null}
                 </Space>
             ),
         },
@@ -243,6 +248,22 @@ export default function TranscodingPage() {
             {capabilities?.ffmpeg_available && !capabilities.ffprobe_available && (
                 <Alert type="warning" showIcon message="ffprobe 不可用" description="任务仍可执行，但进度百分比、剩余时间和完成后的媒体信息可能不完整。" />
             )}
+            {capabilities?.hardware_acceleration_required && capabilities?.gpu_available && (
+                <Alert
+                    type="success"
+                    showIcon
+                    message="GPU 转码已启用"
+                    description={`${gpuSummary}。系统已完成真实硬件编码探针，所有新任务只使用 GPU 视频编码，不会回退到 CPU。`}
+                />
+            )}
+            {capabilities?.hardware_acceleration_required && !capabilities?.gpu_available && (
+                <Alert
+                    type="error"
+                    showIcon
+                    message="GPU 转码不可用"
+                    description={`${capabilities?.gpu_error || "未检测到可用 GPU 硬件编码器"}。为避免 CPU 转码，新任务已被禁用。`}
+                />
+            )}
             {capabilities?.output_must_be_smaller && (
                 <Alert type="success" showIcon message="体积保护已启用" description="转码结果必须严格小于原文件才会覆盖；相等或更大时自动保留原片。" />
             )}
@@ -279,8 +300,13 @@ export default function TranscodingPage() {
                 <Row gutter={[12, 12]}>
                     {(capabilities?.presets || []).map((preset) => (
                         <Col xs={24} sm={12} lg={8} key={preset.id}>
-                            <Card size="small" title={preset.name} extra={<Tag color={preset.available ? "success" : "error"}>{preset.available ? preset.category : "编码器不可用"}</Tag>}>
-                                <Text type="secondary">{preset.description}</Text>
+                            <Card size="small" title={preset.name} extra={<Tag color={preset.available ? "success" : "error"}>{preset.available ? preset.category : "GPU 不支持"}</Tag>}>
+                                <Space direction="vertical" size={4}>
+                                    <Text type="secondary">{preset.description}</Text>
+                                    {preset.available
+                                        ? <Text type="secondary">实际编码器：{preset.options?.video_codec}</Text>
+                                        : <Text type="danger">{preset.unavailable_reason || "当前 GPU 不支持该编码格式"}</Text>}
+                                </Space>
                             </Card>
                         </Col>
                     ))}
@@ -298,7 +324,8 @@ export default function TranscodingPage() {
                             <Descriptions.Item label="文件"><Text copyable>{selectedTask.source_path}</Text></Descriptions.Item>
                             <Descriptions.Item label="状态"><Tag color={STATUS_META[selectedTask.status]?.color}>{STATUS_META[selectedTask.status]?.label}</Tag> {selectedTask.stage}</Descriptions.Item>
                             <Descriptions.Item label="预设">{selectedTask.preset_name}</Descriptions.Item>
-                            <Descriptions.Item label="视频">{selectedTask.options?.video_codec} · {selectedTask.options?.quality_mode === "crf" ? `CRF ${selectedTask.options?.crf}` : `${selectedTask.options?.video_bitrate_kbps} kbps`} · {selectedTask.options?.speed_preset}</Descriptions.Item>
+                            <Descriptions.Item label="GPU">{selectedTask.gpu_name || "-"} · {selectedTask.hardware_backend || "-"} · {selectedTask.hardware_device || "自动"}</Descriptions.Item>
+                            <Descriptions.Item label="视频">{selectedTask.options?.video_codec} · {selectedTask.options?.quality_mode === "crf" ? `质量 ${selectedTask.options?.crf}` : `${selectedTask.options?.video_bitrate_kbps} kbps`} · {selectedTask.options?.speed_preset}</Descriptions.Item>
                             <Descriptions.Item label="画面">{selectedTask.options?.max_height ? `${selectedTask.options.max_height}p 上限` : "原分辨率"} · {selectedTask.options?.frame_rate ? `${selectedTask.options.frame_rate} FPS` : "原帧率"} · {selectedTask.options?.pixel_format}</Descriptions.Item>
                             <Descriptions.Item label="音频">{selectedTask.options?.audio_codec} · {selectedTask.options?.audio_bitrate_kbps ? `${selectedTask.options.audio_bitrate_kbps} kbps` : "原码率"} · {selectedTask.options?.audio_channels ? `${selectedTask.options.audio_channels} 声道` : "原声道"}</Descriptions.Item>
                             <Descriptions.Item label="流保留">字幕 {selectedTask.options?.copy_subtitles ? "保留" : "丢弃"} · 元数据 {selectedTask.options?.copy_metadata ? "保留" : "丢弃"}</Descriptions.Item>

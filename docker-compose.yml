@@ -29,3 +29,6 @@ services:
       # Shared actor avatar directory
       - ./actor_images:/app/actor_images
       # If you override JAVJAEGER_CONFIG_PATH, keep that path writable for the Settings page.
+    # Linux Intel/AMD GPU 转码需要把 DRM 设备映射到容器；按部署环境取消下面两行注释。
+    # devices:
+    #   - /dev/dri:/dev/dri

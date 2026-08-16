@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from pathlib import Path
 
 import pytest
@@ -8,10 +9,36 @@ from modules.movies.transcoding import (
     TranscodingConflictError,
     TranscodingError,
     TranscodingService,
+    TranscodingUnavailableError,
     build_ffmpeg_command,
     resolve_transcoding_options,
 )
-from modules.movies.transcoding_schemas import TranscodingOptionsOverride, TranscodingTaskCreate
+from modules.movies.transcoding_schemas import TranscodingOptions, TranscodingOptionsOverride, TranscodingTaskCreate
+
+
+AMD_GPU_CAPABILITIES = {
+    "ffmpeg_available": True,
+    "ffprobe_available": True,
+    "hardware_acceleration_required": True,
+    "gpu_available": True,
+    "available_encoders": ["h264_vaapi", "hevc_vaapi"],
+    "selected_gpu": {
+        "name": "AMD Barcelo",
+        "vendor": "AMD",
+        "backend": "vaapi",
+        "device": "/dev/dri/renderD128",
+        "encoders": ["h264_vaapi", "hevc_vaapi"],
+    },
+    "gpus": [
+        {
+            "name": "AMD Barcelo",
+            "vendor": "AMD",
+            "backend": "vaapi",
+            "device": "/dev/dri/renderD128",
+            "encoders": ["h264_vaapi", "hevc_vaapi"],
+        }
+    ],
+}
 
 
 class FakeLibraryService:
@@ -56,7 +83,7 @@ async def wait_for_terminal(service: TranscodingService, task_id: str, timeout: 
 
 
 def test_professional_options_build_a_shell_free_ffmpeg_command():
-    options = resolve_transcoding_options(
+    requested_options = resolve_transcoding_options(
         "quality_h265",
         TranscodingOptionsOverride(
             max_height=1080,
@@ -66,22 +93,41 @@ def test_professional_options_build_a_shell_free_ffmpeg_command():
             copy_subtitles=False,
         ),
     )
+    option_values = requested_options.model_dump() if hasattr(requested_options, "model_dump") else requested_options.dict()
+    option_values["video_codec"] = "hevc_vaapi"
+    options = TranscodingOptions(**option_values)
 
     command = build_ffmpeg_command(
         Path("D:/media/input movie.mkv"),
         Path("D:/media/.input movie.javjaeger-task.mkv"),
         options,
         ffmpeg_path="ffmpeg",
+        hardware_backend="vaapi",
+        hardware_device="/dev/dri/renderD128",
     )
 
-    assert command[:6] == ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-i", str(Path("D:/media/input movie.mkv"))]
-    assert command[command.index("-c:v") + 1] == "libx265"
-    assert command[command.index("-crf") + 1] == "20"
+    assert command[:8] == [
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-y",
+        "-vaapi_device",
+        "/dev/dri/renderD128",
+        "-i",
+        str(Path("D:/media/input movie.mkv")),
+    ]
+    assert command[command.index("-c:v") + 1] == "hevc_vaapi"
+    assert command[command.index("-rc_mode") + 1] == "CQP"
+    assert command[command.index("-qp") + 1] == "20"
+    assert "-preset" not in command
     assert command[command.index("-r") + 1] == "30"
     assert command[command.index("-ac") + 1] == "2"
     assert "yadif" in command[command.index("-vf") + 1]
     assert "scale=-2:min(1080\\,ih)" in command[command.index("-vf") + 1]
+    assert "format=nv12" in command[command.index("-vf") + 1]
+    assert "hwupload" in command[command.index("-vf") + 1]
     assert "0:s?" not in command
+    assert "libx265" not in command
     assert command[-1] == str(Path("D:/media/.input movie.javjaeger-task.mkv"))
     with pytest.raises(TranscodingError):
         resolve_transcoding_options(
@@ -99,13 +145,105 @@ def test_presets_only_offer_smaller_file_strategies():
         "mobile_720p",
     ]
     assert {preset.category for preset in TRANSCODING_PRESETS} == {"画质基本保持", "降低画质"}
-    assert all(preset.options.video_codec in {"libx265", "libsvtav1"} for preset in TRANSCODING_PRESETS)
+    assert all(preset.options.video_codec in {"hevc_auto", "av1_auto"} for preset in TRANSCODING_PRESETS)
     assert all(
         preset.options.crf >= 25
         for preset in TRANSCODING_PRESETS
         if preset.category == "降低画质"
     )
-    assert resolve_transcoding_options("balanced_h264").video_codec == "libx265"
+    assert resolve_transcoding_options("balanced_h264").video_codec == "hevc_auto"
+    assert resolve_transcoding_options(
+        "quality_h265",
+        TranscodingOptionsOverride(video_codec="libx265"),
+    ).video_codec == "hevc_auto"
+
+
+def test_capabilities_resolve_presets_to_smoke_tested_gpu_encoders(tmp_path: Path):
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            capability_detector=lambda: AMD_GPU_CAPABILITIES,
+        )
+        return await service.get_presets_and_capabilities()
+
+    capabilities = asyncio.run(exercise())
+    presets = {preset["id"]: preset for preset in capabilities["presets"]}
+
+    assert capabilities["hardware_acceleration_required"] is True
+    assert capabilities["gpu_available"] is True
+    assert capabilities["selected_gpu"]["name"] == "AMD Barcelo"
+    assert presets["quality_h265"]["available"] is True
+    assert presets["quality_h265"]["options"]["video_codec"] == "hevc_vaapi"
+    assert presets["archive_av1"]["available"] is False
+    assert "AV1" in presets["archive_av1"]["unavailable_reason"]
+    assert [codec["value"] for codec in capabilities["video_codecs"]] == ["h264_vaapi", "hevc_vaapi"]
+
+
+def test_background_task_is_bound_to_detected_gpu_and_never_cpu_encoder(tmp_path: Path):
+    source = tmp_path / "GPU-001.mkv"
+    source.write_bytes(b"original-video")
+    library = FakeLibraryService({"GPU-001": source})
+
+    async def successful_executor(task, source_path, temporary_path, progress, cancel_event):
+        assert task.options.video_codec == "hevc_vaapi"
+        assert task.hardware_backend == "vaapi"
+        assert task.hardware_device == "/dev/dri/renderD128"
+        temporary_path.write_bytes(b"gpu-video")
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=successful_executor,
+            ffmpeg_path=sys.executable,
+            capability_detector=lambda: AMD_GPU_CAPABILITIES,
+        )
+        await service.startup()
+        try:
+            created = await service.create_task(TranscodingTaskCreate(movie_id="GPU-001"))
+            return await wait_for_terminal(service, created.id)
+        finally:
+            await service.shutdown()
+
+    task = asyncio.run(exercise())
+
+    assert task.status == "completed"
+    assert task.options.video_codec == "hevc_vaapi"
+    assert task.gpu_name == "AMD Barcelo"
+    assert task.hardware_backend == "vaapi"
+    assert source.read_bytes() == b"gpu-video"
+
+
+def test_new_task_is_rejected_instead_of_falling_back_to_cpu_when_gpu_is_unavailable(tmp_path: Path):
+    source = tmp_path / "GPU-FAIL-001.mkv"
+    source.write_bytes(b"original-video")
+    library = FakeLibraryService({"GPU-FAIL-001": source})
+    no_gpu = {
+        "ffmpeg_available": True,
+        "ffprobe_available": True,
+        "hardware_acceleration_required": True,
+        "gpu_available": False,
+        "available_encoders": [],
+        "selected_gpu": None,
+        "gpus": [],
+    }
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=lambda *args: None,
+            ffmpeg_path=sys.executable,
+            capability_detector=lambda: no_gpu,
+        )
+        await service.startup()
+        try:
+            with pytest.raises(TranscodingUnavailableError, match="GPU"):
+                await service.create_task(TranscodingTaskCreate(movie_id="GPU-FAIL-001"))
+        finally:
+            await service.shutdown()
+
+    asyncio.run(exercise())
 
 
 def test_successful_background_task_atomically_replaces_source_and_updates_library(tmp_path: Path):
