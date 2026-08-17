@@ -137,6 +137,8 @@ def test_professional_options_build_a_shell_free_ffmpeg_command():
 
 
 def test_presets_only_offer_smaller_file_strategies():
+    presets = {preset.id: preset for preset in TRANSCODING_PRESETS}
+
     assert [preset.id for preset in TRANSCODING_PRESETS] == [
         "quality_h265",
         "archive_av1",
@@ -146,11 +148,10 @@ def test_presets_only_offer_smaller_file_strategies():
     ]
     assert {preset.category for preset in TRANSCODING_PRESETS} == {"画质基本保持", "降低画质"}
     assert all(preset.options.video_codec in {"hevc_auto", "av1_auto"} for preset in TRANSCODING_PRESETS)
-    assert all(
-        preset.options.crf >= 25
-        for preset in TRANSCODING_PRESETS
-        if preset.category == "降低画质"
-    )
+    assert presets["quality_h265"].options.crf == 20
+    assert presets["compact_h265"].options.crf == 22
+    assert presets["compatible_1080p"].options.crf == 25
+    assert presets["mobile_720p"].options.crf == 28
     assert resolve_transcoding_options("balanced_h264").video_codec == "hevc_auto"
     assert resolve_transcoding_options(
         "quality_h265",

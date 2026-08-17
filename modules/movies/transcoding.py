@@ -104,9 +104,9 @@ TRANSCODING_PRESETS: tuple[TranscodingPreset, ...] = (
     TranscodingPreset(
         id="compact_h265",
         name="H.265 标准省空间",
-        description="适度降低画质以显著缩小体积，同时保持原分辨率与帧率。",
+        description="以接近原片的观感换取适度体积缩减，减少复杂场景中的细节损失；保持原分辨率与帧率。",
         category="降低画质",
-        options=_options(video_codec="hevc_auto", crf=26, tune=None, audio_bitrate_kbps=128),
+        options=_options(video_codec="hevc_auto", crf=22, tune=None, audio_bitrate_kbps=128),
     ),
     TranscodingPreset(
         id="compatible_1080p",
