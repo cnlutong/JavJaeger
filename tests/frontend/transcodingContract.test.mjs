@@ -49,9 +49,10 @@ test("transcoding panel polls and manages background tasks", () => {
     assert.match(panel, /DELETE/);
     assert.match(panel, /并发上限/);
     assert.match(panel, /只保留更小的转码结果/);
-    assert.match(panel, /GPU 转码已启用/);
+    assert.doesNotMatch(panel, /GPU 转码已启用/);
+    assert.doesNotMatch(panel, /体积保护已启用/);
+    assert.match(panel, /GPU 转码不可用/);
     assert.match(panel, /hardware_acceleration_required/);
-    assert.match(panel, /selected_gpu/);
     assert.match(panel, /hardware_backend/);
 });
 

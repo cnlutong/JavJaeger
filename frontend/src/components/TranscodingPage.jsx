@@ -136,10 +136,6 @@ export default function TranscodingPage() {
     }, [tasks, filter]);
     const counts = payload.counts || {};
     const activeCount = (counts.queued || 0) + (counts.running || 0);
-    const selectedGpu = capabilities?.selected_gpu;
-    const gpuSummary = selectedGpu
-        ? `${selectedGpu.name} · ${String(selectedGpu.backend || "GPU").toUpperCase()} · ${(selectedGpu.encoders || []).join("、")}`
-        : "";
 
     const columns = [
         {
@@ -276,14 +272,6 @@ export default function TranscodingPage() {
             {capabilities?.ffmpeg_available && !capabilities.ffprobe_available && (
                 <Alert type="warning" showIcon message="ffprobe 不可用" description="任务仍可执行，但进度百分比、剩余时间和完成后的媒体信息可能不完整。" />
             )}
-            {capabilities?.hardware_acceleration_required && capabilities?.gpu_available && (
-                <Alert
-                    type="success"
-                    showIcon
-                    message="GPU 转码已启用"
-                    description={`${gpuSummary}。系统已完成真实硬件编码探针，所有新任务只使用 GPU 视频编码，不会回退到 CPU。`}
-                />
-            )}
             {capabilities?.hardware_acceleration_required && !capabilities?.gpu_available && (
                 <Alert
                     type="error"
@@ -291,9 +279,6 @@ export default function TranscodingPage() {
                     message="GPU 转码不可用"
                     description={`${capabilities?.gpu_error || "未检测到可用 GPU 硬件编码器"}。为避免 CPU 转码，新任务已被禁用。`}
                 />
-            )}
-            {capabilities?.output_must_be_smaller && (
-                <Alert type="success" showIcon message="体积保护已启用" description="转码结果必须严格小于原文件才会覆盖；相等或更大时自动保留原片。" />
             )}
 
             <Row gutter={[16, 16]}>
