@@ -3918,7 +3918,6 @@ ${record.full_text || ""}`.toLowerCase();
       setSelectedRecord(record);
       setPlayingRecordKey("");
       setSelectedPlayFileIndex(0);
-      window.scrollTo({ top: 0, behavior: "smooth" });
     };
     const closeRecordPreview = () => {
       setSelectedRecord(null);
@@ -4710,10 +4709,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         ))
       }
     ];
-    if (selectedRecord) {
+    const renderRecordPreviewOverlay = () => {
+      if (!selectedRecord) {
+        return null;
+      }
       const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
       const previewBackdropStyle = previewBackdropSource ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` } : void 0;
-      return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement(
+      return /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement(
         "div",
         {
           className: "jav-library-preview-backdrop",
@@ -4731,10 +4733,10 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           },
           renderRecordPreview()
         )
-      )), renderTranscodingDialog());
-    }
+      ));
+    };
     if (isDarkMode) {
-      return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()), renderTranscodingDialog());
+      return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()), renderRecordPreviewOverlay(), renderTranscodingDialog());
     }
     return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React6.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React6.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar-row is-primary" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React6.createElement(
       Input5,
@@ -5157,7 +5159,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       },
       /* @__PURE__ */ React6.createElement("div", { className: "jav-library-filter-help" }, /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, "\u540C\u4E00\u5B57\u6BB5\u5185\u4E3A\u201C\u4EFB\u4E00\u5339\u914D\u201D\uFF0C\u4E0D\u540C\u5B57\u6BB5\u4E4B\u95F4\u4E3A\u201C\u540C\u65F6\u6EE1\u8DB3\u201D\u3002")),
       /* @__PURE__ */ React6.createElement("div", { className: "jav-library-filters" }, filterBlock("\u6807\u7B7E", "genres"), filterBlock("\u6F14\u5458", "stars"), filterBlock("\u5236\u4F5C\u5546", "studios"), filterBlock("\u53D1\u884C\u5546", "publishers"), filterBlock("\u7CFB\u5217", "series"), filterBlock("\u5E74\u4EFD", "years"), filterBlock("\u626B\u63CF\u76EE\u5F55", "roots"))
-    )))), renderTranscodingDialog());
+    )))), renderRecordPreviewOverlay(), renderTranscodingDialog());
   }
 
   // frontend/src/components/SettingsPage.jsx

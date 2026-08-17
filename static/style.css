@@ -4661,7 +4661,9 @@ body:has(.jav-app),
 }
 
 .jav-library-page.is-previewing {
-    min-height: 100vh;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
     padding: 0;
     background: #2f2f2f;
 }
@@ -4674,7 +4676,7 @@ body:has(.jav-app),
     padding: 0;
     background: #2f2f2f;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     overflow: auto;
     cursor: zoom-out;

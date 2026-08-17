@@ -14,6 +14,21 @@ test("local library records open an immersive preview page", () => {
     assert.match(localLibraryPage, /className=\{`jav-library-preview \$\{previewRatioClass\}`\}/);
 });
 
+test("local library preview keeps the underlying page mounted", () => {
+    assert.match(localLibraryPage, /const renderRecordPreviewOverlay = \(\) =>/);
+    assert.match(localLibraryPage, /if \(!selectedRecord\) \{[\s\S]*?return null;[\s\S]*?\}/);
+    assert.equal((localLibraryPage.match(/\{renderRecordPreviewOverlay\(\)\}/g) || []).length, 2);
+    assert.doesNotMatch(localLibraryPage, /if \(selectedRecord\) \{/);
+
+    const openPreviewBlock = localLibraryPage.match(/const openRecordPreview = \(record\) => \{[\s\S]*?\n    \};/)?.[0] || "";
+    assert.doesNotMatch(openPreviewBlock, /scrollTo|scrollTop|scrollY/);
+});
+
+test("local library preview keeps return controls reachable for long details", () => {
+    const previewBackdropRule = css.match(/\.jav-library-preview-backdrop\s*\{[^}]*\}/)?.[0] || "";
+    assert.match(previewBackdropRule, /align-items:\s*flex-start;/);
+});
+
 test("local library preview uses enlarged poster and right-side details", () => {
     assert.match(localLibraryPage, /className="jav-library-preview-poster"/);
     assert.match(localLibraryPage, /className="jav-library-preview-details"/);

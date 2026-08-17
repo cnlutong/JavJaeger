@@ -1029,7 +1029,6 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
         setSelectedRecord(record);
         setPlayingRecordKey("");
         setSelectedPlayFileIndex(0);
-        window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
     const closeRecordPreview = () => {
@@ -2107,34 +2106,34 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
         },
     ];
 
-    if (selectedRecord) {
+    const renderRecordPreviewOverlay = () => {
+        if (!selectedRecord) {
+            return null;
+        }
         const previewBackdropSource = posterSource(selectedRecord) || thumbnailSource(selectedRecord);
         const previewBackdropStyle = previewBackdropSource
             ? { "--jav-library-preview-backdrop": `url("${previewBackdropSource.replace(/"/g, '\\"')}")` }
             : undefined;
         return (
-            <ConfigProvider theme={libraryThemeConfig}>
-                <div className={`jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}`}>
-                    <div
-                        className="jav-library-preview-backdrop"
-                        style={previewBackdropStyle}
-                        onClick={closeRecordPreview}
+            <div className={`jav-local-scrape jav-library-page is-previewing ${isDarkMode ? "is-dark" : ""}`}>
+                <div
+                    className="jav-library-preview-backdrop"
+                    style={previewBackdropStyle}
+                    onClick={closeRecordPreview}
+                >
+                    <section
+                        className="jav-local-results jav-library-results jav-library-preview-surface"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="影片沉浸式预览"
+                        onClick={(event) => event.stopPropagation()}
                     >
-                        <section
-                            className="jav-local-results jav-library-results jav-library-preview-surface"
-                            role="dialog"
-                            aria-modal="true"
-                            aria-label="影片沉浸式预览"
-                            onClick={(event) => event.stopPropagation()}
-                        >
-                            {renderRecordPreview()}
-                        </section>
-                    </div>
+                        {renderRecordPreview()}
+                    </section>
                 </div>
-                {renderTranscodingDialog()}
-            </ConfigProvider>
+            </div>
         );
-    }
+    };
 
     if (isDarkMode) {
         return (
@@ -2142,6 +2141,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
                 <div className={`jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}`}>
                     {renderImmersiveView()}
                 </div>
+                {renderRecordPreviewOverlay()}
                 {renderTranscodingDialog()}
             </ConfigProvider>
         );
@@ -2803,6 +2803,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
                 </section>
             </div>
         </div>
+        {renderRecordPreviewOverlay()}
         {renderTranscodingDialog()}
         </ConfigProvider>
     );
