@@ -6,6 +6,7 @@ const javPage = fs.readFileSync("frontend/src/components/JavPage.jsx", "utf8");
 const libraryPage = fs.readFileSync("frontend/src/components/LocalLibraryPage.jsx", "utf8");
 const panel = fs.readFileSync("frontend/src/components/TranscodingPage.jsx", "utf8");
 const dialog = fs.readFileSync("frontend/src/components/TranscodingDialog.jsx", "utf8");
+const styles = fs.readFileSync("static/style.css", "utf8");
 
 test("top navigation exposes the transcoding task panel", () => {
     assert.match(javPage, /import TranscodingPage from "\.\/TranscodingPage\.jsx"/);
@@ -52,4 +53,17 @@ test("transcoding panel polls and manages background tasks", () => {
     assert.match(panel, /hardware_acceleration_required/);
     assert.match(panel, /selected_gpu/);
     assert.match(panel, /hardware_backend/);
+});
+
+test("transcoding task rows contain long titles and GPU names without crossing columns", () => {
+    assert.match(panel, /className="transcoding-task-table"/);
+    assert.match(panel, /tableLayout="fixed"/);
+    assert.match(panel, /transcoding-task-movie-title/);
+    assert.match(panel, /transcoding-task-file-name/);
+    assert.match(panel, /transcoding-task-gpu/);
+    assert.match(panel, /task\.gpu_vendor/);
+    assert.match(panel, /task\.hardware_backend/);
+    assert.match(styles, /\.transcoding-task-movie-title[\s\S]*?overflow:\s*hidden/);
+    assert.match(styles, /\.transcoding-task-gpu[\s\S]*?text-overflow:\s*ellipsis/);
+    assert.match(styles, /\.transcoding-task-table[\s\S]*?overflow-wrap:\s*anywhere/);
 });

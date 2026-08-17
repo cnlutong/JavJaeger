@@ -145,71 +145,99 @@ export default function TranscodingPage() {
         {
             title: "影片 / 文件",
             key: "movie",
+            width: 420,
             render: (_, task) => (
-                <Space direction="vertical" size={2} style={{ maxWidth: 360 }}>
-                    <Space><Tag color="blue">{task.movie_id}</Tag><Text strong ellipsis={{ tooltip: task.movie_title }}>{task.movie_title || task.movie_id}</Text></Space>
-                    <Text type="secondary" ellipsis={{ tooltip: task.source_path }}>{task.file_name}</Text>
-                </Space>
+                <div className="transcoding-task-movie">
+                    <div className="transcoding-task-movie-heading">
+                        <Tag color="blue">{task.movie_id}</Tag>
+                        <Text
+                            strong
+                            className="transcoding-task-movie-title"
+                            title={task.movie_title || task.movie_id}
+                        >
+                            {task.movie_title || task.movie_id}
+                        </Text>
+                    </div>
+                    <Text
+                        type="secondary"
+                        className="transcoding-task-file-name"
+                        title={task.source_path}
+                    >
+                        {task.file_name}
+                    </Text>
+                </div>
             ),
         },
         {
             title: "预设",
             dataIndex: "preset_name",
             key: "preset",
-            width: 170,
-            render: (value, task) => (
-                <Space direction="vertical" size={2}>
-                    <Text>{value}</Text>
-                    <Text type="secondary">{task.options?.video_codec} · {task.options?.quality_mode === "crf" ? `质量 ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`}</Text>
-                    {task.gpu_name ? <Tag color="purple">{task.gpu_name}</Tag> : null}
-                </Space>
-            ),
+            width: 220,
+            render: (value, task) => {
+                const gpuLabel = [
+                    task.gpu_vendor || task.gpu_name,
+                    task.hardware_backend ? String(task.hardware_backend).toUpperCase() : "",
+                ].filter(Boolean).join(" · ");
+                return (
+                    <div className="transcoding-task-preset">
+                        <Text className="transcoding-task-preset-name" title={value}>{value}</Text>
+                        <Text type="secondary" className="transcoding-task-codec">
+                            {task.options?.video_codec} · {task.options?.quality_mode === "crf" ? `质量 ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`}
+                        </Text>
+                        {task.gpu_name ? (
+                            <Tag className="transcoding-task-gpu" color="purple" title={task.gpu_name}>
+                                {gpuLabel}
+                            </Tag>
+                        ) : null}
+                    </div>
+                );
+            },
         },
         {
             title: "状态",
             key: "status",
-            width: 150,
+            width: 180,
             render: (_, task) => {
                 const meta = STATUS_META[task.status] || STATUS_META.queued;
                 return (
-                    <Space direction="vertical" size={2}>
+                    <div className="transcoding-task-status">
                         <Badge status={meta.badge} text={meta.label} />
-                        <Text type="secondary">{task.stage}</Text>
-                    </Space>
+                        <Text type="secondary" className="transcoding-task-stage">{task.stage}</Text>
+                    </div>
                 );
             },
         },
         {
             title: "进度",
             key: "progress",
-            width: 260,
+            width: 250,
             render: (_, task) => (
-                <Space direction="vertical" size={2} style={{ width: "100%" }}>
+                <div className="transcoding-task-progress">
                     <Progress
                         percent={Math.round(Number(task.progress) || 0)}
                         size="small"
                         status={task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"}
                     />
-                    <Text type="secondary">
+                    <Text type="secondary" className="transcoding-task-progress-meta">
                         {task.speed || "-"} · 已用 {formatDuration(task.elapsed_seconds)}
                         {task.eta_seconds != null && task.status === "running" ? ` · 剩余约 ${formatDuration(task.eta_seconds)}` : ""}
                     </Text>
-                </Space>
+                </div>
             ),
         },
         {
             title: "大小",
             key: "size",
-            width: 160,
-            render: (_, task) => <Text type="secondary">{formatBytes(task.input_size)} → {formatBytes(task.output_size)}</Text>,
+            width: 155,
+            render: (_, task) => <Text type="secondary" className="transcoding-task-size">{formatBytes(task.input_size)} → {formatBytes(task.output_size)}</Text>,
         },
         {
             title: "操作",
             key: "actions",
-            width: 210,
+            width: 190,
             fixed: "right",
             render: (_, task) => (
-                <Space size={4} wrap>
+                <Space className="transcoding-task-actions" size={4} wrap>
                     <Button size="small" icon={<EyeOutlined />} onClick={() => setSelectedTask(task)}>详情</Button>
                     {["queued", "running"].includes(task.status) && (
                         <Popconfirm title="取消该转码任务？" description="取消会清理临时输出，原文件保持不变。" onConfirm={() => runAction(task, "cancel")}>
@@ -286,11 +314,13 @@ export default function TranscodingPage() {
                     ]} />
                 </div>
                 <Table
+                    className="transcoding-task-table"
                     rowKey="id"
                     columns={columns}
                     dataSource={filteredTasks}
                     loading={loading}
-                    scroll={{ x: 1250 }}
+                    tableLayout="fixed"
+                    scroll={{ x: 1415 }}
                     pagination={{ pageSize: 20, showSizeChanger: true }}
                     locale={{ emptyText: <Empty description="暂无转码任务；请从影视库选择影片并启动转码" /> }}
                 />

@@ -6735,49 +6735,72 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       {
         title: "\u5F71\u7247 / \u6587\u4EF6",
         key: "movie",
-        render: (_, task) => /* @__PURE__ */ React9.createElement(Space9, { direction: "vertical", size: 2, style: { maxWidth: 360 } }, /* @__PURE__ */ React9.createElement(Space9, null, /* @__PURE__ */ React9.createElement(Tag8, { color: "blue" }, task.movie_id), /* @__PURE__ */ React9.createElement(Text9, { strong: true, ellipsis: { tooltip: task.movie_title } }, task.movie_title || task.movie_id)), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary", ellipsis: { tooltip: task.source_path } }, task.file_name))
+        width: 420,
+        render: (_, task) => /* @__PURE__ */ React9.createElement("div", { className: "transcoding-task-movie" }, /* @__PURE__ */ React9.createElement("div", { className: "transcoding-task-movie-heading" }, /* @__PURE__ */ React9.createElement(Tag8, { color: "blue" }, task.movie_id), /* @__PURE__ */ React9.createElement(
+          Text9,
+          {
+            strong: true,
+            className: "transcoding-task-movie-title",
+            title: task.movie_title || task.movie_id
+          },
+          task.movie_title || task.movie_id
+        )), /* @__PURE__ */ React9.createElement(
+          Text9,
+          {
+            type: "secondary",
+            className: "transcoding-task-file-name",
+            title: task.source_path
+          },
+          task.file_name
+        ))
       },
       {
         title: "\u9884\u8BBE",
         dataIndex: "preset_name",
         key: "preset",
-        width: 170,
-        render: (value, task) => /* @__PURE__ */ React9.createElement(Space9, { direction: "vertical", size: 2 }, /* @__PURE__ */ React9.createElement(Text9, null, value), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary" }, task.options?.video_codec, " \xB7 ", task.options?.quality_mode === "crf" ? `\u8D28\u91CF ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`), task.gpu_name ? /* @__PURE__ */ React9.createElement(Tag8, { color: "purple" }, task.gpu_name) : null)
+        width: 220,
+        render: (value, task) => {
+          const gpuLabel = [
+            task.gpu_vendor || task.gpu_name,
+            task.hardware_backend ? String(task.hardware_backend).toUpperCase() : ""
+          ].filter(Boolean).join(" \xB7 ");
+          return /* @__PURE__ */ React9.createElement("div", { className: "transcoding-task-preset" }, /* @__PURE__ */ React9.createElement(Text9, { className: "transcoding-task-preset-name", title: value }, value), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary", className: "transcoding-task-codec" }, task.options?.video_codec, " \xB7 ", task.options?.quality_mode === "crf" ? `\u8D28\u91CF ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`), task.gpu_name ? /* @__PURE__ */ React9.createElement(Tag8, { className: "transcoding-task-gpu", color: "purple", title: task.gpu_name }, gpuLabel) : null);
+        }
       },
       {
         title: "\u72B6\u6001",
         key: "status",
-        width: 150,
+        width: 180,
         render: (_, task) => {
           const meta = STATUS_META[task.status] || STATUS_META.queued;
-          return /* @__PURE__ */ React9.createElement(Space9, { direction: "vertical", size: 2 }, /* @__PURE__ */ React9.createElement(Badge4, { status: meta.badge, text: meta.label }), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary" }, task.stage));
+          return /* @__PURE__ */ React9.createElement("div", { className: "transcoding-task-status" }, /* @__PURE__ */ React9.createElement(Badge4, { status: meta.badge, text: meta.label }), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary", className: "transcoding-task-stage" }, task.stage));
         }
       },
       {
         title: "\u8FDB\u5EA6",
         key: "progress",
-        width: 260,
-        render: (_, task) => /* @__PURE__ */ React9.createElement(Space9, { direction: "vertical", size: 2, style: { width: "100%" } }, /* @__PURE__ */ React9.createElement(
+        width: 250,
+        render: (_, task) => /* @__PURE__ */ React9.createElement("div", { className: "transcoding-task-progress" }, /* @__PURE__ */ React9.createElement(
           Progress3,
           {
             percent: Math.round(Number(task.progress) || 0),
             size: "small",
             status: task.status === "failed" ? "exception" : task.status === "completed" ? "success" : "active"
           }
-        ), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary" }, task.speed || "-", " \xB7 \u5DF2\u7528 ", formatDuration(task.elapsed_seconds), task.eta_seconds != null && task.status === "running" ? ` \xB7 \u5269\u4F59\u7EA6 ${formatDuration(task.eta_seconds)}` : ""))
+        ), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary", className: "transcoding-task-progress-meta" }, task.speed || "-", " \xB7 \u5DF2\u7528 ", formatDuration(task.elapsed_seconds), task.eta_seconds != null && task.status === "running" ? ` \xB7 \u5269\u4F59\u7EA6 ${formatDuration(task.eta_seconds)}` : ""))
       },
       {
         title: "\u5927\u5C0F",
         key: "size",
-        width: 160,
-        render: (_, task) => /* @__PURE__ */ React9.createElement(Text9, { type: "secondary" }, formatBytes4(task.input_size), " \u2192 ", formatBytes4(task.output_size))
+        width: 155,
+        render: (_, task) => /* @__PURE__ */ React9.createElement(Text9, { type: "secondary", className: "transcoding-task-size" }, formatBytes4(task.input_size), " \u2192 ", formatBytes4(task.output_size))
       },
       {
         title: "\u64CD\u4F5C",
         key: "actions",
-        width: 210,
+        width: 190,
         fixed: "right",
-        render: (_, task) => /* @__PURE__ */ React9.createElement(Space9, { size: 4, wrap: true }, /* @__PURE__ */ React9.createElement(Button9, { size: "small", icon: /* @__PURE__ */ React9.createElement(EyeOutlined, null), onClick: () => setSelectedTask(task) }, "\u8BE6\u60C5"), ["queued", "running"].includes(task.status) && /* @__PURE__ */ React9.createElement(Popconfirm6, { title: "\u53D6\u6D88\u8BE5\u8F6C\u7801\u4EFB\u52A1\uFF1F", description: "\u53D6\u6D88\u4F1A\u6E05\u7406\u4E34\u65F6\u8F93\u51FA\uFF0C\u539F\u6587\u4EF6\u4FDD\u6301\u4E0D\u53D8\u3002", onConfirm: () => runAction(task, "cancel") }, /* @__PURE__ */ React9.createElement(Button9, { danger: true, size: "small", icon: /* @__PURE__ */ React9.createElement(CloseCircleOutlined, null), loading: actionTaskId === task.id }, "\u53D6\u6D88")), ["failed", "cancelled"].includes(task.status) && /* @__PURE__ */ React9.createElement(Button9, { size: "small", icon: /* @__PURE__ */ React9.createElement(RetweetOutlined, null), loading: actionTaskId === task.id, onClick: () => runAction(task, "retry") }, "\u91CD\u8BD5"), ["completed", "failed", "cancelled"].includes(task.status) && /* @__PURE__ */ React9.createElement(Popconfirm6, { title: "\u5220\u9664\u8BE5\u4EFB\u52A1\u8BB0\u5F55\uFF1F", onConfirm: () => runAction(task, "", "DELETE") }, /* @__PURE__ */ React9.createElement(Button9, { danger: true, type: "text", size: "small", icon: /* @__PURE__ */ React9.createElement(DeleteOutlined6, null), loading: actionTaskId === task.id })))
+        render: (_, task) => /* @__PURE__ */ React9.createElement(Space9, { className: "transcoding-task-actions", size: 4, wrap: true }, /* @__PURE__ */ React9.createElement(Button9, { size: "small", icon: /* @__PURE__ */ React9.createElement(EyeOutlined, null), onClick: () => setSelectedTask(task) }, "\u8BE6\u60C5"), ["queued", "running"].includes(task.status) && /* @__PURE__ */ React9.createElement(Popconfirm6, { title: "\u53D6\u6D88\u8BE5\u8F6C\u7801\u4EFB\u52A1\uFF1F", description: "\u53D6\u6D88\u4F1A\u6E05\u7406\u4E34\u65F6\u8F93\u51FA\uFF0C\u539F\u6587\u4EF6\u4FDD\u6301\u4E0D\u53D8\u3002", onConfirm: () => runAction(task, "cancel") }, /* @__PURE__ */ React9.createElement(Button9, { danger: true, size: "small", icon: /* @__PURE__ */ React9.createElement(CloseCircleOutlined, null), loading: actionTaskId === task.id }, "\u53D6\u6D88")), ["failed", "cancelled"].includes(task.status) && /* @__PURE__ */ React9.createElement(Button9, { size: "small", icon: /* @__PURE__ */ React9.createElement(RetweetOutlined, null), loading: actionTaskId === task.id, onClick: () => runAction(task, "retry") }, "\u91CD\u8BD5"), ["completed", "failed", "cancelled"].includes(task.status) && /* @__PURE__ */ React9.createElement(Popconfirm6, { title: "\u5220\u9664\u8BE5\u4EFB\u52A1\u8BB0\u5F55\uFF1F", onConfirm: () => runAction(task, "", "DELETE") }, /* @__PURE__ */ React9.createElement(Button9, { danger: true, type: "text", size: "small", icon: /* @__PURE__ */ React9.createElement(DeleteOutlined6, null), loading: actionTaskId === task.id })))
       }
     ];
     return /* @__PURE__ */ React9.createElement(Space9, { direction: "vertical", size: "large", style: { width: "100%" } }, /* @__PURE__ */ React9.createElement("div", { style: { display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" } }, /* @__PURE__ */ React9.createElement("div", null, /* @__PURE__ */ React9.createElement(Title8, { level: 3, style: { marginBottom: 4 } }, /* @__PURE__ */ React9.createElement(VideoCameraOutlined3, null), " \u8F6C\u7801\u9762\u677F"), /* @__PURE__ */ React9.createElement(Text9, { type: "secondary" }, "\u7BA1\u7406\u591A\u4EFB\u52A1 FFmpeg \u8F6C\u7801\uFF1B\u53EA\u4FDD\u7559\u66F4\u5C0F\u7684\u8F6C\u7801\u7ED3\u679C\uFF0C\u89C6\u89C9\u8D28\u91CF\u4E0E\u7701\u7A7A\u95F4\u53EF\u6309\u9884\u8BBE\u9009\u62E9\u3002")), /* @__PURE__ */ React9.createElement(Space9, { wrap: true }, /* @__PURE__ */ React9.createElement(Tag8, { color: "blue" }, "\u5E76\u53D1\u4E0A\u9650 ", payload.max_concurrent_tasks || capabilities?.max_concurrent_tasks || 0), /* @__PURE__ */ React9.createElement(Button9, { icon: /* @__PURE__ */ React9.createElement(ReloadOutlined5, null), loading, onClick: () => Promise.all([loadTasks(), loadCapabilities()]) }, "\u5237\u65B0"))), capabilities && !capabilities.ffmpeg_available && /* @__PURE__ */ React9.createElement(Alert5, { type: "error", showIcon: true, message: "FFmpeg \u4E0D\u53EF\u7528", description: "\u670D\u52A1\u5668\u672A\u68C0\u6D4B\u5230 ffmpeg \u53EF\u6267\u884C\u6587\u4EF6\uFF0C\u5F53\u524D\u65E0\u6CD5\u542F\u52A8\u65B0\u4EFB\u52A1\u3002Docker \u955C\u50CF\u5DF2\u9ED8\u8BA4\u5305\u542B FFmpeg\u3002" }), capabilities?.ffmpeg_available && !capabilities.ffprobe_available && /* @__PURE__ */ React9.createElement(Alert5, { type: "warning", showIcon: true, message: "ffprobe \u4E0D\u53EF\u7528", description: "\u4EFB\u52A1\u4ECD\u53EF\u6267\u884C\uFF0C\u4F46\u8FDB\u5EA6\u767E\u5206\u6BD4\u3001\u5269\u4F59\u65F6\u95F4\u548C\u5B8C\u6210\u540E\u7684\u5A92\u4F53\u4FE1\u606F\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002" }), capabilities?.hardware_acceleration_required && capabilities?.gpu_available && /* @__PURE__ */ React9.createElement(
@@ -6804,11 +6827,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     ] })), /* @__PURE__ */ React9.createElement(
       Table7,
       {
+        className: "transcoding-task-table",
         rowKey: "id",
         columns,
         dataSource: filteredTasks,
         loading,
-        scroll: { x: 1250 },
+        tableLayout: "fixed",
+        scroll: { x: 1415 },
         pagination: { pageSize: 20, showSizeChanger: true },
         locale: { emptyText: /* @__PURE__ */ React9.createElement(Empty4, { description: "\u6682\u65E0\u8F6C\u7801\u4EFB\u52A1\uFF1B\u8BF7\u4ECE\u5F71\u89C6\u5E93\u9009\u62E9\u5F71\u7247\u5E76\u542F\u52A8\u8F6C\u7801" }) }
       }

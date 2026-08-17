@@ -6676,3 +6676,83 @@ body:has(.jav-app),
         transition: none;
     }
 }
+
+/* Transcoding task queue: keep long multilingual metadata inside its own column. */
+.transcoding-task-table .ant-table-cell {
+    vertical-align: top;
+}
+
+.transcoding-task-movie,
+.transcoding-task-preset,
+.transcoding-task-status,
+.transcoding-task-progress {
+    display: flex;
+    min-width: 0;
+    width: 100%;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.transcoding-task-movie-heading {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 8px;
+}
+
+.transcoding-task-movie-heading .ant-tag {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.transcoding-task-movie-title,
+.transcoding-task-file-name,
+.transcoding-task-preset-name,
+.transcoding-task-codec {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transcoding-task-movie-title {
+    flex: 1 1 auto;
+}
+
+.transcoding-task-gpu {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    margin: 2px 0 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.transcoding-task-stage {
+    display: -webkit-box;
+    max-width: 100%;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.transcoding-task-progress-meta,
+.transcoding-task-size {
+    display: block;
+    line-height: 1.5;
+}
+
+.transcoding-task-actions {
+    align-items: flex-start;
+}
+
+@media (max-width: 760px) {
+    .transcoding-task-table .ant-table-thead > tr > th,
+    .transcoding-task-table .ant-table-tbody > tr > td {
+        padding: 12px;
+    }
+}
