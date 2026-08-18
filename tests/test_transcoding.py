@@ -10,6 +10,7 @@ from modules.movies.transcoding import (
     TranscodingError,
     TranscodingService,
     TranscodingUnavailableError,
+    build_adaptive_transcoding_options,
     build_ffmpeg_command,
     resolve_transcoding_options,
 )
@@ -140,15 +141,17 @@ def test_presets_only_offer_smaller_file_strategies():
     presets = {preset.id: preset for preset in TRANSCODING_PRESETS}
 
     assert [preset.id for preset in TRANSCODING_PRESETS] == [
+        "adaptive_h265",
         "quality_h265",
         "archive_av1",
         "compact_h265",
         "compatible_1080p",
         "mobile_720p",
     ]
-    assert {preset.category for preset in TRANSCODING_PRESETS} == {"画质基本保持", "降低画质"}
+    assert {preset.category for preset in TRANSCODING_PRESETS} == {"智能保持", "画质基本保持", "降低画质"}
     assert all(preset.options.video_codec in {"hevc_auto", "av1_auto"} for preset in TRANSCODING_PRESETS)
     assert presets["quality_h265"].options.crf == 20
+    assert presets["adaptive_h265"].adaptive is True
     assert presets["compact_h265"].options.crf == 22
     assert presets["compatible_1080p"].options.crf == 25
     assert presets["mobile_720p"].options.crf == 28
@@ -157,6 +160,133 @@ def test_presets_only_offer_smaller_file_strategies():
         "quality_h265",
         TranscodingOptionsOverride(video_codec="libx265"),
     ).video_codec == "hevc_auto"
+
+
+def test_adaptive_h265_keeps_source_geometry_and_uses_a_conservative_equivalent_bitrate():
+    options, analysis = build_adaptive_transcoding_options(
+        {
+            "codec": "h264",
+            "bitrate": 5_000_000,
+            "width": 1920,
+            "height": 1080,
+            "frame_rate": 30.0,
+            "pixel_format": "yuv420p",
+            "audio_codec": "aac",
+            "audio_bitrate": 256_000,
+            "audio_channels": 2,
+        }
+    )
+
+    assert options.video_codec == "hevc_auto"
+    assert options.quality_mode == "bitrate"
+    assert options.video_bitrate_kbps == 4355
+    assert options.max_height is None
+    assert options.frame_rate is None
+    assert options.audio_codec == "copy"
+    assert options.copy_subtitles is True
+    assert options.copy_metadata is True
+    assert analysis.source_video_codec == "h264"
+    assert analysis.source_video_bitrate_kbps == 5000
+    assert analysis.target_video_bitrate_kbps == 4355
+    assert analysis.width == 1920
+    assert analysis.height == 1080
+    assert analysis.frame_rate == 30.0
+    assert analysis.estimated_video_saving_percent == 13
+
+
+def test_adaptive_h265_rejects_sources_that_are_already_too_low_bitrate():
+    with pytest.raises(TranscodingError, match="码率已经较低"):
+        build_adaptive_transcoding_options(
+            {
+                "codec": "h264",
+                "bitrate": 2_500_000,
+                "width": 1920,
+                "height": 1080,
+                "frame_rate": 30.0,
+            }
+        )
+
+
+def test_adaptive_h265_rejects_sources_that_already_use_an_equally_efficient_codec():
+    with pytest.raises(TranscodingError, match="已经使用高效率编码"):
+        build_adaptive_transcoding_options(
+            {
+                "codec": "hevc",
+                "bitrate": 8_000_000,
+                "width": 1920,
+                "height": 1080,
+                "frame_rate": 30.0,
+            }
+        )
+
+
+def test_adaptive_h265_preserves_a_10_bit_source_pixel_depth():
+    options, _ = build_adaptive_transcoding_options(
+        {
+            "codec": "h264",
+            "bitrate": 8_000_000,
+            "width": 1920,
+            "height": 1080,
+            "frame_rate": 30.0,
+            "pixel_format": "yuv420p10le",
+        }
+    )
+
+    assert options.pixel_format == "yuv420p10le"
+
+
+def test_adaptive_task_probes_source_and_persists_the_decision(tmp_path: Path):
+    source = tmp_path / "ADAPTIVE-001.mkv"
+    source.write_bytes(b"original-video")
+    library = FakeLibraryService({"ADAPTIVE-001": source})
+
+    async def fake_probe(_source_path):
+        return {
+            "codec": "h264",
+            "bitrate": 8_000_000,
+            "width": 1920,
+            "height": 1080,
+            "frame_rate": 30.0,
+            "pixel_format": "yuv420p",
+            "audio_codec": "aac",
+            "audio_bitrate": 256_000,
+            "audio_channels": 2,
+        }
+
+    async def successful_executor(task, source_path, temporary_path, progress, cancel_event):
+        assert task.options.video_codec == "hevc_vaapi"
+        assert task.options.video_bitrate_kbps == 5760
+        temporary_path.write_bytes(b"gpu-video")
+
+    async def exercise():
+        service = TranscodingService(
+            storage_path=tmp_path / "transcoding_tasks.json",
+            library_service=library,
+            executor=successful_executor,
+            capability_detector=lambda: AMD_GPU_CAPABILITIES,
+            ffmpeg_path=sys.executable,
+        )
+        service._probe_media = fake_probe
+        await service.startup()
+        try:
+            created = await service.create_task(
+                TranscodingTaskCreate(
+                    movie_id="ADAPTIVE-001",
+                    preset_id="adaptive_h265",
+                    options=TranscodingOptionsOverride(video_bitrate_kbps=100),
+                )
+            )
+            completed = await wait_for_terminal(service, created.id)
+            return created, completed
+        finally:
+            await service.shutdown()
+
+    created, completed = asyncio.run(exercise())
+
+    assert created.adaptive_analysis is not None
+    assert created.adaptive_analysis.target_video_bitrate_kbps == 5760
+    assert completed.status == "completed"
+    assert completed.adaptive_analysis.source_video_bitrate_kbps == 8000
 
 
 def test_capabilities_resolve_presets_to_smoke_tested_gpu_encoders(tmp_path: Path):

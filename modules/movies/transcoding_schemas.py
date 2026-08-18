@@ -47,7 +47,24 @@ class TranscodingPreset(BaseModel):
     name: str
     description: str
     category: str
+    adaptive: bool = False
     options: TranscodingOptions
+
+
+class AdaptiveTranscodingAnalysis(BaseModel):
+    source_video_codec: str
+    source_video_bitrate_kbps: int
+    target_video_bitrate_kbps: int
+    width: int
+    height: int
+    frame_rate: float
+    source_pixel_format: str = ""
+    source_audio_codec: str = ""
+    source_audio_bitrate_kbps: int | None = None
+    audio_channels: int | None = None
+    bitrate_ratio: float
+    estimated_video_saving_percent: int
+    decision: str
 
 
 class TranscodingTaskCreate(BaseModel):
@@ -67,6 +84,7 @@ class TranscodingTask(BaseModel):
     preset_id: str
     preset_name: str
     options: TranscodingOptions
+    adaptive_analysis: AdaptiveTranscodingAnalysis | None = None
     gpu_name: str = ""
     gpu_vendor: str = ""
     hardware_backend: str = ""

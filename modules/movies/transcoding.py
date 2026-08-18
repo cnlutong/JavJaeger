@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import logging
+import math
 import os
 import shutil
 import subprocess
@@ -16,6 +17,7 @@ from modules.common import runtime
 from modules.history.service import local_movie_library_service
 
 from .transcoding_schemas import (
+    AdaptiveTranscodingAnalysis,
     TranscodingOptions,
     TranscodingOptionsOverride,
     TranscodingPreset,
@@ -87,6 +89,22 @@ def _options(**values: Any) -> TranscodingOptions:
 
 
 TRANSCODING_PRESETS: tuple[TranscodingPreset, ...] = (
+    TranscodingPreset(
+        id="adaptive_h265",
+        name="H.265 自适应转码",
+        description="分析源编码、实际码率、分辨率与帧率，保持原画面规格和音频流，以保守的 H.265 等效码率降低体积。",
+        category="智能保持",
+        adaptive=True,
+        options=_options(
+            video_codec="hevc_auto",
+            quality_mode="bitrate",
+            video_bitrate_kbps=1000,
+            speed_preset="slow",
+            tune=None,
+            audio_codec="copy",
+            audio_bitrate_kbps=None,
+        ),
+    ),
     TranscodingPreset(
         id="quality_h265",
         name="H.265 高画质压缩",
@@ -165,6 +183,20 @@ def _model_dump(model: Any) -> dict[str, Any]:
     return model.dict()
 
 
+def _number_as_int(value: Any) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _number_as_float(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
 def resolve_transcoding_options(
     preset_id: str,
     overrides: TranscodingOptionsOverride | None = None,
@@ -201,6 +233,93 @@ def resolve_transcoding_options(
     if options.tune is not None:
         raise TranscodingError("GPU 硬件编码不支持当前内容调优选项")
     return options
+
+
+ADAPTIVE_CODEC_BITRATE_RATIOS = {
+    "h264": 0.72,
+    "avc1": 0.72,
+    "mpeg4": 0.60,
+    "mpeg2video": 0.60,
+    "mpeg1video": 0.60,
+    "msmpeg4v3": 0.60,
+    "wmv2": 0.60,
+}
+ADAPTIVE_ALREADY_EFFICIENT_CODECS = {"hevc", "h265", "vp9", "av1"}
+ADAPTIVE_MIN_BITS_PER_PIXEL_FRAME = 0.07
+ADAPTIVE_REQUIRED_REDUCTION_RATIO = 0.92
+
+
+def build_adaptive_transcoding_options(
+    media_info: dict[str, Any],
+) -> tuple[TranscodingOptions, AdaptiveTranscodingAnalysis]:
+    codec = str(media_info.get("codec") or "").strip().lower()
+    width = int(media_info.get("width") or 0)
+    height = int(media_info.get("height") or 0)
+    frame_rate = float(media_info.get("frame_rate") or 0)
+    source_bitrate_kbps = int(media_info.get("bitrate") or 0) // 1000
+    if not codec or width <= 0 or height <= 0 or frame_rate <= 0 or source_bitrate_kbps <= 0:
+        raise TranscodingError("无法完整读取源视频的编码、码率、分辨率和帧率，不能安全生成自适应参数")
+    if codec in ADAPTIVE_ALREADY_EFFICIENT_CODECS:
+        raise TranscodingError(
+            "源视频已经使用高效率编码，改用 H.265 没有可靠的无损体积优势；已保留原文件"
+        )
+
+    codec_ratio = ADAPTIVE_CODEC_BITRATE_RATIOS.get(codec, 0.75)
+    codec_target_kbps = math.floor(source_bitrate_kbps * codec_ratio)
+    visual_quality_floor_kbps = math.ceil(
+        width * height * frame_rate * ADAPTIVE_MIN_BITS_PER_PIXEL_FRAME / 1000
+    )
+    maximum_target_kbps = math.floor(source_bitrate_kbps * ADAPTIVE_REQUIRED_REDUCTION_RATIO)
+    target_bitrate_kbps = max(codec_target_kbps, visual_quality_floor_kbps)
+    if target_bitrate_kbps > maximum_target_kbps:
+        raise TranscodingError(
+            "源视频码率已经较低，无法在保持原分辨率和帧率的前提下安全缩小体积"
+        )
+
+    target_bitrate_kbps = max(100, target_bitrate_kbps)
+    bitrate_ratio = target_bitrate_kbps / source_bitrate_kbps
+    source_pixel_format = str(media_info.get("pixel_format") or "").lower()
+    target_pixel_format = (
+        "yuv420p10le"
+        if "10" in source_pixel_format or source_pixel_format.startswith("p010")
+        else "yuv420p"
+    )
+    options = _options(
+        video_codec="hevc_auto",
+        quality_mode="bitrate",
+        video_bitrate_kbps=target_bitrate_kbps,
+        speed_preset="slow",
+        tune=None,
+        max_height=None,
+        frame_rate=None,
+        pixel_format=target_pixel_format,
+        audio_codec="copy",
+        audio_bitrate_kbps=None,
+        audio_channels=None,
+        copy_subtitles=True,
+        copy_metadata=True,
+    )
+    analysis = AdaptiveTranscodingAnalysis(
+        source_video_codec=codec,
+        source_video_bitrate_kbps=source_bitrate_kbps,
+        target_video_bitrate_kbps=target_bitrate_kbps,
+        width=width,
+        height=height,
+        frame_rate=round(frame_rate, 3),
+        source_pixel_format=source_pixel_format,
+        source_audio_codec=str(media_info.get("audio_codec") or ""),
+        source_audio_bitrate_kbps=(
+            int(media_info.get("audio_bitrate") or 0) // 1000 or None
+        ),
+        audio_channels=int(media_info.get("audio_channels") or 0) or None,
+        bitrate_ratio=round(bitrate_ratio, 4),
+        estimated_video_saving_percent=round((1 - bitrate_ratio) * 100),
+        decision=(
+            f"保持 {width}×{height}、{frame_rate:.3g} FPS 与原音频流；"
+            f"视频码率由 {source_bitrate_kbps} 调整为 {target_bitrate_kbps} kbps"
+        ),
+    )
+    return options, analysis
 
 
 def _encoder_preset(codec: str, speed: str) -> str:
@@ -487,7 +606,14 @@ class TranscodingService:
             raise TranscodingNotFoundError("影视库记录指向的不是普通文件")
 
         resolved_preset_id = LEGACY_PRESET_ALIASES.get(payload.preset_id, payload.preset_id)
-        options = resolve_transcoding_options(resolved_preset_id, payload.options)
+        adaptive_analysis = None
+        if resolved_preset_id == "adaptive_h265":
+            if capabilities is not None and not capabilities.get("ffprobe_available"):
+                raise TranscodingUnavailableError("自适应转码需要 ffprobe 分析源视频，但服务器当前不可用")
+            media_info = await self._probe_media(source_path)
+            options, adaptive_analysis = build_adaptive_transcoding_options(media_info)
+        else:
+            options = resolve_transcoding_options(resolved_preset_id, payload.options)
         gpu: dict[str, Any] = {}
         if capabilities is not None:
             options, gpu = self._bind_options_to_gpu(options, capabilities)
@@ -503,6 +629,7 @@ class TranscodingService:
             preset_id=preset.id,
             preset_name=preset.name,
             options=options,
+            adaptive_analysis=adaptive_analysis,
             gpu_name=str(gpu.get("name") or ""),
             gpu_vendor=str(gpu.get("vendor") or ""),
             hardware_backend=str(gpu.get("backend") or ""),
@@ -555,7 +682,11 @@ class TranscodingService:
         old_task = await self.get_task(task_id)
         if old_task.status not in {"failed", "cancelled"}:
             raise TranscodingConflictError("只有失败或已取消的任务可以重试")
-        override = TranscodingOptionsOverride(**_model_dump(old_task.options))
+        override = (
+            TranscodingOptionsOverride()
+            if old_task.preset_id == "adaptive_h265"
+            else TranscodingOptionsOverride(**_model_dump(old_task.options))
+        )
         return await self.create_task(
             TranscodingTaskCreate(
                 movie_id=old_task.movie_id,
@@ -946,10 +1077,8 @@ class TranscodingService:
             self.ffprobe_path,
             "-v",
             "error",
-            "-select_streams",
-            "v:0",
             "-show_entries",
-            "stream=width,height,codec_name,bit_rate:format=format_name,duration,bit_rate",
+            "stream=codec_type,width,height,codec_name,bit_rate,avg_frame_rate,r_frame_rate,pix_fmt,channels:format=format_name,duration,bit_rate",
             "-of",
             "json",
             str(source_path),
@@ -963,12 +1092,26 @@ class TranscodingService:
             if process.returncode != 0:
                 return {}
             payload = json.loads(stdout.decode("utf-8", errors="replace") or "{}")
-            stream = (payload.get("streams") or [{}])[0]
+            streams = [item for item in payload.get("streams") or [] if isinstance(item, dict)]
+            stream = next((item for item in streams if item.get("codec_type") == "video"), {})
+            audio_streams = [item for item in streams if item.get("codec_type") == "audio"]
             container = payload.get("format") or {}
-            width = int(stream.get("width") or 0)
-            height = int(stream.get("height") or 0)
-            bitrate = int(stream.get("bit_rate") or container.get("bit_rate") or 0)
-            duration = int(float(container.get("duration") or 0))
+            width = _number_as_int(stream.get("width"))
+            height = _number_as_int(stream.get("height"))
+            duration_value = _number_as_float(container.get("duration"))
+            duration = int(duration_value)
+            audio_bitrate = sum(_number_as_int(item.get("bit_rate")) for item in audio_streams)
+            container_bitrate = _number_as_int(container.get("bit_rate"))
+            bitrate = _number_as_int(stream.get("bit_rate"))
+            if bitrate <= 0 and container_bitrate > 0:
+                bitrate = max(0, container_bitrate - audio_bitrate)
+            if bitrate <= 0 and duration_value > 0:
+                estimated_total_bitrate = int(source_path.stat().st_size * 8 / duration_value)
+                bitrate = max(0, estimated_total_bitrate - audio_bitrate)
+            frame_rate = self._parse_frame_rate(
+                str(stream.get("avg_frame_rate") or stream.get("r_frame_rate") or "")
+            )
+            first_audio = audio_streams[0] if audio_streams else {}
             return {
                 key: value
                 for key, value in {
@@ -977,6 +1120,11 @@ class TranscodingService:
                     "resolution_pixels": width * height,
                     "bitrate": bitrate,
                     "codec": stream.get("codec_name") or "",
+                    "frame_rate": frame_rate,
+                    "pixel_format": stream.get("pix_fmt") or "",
+                    "audio_codec": first_audio.get("codec_name") or "",
+                    "audio_bitrate": audio_bitrate,
+                    "audio_channels": _number_as_int(first_audio.get("channels")),
                     "container": container.get("format_name") or "",
                     "duration_seconds": duration,
                 }.items()
@@ -984,6 +1132,20 @@ class TranscodingService:
             }
         except (OSError, ValueError, json.JSONDecodeError, asyncio.TimeoutError):
             return {}
+
+    @staticmethod
+    def _parse_frame_rate(value: str) -> float:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in {"0/0", "N/A"}:
+            return 0.0
+        try:
+            if "/" in normalized:
+                numerator, denominator = normalized.split("/", 1)
+                denominator_value = float(denominator)
+                return float(numerator) / denominator_value if denominator_value else 0.0
+            return float(normalized)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return 0.0
 
     def _detect_capabilities(self) -> dict[str, Any]:
         ffmpeg_available = self._binary_available(self.ffmpeg_path)

@@ -180,6 +180,11 @@ export default function TranscodingPage() {
                         <Text type="secondary" className="transcoding-task-codec">
                             {task.options?.video_codec} · {task.options?.quality_mode === "crf" ? `质量 ${task.options?.crf}` : `${task.options?.video_bitrate_kbps} kbps`}
                         </Text>
+                        {task.adaptive_analysis ? (
+                            <Text type="secondary" className="transcoding-task-codec">
+                                {task.adaptive_analysis.source_video_codec?.toUpperCase()} {task.adaptive_analysis.source_video_bitrate_kbps} → H.265 {task.adaptive_analysis.target_video_bitrate_kbps} kbps
+                            </Text>
+                        ) : null}
                         {task.gpu_name ? (
                             <Tag className="transcoding-task-gpu" color="purple" title={task.gpu_name}>
                                 {gpuLabel}
@@ -339,6 +344,9 @@ export default function TranscodingPage() {
                             <Descriptions.Item label="文件"><Text copyable>{selectedTask.source_path}</Text></Descriptions.Item>
                             <Descriptions.Item label="状态"><Tag color={STATUS_META[selectedTask.status]?.color}>{STATUS_META[selectedTask.status]?.label}</Tag> {selectedTask.stage}</Descriptions.Item>
                             <Descriptions.Item label="预设">{selectedTask.preset_name}</Descriptions.Item>
+                            {selectedTask.adaptive_analysis ? (
+                                <Descriptions.Item label="自适应分析">{selectedTask.adaptive_analysis.decision} · 预计视频流缩小 {selectedTask.adaptive_analysis.estimated_video_saving_percent}%</Descriptions.Item>
+                            ) : null}
                             <Descriptions.Item label="GPU">{selectedTask.gpu_name || "-"} · {selectedTask.hardware_backend || "-"} · {selectedTask.hardware_device || "自动"}</Descriptions.Item>
                             <Descriptions.Item label="视频">{selectedTask.options?.video_codec} · {selectedTask.options?.quality_mode === "crf" ? `质量 ${selectedTask.options?.crf}` : `${selectedTask.options?.video_bitrate_kbps} kbps`} · {selectedTask.options?.speed_preset}</Descriptions.Item>
                             <Descriptions.Item label="画面">{selectedTask.options?.max_height ? `${selectedTask.options.max_height}p 上限` : "原分辨率"} · {selectedTask.options?.frame_rate ? `${selectedTask.options.frame_rate} FPS` : "原帧率"} · {selectedTask.options?.pixel_format}</Descriptions.Item>

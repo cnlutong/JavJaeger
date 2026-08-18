@@ -34,6 +34,8 @@ test("transcoding dialog provides presets and professional overrides", () => {
     assert.match(dialog, /copy_subtitles/);
     assert.match(dialog, /deinterlace/);
     assert.match(dialog, /quality_h265/);
+    assert.match(dialog, /adaptive_h265/);
+    assert.match(dialog, /参数由源文件自动分析/);
     assert.match(dialog, /只在输出文件更小时覆盖/);
     assert.match(dialog, /gpu_available/);
     assert.match(dialog, /GPU 硬件编码/);
@@ -54,6 +56,8 @@ test("transcoding panel polls and manages background tasks", () => {
     assert.match(panel, /GPU 转码不可用/);
     assert.match(panel, /hardware_acceleration_required/);
     assert.match(panel, /hardware_backend/);
+    assert.match(panel, /adaptive_analysis/);
+    assert.match(panel, /自适应分析/);
 });
 
 test("transcoding task rows contain long titles and GPU names without crossing columns", () => {

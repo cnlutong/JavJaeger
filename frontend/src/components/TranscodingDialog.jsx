@@ -133,7 +133,7 @@ export default function TranscodingDialog({
                     movie_id: record.movie_id,
                     file_index,
                     preset_id,
-                    options,
+                    options: preset_id === "adaptive_h265" ? {} : options,
                 }),
             });
             const payload = await response.json();
@@ -151,6 +151,7 @@ export default function TranscodingDialog({
     };
 
     const selectedPreset = capabilities?.presets?.find((item) => item.id === selectedPresetId);
+    const isAdaptivePreset = selectedPresetId === "adaptive_h265" || selectedPreset?.adaptive === true;
     const ffmpegUnavailable = capabilities && !capabilities.ffmpeg_available;
     const gpuUnavailable = capabilities?.hardware_acceleration_required && !capabilities?.gpu_available;
     const selectedGpu = capabilities?.selected_gpu;
@@ -239,6 +240,14 @@ export default function TranscodingDialog({
                         />
                     )}
 
+                    {isAdaptivePreset ? (
+                        <Alert
+                            type="success"
+                            showIcon
+                            message="参数由源文件自动分析"
+                            description="启动任务时会读取源视频编码、实际码率、分辨率、帧率与音频信息，保持原分辨率、原帧率、原音频、字幕和元数据，并为当前影片计算保守的 H.265 目标码率。源码率过低时会拒绝任务，避免明显画质损失。"
+                        />
+                    ) : (
                     <Collapse
                         defaultActiveKey={["video", "audio"]}
                         items={[
@@ -375,6 +384,7 @@ export default function TranscodingDialog({
                             },
                         ]}
                     />
+                    )}
 
                     <Divider />
                     <Space style={{ width: "100%", justifyContent: "space-between" }} wrap>
