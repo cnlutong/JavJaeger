@@ -21,7 +21,17 @@ test("local library preview keeps the underlying page mounted", () => {
     assert.doesNotMatch(localLibraryPage, /if \(selectedRecord\) \{/);
 
     const openPreviewBlock = localLibraryPage.match(/const openRecordPreview = \(record\) => \{[\s\S]*?\n    \};/)?.[0] || "";
-    assert.doesNotMatch(openPreviewBlock, /scrollTo|scrollTop|scrollY/);
+    assert.doesNotMatch(openPreviewBlock, /window\.scrollTo/);
+});
+
+test("local library preview uses browser history and restores the captured page position", () => {
+    assert.match(localLibraryPage, /const libraryPageStateRef = React\.useRef\(null\)/);
+    assert.match(localLibraryPage, /const previewHistoryActiveRef = React\.useRef\(false\)/);
+    assert.match(localLibraryPage, /scrollY:\s*window\.scrollY/);
+    assert.match(localLibraryPage, /window\.history\.pushState\(/);
+    assert.match(localLibraryPage, /window\.addEventListener\("popstate", handlePreviewPopState\)/);
+    assert.match(localLibraryPage, /window\.history\.back\(\)/);
+    assert.match(localLibraryPage, /window\.scrollTo\(\{[\s\S]*top:\s*pageState\.scrollY[\s\S]*behavior:\s*"auto"/);
 });
 
 test("local library preview keeps return controls reachable for long details", () => {

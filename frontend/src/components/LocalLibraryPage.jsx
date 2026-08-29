@@ -55,6 +55,7 @@ const Icon = ({ as: Component }) => Component ? <Component /> : null;
 const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
 const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
 const LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger.localLibrary.immersiveLayout";
+const LOCAL_LIBRARY_PREVIEW_HISTORY_KEY = "javjaegerLocalLibraryPreview";
 const DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
 const LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
 const LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
@@ -614,6 +615,11 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
     const gridAutoLoadLockedRef = React.useRef(false);
     const listAutoLoadLockedRef = React.useRef(false);
     const scanPollTimerRef = React.useRef(null);
+    const libraryPageRef = React.useRef(null);
+    const libraryPageStateRef = React.useRef(null);
+    const previewHistoryActiveRef = React.useRef(false);
+    const restorePageStateOnPopRef = React.useRef(true);
+    const recordsRef = React.useRef([]);
     const isDarkMode = libraryTheme === "dark";
     const libraryThemeConfig = React.useMemo(() => {
         if (!isDarkMode) {
@@ -655,6 +661,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
     }, [isDarkMode]);
 
     const records = library.records || [];
+    recordsRef.current = records;
     const actors = actorLibrary.actors || [];
     const missingInformationByMovieId = React.useMemo(() => {
         const entries = informationCheck?.records || [];
@@ -1025,16 +1032,101 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
 
     React.useEffect(() => () => clearScanPollTimer(), []);
 
+    const captureLibraryPageState = React.useCallback(() => {
+        const pageContent = libraryPageRef.current?.closest(".jav-page-content");
+        return {
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+            contentScrollTop: pageContent?.scrollTop || 0,
+        };
+    }, []);
+
+    const restoreLibraryPageState = React.useCallback((pageState = libraryPageStateRef.current) => {
+        if (!pageState) {
+            return;
+        }
+        const applyPageState = () => {
+            window.scrollTo({
+                left: pageState.scrollX || 0,
+                top: pageState.scrollY || 0,
+                behavior: "auto",
+            });
+            const pageContent = libraryPageRef.current?.closest(".jav-page-content");
+            if (pageContent) {
+                pageContent.scrollTop = pageState.contentScrollTop || 0;
+            }
+        };
+        window.requestAnimationFrame(() => {
+            applyPageState();
+            window.requestAnimationFrame(applyPageState);
+        });
+    }, []);
+
+    const dismissRecordPreview = React.useCallback((restorePageState = true) => {
+        setSelectedRecord(null);
+        setPlayingRecordKey("");
+        if (restorePageState) {
+            restoreLibraryPageState();
+        }
+    }, [restoreLibraryPageState]);
+
     const openRecordPreview = (record) => {
+        const pageState = captureLibraryPageState();
+        const currentHistoryState = window.history.state && typeof window.history.state === "object"
+            ? window.history.state
+            : {};
+        libraryPageStateRef.current = pageState;
+        previewHistoryActiveRef.current = true;
+        restorePageStateOnPopRef.current = true;
+        window.history.pushState({
+            ...currentHistoryState,
+            [LOCAL_LIBRARY_PREVIEW_HISTORY_KEY]: {
+                movieId: record.movie_id,
+                pageState,
+            },
+        }, "", window.location.href);
         setSelectedRecord(record);
         setPlayingRecordKey("");
         setSelectedPlayFileIndex(0);
     };
 
-    const closeRecordPreview = () => {
-        setSelectedRecord(null);
-        setPlayingRecordKey("");
+    const requestRecordPreviewClose = (restorePageState = true) => {
+        if (previewHistoryActiveRef.current) {
+            restorePageStateOnPopRef.current = restorePageState;
+            window.history.back();
+            return;
+        }
+        dismissRecordPreview(restorePageState);
     };
+
+    const closeRecordPreview = () => requestRecordPreviewClose(true);
+
+    React.useEffect(() => {
+        const handlePreviewPopState = (event) => {
+            const previewState = event.state?.[LOCAL_LIBRARY_PREVIEW_HISTORY_KEY];
+            if (previewState?.movieId) {
+                const record = recordsRef.current.find((item) => item.movie_id === previewState.movieId);
+                if (record) {
+                    libraryPageStateRef.current = previewState.pageState || libraryPageStateRef.current;
+                    previewHistoryActiveRef.current = true;
+                    restorePageStateOnPopRef.current = true;
+                    setSelectedRecord(record);
+                    setPlayingRecordKey("");
+                    setSelectedPlayFileIndex(0);
+                    return;
+                }
+            }
+            if (!previewHistoryActiveRef.current) {
+                return;
+            }
+            const shouldRestorePageState = restorePageStateOnPopRef.current;
+            previewHistoryActiveRef.current = false;
+            restorePageStateOnPopRef.current = true;
+            dismissRecordPreview(shouldRestorePageState);
+        };
+        window.addEventListener("popstate", handlePreviewPopState);
+        return () => window.removeEventListener("popstate", handlePreviewPopState);
+    }, [dismissRecordPreview]);
 
     const handlePlaySelectedRecord = (fileIndex = 0) => {
         if (!selectedRecord?.movie_id) {
@@ -1375,8 +1467,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
             roots: [],
         });
         setKeywordDraft("");
-        setSelectedRecord(null);
-        setPlayingRecordKey("");
+        requestRecordPreviewClose(false);
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
@@ -2138,7 +2229,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
     if (isDarkMode) {
         return (
             <ConfigProvider theme={libraryThemeConfig}>
-                <div className={`jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}`}>
+                <div ref={libraryPageRef} className={`jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}`}>
                     {renderImmersiveView()}
                 </div>
                 {renderRecordPreviewOverlay()}
@@ -2149,7 +2240,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
 
     return (
         <ConfigProvider theme={libraryThemeConfig}>
-        <div className={`jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}`}>
+        <div ref={libraryPageRef} className={`jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}`}>
             <div className="jav-library-layout">
                 <section className="jav-local-results jav-library-results">
                     <div className="jav-results-header">

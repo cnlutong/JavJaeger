@@ -3092,6 +3092,7 @@
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
   var LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
   var LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger.localLibrary.immersiveLayout";
+  var LOCAL_LIBRARY_PREVIEW_HISTORY_KEY = "javjaegerLocalLibraryPreview";
   var DEFAULT_LOCAL_LIBRARY_DIRECTORIES = ["/app/data"];
   var LOCAL_LIBRARY_GRID_PAGE_SIZE = 30;
   var LOCAL_LIBRARY_LIST_DEFAULT_PAGE_SIZE = 20;
@@ -3553,6 +3554,11 @@
     const gridAutoLoadLockedRef = React6.useRef(false);
     const listAutoLoadLockedRef = React6.useRef(false);
     const scanPollTimerRef = React6.useRef(null);
+    const libraryPageRef = React6.useRef(null);
+    const libraryPageStateRef = React6.useRef(null);
+    const previewHistoryActiveRef = React6.useRef(false);
+    const restorePageStateOnPopRef = React6.useRef(true);
+    const recordsRef = React6.useRef([]);
     const isDarkMode = libraryTheme === "dark";
     const libraryThemeConfig = React6.useMemo(() => {
       if (!isDarkMode) {
@@ -3593,6 +3599,7 @@
       };
     }, [isDarkMode]);
     const records = library.records || [];
+    recordsRef.current = records;
     const actors = actorLibrary.actors || [];
     const missingInformationByMovieId = React6.useMemo(() => {
       const entries = informationCheck?.records || [];
@@ -3923,15 +3930,93 @@ ${record.full_text || ""}`.toLowerCase();
       void Promise.all([loadLibrary(), loadLocalLibrarySettings()]);
     }, []);
     React6.useEffect(() => () => clearScanPollTimer(), []);
+    const captureLibraryPageState = React6.useCallback(() => {
+      const pageContent = libraryPageRef.current?.closest(".jav-page-content");
+      return {
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        contentScrollTop: pageContent?.scrollTop || 0
+      };
+    }, []);
+    const restoreLibraryPageState = React6.useCallback((pageState = libraryPageStateRef.current) => {
+      if (!pageState) {
+        return;
+      }
+      const applyPageState = () => {
+        window.scrollTo({
+          left: pageState.scrollX || 0,
+          top: pageState.scrollY || 0,
+          behavior: "auto"
+        });
+        const pageContent = libraryPageRef.current?.closest(".jav-page-content");
+        if (pageContent) {
+          pageContent.scrollTop = pageState.contentScrollTop || 0;
+        }
+      };
+      window.requestAnimationFrame(() => {
+        applyPageState();
+        window.requestAnimationFrame(applyPageState);
+      });
+    }, []);
+    const dismissRecordPreview = React6.useCallback((restorePageState = true) => {
+      setSelectedRecord(null);
+      setPlayingRecordKey("");
+      if (restorePageState) {
+        restoreLibraryPageState();
+      }
+    }, [restoreLibraryPageState]);
     const openRecordPreview = (record) => {
+      const pageState = captureLibraryPageState();
+      const currentHistoryState = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
+      libraryPageStateRef.current = pageState;
+      previewHistoryActiveRef.current = true;
+      restorePageStateOnPopRef.current = true;
+      window.history.pushState({
+        ...currentHistoryState,
+        [LOCAL_LIBRARY_PREVIEW_HISTORY_KEY]: {
+          movieId: record.movie_id,
+          pageState
+        }
+      }, "", window.location.href);
       setSelectedRecord(record);
       setPlayingRecordKey("");
       setSelectedPlayFileIndex(0);
     };
-    const closeRecordPreview = () => {
-      setSelectedRecord(null);
-      setPlayingRecordKey("");
+    const requestRecordPreviewClose = (restorePageState = true) => {
+      if (previewHistoryActiveRef.current) {
+        restorePageStateOnPopRef.current = restorePageState;
+        window.history.back();
+        return;
+      }
+      dismissRecordPreview(restorePageState);
     };
+    const closeRecordPreview = () => requestRecordPreviewClose(true);
+    React6.useEffect(() => {
+      const handlePreviewPopState = (event) => {
+        const previewState = event.state?.[LOCAL_LIBRARY_PREVIEW_HISTORY_KEY];
+        if (previewState?.movieId) {
+          const record = recordsRef.current.find((item) => item.movie_id === previewState.movieId);
+          if (record) {
+            libraryPageStateRef.current = previewState.pageState || libraryPageStateRef.current;
+            previewHistoryActiveRef.current = true;
+            restorePageStateOnPopRef.current = true;
+            setSelectedRecord(record);
+            setPlayingRecordKey("");
+            setSelectedPlayFileIndex(0);
+            return;
+          }
+        }
+        if (!previewHistoryActiveRef.current) {
+          return;
+        }
+        const shouldRestorePageState = restorePageStateOnPopRef.current;
+        previewHistoryActiveRef.current = false;
+        restorePageStateOnPopRef.current = true;
+        dismissRecordPreview(shouldRestorePageState);
+      };
+      window.addEventListener("popstate", handlePreviewPopState);
+      return () => window.removeEventListener("popstate", handlePreviewPopState);
+    }, [dismissRecordPreview]);
     const handlePlaySelectedRecord = (fileIndex = 0) => {
       if (!selectedRecord?.movie_id) {
         return;
@@ -4244,8 +4329,7 @@ ${record.full_text || ""}`.toLowerCase();
         roots: []
       });
       setKeywordDraft("");
-      setSelectedRecord(null);
-      setPlayingRecordKey("");
+      requestRecordPreviewClose(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
     const handleActorLibrarySelect = (actor) => {
@@ -4745,9 +4829,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       ));
     };
     if (isDarkMode) {
-      return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()), renderRecordPreviewOverlay(), renderTranscodingDialog());
+      return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { ref: libraryPageRef, className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()), renderRecordPreviewOverlay(), renderTranscodingDialog());
     }
-    return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React6.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React6.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar-row is-primary" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React6.createElement(
+    return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { ref: libraryPageRef, className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React6.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React6.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar-row is-primary" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React6.createElement(
       Input5,
       {
         allowClear: true,
