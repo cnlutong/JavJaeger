@@ -2,7 +2,7 @@
   "name": "javjaeger",
   "private": true,
   "scripts": {
-    "build:frontend": "esbuild frontend/src/main.jsx --bundle --format=iife --outfile=static/app.js --loader:.js=jsx --loader:.jsx=jsx",
+    "build:frontend": "esbuild frontend/src/main.jsx --bundle --format=iife --outfile=static/app.js --loader:.js=jsx --loader:.jsx=jsx --loader:.html=text --loader:.jpg=dataurl",
     "test:frontend": "node --test tests/frontend/*.test.mjs",
     "test:browser": "npm run build:frontend && node --test tests/browser/*.test.cjs",
     "test": "python -m pytest",

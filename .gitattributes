@@ -1,0 +1,7 @@
+# Preserve the five imported design files byte-for-byte, including on Windows.
+frontend/src/design/JavJaeger.dc.html -text
+frontend/src/design/support.js -text
+frontend/src/design/_ds/** -text
+frontend/src/design/static/logo.jpg binary
+# esbuild embeds the unchanged template text, including its original whitespace.
+static/app.js whitespace=-blank-at-eol

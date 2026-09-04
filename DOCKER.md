@@ -109,9 +109,9 @@ curl -fsS -X POST http://127.0.0.1:8000/api/movies/metadata-scrapers/test \
 ### 4. 页面验收
 
 1. 打开 `http://<host>:8000/`。
-2. 进入设置页，点击“保存全部”，应提示保存成功。
+2. 进入设置页，点击“保存”，应提示保存成功。
 3. 进入“刮削源”，点击“测试所有源”，应展示每个 provider 的测试结果。
-4. 如需按结果启停 provider，点击“按结果启停”，再点击“保存全部”复核配置可写。
+4. 如需按结果启停 provider，点击“按测试结果写回”，再点击“保存”复核配置可写。
 
 ### 5. 回滚和排障
 
@@ -316,7 +316,7 @@ volumes:
 
 这意味着：
 
-- 构建镜像时会自动生成并复制 `static/app.js` 和 `static/app.css`，样式源文件位于 `frontend/src/nocturne.css`
+- 构建镜像时会自动生成并复制 `static/app.js` 和 `static/app.css`；当前直接打包 `frontend/src/design/JavJaeger.dc.html`、`support.js`、`_ds` 样式和 logo，运行时无需 Claude Design 认证
 - 容器内自带 `ffprobe`，本地刮削可以比较冲突视频的分辨率和码率
 - 容器内自带 `ffmpeg`、Mesa/Intel VAAPI 驱动、`vainfo` 和 `lspci`；影视库会自动识别 GPU，只使用已通过探针的硬件编码器，并且只用更小的有效输出安全覆盖源文件
 - 即使宿主机没有提前执行 `npm run build:frontend`，容器镜像也能完成前端打包

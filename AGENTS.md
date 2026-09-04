@@ -40,7 +40,7 @@ Read these before changing code:
 3. `modules/common/runtime.py`
 4. the router and service in the module you are touching
 5. `frontend/src/main.jsx`
-6. `frontend/src/components/JavPage.jsx` or `frontend/src/components/WebDavPage.jsx`
+6. `frontend/src/design/JavJaeger.dc.html` and `frontend/src/design/integration.mjs`
 7. `templates/index.html`
 
 If the task affects runtime, deploy, or dependencies, also read:
@@ -108,6 +108,10 @@ Use this as the source-of-truth ownership map.
   - explicit 404 for unknown API paths
 - `frontend/src/`
   - editable frontend source
+- `frontend/src/design/`
+  - original Claude Design HTML, runtime, design system and logo
+  - `integration.mjs` connects original view controls to existing APIs
+  - `template.mjs` and `host.css` contain necessary host/control adaptations
 - `static/app.js`, `static/app.css`
   - generated frontend bundle
   - never hand-edit

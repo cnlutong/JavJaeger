@@ -7,7 +7,11 @@ FRONTEND_ROOT = Path(__file__).resolve().parents[1] / "frontend" / "src"
 
 
 def test_every_frontend_api_family_has_a_registered_concrete_route():
-    source = "\n".join(path.read_text(encoding="utf-8-sig") for path in FRONTEND_ROOT.rglob("*.*"))
+    source = "\n".join(
+        path.read_text(encoding="utf-8-sig")
+        for path in FRONTEND_ROOT.rglob("*.*")
+        if path.suffix in {".js", ".jsx", ".mjs", ".html"}
+    )
     routes = {
         (method, route.path)
         for route in app.routes

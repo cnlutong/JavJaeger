@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { buildSettingsPayload } from '../../frontend/src/utils/systemSettings.mjs';
 
 const settingsPage = readFileSync(new URL("../../frontend/src/components/SettingsPage.jsx", import.meta.url), "utf8");
 const apiUtils = readFileSync(new URL("../../frontend/src/utils/api.js", import.meta.url), "utf8");
@@ -23,12 +24,9 @@ test("settings page exposes image retry controls for scrape asset downloads", ()
 });
 
 test("settings page strips blank sensitive fields before saving", () => {
-    assert.match(settingsPage, /buildSettingsPayload/);
-    assert.match(settingsPage, /delete payload\.webdav\.password/);
-    assert.match(settingsPage, /delete payload\.aria2\.secret/);
-    assert.match(settingsPage, /delete payload\.pikpak\.password/);
-    assert.match(settingsPage, /delete payload\.pan115\.cookie/);
-    assert.match(settingsPage, /delete payload\.scrapers\.javstash\.api_key/);
+    const payload = buildSettingsPayload({ webdav: { password: '' }, aria2: { secret: '' }, pikpak: { password: '' }, pan115: { cookie: '' }, scrapers: { javstash: { api_key: '' } } });
+    for (const [section, secret] of [['webdav', 'password'], ['aria2', 'secret'], ['pikpak', 'password'], ['pan115', 'cookie']]) assert.equal(secret in payload[section], false);
+    assert.equal('api_key' in payload.scrapers.javstash, false);
 });
 
 test("settings page exposes magnet health thresholds", () => {

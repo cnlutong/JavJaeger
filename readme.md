@@ -15,14 +15,14 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 - 从影视库按文件启动后台 FFmpeg GPU 转码，自动识别 NVIDIA、Intel、AMD 或 Apple 硬件编码能力；可使用按源编码、实际码率、分辨率和帧率动态决策的 H.265 自适应模式，也可使用常用预设或专业参数，并管理多个并发任务。
 - 通过自动模式保存发现、筛选、磁力选择和下载派发流程，并按计划执行。
 - 在设置页热更新 JavBus 访问参数。
-- 在「设置 → 外观」切换全局浅色或深色主题，覆盖管理页面、影院布局和弹窗。默认深色，选择立即生效并保存在当前浏览器，刷新后保留，无需点击「保存全部」。影视库的「管理 / 沉浸」只切换布局，配色跟随全局主题。
+- 在「设置 → 外观」切换管理界面的浅色或深色主题，选择立即生效并保存在当前浏览器，刷新后保留。影院模式沿用原设计的暗色影厅。播放器直接播放本地原文件；浏览器不支持的编码可在影片详情中创建硬件转码任务。
 
 ## 技术栈
 
 | 部分 | 技术 |
 | --- | --- |
 | 后端 | Python 3.11+、FastAPI、Uvicorn |
-| 前端 | React 18、Ant Design、esbuild |
+| 前端 | React 18、Claude Design 原始模板与运行时、Nocturne、esbuild |
 | 数据 | `data/` 下的本地 JSON 状态文件 |
 | 下载与媒体 | PikPak API、115 扫码/Cookie 离线下载、WebDAV、Aria2 JSON-RPC、FFmpeg/ffprobe、NVENC/QSV/VAAPI/AMF/VideoToolbox |
 | 部署 | Docker、docker compose、可选 Nginx 反向代理 |
@@ -461,7 +461,9 @@ JavJaeger/
 
 ### 前端构建
 
-只编辑 `frontend/src/**`。Nocturne 样式源文件为 `frontend/src/nocturne.css`；构建会生成 `static/app.js` 和 `static/app.css`，不要手改这两个产物。
+只编辑 `frontend/src/**`。当前入口直接加载 `frontend/src/design/JavJaeger.dc.html`，使用从 [Claude Design 项目](https://claude.ai/design/p/dd9314b9-ac26-4ea3-8746-99ec32b2de8c?file=JavJaeger.dc.html) 导入的原 HTML、`support.js`、`_ds` 样式和 logo。五个原文件保留导入内容，校验和测试用于防止无意改版；`integration.mjs` 将原页面控件接入现有 API，`template.mjs` 和 `host.css` 处理播放器、字段绑定、弹窗与窄屏适配。原来的 Ant Design 页面及 `nocturne.css` 不再由入口加载。
+
+构建会将 HTML 作为文本、logo 作为 data URL 打包，生成 `static/app.js` 和 `static/app.css`。不要手改这两个产物。运行时无需连接 Claude Design 或登录设计服务。
 
 ```bash
 npm run build:frontend
