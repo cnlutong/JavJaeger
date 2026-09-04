@@ -10,7 +10,7 @@ test("local library records open an immersive preview page", () => {
     assert.match(localLibraryPage, /openRecordPreview/);
     assert.match(localLibraryPage, /renderRecordPreview/);
     assert.match(localLibraryPage, /onRow=\{\(record\) => \(\{/);
-    assert.match(localLibraryPage, /onClick:\s*\(\)\s*=>\s*openRecordPreview\(record\)/);
+    assert.match(localLibraryPage, /onClick:\s*\(event\)\s*=>\s*openRecordPreview\(record, event\)/);
     assert.match(localLibraryPage, /className=\{`jav-library-preview \$\{previewRatioClass\}`\}/);
 });
 
@@ -20,7 +20,8 @@ test("local library preview keeps the underlying page mounted", () => {
     assert.equal((localLibraryPage.match(/\{renderRecordPreviewOverlay\(\)\}/g) || []).length, 2);
     assert.doesNotMatch(localLibraryPage, /if \(selectedRecord\) \{/);
 
-    const openPreviewBlock = localLibraryPage.match(/const openRecordPreview = \(record\) => \{[\s\S]*?\n    \};/)?.[0] || "";
+    const openPreviewBlock = localLibraryPage.match(/const openRecordPreview = \(record, event\) => \{[\s\S]*?\n    \};/)?.[0] || "";
+    assert.ok(openPreviewBlock);
     assert.doesNotMatch(openPreviewBlock, /window\.scrollTo/);
 });
 
@@ -215,7 +216,7 @@ test("local library KPI cards use a compact single-line layout", () => {
 
 test("local library immersive mode offers three switchable cinema layouts", () => {
     assert.match(localLibraryPage, /LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger\.localLibrary\.immersiveLayout"/);
-    assert.match(localLibraryPage, /const \[immersiveLayout, setImmersiveLayout\] = React\.useState\(\(\) => loadImmersiveLayout\(\)\)/);
+    assert.match(localLibraryPage, /const \[immersiveLayout, setImmersiveLayout\] = React\.useState\(\(\) => cinemaMode \? "shelf" : loadImmersiveLayout\(\)\)/);
     assert.match(localLibraryPage, /aria-label="沉浸布局"/);
     assert.match(localLibraryPage, /海报墙/);
     assert.match(localLibraryPage, /焦点剧场/);
@@ -303,7 +304,7 @@ test("local library actor and genre tags filter from list, grid, and preview", (
 test("local library exposes a persistent scoped dark mode", () => {
     assert.match(localLibraryPage, /LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger\.localLibrary\.theme"/);
     assert.match(localLibraryPage, /const \[libraryTheme, setLibraryTheme\] = React\.useState\(\(\) => loadLocalLibraryTheme\(\)\)/);
-    assert.match(localLibraryPage, /const isDarkMode = libraryTheme === "dark";/);
+    assert.match(localLibraryPage, /const isDarkMode = cinemaMode \|\| libraryTheme === "dark";/);
     assert.match(localLibraryPage, /const libraryThemeConfig = React\.useMemo/);
     assert.match(localLibraryPage, /<ConfigProvider theme=\{libraryThemeConfig\}>/);
     assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page is-dark is-immersive-\$\{immersiveLayout\}`\}/);

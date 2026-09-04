@@ -108,7 +108,7 @@ Use this as the source-of-truth ownership map.
   - explicit 404 for unknown API paths
 - `frontend/src/`
   - editable frontend source
-- `static/app.js`
+- `static/app.js`, `static/app.css`
   - generated frontend bundle
   - never hand-edit
 - `static/`
@@ -213,7 +213,7 @@ Source of truth:
 
 Generated output:
 
-- `static/app.js`
+- `static/app.js`, `static/app.css`
 
 Required:
 
@@ -222,7 +222,7 @@ Required:
 
 Forbidden:
 
-- hand-editing `static/app.js`
+- hand-editing `static/app.js` or `static/app.css`
 - adding browser-side Babel entrypoints
 - moving app logic into `templates/index.html`
 
@@ -287,7 +287,7 @@ Forbidden:
 - service -> `main.py`
 - `modules/common/*` -> feature modules
 - router -> unrelated feature router
-- frontend source -> `static/app.js`
+- frontend source -> generated `static/app.js` or `static/app.css`
 - active runtime code -> `archive/*`
 - tests -> `data/` runtime state
 
@@ -381,7 +381,7 @@ For every non-trivial change, check all of these:
 3. I preserved the router/service split.
 4. I did not reintroduce process-global mutable session state.
 5. I did not leak secrets into URLs, logs, local storage, or API payloads.
-6. If frontend source changed, I rebuilt `static/app.js`.
+6. If frontend source changed, I rebuilt `static/app.js` and `static/app.css`.
 7. If I added a route, it is safe relative to the proxy catch-all route.
 8. If I added a dependency, it follows the allowed dependency direction.
 9. I did not accidentally treat `archive/`, `data/`, or logs as active source code.
@@ -400,7 +400,8 @@ Backend changes:
 Frontend changes:
 
 - frontend bundle rebuild
-- confirm `templates/index.html` still loads `static/app.js`
+- confirm `templates/index.html` still loads `static/app.js` and `static/app.css`
+- for page or interaction changes, run `npm run test:browser` (isolated Chromium workflow harness)
 
 Security or workflow changes:
 

@@ -384,6 +384,10 @@ export default function WebDavPage({ onOpenDownloadManagement } = {}) {
         delete secrets[profileId];
         saveNetDiskProfiles(nextProfiles);
         window.sessionStorage.setItem(NET_DISK_SECRET_KEY, JSON.stringify(secrets));
+        const savedWebdav = loadWebDavSettings();
+        if (profileId === buildProfileId(savedWebdav.url, savedWebdav.username)) {
+            saveWebDavSettings({});
+        }
         setNetDisks(nextProfiles);
         if (activeNetDiskId === profileId) {
             setActiveNetDiskId("");

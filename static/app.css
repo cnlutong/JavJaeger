@@ -1,0 +1,640 @@
+/* frontend/src/nocturne.css */
+:root {
+  --color-bg: #161826;
+  --color-header: #141622;
+  --color-surface: #232532;
+  --color-surface-2: #1b1d2b;
+  --color-elevated: #20222f;
+  --color-text: #e9e9ed;
+  --color-muted: #b2b6ca;
+  --color-dim: #9397ab;
+  --color-ring: #3f424d;
+  --color-accent: #9184d9;
+  --color-accent-soft: #b5abfc;
+  --color-success: #63b394;
+  --color-warning: #c9a05e;
+  --color-danger: #e08188;
+  --nocturne-divider: rgba(233, 233, 237, 0.1);
+  --nocturne-shadow: 0 0 0 1px var(--color-ring), 0 16px 40px rgba(0, 0, 0, 0.35);
+  --font-ui:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--color-bg);
+}
+body {
+  color: var(--color-text);
+  font: 13px/1.55 var(--font-ui);
+}
+body::before {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  content: "";
+  background:
+    radial-gradient(
+      circle at 82% 0%,
+      rgba(145, 132, 217, 0.12),
+      transparent 32rem),
+    var(--color-bg);
+}
+.jav-app,
+.jav-app-layout {
+  min-height: 100vh;
+  color: var(--color-text);
+  background: transparent !important;
+}
+.jav-header.ant-layout-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-columns: minmax(176px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  height: 52px;
+  padding: 0 18px;
+  color: var(--color-text);
+  line-height: normal;
+  background: rgba(20, 22, 34, 0.96) !important;
+  border-bottom: 1px solid var(--nocturne-divider);
+  backdrop-filter: blur(18px);
+}
+.jav-header-left,
+.jav-brand,
+.jav-brand-copy,
+.jav-header-nav,
+.jav-header-actions {
+  min-width: 0;
+}
+.jav-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.jav-brand-logo-button {
+  flex: none;
+  width: 26px !important;
+  height: 26px !important;
+  padding: 0 !important;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+.jav-brand-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.jav-brand-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.jav-brand-name.ant-typography {
+  color: var(--color-text) !important;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.jav-brand-slogan {
+  display: none !important;
+}
+.jav-header-nav {
+  justify-self: center;
+  justify-content: flex-start;
+  width: 100%;
+  overflow: hidden;
+}
+.jav-primary-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: max-content;
+}
+.jav-primary-nav button {
+  min-height: 30px;
+  padding: 0 9px;
+  color: rgba(233, 233, 237, 0.66) !important;
+  font: 500 12px/1 var(--font-ui);
+  white-space: nowrap;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.jav-primary-nav button:hover {
+  color: var(--color-text) !important;
+  background: rgba(233, 233, 237, 0.06) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.jav-primary-nav button.is-active {
+  color: #f5f4ff !important;
+  background: rgba(145, 132, 217, 0.18) !important;
+  box-shadow: inset 0 0 0 1px rgba(181, 171, 252, 0.28) !important;
+}
+.jav-primary-nav button:focus-visible,
+.jav-brand-logo-button:focus-visible {
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 2px;
+}
+.jav-header-actions {
+  justify-self: end;
+  gap: 8px !important;
+}
+.jav-version.ant-typography {
+  color: var(--color-dim) !important;
+  font:
+    400 11px/1 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  white-space: nowrap;
+}
+.jav-github-link {
+  color: var(--color-muted) !important;
+}
+.jav-workspace,
+.jav-page-workspace {
+  min-height: calc(100vh - 52px) !important;
+  color: var(--color-text);
+  background: transparent !important;
+}
+.jav-sidebar.ant-layout-sider {
+  color: var(--color-text);
+  background: var(--color-surface-2) !important;
+  border: 0 !important;
+  box-shadow: inset -1px 0 var(--nocturne-divider);
+}
+.jav-sidebar-right.ant-layout-sider {
+  box-shadow: inset 1px 0 var(--nocturne-divider);
+}
+.jav-sidebar.ant-layout-sider:not(.ant-layout-sider-collapsed) {
+  flex: 0 0 284px !important;
+  width: 284px !important;
+  min-width: 284px !important;
+  max-width: 284px !important;
+}
+.jav-sidebar .ant-layout-sider-trigger {
+  color: var(--color-muted);
+  background: var(--color-elevated);
+  border-top: 1px solid var(--nocturne-divider);
+}
+.jav-sidebar-content {
+  padding: 14px 12px 24px;
+}
+.jav-sidebar-title.ant-typography {
+  margin: 0 !important;
+  color: var(--color-dim) !important;
+  font-size: 10px !important;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+.jav-sidebar-divider.ant-divider,
+.jav-section-divider.ant-divider {
+  margin: 10px 0 !important;
+  border-color: var(--nocturne-divider) !important;
+}
+.jav-content.ant-layout-content,
+.jav-page-content.ant-layout-content {
+  min-width: 0;
+  padding: 14px 20px 28px !important;
+  color: var(--color-text);
+  background: transparent !important;
+}
+.jav-results-panel,
+.jav-page-panel {
+  min-height: 100%;
+  color: var(--color-text);
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.jav-results-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+.jav-results-header > :last-child {
+  margin-left: auto;
+}
+.jav-results-title.ant-typography,
+.webdav-page-header h3.ant-typography,
+.settings-heading-copy h3.ant-typography {
+  margin: 0 !important;
+  color: var(--color-text) !important;
+  font-size: 18px !important;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.jav-results-subtitle.ant-typography,
+.webdav-page-header .ant-typography {
+  color: var(--color-dim) !important;
+  font-size: 12px;
+}
+.jav-app .ant-card,
+.jav-app .webdav-connection-card,
+.jav-app .webdav-work-card,
+.jav-app .settings-card {
+  color: var(--color-text) !important;
+  background: var(--color-surface) !important;
+  border-color: var(--color-ring) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.jav-app .ant-card-head,
+.jav-app .webdav-connection-card .ant-card-head,
+.jav-app .webdav-work-card .ant-card-head {
+  min-height: 40px !important;
+  color: var(--color-muted) !important;
+  background: rgba(20, 22, 34, 0.24) !important;
+  border-bottom-color: var(--nocturne-divider) !important;
+}
+.jav-app .ant-card-head-title,
+.jav-app .webdav-connection-card .ant-card-head-title,
+.jav-app .webdav-work-card .ant-card-head-title {
+  color: var(--color-muted) !important;
+  font-size: 12px;
+  font-weight: 500;
+}
+.jav-tool-card {
+  margin-bottom: 10px !important;
+}
+.jav-app .ant-form-item {
+  margin-bottom: 10px;
+}
+.jav-app .ant-form-item-label > label {
+  color: var(--color-muted) !important;
+  font-size: 12px;
+}
+.jav-app .ant-input,
+.jav-app .ant-input-affix-wrapper,
+.jav-app .ant-input-number,
+.jav-app .ant-select-selector,
+.jav-app .ant-picker,
+.jav-app textarea.ant-input {
+  color: var(--color-text) !important;
+  background: rgba(20, 22, 34, 0.42) !important;
+  border-color: var(--color-ring) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+.jav-app .ant-input::placeholder,
+.jav-app textarea.ant-input::placeholder {
+  color: rgba(233, 233, 237, 0.34) !important;
+}
+.jav-app .ant-input:hover,
+.jav-app .ant-input-affix-wrapper:hover,
+.jav-app .ant-select-selector:hover {
+  border-color: #75798c !important;
+}
+.jav-app .ant-input:focus,
+.jav-app .ant-input-affix-wrapper-focused,
+.jav-app .ant-select-focused .ant-select-selector {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 2px rgba(145, 132, 217, 0.14) !important;
+}
+.jav-app .ant-btn {
+  min-height: 30px;
+  color: var(--color-text);
+  background: transparent;
+  border-color: var(--color-ring);
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 500;
+}
+.jav-app .ant-btn:hover:not(:disabled) {
+  color: var(--color-accent-soft) !important;
+  background: rgba(145, 132, 217, 0.1) !important;
+  border-color: var(--color-accent) !important;
+}
+.jav-app .ant-btn-primary,
+.jav-app .webdav-page .ant-btn-primary {
+  color: #f5f4ff !important;
+  background: rgba(145, 132, 217, 0.2) !important;
+  border-color: var(--color-accent) !important;
+}
+.jav-app .ant-btn-dangerous {
+  color: var(--color-danger) !important;
+  border-color: rgba(224, 129, 136, 0.55) !important;
+}
+.jav-app .ant-btn:disabled,
+.jav-app .ant-btn.ant-btn-disabled,
+.jav-app .ant-btn-primary:disabled,
+.jav-app .ant-btn-primary.ant-btn-disabled {
+  color: rgba(233, 233, 237, 0.32) !important;
+  background: rgba(233, 233, 237, 0.04) !important;
+  border-color: rgba(233, 233, 237, 0.12) !important;
+  box-shadow: none !important;
+}
+.jav-app .ant-segmented {
+  color: var(--color-muted);
+  background: rgba(20, 22, 34, 0.45);
+  border: 1px solid var(--color-ring);
+}
+.jav-app .ant-segmented-item-selected {
+  color: #f5f4ff;
+  background: rgba(145, 132, 217, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(181, 171, 252, 0.26);
+}
+.jav-kpi-grid {
+  gap: 8px !important;
+}
+.jav-kpi-card {
+  min-height: 62px !important;
+  padding: 9px 11px !important;
+  background: var(--color-surface) !important;
+  border-color: var(--color-ring) !important;
+  border-radius: 7px !important;
+  box-shadow: none !important;
+}
+.jav-kpi-card strong {
+  color: var(--color-text) !important;
+}
+.jav-kpi-label,
+.jav-kpi-note,
+.jav-process-item em {
+  color: var(--color-dim) !important;
+}
+.jav-process-strip {
+  background: var(--color-surface-2) !important;
+  border-color: var(--nocturne-divider) !important;
+  border-radius: 7px !important;
+}
+.jav-app .jav-process-item {
+  color: var(--color-text) !important;
+  background: var(--color-surface) !important;
+  border-color: var(--color-ring) !important;
+}
+.jav-process-item.is-active .jav-process-icon {
+  color: var(--color-accent-soft) !important;
+  background: rgba(145, 132, 217, 0.16) !important;
+}
+.jav-movie-card {
+  margin-bottom: 9px;
+}
+.jav-movie-card:hover,
+.jav-picker-card:hover {
+  border-color: rgba(145, 132, 217, 0.7) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22) !important;
+}
+.jav-app .ant-table-wrapper,
+.jav-app .ant-table,
+.jav-app .ant-table-container,
+.jav-app .ant-table-content,
+.jav-app .ant-table-cell {
+  color: var(--color-text) !important;
+  background: transparent !important;
+}
+.jav-app .ant-table-container {
+  overflow: hidden;
+  border: 1px solid var(--color-ring) !important;
+  border-radius: 8px;
+}
+.jav-app .ant-table-thead > tr > th {
+  color: var(--color-dim) !important;
+  background: var(--color-surface-2) !important;
+  border-bottom-color: var(--color-ring) !important;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.jav-app .ant-table-tbody > tr > td {
+  border-bottom-color: var(--nocturne-divider) !important;
+}
+.jav-app .ant-table-tbody > tr:hover > td {
+  background: rgba(233, 233, 237, 0.04) !important;
+}
+.jav-app .ant-typography,
+.jav-app .ant-breadcrumb,
+.jav-app .ant-breadcrumb a,
+.jav-app .ant-breadcrumb-link,
+.jav-app .ant-badge-status-text {
+  color: var(--color-text);
+}
+.jav-app .ant-typography-secondary {
+  color: var(--color-dim) !important;
+}
+.jav-app .webdav-page,
+.jav-page-panel > .webdav-page,
+.jav-local-scrape,
+.automation-page,
+.settings-page {
+  color: var(--color-text) !important;
+  background: transparent !important;
+}
+.jav-app .webdav-page-header,
+.jav-app .webdav-status-cluster,
+.jav-app .ant-breadcrumb {
+  color: var(--color-text) !important;
+  background: var(--color-surface) !important;
+  border-color: var(--color-ring) !important;
+  box-shadow: none !important;
+}
+.jav-app .webdav-netdisk-list .ant-list-item.is-active,
+.jav-app .webdav-netdisk-list .ant-list-item:hover {
+  background: rgba(145, 132, 217, 0.12) !important;
+}
+.jav-storage-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.jav-storage-switcher {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 0 2px 12px;
+  border-bottom: 1px solid var(--nocturne-divider);
+}
+.jav-storage-switcher h4.ant-typography {
+  margin: 0 0 2px !important;
+  color: var(--color-text) !important;
+  font-size: 18px;
+  font-weight: 500;
+}
+.jav-storage-switcher .ant-segmented {
+  margin-left: auto;
+}
+.automation-sidebar,
+.automation-inspector,
+.automation-toolbar,
+.automation-runs,
+.automation-node,
+.jav-local-settings,
+.jav-local-results,
+.settings-nav,
+.settings-service-card,
+.settings-summary-card,
+.settings-metric {
+  color: var(--color-text) !important;
+  background: var(--color-surface) !important;
+  border-color: var(--color-ring) !important;
+  box-shadow: none !important;
+}
+.automation-workbench,
+.automation-canvas {
+  background-color: var(--color-bg) !important;
+}
+.settings-nav-item {
+  color: var(--color-muted) !important;
+}
+.settings-nav-item.is-active,
+.settings-nav-item:hover {
+  color: #f5f4ff !important;
+  background: rgba(145, 132, 217, 0.15) !important;
+}
+.automation-canvas {
+  min-width: 0;
+  overflow: auto;
+  border-color: var(--color-ring);
+  background-image:
+    linear-gradient(var(--nocturne-divider) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      var(--nocturne-divider) 1px,
+      transparent 1px);
+}
+.automation-node-body strong {
+  color: var(--color-text);
+}
+.automation-node-body em {
+  color: var(--color-muted);
+}
+.automation-task-item.is-active,
+.automation-filter-builder {
+  background: var(--color-surface-2);
+  border-color: var(--color-accent);
+}
+.jav-logo-preview-overlay {
+  background: rgba(20, 22, 34, 0.86) !important;
+  backdrop-filter: blur(12px);
+}
+@media (max-width: 1180px) {
+  .jav-header.ant-layout-header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .jav-header-actions {
+    display: none;
+  }
+  .jav-header-nav {
+    justify-self: stretch;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .jav-primary-nav {
+    justify-content: flex-start;
+  }
+  .jav-sidebar.ant-layout-sider:not(.ant-layout-sider-collapsed) {
+    flex-basis: 250px !important;
+    width: 250px !important;
+    min-width: 250px !important;
+    max-width: 250px !important;
+  }
+}
+@media (max-width: 760px) {
+  .jav-library-toolbar-row {
+    flex-wrap: nowrap;
+  }
+  .jav-library-search-row {
+    flex: none;
+  }
+  .jav-library-kpis .jav-kpi-card {
+    grid-template-columns: max-content minmax(0, 1fr);
+    row-gap: 6px;
+  }
+  .jav-library-kpis .jav-kpi-card strong {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    text-align: left;
+  }
+  .jav-library-kpis .jav-kpi-note {
+    grid-column: 2;
+    grid-row: 1;
+    text-align: right;
+  }
+  .jav-header.ant-layout-header {
+    position: sticky;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    height: auto;
+    min-height: 64px;
+    padding: 8px 12px;
+  }
+  .jav-header-left {
+    flex: none;
+  }
+  .jav-header-nav {
+    order: 2;
+    flex: 1 0 100%;
+    padding-bottom: 2px;
+  }
+  .jav-primary-nav button {
+    min-height: 28px;
+    padding-inline: 8px;
+  }
+  .jav-workspace.is-jav,
+  .jav-workspace.is-dispatch {
+    display: block;
+  }
+  .jav-sidebar.ant-layout-sider,
+  .jav-sidebar.ant-layout-sider:not(.ant-layout-sider-collapsed) {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+  }
+  .jav-sidebar .ant-layout-sider-trigger {
+    display: none;
+  }
+  .jav-content.ant-layout-content,
+  .jav-page-content.ant-layout-content {
+    padding: 12px !important;
+  }
+  .jav-results-header,
+  .jav-storage-switcher {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .jav-results-header > :last-child,
+  .jav-storage-switcher .ant-segmented {
+    width: 100%;
+    margin-left: 0;
+  }
+  .jav-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .jav-movie-content-row {
+    align-items: flex-start !important;
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jav-app *,
+  .jav-app *::before,
+  .jav-app *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

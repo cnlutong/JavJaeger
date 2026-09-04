@@ -94,6 +94,7 @@ export default function TranscodingDialog({
     React.useEffect(() => {
         if (!open) return undefined;
         let active = true;
+        setCapabilities(null);
         setLoadingCapabilities(true);
         fetch("/api/movies/transcoding/presets")
             .then(async (response) => {
@@ -119,6 +120,7 @@ export default function TranscodingDialog({
     }, [open, record?.movie_id, initialFileIndex, form]);
 
     const handleSubmit = async (values) => {
+        if (!capabilities || loadingCapabilities || ffmpegUnavailable || gpuUnavailable) return;
         if (!record?.movie_id) {
             message.error("未选择有效影片");
             return;
@@ -391,7 +393,7 @@ export default function TranscodingDialog({
                         <Button type="link" onClick={() => { onClose?.(); onOpenPanel?.(); }}>打开转码面板</Button>
                         <Space>
                             <Button onClick={onClose}>取消</Button>
-                            <Button type="primary" htmlType="submit" icon={<VideoCameraOutlined />} loading={submitting} disabled={ffmpegUnavailable || gpuUnavailable}>
+                            <Button type="primary" htmlType="submit" icon={<VideoCameraOutlined />} loading={submitting} disabled={loadingCapabilities || !capabilities || ffmpegUnavailable || gpuUnavailable}>
                                 启动后台转码
                             </Button>
                         </Space>

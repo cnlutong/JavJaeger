@@ -165,7 +165,7 @@
     }
     return data;
   };
-  function DirectoryInput({ value, onChange, placeholder, disabled }) {
+  function DirectoryInput({ value, onChange, placeholder, disabled, ...inputProps }) {
     const [open, setOpen] = React.useState(false);
     const [loading, setLoading] = React.useState(false);
     const [browser, setBrowser] = React.useState({ current_path: "", parent_path: null, entries: [] });
@@ -194,6 +194,7 @@
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Space.Compact, { block: true }, /* @__PURE__ */ React.createElement(
       Input,
       {
+        ...inputProps,
         value,
         disabled,
         placeholder,
@@ -638,6 +639,10 @@
       delete secrets[profileId];
       saveNetDiskProfiles(nextProfiles);
       window.sessionStorage.setItem(NET_DISK_SECRET_KEY, JSON.stringify(secrets));
+      const savedWebdav = loadWebDavSettings();
+      if (profileId === buildProfileId(savedWebdav.url, savedWebdav.username)) {
+        saveWebDavSettings({});
+      }
       setNetDisks(nextProfiles);
       if (activeNetDiskId === profileId) {
         setActiveNetDiskId("");
@@ -2835,6 +2840,7 @@
     React5.useEffect(() => {
       if (!open) return void 0;
       let active = true;
+      setCapabilities(null);
       setLoadingCapabilities(true);
       fetch("/api/movies/transcoding/presets").then(async (response) => {
         const payload = await response.json();
@@ -2855,6 +2861,7 @@
       };
     }, [open, record?.movie_id, initialFileIndex, form]);
     const handleSubmit = async (values) => {
+      if (!capabilities || loadingCapabilities || ffmpegUnavailable || gpuUnavailable) return;
       if (!record?.movie_id) {
         message5.error("\u672A\u9009\u62E9\u6709\u6548\u5F71\u7247");
         return;
@@ -3033,7 +3040,7 @@
       ), /* @__PURE__ */ React5.createElement(Divider2, null), /* @__PURE__ */ React5.createElement(Space5, { style: { width: "100%", justifyContent: "space-between" }, wrap: true }, /* @__PURE__ */ React5.createElement(Button5, { type: "link", onClick: () => {
         onClose?.();
         onOpenPanel?.();
-      } }, "\u6253\u5F00\u8F6C\u7801\u9762\u677F"), /* @__PURE__ */ React5.createElement(Space5, null, /* @__PURE__ */ React5.createElement(Button5, { onClick: onClose }, "\u53D6\u6D88"), /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React5.createElement(VideoCameraOutlined, null), loading: submitting, disabled: ffmpegUnavailable || gpuUnavailable }, "\u542F\u52A8\u540E\u53F0\u8F6C\u7801")))))
+      } }, "\u6253\u5F00\u8F6C\u7801\u9762\u677F"), /* @__PURE__ */ React5.createElement(Space5, null, /* @__PURE__ */ React5.createElement(Button5, { onClick: onClose }, "\u53D6\u6D88"), /* @__PURE__ */ React5.createElement(Button5, { type: "primary", htmlType: "submit", icon: /* @__PURE__ */ React5.createElement(VideoCameraOutlined, null), loading: submitting, disabled: loadingCapabilities || !capabilities || ffmpegUnavailable || gpuUnavailable }, "\u542F\u52A8\u540E\u53F0\u8F6C\u7801")))))
     );
   }
 
@@ -3490,7 +3497,7 @@
     const initial = (actor?.name || "?").slice(0, 1).toUpperCase();
     return /* @__PURE__ */ React6.createElement("span", { className: "jav-library-actor-card-avatar" }, src ? /* @__PURE__ */ React6.createElement("img", { src, alt: actor.name, onError: () => setSourceIndex((index) => index + 1) }) : /* @__PURE__ */ React6.createElement("span", null, initial));
   };
-  function LocalLibraryPage({ onOpenTranscoding } = {}) {
+  function LocalLibraryPage({ onOpenTranscoding, cinemaMode = false, onExitCinema } = {}) {
     const [library, setLibrary] = React6.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
     const [actorLibrary, setActorLibrary] = React6.useState({ actors: [], total_actors: 0 });
     const [informationCheck, setInformationCheck] = React6.useState(null);
@@ -3522,7 +3529,7 @@
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React6.useState({});
     const [viewMode, setViewMode] = React6.useState("list");
     const [libraryTheme, setLibraryTheme] = React6.useState(() => loadLocalLibraryTheme());
-    const [immersiveLayout, setImmersiveLayout] = React6.useState(() => loadImmersiveLayout());
+    const [immersiveLayout, setImmersiveLayout] = React6.useState(() => cinemaMode ? "shelf" : loadImmersiveLayout());
     const [immersiveIndex, setImmersiveIndex] = React6.useState(0);
     const [sortRule, setSortRule] = React6.useState("date_desc");
     const [gridPage, setGridPage] = React6.useState(1);
@@ -3559,7 +3566,7 @@
     const previewHistoryActiveRef = React6.useRef(false);
     const restorePageStateOnPopRef = React6.useRef(true);
     const recordsRef = React6.useRef([]);
-    const isDarkMode = libraryTheme === "dark";
+    const isDarkMode = cinemaMode || libraryTheme === "dark";
     const libraryThemeConfig = React6.useMemo(() => {
       if (!isDarkMode) {
         return {};
@@ -3965,7 +3972,8 @@ ${record.full_text || ""}`.toLowerCase();
         restoreLibraryPageState();
       }
     }, [restoreLibraryPageState]);
-    const openRecordPreview = (record) => {
+    const openRecordPreview = (record, event) => {
+      if (event?.target.closest("button, a, input, .ant-popover")) return;
       const pageState = captureLibraryPageState();
       const currentHistoryState = window.history.state && typeof window.history.state === "object" ? window.history.state : {};
       libraryPageStateRef.current = pageState;
@@ -4677,7 +4685,14 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         onChange: handleImmersiveLayoutChange,
         options: LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS
       }
-    ), /* @__PURE__ */ React6.createElement(Button6, { icon: /* @__PURE__ */ React6.createElement(Icon3, { as: SunOutlined }), onClick: () => handleLibraryThemeChange("light") }, "\u7BA1\u7406\u6A21\u5F0F"))), sortedRecords.length ? immersiveLayout === "shelf" ? renderImmersiveShelf() : immersiveLayout === "corridor" ? renderImmersiveCorridor() : renderImmersiveGrid() : /* @__PURE__ */ React6.createElement("div", { className: "jav-library-immersive-empty" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 }), /* @__PURE__ */ React6.createElement("strong", null, loading ? "\u6B63\u5728\u8F7D\u5165\u5F71\u89C6\u5E93" : "\u6CA1\u6709\u627E\u5230\u5F71\u7247"), /* @__PURE__ */ React6.createElement("span", null, "\u9000\u51FA\u6C89\u6D78\u6A21\u5F0F\u540E\u53EF\u626B\u63CF\u76EE\u5F55\u6216\u8C03\u6574\u7B5B\u9009\u6761\u4EF6")), /* @__PURE__ */ React6.createElement(
+    ), /* @__PURE__ */ React6.createElement(
+      Button6,
+      {
+        icon: /* @__PURE__ */ React6.createElement(Icon3, { as: SunOutlined }),
+        onClick: () => cinemaMode && onExitCinema ? onExitCinema() : handleLibraryThemeChange("light")
+      },
+      "\u7BA1\u7406\u754C\u9762"
+    ))), sortedRecords.length ? immersiveLayout === "shelf" ? renderImmersiveShelf() : immersiveLayout === "corridor" ? renderImmersiveCorridor() : renderImmersiveGrid() : /* @__PURE__ */ React6.createElement("div", { className: "jav-library-immersive-empty" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 }), /* @__PURE__ */ React6.createElement("strong", null, loading ? "\u6B63\u5728\u8F7D\u5165\u5F71\u89C6\u5E93" : "\u6CA1\u6709\u627E\u5230\u5F71\u7247"), /* @__PURE__ */ React6.createElement("span", null, "\u9000\u51FA\u6C89\u6D78\u6A21\u5F0F\u540E\u53EF\u626B\u63CF\u76EE\u5F55\u6216\u8C03\u6574\u7B5B\u9009\u6761\u4EF6")), /* @__PURE__ */ React6.createElement(
       Drawer2,
       {
         title: "\u7B5B\u9009",
@@ -4950,7 +4965,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           hoverable: true,
           className: "jav-library-poster-card",
           cover: /* @__PURE__ */ React6.createElement(MoviePoster, { record, variant: "thumbnail" }),
-          onClick: () => openRecordPreview(record)
+          onClick: (event) => openRecordPreview(record, event)
         },
         /* @__PURE__ */ React6.createElement(Text6, { strong: true, ellipsis: { tooltip: record.title }, className: "jav-library-poster-title" }, record.title || record.movie_id),
         /* @__PURE__ */ React6.createElement("div", { className: "jav-library-poster-meta" }, /* @__PURE__ */ React6.createElement(Tag5, { color: "blue" }, record.movie_id), record.date && /* @__PURE__ */ React6.createElement(Text6, { type: "secondary" }, String(record.date).slice(0, 4))),
@@ -5043,10 +5058,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         size: "small",
         dataSource: visibleListRecords,
         columns,
+        scroll: { x: 1200 },
         loading,
         pagination: false,
         onRow: (record) => ({
-          onClick: () => openRecordPreview(record)
+          onClick: (event) => openRecordPreview(record, event)
         }),
         locale: { emptyText: "\u6682\u65E0\u5F71\u89C6\u5E93\u8BB0\u5F55\uFF0C\u8BF7\u5148\u626B\u63CF\u76EE\u5F55" }
       }
@@ -5365,13 +5381,13 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
   };
   var settingPageStyles = `
 .settings-page {
-    --settings-bg: #f5f5f5;
-    --settings-surface: #ffffff;
-    --settings-border: #d9d9d9;
-    --settings-border-soft: #f0f0f0;
-    --settings-text: #262626;
-    --settings-muted: #595959;
-    --settings-primary: #1677ff;
+    --settings-bg: var(--color-bg);
+    --settings-surface: var(--color-surface);
+    --settings-border: var(--color-ring);
+    --settings-border-soft: var(--nocturne-divider);
+    --settings-text: var(--color-text);
+    --settings-muted: var(--color-muted);
+    --settings-primary: var(--color-accent-soft);
     min-height: 100%;
     color: var(--settings-text);
 }
@@ -5411,7 +5427,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
 .settings-nav-header {
     padding: 14px 14px 10px;
     border-bottom: 1px solid var(--settings-border-soft);
-    background: #fafafa;
+    background: var(--color-surface-2);
 }
 
 .settings-nav-title {
@@ -5454,7 +5470,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
 }
 
 .settings-page button.settings-nav-item:not(.is-active):hover {
-    background: #f5f8ff !important;
+    background: var(--color-surface-2) !important;
     color: var(--settings-primary) !important;
     box-shadow: none !important;
     transform: none !important;
@@ -5462,7 +5478,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
 
 .settings-page button.settings-nav-item.is-active {
     padding: 8px 10px !important;
-    background: #e6f4ff !important;
+    background: var(--color-surface-2) !important;
     color: var(--settings-primary) !important;
     font-weight: 700;
     box-shadow: none !important;
@@ -5496,7 +5512,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
 
 .settings-card .ant-card-head {
     min-height: 46px !important;
-    background: #fafafa !important;
+    background: var(--color-surface-2) !important;
 }
 
 .settings-card .ant-card-body {
@@ -5564,7 +5580,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     padding: 12px;
     border: 1px solid var(--settings-border-soft);
     border-radius: 8px;
-    background: #fafafa;
+    background: var(--color-surface-2);
 }
 
 .settings-metric-label {
@@ -5600,7 +5616,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     gap: 10px;
     padding: 12px 14px;
     border-bottom: 1px solid var(--settings-border-soft);
-    background: #fafafa;
+    background: var(--color-surface-2);
 }
 
 .settings-service-title {
@@ -5623,7 +5639,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     color: var(--settings-muted) !important;
     font-size: 12px;
     font-weight: 760 !important;
-    background: #fafafa !important;
+    background: var(--color-surface-2) !important;
 }
 
 .settings-provider-name {
@@ -5752,7 +5768,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     const [scraperTestResult, setScraperTestResult] = React7.useState(null);
     const [settings, setSettings] = React7.useState(null);
     const [activeSection, setActiveSection] = React7.useState("overview");
-    const scraperPriority = Form6.useWatch(["scrapers", "priority"], form) || [];
+    const scraperPriority = Form6.useWatch(["scrapers", "priority"], { form, preserve: true }) || [];
     const loadSettings = async () => {
       setLoading(true);
       try {
@@ -6320,18 +6336,21 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     React8.useEffect(() => {
       if (!dragState) return void 0;
       const handleMove = (event) => {
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        const x = Math.max(16, Math.min(rect.width - 220, event.clientX - rect.left - dragState.offsetX));
-        const y = Math.max(70, Math.min(rect.height - 96, event.clientY - rect.top - dragState.offsetY));
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.max(16, Math.min(canvas.scrollWidth - NODE_WIDTH, event.clientX - rect.left - canvas.clientLeft + canvas.scrollLeft - dragState.offsetX));
+        const y = Math.max(70, Math.min(canvas.scrollHeight - NODE_HEIGHT, event.clientY - rect.top - canvas.clientTop + canvas.scrollTop - dragState.offsetY));
         updateNode(dragState.nodeId, { position: { x, y } });
       };
       const handleUp = () => setDragState(null);
       window.addEventListener("pointermove", handleMove);
       window.addEventListener("pointerup", handleUp);
+      window.addEventListener("pointercancel", handleUp);
       return () => {
         window.removeEventListener("pointermove", handleMove);
         window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
       };
     }, [dragState, currentTask]);
     const loadTasks = async () => {
@@ -6533,7 +6552,10 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const selectedNode = (currentTask.nodes || []).find((node) => node.id === selectedNodeId) || currentTask.nodes?.[0];
     const nodeMap = Object.fromEntries((currentTask.nodes || []).map((node) => [node.id, node]));
-    const renderEdges = () => /* @__PURE__ */ React8.createElement("svg", { className: "automation-flow-lines" }, (currentTask.edges || []).map((edge) => {
+    const renderEdges = () => /* @__PURE__ */ React8.createElement("svg", { className: "automation-flow-lines", style: {
+      minWidth: Math.max(NODE_MIN_X + (currentTask.nodes || []).length * (NODE_WIDTH + NODE_GAP), dragState?.canvasWidth || 0),
+      minHeight: dragState?.canvasHeight || 0
+    } }, (currentTask.edges || []).map((edge) => {
       const source = nodeMap[edge.source];
       const target = nodeMap[edge.target];
       if (!source || !target) return null;
@@ -6680,6 +6702,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             setSelectedNodeId(node.id);
             setDragState({
               nodeId: node.id,
+              canvasWidth: canvasRef.current.scrollWidth,
+              canvasHeight: canvasRef.current.scrollHeight,
               offsetX: event.clientX - rect.left,
               offsetY: event.clientY - rect.top
             });
@@ -7065,6 +7089,17 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     cilisousuo: "Cilisousuo",
     yhg007: "YHG007"
   };
+  var PRIMARY_NAV_ITEMS = [
+    { label: "\u5F71\u9662\u6A21\u5F0F", value: "cinema" },
+    { label: "\u5F71\u7247\u68C0\u7D22", value: "jav" },
+    { label: "\u4E0B\u8F7D\u6D3E\u53D1", value: "dispatch" },
+    { label: "\u672C\u5730\u522E\u524A", value: "localScrape" },
+    { label: "\u5F71\u89C6\u5E93", value: "localLibrary" },
+    { label: "\u81EA\u52A8\u6A21\u5F0F", value: "automation" },
+    { label: "\u8F6C\u7801", value: "transcoding" },
+    { label: "\u7F51\u76D8\u4E0E\u4E0B\u8F7D", value: "storage" },
+    { label: "\u8BBE\u7F6E", value: "settings" }
+  ];
   var magnetSourceRequiresMovieParams = (source) => source === "javbus";
   var runWithConcurrency = async (items, limit, worker) => {
     if (!Array.isArray(items) || items.length === 0) {
@@ -7090,7 +7125,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       asset_version: "",
       auto_reload_frontend: false
     });
-    const [activePage, setActivePage] = React10.useState("jav");
+    const [activePage, setActivePage] = React10.useState("cinema");
+    const [storageView, setStorageView] = React10.useState("webdav");
     const [logoPreviewOpen, setLogoPreviewOpen] = React10.useState(false);
     const [loading, setLoading] = React10.useState(false);
     const [downloadingMovieIds, setDownloadingMovieIds] = React10.useState({});
@@ -7232,6 +7268,12 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       return () => window.removeEventListener("keydown", handleKeyDown);
     }, [logoPreviewOpen]);
     const displayVersion = versionInfo.version && versionInfo.version.startsWith("v") ? versionInfo.version : `v${versionInfo.version}`;
+    const handleActivePageChange = (page) => {
+      setActivePage(page);
+      if (page === "jav" || page === "dispatch") {
+        setViewMode("search");
+      }
+    };
     const resultMovies = moviesData && Array.isArray(moviesData.movies) ? moviesData.movies : [];
     const resultCount = resultMovies.length;
     const magnetsLoadedCount = resultMovies.filter((movie) => Array.isArray(magnetDataMap[movie.id])).length;
@@ -7239,7 +7281,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const magnets = magnetDataMap[movie.id];
       return Array.isArray(magnets) && magnets.length > 0;
     }).length;
-    const currentMagnetSource = magnetSettingsForm.getFieldValue("magnetSource") || "javbus";
+    const currentMagnetSource = Form8.useWatch("magnetSource", { form: magnetSettingsForm, preserve: true }) || "javbus";
+    const globalExclude4k = Form8.useWatch("globalExclude4k", { form: magnetSettingsForm, preserve: true });
     const isDownloadToolCurrentlyReady = (tool = downloadTool) => {
       if (tool === "aria2") {
         return aria2Connected;
@@ -7530,6 +7573,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       setMovieDetailMap({});
       try {
         const data = await fetchWithRetry(`/api/movies/${encodeURIComponent(values.keyword)}`);
+        setLastFilterValues(null);
         setMoviesData(data.movies ? data : { movies: [data] });
         if (data.movies) {
           loadMovieResources(data.movies);
@@ -7600,6 +7644,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       const requestVersion = nextMagnetRequestVersion(values.movieId);
       try {
         const { magnetSource, exclude4k } = getMagnetSettings();
+        setLastFilterValues(null);
         setMoviesData({ movies: [{ id: values.movieId, title: `\u67E5\u8BE2\u78C1\u529B: ${values.movieId}` }] });
         setMagnetDataMap({});
         const queryParams = new URLSearchParams();
@@ -7710,6 +7755,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const handleRecognizeMovie = async (values) => {
       setLoading(true);
+      setLastFilterValues(null);
       setMoviesData(null);
       setMagnetDataMap({});
       try {
@@ -7726,12 +7772,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (usePikPakWorkflowAutoDownload && isLoggedIn && pikpakCredentials) {
           Object.assign(requestBody, buildPikPakAuthPayload());
         }
-        const response = await fetch("/api/movies/recognize", {
+        const data = await fetchWithRetry("/api/movies/recognize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
-        });
-        const data = await response.json();
+        }, 0);
         if (data.error) {
           message10.error(`\u9519\u8BEF: ${data.error}`);
         } else {
@@ -7760,6 +7805,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const handleCodeDownload = async (values) => {
       setLoading(true);
+      setLastFilterValues(null);
       setMoviesData(null);
       setMagnetDataMap({});
       try {
@@ -7776,12 +7822,11 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         if (usePikPakWorkflowAutoDownload && isLoggedIn && pikpakCredentials) {
           Object.assign(requestBody, buildPikPakAuthPayload());
         }
-        const response = await fetch("/api/movies/download-by-codes", {
+        const data = await fetchWithRetry("/api/movies/download-by-codes", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestBody)
-        });
-        const data = await response.json();
+        }, 0);
         if (data.error) {
           message10.error(`\u9519\u8BEF: ${data.error}`);
           return;
@@ -8037,6 +8082,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const fetchHistory = async () => {
       setLoading(true);
+      setActivePage("dispatch");
       setViewMode("history");
       try {
         const data = await fetchWithRetry("/api/history");
@@ -8174,7 +8220,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         return /* @__PURE__ */ React10.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React10.createElement(Spin2, { size: "large" }), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary" }, "\u6B63\u5728\u641C\u7D22..."));
       }
       if (!moviesData) {
-        return /* @__PURE__ */ React10.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary" }, "\u6CA1\u6709\u4EFB\u4F55\u7ED3\u679C\uFF0C\u8BF7\u5728\u5DE6\u4FA7\u9009\u62E9\u67E5\u8BE2\u529F\u80FD\u5F00\u59CB\u641C\u7D22"));
+        return /* @__PURE__ */ React10.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary" }, activePage === "dispatch" ? "\u8F93\u5165\u4E00\u4E2A\u6216\u591A\u4E2A\u756A\u53F7\uFF0C\u5F00\u59CB\u68C0\u7D22\u5E76\u6D3E\u53D1\u4E0B\u8F7D\u4EFB\u52A1" : "\u6CA1\u6709\u4EFB\u4F55\u7ED3\u679C\uFF0C\u8BF7\u5728\u5DE6\u4FA7\u9009\u62E9\u67E5\u8BE2\u529F\u80FD\u5F00\u59CB\u641C\u7D22"));
       }
       if (moviesData.error) {
         return /* @__PURE__ */ React10.createElement("div", { className: "jav-state-panel" }, /* @__PURE__ */ React10.createElement(Text10, { type: "danger" }, moviesData.error));
@@ -8455,13 +8501,31 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     };
     const renderStandalonePage = (page) => {
       const pageContent = {
+        cinema: /* @__PURE__ */ React10.createElement(
+          LocalLibraryPage,
+          {
+            key: "cinema",
+            cinemaMode: true,
+            onExitCinema: () => setActivePage("localLibrary"),
+            onOpenTranscoding: () => setActivePage("transcoding")
+          }
+        ),
         localScrape: /* @__PURE__ */ React10.createElement(LocalScrapePage, null),
-        localLibrary: /* @__PURE__ */ React10.createElement(LocalLibraryPage, { onOpenTranscoding: () => setActivePage("transcoding") }),
+        localLibrary: /* @__PURE__ */ React10.createElement(LocalLibraryPage, { key: "library", onOpenTranscoding: () => setActivePage("transcoding") }),
         automation: /* @__PURE__ */ React10.createElement(AutomationPage, null),
         transcoding: /* @__PURE__ */ React10.createElement(TranscodingPage, null),
         settings: /* @__PURE__ */ React10.createElement(SettingsPage, null),
-        webdav: /* @__PURE__ */ React10.createElement(WebDavPage, { onOpenDownloadManagement: () => setActivePage("downloadManagement") }),
-        downloadManagement: /* @__PURE__ */ React10.createElement(DownloadManagementPage, null)
+        storage: /* @__PURE__ */ React10.createElement("div", { className: "jav-storage-shell" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-storage-switcher" }, /* @__PURE__ */ React10.createElement("div", null, /* @__PURE__ */ React10.createElement(Title9, { level: 4 }, "\u7F51\u76D8\u4E0E\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary" }, "\u6D4F\u89C8\u5B58\u50A8\u6E90\uFF0C\u6216\u67E5\u770B Aria2 \u8FDE\u63A5\u4E0E\u4EFB\u52A1")), /* @__PURE__ */ React10.createElement(
+          Segmented3,
+          {
+            value: storageView,
+            onChange: setStorageView,
+            options: [
+              { label: "\u7F51\u76D8\u6D4F\u89C8", value: "webdav" },
+              { label: "Aria2 \u4EFB\u52A1", value: "downloads" }
+            ]
+          }
+        )), storageView === "downloads" ? /* @__PURE__ */ React10.createElement(DownloadManagementPage, null) : /* @__PURE__ */ React10.createElement(WebDavPage, { onOpenDownloadManagement: () => setStorageView("downloads") }))
       }[page] || /* @__PURE__ */ React10.createElement(WebDavPage, null);
       return /* @__PURE__ */ React10.createElement(Layout3, { className: "jav-workspace jav-page-workspace" }, /* @__PURE__ */ React10.createElement(Content3, { className: "jav-content jav-page-content" }, /* @__PURE__ */ React10.createElement("section", { className: "jav-results-panel jav-page-panel" }, pageContent)));
     };
@@ -8469,16 +8533,22 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       ConfigProvider2,
       {
         theme: {
+          algorithm: antd10.theme.darkAlgorithm,
           token: {
-            colorPrimary: "#1677ff",
-            colorInfo: "#1677ff",
-            colorSuccess: "#52c41a",
-            colorWarning: "#faad14",
-            colorError: "#ff4d4f",
-            colorBgLayout: "#f5f5f5",
-            colorBorder: "#d9d9d9",
-            borderRadius: 6,
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+            colorPrimary: "#9184d9",
+            colorInfo: "#9184d9",
+            colorSuccess: "#63b394",
+            colorWarning: "#c9a05e",
+            colorError: "#e08188",
+            colorBgBase: "#161826",
+            colorBgLayout: "#161826",
+            colorBgContainer: "#232532",
+            colorBgElevated: "#20222f",
+            colorBorder: "#3f424d",
+            colorText: "#e9e9ed",
+            colorTextSecondary: "#b2b6ca",
+            borderRadius: 8,
+            fontFamily: "Inter, system-ui, sans-serif"
           }
         }
       },
@@ -8491,24 +8561,17 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           onClick: handleLogoPreviewOpen
         },
         /* @__PURE__ */ React10.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger", className: "jav-brand-logo" })
-      ), /* @__PURE__ */ React10.createElement("span", { className: "jav-brand-copy" }, /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-name" }, HEADER_BRAND_NAME), /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-slogan" }, /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_QUOTE), /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_AUTHOR))))), /* @__PURE__ */ React10.createElement("div", { className: "jav-header-nav" }, /* @__PURE__ */ React10.createElement(
-        Segmented3,
+      ), /* @__PURE__ */ React10.createElement("span", { className: "jav-brand-copy" }, /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-name" }, HEADER_BRAND_NAME), /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-slogan" }, /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_QUOTE), /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_AUTHOR))))), /* @__PURE__ */ React10.createElement("div", { className: "jav-header-nav" }, /* @__PURE__ */ React10.createElement("nav", { className: "jav-primary-nav", "aria-label": "\u4E3B\u529F\u80FD\u5BFC\u822A" }, PRIMARY_NAV_ITEMS.map((item) => /* @__PURE__ */ React10.createElement(
+        "button",
         {
-          className: "jav-page-tabs",
-          value: activePage,
-          onChange: setActivePage,
-          options: [
-            { label: "\u5F71\u7247\u68C0\u7D22", value: "jav" },
-            { label: "\u522E\u524A", value: "localScrape" },
-            { label: "\u5F71\u89C6\u5E93", value: "localLibrary" },
-            { label: "\u81EA\u52A8\u6A21\u5F0F", value: "automation" },
-            { label: "\u8F6C\u7801", value: "transcoding" },
-            { label: "\u7F51\u76D8\u7BA1\u7406", value: "webdav" },
-            { label: "\u4E0B\u8F7D\u7BA1\u7406", value: "downloadManagement" },
-            { label: "\u8BBE\u7F6E", value: "settings" }
-          ]
-        }
-      )), /* @__PURE__ */ React10.createElement(Space10, { size: "middle", className: "jav-header-actions" }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-version" }, displayVersion, " (", versionInfo.build_date, ")"), /* @__PURE__ */ React10.createElement("a", { className: "jav-github-link", href: "https://github.com/cnlutong/JavJaeger", target: "_blank", rel: "noreferrer", "aria-label": "GitHub repository" }, GithubOutlined ? /* @__PURE__ */ React10.createElement(GithubOutlined, null) : /* @__PURE__ */ React10.createElement("svg", { viewBox: "0 0 24 24", fill: "currentColor", width: "24", height: "24" }, /* @__PURE__ */ React10.createElement("path", { d: "M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" }))))), logoPreviewOpen && /* @__PURE__ */ React10.createElement(
+          key: item.value,
+          type: "button",
+          className: activePage === item.value ? "is-active" : "",
+          "aria-current": activePage === item.value ? "page" : void 0,
+          onClick: () => handleActivePageChange(item.value)
+        },
+        item.label
+      )))), /* @__PURE__ */ React10.createElement(Space10, { size: "middle", className: "jav-header-actions" }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-version" }, displayVersion, " (", versionInfo.build_date, ")"), /* @__PURE__ */ React10.createElement("a", { className: "jav-github-link", href: "https://github.com/cnlutong/JavJaeger", target: "_blank", rel: "noreferrer", "aria-label": "GitHub repository" }, GithubOutlined ? /* @__PURE__ */ React10.createElement(GithubOutlined, null) : /* @__PURE__ */ React10.createElement("svg", { viewBox: "0 0 24 24", fill: "currentColor", width: "24", height: "24" }, /* @__PURE__ */ React10.createElement("path", { d: "M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" }))))), logoPreviewOpen && /* @__PURE__ */ React10.createElement(
         "div",
         {
           className: "jav-logo-preview-overlay",
@@ -8528,7 +8591,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           "\xD7"
         ),
         /* @__PURE__ */ React10.createElement("div", { className: "jav-logo-preview-frame", onClick: (event) => event.stopPropagation() }, /* @__PURE__ */ React10.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger logo \u5927\u56FE", className: "jav-logo-preview-image" }))
-      ), activePage === "jav" ? /* @__PURE__ */ React10.createElement(Layout3, { className: "jav-workspace" }, /* @__PURE__ */ React10.createElement(
+      ), activePage === "jav" || activePage === "dispatch" ? /* @__PURE__ */ React10.createElement(Layout3, { className: `jav-workspace is-${activePage}` }, /* @__PURE__ */ React10.createElement(
         Sider,
         {
           width: 320,
@@ -8538,7 +8601,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           onCollapse: (value) => setCollapsedLeft(value),
           className: "jav-sidebar jav-sidebar-left"
         },
-        /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page", excludeVr: false } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React10.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React10.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React10.createElement("a", { onClick: (e) => {
+        /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, activePage === "dispatch" ? "\u6D3E\u53D1\u4EFB\u52A1" : "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), activePage === "jav" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page", excludeVr: false } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React10.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React10.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React10.createElement("a", { onClick: (e) => {
           e.stopPropagation();
           filterForm.setFieldsValue({ filterType: "star" });
           setViewMode("browseActor");
@@ -8616,7 +8679,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
               { label: "\u6392\u96644K", value: true }
             ]
           }
-        )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }) }, "\u8BC6\u522B\u5E76\u4E0B\u8F7D"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }), " \u756A\u53F7\u81EA\u52A8\u4E0B\u8F7D"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: handleCodeDownload, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "movieCodes", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Input8.TextArea, { placeholder: "\u652F\u6301\u591A\u884C\u3001\u7A7A\u683C\u5206\u9694...", rows: 4 })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React10.createElement(
+        )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }) }, "\u8BC6\u522B\u5E76\u4E0B\u8F7D")))), activePage === "dispatch" && /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }), " \u756A\u53F7\u81EA\u52A8\u4E0B\u8F7D"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: handleCodeDownload, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "movieCodes", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Input8.TextArea, { placeholder: "\u652F\u6301\u591A\u884C\u3001\u7A7A\u683C\u5206\u9694...", rows: 4 })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React10.createElement(
           Segmented3,
           {
             block: true,
@@ -8635,7 +8698,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
             ]
           }
         )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }) }, "\u641C\u7D22\u5E76\u4E0B\u8F7D"))))
-      ), /* @__PURE__ */ React10.createElement(Content3, { className: "jav-content" }, /* @__PURE__ */ React10.createElement("section", { className: "jav-results-panel" }, viewMode === "search" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React10.createElement("div", null, /* @__PURE__ */ React10.createElement(Title9, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 })), "\u67E5\u8BE2\u7ED3\u679C"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-results-subtitle" }, "\u5F53\u524D\u6279\u6B21\u8D44\u6E90\u6982\u89C8")), /* @__PURE__ */ React10.createElement(
+      ), /* @__PURE__ */ React10.createElement(Content3, { className: "jav-content" }, /* @__PURE__ */ React10.createElement("section", { className: "jav-results-panel" }, viewMode === "search" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React10.createElement("div", null, /* @__PURE__ */ React10.createElement(Title9, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 })), activePage === "dispatch" ? "\u4E0B\u8F7D\u6D3E\u53D1" : "\u67E5\u8BE2\u7ED3\u679C"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-results-subtitle" }, activePage === "dispatch" ? "\u6279\u91CF\u756A\u53F7\u3001\u8D44\u6E90\u72B6\u6001\u4E0E\u6D3E\u53D1\u7ED3\u679C" : "\u5F53\u524D\u6279\u6B21\u8D44\u6E90\u6982\u89C8")), /* @__PURE__ */ React10.createElement(
         Button10,
         {
           type: "primary",
@@ -8644,8 +8707,8 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           icon: /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }),
           onClick: handleDownloadAllMovies
         },
-        "\u4E0B\u8F7D\u672C\u9875\u5168\u90E8\u5F71\u7247"
-      )), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React10.createElement("strong", null, resultCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React10.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React10.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React10.createElement("strong", null, MAGNET_SOURCE_LABELS2[currentMagnetSource] || currentMagnetSource), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", magnetSettingsForm.getFieldValue("globalExclude4k") ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React10.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React10.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React10.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React10.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React10.createElement(
+        activePage === "dispatch" ? "\u6D3E\u53D1\u672C\u9875\u5168\u90E8\u5F71\u7247" : "\u4E0B\u8F7D\u672C\u9875\u5168\u90E8\u5F71\u7247"
+      )), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React10.createElement("strong", null, resultCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React10.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React10.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React10.createElement("strong", null, MAGNET_SOURCE_LABELS2[currentMagnetSource] || currentMagnetSource), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", globalExclude4k ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React10.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React10.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React10.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React10.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React10.createElement(
         Sider,
         {
           width: 300,
@@ -8656,7 +8719,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
           className: "jav-sidebar jav-sidebar-right",
           reverseArrow: true
         },
-        /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React10.createElement(
+        /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, activePage === "dispatch" ? "\u6D3E\u53D1\u8BBE\u7F6E" : "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React10.createElement(
           Card9,
           {
             title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " \u4E0B\u8F7D\u5DE5\u5177"),

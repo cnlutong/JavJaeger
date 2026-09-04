@@ -36,6 +36,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 COPY --from=frontend-builder /frontend/static/app.js /app/static/app.js
+COPY --from=frontend-builder /frontend/static/app.css /app/static/app.css
 
 RUN mkdir -p /app/data /app/actor_images
 

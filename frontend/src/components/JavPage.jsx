@@ -81,6 +81,17 @@ const MAGNET_SOURCE_LABELS = {
     cilisousuo: 'Cilisousuo',
     yhg007: 'YHG007',
 };
+const PRIMARY_NAV_ITEMS = [
+    { label: '影院模式', value: 'cinema' },
+    { label: '影片检索', value: 'jav' },
+    { label: '下载派发', value: 'dispatch' },
+    { label: '本地刮削', value: 'localScrape' },
+    { label: '影视库', value: 'localLibrary' },
+    { label: '自动模式', value: 'automation' },
+    { label: '转码', value: 'transcoding' },
+    { label: '网盘与下载', value: 'storage' },
+    { label: '设置', value: 'settings' },
+];
 const magnetSourceRequiresMovieParams = (source) => source === 'javbus';
 
 const runWithConcurrency = async (items, limit, worker) => {
@@ -111,7 +122,8 @@ export default function JavPage() {
         asset_version: "",
         auto_reload_frontend: false,
     });
-    const [activePage, setActivePage] = React.useState('jav');
+    const [activePage, setActivePage] = React.useState('cinema');
+    const [storageView, setStorageView] = React.useState('webdav');
     const [logoPreviewOpen, setLogoPreviewOpen] = React.useState(false);
 
     // UI State
@@ -285,6 +297,13 @@ export default function JavPage() {
         ? versionInfo.version
         : `v${versionInfo.version}`;
 
+    const handleActivePageChange = (page) => {
+        setActivePage(page);
+        if (page === 'jav' || page === 'dispatch') {
+            setViewMode('search');
+        }
+    };
+
     const resultMovies = moviesData && Array.isArray(moviesData.movies) ? moviesData.movies : [];
     const resultCount = resultMovies.length;
     const magnetsLoadedCount = resultMovies.filter(movie => Array.isArray(magnetDataMap[movie.id])).length;
@@ -292,7 +311,8 @@ export default function JavPage() {
         const magnets = magnetDataMap[movie.id];
         return Array.isArray(magnets) && magnets.length > 0;
     }).length;
-    const currentMagnetSource = magnetSettingsForm.getFieldValue('magnetSource') || 'javbus';
+    const currentMagnetSource = Form.useWatch('magnetSource', { form: magnetSettingsForm, preserve: true }) || 'javbus';
+    const globalExclude4k = Form.useWatch('globalExclude4k', { form: magnetSettingsForm, preserve: true });
     const isDownloadToolCurrentlyReady = (tool = downloadTool) => {
         if (tool === 'aria2') {
             return aria2Connected;
@@ -614,6 +634,7 @@ export default function JavPage() {
         setMovieDetailMap({});
         try {
             const data = await fetchWithRetry(`/api/movies/${encodeURIComponent(values.keyword)}`);
+            setLastFilterValues(null);
             setMoviesData(data.movies ? data : { movies: [data] }); // Adapt payload
             if (data.movies) {
                 loadMovieResources(data.movies);
@@ -694,6 +715,7 @@ export default function JavPage() {
             const { magnetSource, exclude4k } = getMagnetSettings();
 
             // Set mock moviesData to show the result section
+            setLastFilterValues(null);
             setMoviesData({ movies: [{ id: values.movieId, title: `查询磁力: ${values.movieId}` }] });
             setMagnetDataMap({});
 
@@ -817,6 +839,7 @@ export default function JavPage() {
 
     const handleRecognizeMovie = async (values) => {
         setLoading(true);
+        setLastFilterValues(null);
         setMoviesData(null);
         setMagnetDataMap({});
         try {
@@ -834,12 +857,11 @@ export default function JavPage() {
                 Object.assign(requestBody, buildPikPakAuthPayload());
             }
 
-            const response = await fetch('/api/movies/recognize', {
+            const data = await fetchWithRetry('/api/movies/recognize', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
-            });
-            const data = await response.json();
+            }, 0);
 
             if (data.error) {
                 message.error(`错误: ${data.error}`);
@@ -870,6 +892,7 @@ export default function JavPage() {
 
     const handleCodeDownload = async (values) => {
         setLoading(true);
+        setLastFilterValues(null);
         setMoviesData(null);
         setMagnetDataMap({});
         try {
@@ -887,12 +910,11 @@ export default function JavPage() {
                 Object.assign(requestBody, buildPikPakAuthPayload());
             }
 
-            const response = await fetch('/api/movies/download-by-codes', {
+            const data = await fetchWithRetry('/api/movies/download-by-codes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
-            });
-            const data = await response.json();
+            }, 0);
 
             if (data.error) {
                 message.error(`错误: ${data.error}`);
@@ -1163,6 +1185,7 @@ export default function JavPage() {
 
     const fetchHistory = async () => {
         setLoading(true);
+        setActivePage('dispatch');
         setViewMode('history');
         try {
             const data = await fetchWithRetry('/api/history');
@@ -1324,7 +1347,11 @@ export default function JavPage() {
         if (!moviesData) {
             return (
                 <div className="jav-state-panel">
-                    <Text type="secondary">没有任何结果，请在左侧选择查询功能开始搜索</Text>
+                    <Text type="secondary">
+                        {activePage === 'dispatch'
+                            ? '输入一个或多个番号，开始检索并派发下载任务'
+                            : '没有任何结果，请在左侧选择查询功能开始搜索'}
+                    </Text>
                 </div>
             );
         }
@@ -1735,13 +1762,40 @@ export default function JavPage() {
 
     const renderStandalonePage = (page) => {
         const pageContent = {
+            cinema: (
+                <LocalLibraryPage
+                    key="cinema"
+                    cinemaMode
+                    onExitCinema={() => setActivePage('localLibrary')}
+                    onOpenTranscoding={() => setActivePage('transcoding')}
+                />
+            ),
             localScrape: <LocalScrapePage />,
-            localLibrary: <LocalLibraryPage onOpenTranscoding={() => setActivePage('transcoding')} />,
+            localLibrary: <LocalLibraryPage key="library" onOpenTranscoding={() => setActivePage('transcoding')} />,
             automation: <AutomationPage />,
             transcoding: <TranscodingPage />,
             settings: <SettingsPage />,
-            webdav: <WebDavPage onOpenDownloadManagement={() => setActivePage('downloadManagement')} />,
-            downloadManagement: <DownloadManagementPage />,
+            storage: (
+                <div className="jav-storage-shell">
+                    <div className="jav-storage-switcher">
+                        <div>
+                            <Title level={4}>网盘与下载管理</Title>
+                            <Text type="secondary">浏览存储源，或查看 Aria2 连接与任务</Text>
+                        </div>
+                        <Segmented
+                            value={storageView}
+                            onChange={setStorageView}
+                            options={[
+                                { label: '网盘浏览', value: 'webdav' },
+                                { label: 'Aria2 任务', value: 'downloads' },
+                            ]}
+                        />
+                    </div>
+                    {storageView === 'downloads'
+                        ? <DownloadManagementPage />
+                        : <WebDavPage onOpenDownloadManagement={() => setStorageView('downloads')} />}
+                </div>
+            ),
         }[page] || <WebDavPage />;
 
         return (
@@ -1760,16 +1814,22 @@ export default function JavPage() {
     return (
         <ConfigProvider
             theme={{
+                algorithm: antd.theme.darkAlgorithm,
                 token: {
-                    colorPrimary: '#1677ff',
-                    colorInfo: '#1677ff',
-                    colorSuccess: '#52c41a',
-                    colorWarning: '#faad14',
-                    colorError: '#ff4d4f',
-                    colorBgLayout: '#f5f5f5',
-                    colorBorder: '#d9d9d9',
-                    borderRadius: 6,
-                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                    colorPrimary: '#9184d9',
+                    colorInfo: '#9184d9',
+                    colorSuccess: '#63b394',
+                    colorWarning: '#c9a05e',
+                    colorError: '#e08188',
+                    colorBgBase: '#161826',
+                    colorBgLayout: '#161826',
+                    colorBgContainer: '#232532',
+                    colorBgElevated: '#20222f',
+                    colorBorder: '#3f424d',
+                    colorText: '#e9e9ed',
+                    colorTextSecondary: '#b2b6ca',
+                    borderRadius: 8,
+                    fontFamily: 'Inter, system-ui, sans-serif'
                 },
             }}
         >
@@ -1796,21 +1856,19 @@ export default function JavPage() {
                             </div>
                         </div>
                         <div className="jav-header-nav">
-                            <Segmented
-                                className="jav-page-tabs"
-                                value={activePage}
-                                onChange={setActivePage}
-                                options={[
-                                    { label: '影片检索', value: 'jav' },
-                                    { label: '刮削', value: 'localScrape' },
-                                    { label: '影视库', value: 'localLibrary' },
-                                    { label: '自动模式', value: 'automation' },
-                                    { label: '转码', value: 'transcoding' },
-                                    { label: '网盘管理', value: 'webdav' },
-                                    { label: '下载管理', value: 'downloadManagement' },
-                                    { label: '设置', value: 'settings' }
-                                ]}
-                            />
+                            <nav className="jav-primary-nav" aria-label="主功能导航">
+                                {PRIMARY_NAV_ITEMS.map((item) => (
+                                    <button
+                                        key={item.value}
+                                        type="button"
+                                        className={activePage === item.value ? 'is-active' : ''}
+                                        aria-current={activePage === item.value ? 'page' : undefined}
+                                        onClick={() => handleActivePageChange(item.value)}
+                                    >
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </nav>
                         </div>
                         <Space size="middle" className="jav-header-actions">
                             <Text type="secondary" className="jav-version">
@@ -1848,8 +1906,8 @@ export default function JavPage() {
                         </div>
                     )}
 
-                    {activePage === 'jav' ? (
-                    <Layout className="jav-workspace">
+                    {activePage === 'jav' || activePage === 'dispatch' ? (
+                    <Layout className={`jav-workspace is-${activePage}`}>
                         {/* Left Sidebar */}
                         <Sider
                             width={320}
@@ -1860,9 +1918,12 @@ export default function JavPage() {
                             className="jav-sidebar jav-sidebar-left"
                         >
                             <div className="jav-sidebar-content">
-                                <Title level={5} className="jav-sidebar-title">查询功能</Title>
+                                <Title level={5} className="jav-sidebar-title">
+                                    {activePage === 'dispatch' ? '派发任务' : '查询功能'}
+                                </Title>
                                 <Divider className="jav-sidebar-divider" />
 
+                                {activePage === 'jav' && (<>
                                 <Card title={<><Icon as={FilterOutlined} /> 影片列表筛选</>} size="small" className="jav-tool-card">
                                     <Form form={filterForm} onFinish={filterMovies} layout="vertical" initialValues={{ magnet: 'exist', type: 'normal', fetchMode: 'page', excludeVr: false }}>
                                         <Form.Item name="filterType" style={{ marginBottom: 8 }}>
@@ -2061,7 +2122,9 @@ export default function JavPage() {
                                         <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={SearchOutlined} />}>识别并下载</Button>
                                     </Form>
                                 </Card>
+                                </>)}
 
+                                {activePage === 'dispatch' && (
                                 <Card title={<><Icon as={DownloadOutlined} /> 番号自动下载</>} size="small" className="jav-tool-card">
                                     <Form onFinish={handleCodeDownload} layout="vertical" initialValues={{ autoDownload: true }}>
                                         <Form.Item name="movieCodes" rules={[{ required: true, message: '请输入番号' }]} style={{ marginBottom: 8 }}>
@@ -2094,6 +2157,7 @@ export default function JavPage() {
                                         <Button type="primary" htmlType="submit" block loading={loading} icon={<Icon as={DownloadOutlined} />}>搜索并下载</Button>
                                     </Form>
                                 </Card>
+                                )}
                             </div>
                         </Sider>
 
@@ -2104,8 +2168,13 @@ export default function JavPage() {
                                     <>
                                         <div className="jav-results-header">
                                             <div>
-                                                <Title level={4} className="jav-results-title"><span className="jav-section-icon"><Icon as={ThunderboltOutlined} /></span>查询结果</Title>
-                                                <Text type="secondary" className="jav-results-subtitle">当前批次资源概览</Text>
+                                                <Title level={4} className="jav-results-title">
+                                                    <span className="jav-section-icon"><Icon as={ThunderboltOutlined} /></span>
+                                                    {activePage === 'dispatch' ? '下载派发' : '查询结果'}
+                                                </Title>
+                                                <Text type="secondary" className="jav-results-subtitle">
+                                                    {activePage === 'dispatch' ? '批量番号、资源状态与派发结果' : '当前批次资源概览'}
+                                                </Text>
                                             </div>
                                         <Button
                                             type="primary"
@@ -2113,7 +2182,7 @@ export default function JavPage() {
                                             loading={loading}
                                             icon={<Icon as={DownloadOutlined} />}
                                             onClick={handleDownloadAllMovies}
-                                        >下载本页全部影片</Button>
+                                        >{activePage === 'dispatch' ? '派发本页全部影片' : '下载本页全部影片'}</Button>
                                         </div>
                                         <div className="jav-kpi-grid">
                                             <div className="jav-kpi-card">
@@ -2140,7 +2209,7 @@ export default function JavPage() {
                                             <div className="jav-kpi-card">
                                                 <span className="jav-kpi-label">来源</span>
                                                 <strong>{MAGNET_SOURCE_LABELS[currentMagnetSource] || currentMagnetSource}</strong>
-                                                <span className="jav-kpi-note">4K过滤：{magnetSettingsForm.getFieldValue('globalExclude4k') ? '开启' : '关闭'}</span>
+                                                <span className="jav-kpi-note">4K过滤：{globalExclude4k ? '开启' : '关闭'}</span>
                                             </div>
                                         </div>
                                         <div className="jav-process-strip">
@@ -2192,7 +2261,9 @@ export default function JavPage() {
                             reverseArrow
                         >
                             <div className="jav-sidebar-content">
-                                <Title level={5} className="jav-sidebar-title">下载管理</Title>
+                                <Title level={5} className="jav-sidebar-title">
+                                    {activePage === 'dispatch' ? '派发设置' : '下载管理'}
+                                </Title>
                                 <Divider className="jav-sidebar-divider" />
 
                                 <Card

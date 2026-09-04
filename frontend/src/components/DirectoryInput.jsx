@@ -18,7 +18,7 @@ const fetchDirectories = async (path) => {
     return data;
 };
 
-export default function DirectoryInput({ value, onChange, placeholder, disabled }) {
+export default function DirectoryInput({ value, onChange, placeholder, disabled, ...inputProps }) {
     const [open, setOpen] = React.useState(false);
     const [loading, setLoading] = React.useState(false);
     const [browser, setBrowser] = React.useState({ current_path: "", parent_path: null, entries: [] });
@@ -52,6 +52,7 @@ export default function DirectoryInput({ value, onChange, placeholder, disabled 
         <>
             <Space.Compact block>
                 <Input
+                    {...inputProps}
                     value={value}
                     disabled={disabled}
                     placeholder={placeholder}

@@ -460,13 +460,13 @@ JavJaeger/
 
 ### 前端构建
 
-只编辑 `frontend/src/**`。不要手改 `static/app.js`。
+只编辑 `frontend/src/**`。Nocturne 样式源文件为 `frontend/src/nocturne.css`；构建会生成 `static/app.js` 和 `static/app.css`，不要手改这两个产物。
 
 ```bash
 npm run build:frontend
 ```
 
-`templates/index.html` 只负责加载 CDN、注入版本信息和引用 `/static/app.js`。
+`templates/index.html` 只负责加载 CDN、样式、注入版本信息和引用 `/static/app.js`、`/static/app.css`。
 
 ### 测试和验证
 
@@ -493,6 +493,16 @@ python -m pytest
 npm run build:frontend
 npm run test:frontend
 ```
+
+页面或交互变更还需运行 Chromium 工作流回归（Node.js 20+，首次安装浏览器）：
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:browser
+```
+
+浏览器测试自动创建临时配置、数据目录和独立端口，启动真实 FastAPI 后端；下载、删除、登录及设置修改由测试模拟，不访问现有媒体库或真实账户。覆盖九个主页面、桌面与窄屏布局，以及查询、派发、刮削、影视库、自动任务、网盘、转码和设置交互。需要网络加载页面 CDN 资源；真实外部服务和 GPU 编码仍需在目标部署环境联调。Python 默认使用项目 `.venv`，也可通过 `JAVJAEGER_QA_PYTHON` 指定已安装 `requirements.txt` 的解释器。
 
 ## 安全边界
 

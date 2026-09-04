@@ -171,18 +171,21 @@ export default function AutomationPage() {
     React.useEffect(() => {
         if (!dragState) return undefined;
         const handleMove = (event) => {
-            const rect = canvasRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            const x = Math.max(16, Math.min(rect.width - 220, event.clientX - rect.left - dragState.offsetX));
-            const y = Math.max(70, Math.min(rect.height - 96, event.clientY - rect.top - dragState.offsetY));
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.max(16, Math.min(canvas.scrollWidth - NODE_WIDTH, event.clientX - rect.left - canvas.clientLeft + canvas.scrollLeft - dragState.offsetX));
+            const y = Math.max(70, Math.min(canvas.scrollHeight - NODE_HEIGHT, event.clientY - rect.top - canvas.clientTop + canvas.scrollTop - dragState.offsetY));
             updateNode(dragState.nodeId, { position: { x, y } });
         };
         const handleUp = () => setDragState(null);
         window.addEventListener("pointermove", handleMove);
         window.addEventListener("pointerup", handleUp);
+        window.addEventListener("pointercancel", handleUp);
         return () => {
             window.removeEventListener("pointermove", handleMove);
             window.removeEventListener("pointerup", handleUp);
+            window.removeEventListener("pointercancel", handleUp);
         };
     }, [dragState, currentTask]);
 
@@ -414,7 +417,10 @@ export default function AutomationPage() {
     const nodeMap = Object.fromEntries((currentTask.nodes || []).map(node => [node.id, node]));
 
     const renderEdges = () => (
-        <svg className="automation-flow-lines">
+        <svg className="automation-flow-lines" style={{
+            minWidth: Math.max(NODE_MIN_X + (currentTask.nodes || []).length * (NODE_WIDTH + NODE_GAP), dragState?.canvasWidth || 0),
+            minHeight: dragState?.canvasHeight || 0,
+        }}>
             {(currentTask.edges || []).map(edge => {
                 const source = nodeMap[edge.source];
                 const target = nodeMap[edge.target];
@@ -686,6 +692,8 @@ export default function AutomationPage() {
                                         setSelectedNodeId(node.id);
                                         setDragState({
                                             nodeId: node.id,
+                                            canvasWidth: canvasRef.current.scrollWidth,
+                                            canvasHeight: canvasRef.current.scrollHeight,
                                             offsetX: event.clientX - rect.left,
                                             offsetY: event.clientY - rect.top,
                                         });

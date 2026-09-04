@@ -316,7 +316,7 @@ volumes:
 
 这意味着：
 
-- 构建镜像时会自动生成 `static/app.js`
+- 构建镜像时会自动生成并复制 `static/app.js` 和 `static/app.css`，样式源文件位于 `frontend/src/nocturne.css`
 - 容器内自带 `ffprobe`，本地刮削可以比较冲突视频的分辨率和码率
 - 容器内自带 `ffmpeg`、Mesa/Intel VAAPI 驱动、`vainfo` 和 `lspci`；影视库会自动识别 GPU，只使用已通过探针的硬件编码器，并且只用更小的有效输出安全覆盖源文件
 - 即使宿主机没有提前执行 `npm run build:frontend`，容器镜像也能完成前端打包

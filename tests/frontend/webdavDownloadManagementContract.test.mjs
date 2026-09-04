@@ -9,11 +9,12 @@ const downloadManagementPage = readFileSync(
     "utf8",
 );
 
-test("top navigation separates net disk management from download management", () => {
+test("top navigation groups net disk and download management under the designed storage route", () => {
     assert.match(javPage, /import DownloadManagementPage/);
-    assert.match(javPage, /downloadManagement:\s*<DownloadManagementPage/);
-    assert.match(javPage, /label:\s*'网盘管理',\s*value:\s*'webdav'/);
-    assert.match(javPage, /label:\s*'下载管理',\s*value:\s*'downloadManagement'/);
+    assert.match(javPage, /label:\s*'网盘与下载',\s*value:\s*'storage'/);
+    assert.match(javPage, /storageView === 'downloads'/);
+    assert.match(javPage, /\? <DownloadManagementPage \/>/);
+    assert.match(javPage, /: <WebDavPage onOpenDownloadManagement=\{\(\) => setStorageView\('downloads'\)\} \/>/);
 });
 
 test("webdav page is a net disk manager without the aria2 task table", () => {

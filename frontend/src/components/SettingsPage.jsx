@@ -124,13 +124,13 @@ const buildSettingsPayload = (values = {}) => {
 
 const settingPageStyles = `
 .settings-page {
-    --settings-bg: #f5f5f5;
-    --settings-surface: #ffffff;
-    --settings-border: #d9d9d9;
-    --settings-border-soft: #f0f0f0;
-    --settings-text: #262626;
-    --settings-muted: #595959;
-    --settings-primary: #1677ff;
+    --settings-bg: var(--color-bg);
+    --settings-surface: var(--color-surface);
+    --settings-border: var(--color-ring);
+    --settings-border-soft: var(--nocturne-divider);
+    --settings-text: var(--color-text);
+    --settings-muted: var(--color-muted);
+    --settings-primary: var(--color-accent-soft);
     min-height: 100%;
     color: var(--settings-text);
 }
@@ -170,7 +170,7 @@ const settingPageStyles = `
 .settings-nav-header {
     padding: 14px 14px 10px;
     border-bottom: 1px solid var(--settings-border-soft);
-    background: #fafafa;
+    background: var(--color-surface-2);
 }
 
 .settings-nav-title {
@@ -213,7 +213,7 @@ const settingPageStyles = `
 }
 
 .settings-page button.settings-nav-item:not(.is-active):hover {
-    background: #f5f8ff !important;
+    background: var(--color-surface-2) !important;
     color: var(--settings-primary) !important;
     box-shadow: none !important;
     transform: none !important;
@@ -221,7 +221,7 @@ const settingPageStyles = `
 
 .settings-page button.settings-nav-item.is-active {
     padding: 8px 10px !important;
-    background: #e6f4ff !important;
+    background: var(--color-surface-2) !important;
     color: var(--settings-primary) !important;
     font-weight: 700;
     box-shadow: none !important;
@@ -255,7 +255,7 @@ const settingPageStyles = `
 
 .settings-card .ant-card-head {
     min-height: 46px !important;
-    background: #fafafa !important;
+    background: var(--color-surface-2) !important;
 }
 
 .settings-card .ant-card-body {
@@ -323,7 +323,7 @@ const settingPageStyles = `
     padding: 12px;
     border: 1px solid var(--settings-border-soft);
     border-radius: 8px;
-    background: #fafafa;
+    background: var(--color-surface-2);
 }
 
 .settings-metric-label {
@@ -359,7 +359,7 @@ const settingPageStyles = `
     gap: 10px;
     padding: 12px 14px;
     border-bottom: 1px solid var(--settings-border-soft);
-    background: #fafafa;
+    background: var(--color-surface-2);
 }
 
 .settings-service-title {
@@ -382,7 +382,7 @@ const settingPageStyles = `
     color: var(--settings-muted) !important;
     font-size: 12px;
     font-weight: 760 !important;
-    background: #fafafa !important;
+    background: var(--color-surface-2) !important;
 }
 
 .settings-provider-name {
@@ -548,7 +548,7 @@ export default function SettingsPage() {
     const [scraperTestResult, setScraperTestResult] = React.useState(null);
     const [settings, setSettings] = React.useState(null);
     const [activeSection, setActiveSection] = React.useState("overview");
-    const scraperPriority = Form.useWatch(["scrapers", "priority"], form) || [];
+    const scraperPriority = Form.useWatch(["scrapers", "priority"], { form, preserve: true }) || [];
 
     const loadSettings = async () => {
         setLoading(true);

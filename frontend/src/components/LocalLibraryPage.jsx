@@ -551,7 +551,7 @@ const ActorLibraryAvatar = ({ actor }) => {
     );
 };
 
-export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
+export default function LocalLibraryPage({ onOpenTranscoding, cinemaMode = false, onExitCinema } = {}) {
     const [library, setLibrary] = React.useState({ records: [], total_movies: 0, total_files: 0, total_size: 0 });
     const [actorLibrary, setActorLibrary] = React.useState({ actors: [], total_actors: 0 });
     const [informationCheck, setInformationCheck] = React.useState(null);
@@ -583,7 +583,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
     const [posterAspectRatioMap, setPosterAspectRatioMap] = React.useState({});
     const [viewMode, setViewMode] = React.useState("list");
     const [libraryTheme, setLibraryTheme] = React.useState(() => loadLocalLibraryTheme());
-    const [immersiveLayout, setImmersiveLayout] = React.useState(() => loadImmersiveLayout());
+    const [immersiveLayout, setImmersiveLayout] = React.useState(() => cinemaMode ? "shelf" : loadImmersiveLayout());
     const [immersiveIndex, setImmersiveIndex] = React.useState(0);
     const [sortRule, setSortRule] = React.useState("date_desc");
     const [gridPage, setGridPage] = React.useState(1);
@@ -620,7 +620,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
     const previewHistoryActiveRef = React.useRef(false);
     const restorePageStateOnPopRef = React.useRef(true);
     const recordsRef = React.useRef([]);
-    const isDarkMode = libraryTheme === "dark";
+    const isDarkMode = cinemaMode || libraryTheme === "dark";
     const libraryThemeConfig = React.useMemo(() => {
         if (!isDarkMode) {
             return {};
@@ -1070,7 +1070,8 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
         }
     }, [restoreLibraryPageState]);
 
-    const openRecordPreview = (record) => {
+    const openRecordPreview = (record, event) => {
+        if (event?.target.closest('button, a, input, .ant-popover')) return;
         const pageState = captureLibraryPageState();
         const currentHistoryState = window.history.state && typeof window.history.state === "object"
             ? window.history.state
@@ -1996,8 +1997,11 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
                         onChange={handleImmersiveLayoutChange}
                         options={LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS}
                     />
-                    <Button icon={<Icon as={SunOutlined} />} onClick={() => handleLibraryThemeChange("light")}>
-                        管理模式
+                    <Button
+                        icon={<Icon as={SunOutlined} />}
+                        onClick={() => cinemaMode && onExitCinema ? onExitCinema() : handleLibraryThemeChange("light")}
+                    >
+                        管理界面
                     </Button>
                 </div>
             </header>
@@ -2456,7 +2460,7 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
                                         hoverable
                                         className="jav-library-poster-card"
                                         cover={<MoviePoster record={record} variant="thumbnail" />}
-                                        onClick={() => openRecordPreview(record)}
+                                        onClick={(event) => openRecordPreview(record, event)}
                                     >
                                         <Text strong ellipsis={{ tooltip: record.title }} className="jav-library-poster-title">
                                             {record.title || record.movie_id}
@@ -2555,10 +2559,11 @@ export default function LocalLibraryPage({ onOpenTranscoding } = {}) {
                             size="small"
                             dataSource={visibleListRecords}
                             columns={columns}
+                            scroll={{ x: 1200 }}
                             loading={loading}
                             pagination={false}
                             onRow={(record) => ({
-                                onClick: () => openRecordPreview(record),
+                                onClick: (event) => openRecordPreview(record, event),
                             })}
                             locale={{ emptyText: "暂无影视库记录，请先扫描目录" }}
                         />
