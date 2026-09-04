@@ -301,12 +301,12 @@ test("local library actor and genre tags filter from list, grid, and preview", (
     assert.match(css, /\.jav-library-filter-tag\.ant-tag\s*\{[\s\S]*cursor:\s*pointer;/);
 });
 
-test("local library exposes a persistent scoped dark mode", () => {
+test("local library preserves its immersive layout choice and inherits the global theme", () => {
     assert.match(localLibraryPage, /LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger\.localLibrary\.theme"/);
     assert.match(localLibraryPage, /const \[libraryTheme, setLibraryTheme\] = React\.useState\(\(\) => loadLocalLibraryTheme\(\)\)/);
     assert.match(localLibraryPage, /const isDarkMode = cinemaMode \|\| libraryTheme === "dark";/);
-    assert.match(localLibraryPage, /const libraryThemeConfig = React\.useMemo/);
-    assert.match(localLibraryPage, /<ConfigProvider theme=\{libraryThemeConfig\}>/);
+    assert.doesNotMatch(localLibraryPage, /libraryThemeConfig|antTheme\.darkAlgorithm/);
+    assert.match(localLibraryPage, /管理<\/span>/);
     assert.match(localLibraryPage, /className=\{`jav-local-scrape jav-library-page is-dark is-immersive-\$\{immersiveLayout\}`\}/);
     assert.match(localLibraryPage, /className="jav-library-theme-toggle"/);
     assert.match(localLibraryPage, /saveLocalLibraryTheme\(nextTheme\)/);

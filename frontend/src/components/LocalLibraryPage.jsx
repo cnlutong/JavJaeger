@@ -11,7 +11,6 @@ const {
     Button,
     Card,
     Checkbox,
-    ConfigProvider,
     Divider,
     Drawer,
     Form,
@@ -38,20 +37,17 @@ const {
     DownloadOutlined,
     FilterOutlined,
     FolderOpenOutlined,
-    MoonOutlined,
     PlayCircleOutlined,
     PlusOutlined,
     ReloadOutlined,
     SaveOutlined,
     SearchOutlined,
-    SunOutlined,
     UnorderedListOutlined,
     UserOutlined,
     VideoCameraOutlined,
 } = icons;
-const antTheme = antd.theme || {};
 
-const Icon = ({ as: Component }) => Component ? <Component /> : null;
+const Icon = ({ as: Component }) => Component ? <Component aria-hidden="true" /> : null;
 const INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
 const LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
 const LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger.localLibrary.immersiveLayout";
@@ -84,8 +80,8 @@ const INFORMATION_CHECK_FIELD_OPTIONS = [
 ];
 const DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
 const LOCAL_LIBRARY_THEME_OPTIONS = [
-    { label: <span><Icon as={SunOutlined} /> 浅色</span>, value: "light" },
-    { label: <span><Icon as={MoonOutlined} /> 沉浸</span>, value: "dark" },
+    { label: <span><Icon as={DatabaseOutlined} /> 管理</span>, value: "light" },
+    { label: <span><Icon as={PlayCircleOutlined} /> 沉浸</span>, value: "dark" },
 ];
 const LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS = [
     { label: <span><Icon as={AppstoreOutlined} /> 海报墙</span>, value: "grid" },
@@ -621,44 +617,6 @@ export default function LocalLibraryPage({ onOpenTranscoding, cinemaMode = false
     const restorePageStateOnPopRef = React.useRef(true);
     const recordsRef = React.useRef([]);
     const isDarkMode = cinemaMode || libraryTheme === "dark";
-    const libraryThemeConfig = React.useMemo(() => {
-        if (!isDarkMode) {
-            return {};
-        }
-        return {
-            algorithm: antTheme.darkAlgorithm,
-            token: {
-                colorPrimary: "#2694FE",
-                colorInfo: "#2694FE",
-                colorSuccess: "#34d399",
-                colorWarning: "#F2C00B",
-                colorError: "#f87171",
-                colorBgLayout: "#111112",
-                colorBgContainer: "#1F1F22",
-                colorBgElevated: "#28292C",
-                colorBorder: "#494D53",
-                colorText: "#DFE2E5",
-                colorTextSecondary: "#AAAFB5",
-                borderRadius: 8,
-            },
-            components: {
-                Card: {
-                    colorBgContainer: "#1F1F22",
-                    colorBorderSecondary: "#494D53",
-                },
-                Table: {
-                    headerBg: "#28292C",
-                    headerColor: "#DFE2E5",
-                    rowHoverBg: "#28292C",
-                    borderColor: "#494D53",
-                },
-                Segmented: {
-                    itemSelectedBg: "#2694FE",
-                    itemSelectedColor: "#ffffff",
-                },
-            },
-        };
-    }, [isDarkMode]);
 
     const records = library.records || [];
     recordsRef.current = records;
@@ -1998,7 +1956,7 @@ export default function LocalLibraryPage({ onOpenTranscoding, cinemaMode = false
                         options={LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS}
                     />
                     <Button
-                        icon={<Icon as={SunOutlined} />}
+                        icon={<Icon as={DatabaseOutlined} />}
                         onClick={() => cinemaMode && onExitCinema ? onExitCinema() : handleLibraryThemeChange("light")}
                     >
                         管理界面
@@ -2232,18 +2190,18 @@ export default function LocalLibraryPage({ onOpenTranscoding, cinemaMode = false
 
     if (isDarkMode) {
         return (
-            <ConfigProvider theme={libraryThemeConfig}>
+            <>
                 <div ref={libraryPageRef} className={`jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}`}>
                     {renderImmersiveView()}
                 </div>
                 {renderRecordPreviewOverlay()}
                 {renderTranscodingDialog()}
-            </ConfigProvider>
+            </>
         );
     }
 
     return (
-        <ConfigProvider theme={libraryThemeConfig}>
+        <>
         <div ref={libraryPageRef} className={`jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}`}>
             <div className="jav-library-layout">
                 <section className="jav-local-results jav-library-results">
@@ -2901,6 +2859,6 @@ export default function LocalLibraryPage({ onOpenTranscoding, cinemaMode = false
         </div>
         {renderRecordPreviewOverlay()}
         {renderTranscodingDialog()}
-        </ConfigProvider>
+        </>
     );
 }

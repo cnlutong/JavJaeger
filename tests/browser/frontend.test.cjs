@@ -553,6 +553,157 @@ async function navigate(page, name) {
     await page.getByRole('navigation', { name: '主功能导航' }).getByRole('button', { name, exact: true }).click();
 }
 
+test('global appearance switches every page, controls and portals, persists on reload and preserves forms', async t => {
+    const page = await openApp(t, 1440, p => libraryFixture(p));
+    await navigate(page, '设置');
+    await page.locator('.settings-nav-item').filter({ hasText: 'JavBus API' }).click();
+    await page.getByLabel('Base URL', { exact: true }).fill('https://qa.invalid/unsaved');
+    await page.locator('.settings-nav-item').filter({ hasText: '外观' }).click();
+    await page.getByText('浅色', { exact: true }).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+    assert.equal(await page.evaluate(() => localStorage.getItem('javjaeger.theme')), 'light');
+    const expectLight = async locator => {
+        const color = await locator.first().evaluate(e => getComputedStyle(e).backgroundColor);
+        assert.ok(color.match(/\d+/g).slice(0, 3).every(n => Number(n) > 200), `expected light background, got ${color}`);
+    };
+    const capture = async name => {
+        const dir = process.env.JAVJAEGER_QA_SCREENSHOTS;
+        if (!dir) return;
+        fs.mkdirSync(dir, { recursive: true });
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+        await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true, animations: 'disabled' });
+    };
+    await expectLight(page.locator('.settings-card'));
+    await page.getByRole('radio', { name: '深色', exact: true }).focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    await page.getByRole('radio', { name: '浅色', exact: true }).focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+    await capture('light-settings');
+    await page.locator('.settings-nav-item').filter({ hasText: 'JavBus API' }).click();
+    assert.equal(await page.getByLabel('Base URL', { exact: true }).inputValue(), 'https://qa.invalid/unsaved');
+    for (const name of ['影片检索', '下载派发', '本地刮削', '影视库', '自动模式', '转码', '网盘与下载', '影院模式']) {
+        await navigate(page, name);
+        await expectLight(page.locator('body'));
+        if (name === '影片检索') {
+            await expectLight(page.locator('.jav-header'));
+            await expectLight(page.locator('#keyword'));
+            await page.locator('button[title="打开配置"]').click();
+            await expectLight(page.locator('.ant-drawer-open .ant-drawer-content'));
+            assert.equal(await page.locator('.ant-drawer-open .ant-btn-primary').first().evaluate(e => getComputedStyle(e).backgroundColor), 'rgb(105, 84, 184)');
+            await capture('light-drawer');
+            await closeDrawer(page);
+            await page.locator('#magnetSource').locator("xpath=ancestor::*[contains(concat(' ', @class, ' '), ' ant-select ')][1]").click();
+            await expectLight(page.locator('.ant-select-dropdown:visible'));
+            await page.keyboard.press('Escape');
+            await page.locator('.ant-select-dropdown:visible').waitFor({ state: 'hidden' });
+        }
+        if (name === '影视库') {
+            await button(page, '检查信息').click();
+            await expectLight(page.locator('.ant-drawer-open .ant-drawer-content'));
+            await button(page, '保存标准').click();
+            await page.locator('.ant-message-success').waitFor();
+            await expectLight(page.locator('.ant-message-notice-content'));
+            await closeDrawer(page);
+            await button(page.locator('.ant-table-tbody > tr[data-row-key]').first(), '移除').click();
+            await expectLight(page.locator('.ant-popconfirm:visible .ant-popover-inner'));
+            await confirm(page, '取消');
+        }
+        if (name === '网盘与下载') {
+            await button(page, '新增网盘').first().click();
+            await expectLight(page.locator('.ant-modal-content'));
+            await capture('light-modal');
+            await page.getByRole('dialog').locator('.ant-modal-close').click();
+        }
+        if (name === '转码') {
+            const successColor = await page.locator('.ant-statistic-content').nth(2).evaluate(e => {
+                const sample = document.createElement('span');
+                sample.style.color = 'var(--color-success)';
+                e.append(sample);
+                const expected = getComputedStyle(sample).color;
+                sample.remove();
+                return { actual: getComputedStyle(e).color, expected };
+            });
+            assert.equal(successColor.actual, successColor.expected);
+        }
+        if (name === '影院模式') {
+            await expectLight(page.locator('.jav-library-immersive-shell'));
+            for (const layout of ['焦点剧场', '封面走廊', '海报墙']) {
+                await page.getByText(layout, { exact: true }).click();
+                await capture(`light-cinema-${layout}`);
+                await page.setViewportSize({ width: 390, height: 844 });
+                await capture(`mobile-light-cinema-${layout}`);
+                await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+                await page.setViewportSize({ width: 1440, height: 1000 });
+            }
+            await page.locator('.jav-library-immersive-grid-card').first().click();
+            await expectLight(page.locator('.jav-library-preview-backdrop'));
+            await capture('light-preview');
+            const poster = await page.locator('.jav-library-preview-poster .jav-library-poster').boundingBox();
+            assert.ok(poster.height <= 800, 'portrait preview should fit the viewport');
+            assert.ok(poster.width >= 200, 'preview artwork must not collapse to the placeholder text width');
+            await expectLight(page.locator('.jav-library-preview-poster-extras'));
+            await expectLight(page.locator('.jav-library-preview-file'));
+            const actions = await page.locator('.jav-library-preview-header').evaluate(e => ({ width: e.scrollWidth, available: e.clientWidth }));
+            assert.ok(actions.width <= actions.available + 1, 'preview actions must stay inside their column');
+            await page.setViewportSize({ width: 390, height: 844 });
+            await capture('mobile-light-preview');
+            await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+            await page.setViewportSize({ width: 1440, height: 1000 });
+            await button(page.getByRole('dialog'), '返回影片库').click();
+            await page.getByRole('button', { name: '管理界面', exact: true }).click();
+        }
+        await capture(`light-${name}`);
+        await page.setViewportSize({ width: 390, height: 844 });
+        await capture(`mobile-light-${name}`);
+        await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth + 1);
+        await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+    await navigate(page, '设置');
+    await page.locator('.settings-nav-item').filter({ hasText: '外观' }).click();
+    assert.equal(await page.getByRole('radio', { name: '浅色', exact: true }).isChecked(), true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await capture('mobile-light-settings');
+    await page.getByText('深色', { exact: true }).click();
+    await capture('mobile-dark-settings');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await capture('dark-settings');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+    await navigate(page, '影片检索');
+    assert.equal(await page.getByText('浅色', { exact: true }).count(), 0);
+    const emptyBackground = await page.locator('.jav-state-panel').evaluate(e => getComputedStyle(e).backgroundColor);
+    assert.ok(emptyBackground.match(/\d+/g).slice(0, 3).every(n => Number(n) < 65), 'empty result state follows the dark theme');
+    await page.locator('button[title="打开配置"]').click();
+    const darkBackground = await page.locator('.ant-drawer-open .ant-drawer-content').evaluate(e => getComputedStyle(e).backgroundColor);
+    assert.ok(darkBackground.match(/\d+/g).slice(0, 3).every(n => Number(n) < 65));
+    await capture('dark-drawer');
+    await closeDrawer(page);
+    await navigate(page, '影院模式');
+    await page.getByText('海报墙', { exact: true }).click();
+    await capture('dark-cinema');
+    await page.locator('.jav-library-immersive-grid-card').first().click();
+    await capture('dark-preview');
+    assert.ok((await page.locator('.jav-library-preview-poster .jav-library-poster').boundingBox()).height <= 800);
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+});
+
+test('theme preference tolerates unavailable browser storage', async t => {
+    const page = await openApp(t, 390, async p => {
+        await p.addInitScript(() => {
+            Storage.prototype.setItem = function () { throw new DOMException('Storage unavailable', 'SecurityError'); };
+        });
+    });
+    await navigate(page, '设置');
+    await page.locator('.settings-nav-item').filter({ hasText: '外观' }).click();
+    await page.getByText('浅色', { exact: true }).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+});
+
 test('local folder source can be added, browsed, refreshed and removed', async t => {
     const paths = [];
     const page = await openApp(t, 1440, async p => {

@@ -20,6 +20,7 @@ const {
     Input,
     InputNumber,
     Row,
+    Radio,
     Select,
     Space,
     Spin,
@@ -72,6 +73,7 @@ const SCRAPER_LANGUAGE_OPTIONS = [
 
 const SETTINGS_SECTIONS = [
     { key: "overview", label: "概览", icon: CheckCircleOutlined },
+    { key: "appearance", label: "外观", icon: SettingOutlined },
     { key: "javbus", label: "JavBus API", icon: ApiOutlined },
     { key: "scrapers", label: "刮削源", icon: DatabaseOutlined },
     { key: "downloads", label: "下载服务", icon: CloudServerOutlined },
@@ -539,7 +541,7 @@ const formatApiError = (error, fallback) => {
     return rawMessage || fallback;
 };
 
-export default function SettingsPage() {
+export default function SettingsPage({ themeMode, onThemeChange }) {
     const [form] = Form.useForm();
     const [loading, setLoading] = React.useState(true);
     const [saving, setSaving] = React.useState(false);
@@ -1213,6 +1215,26 @@ export default function SettingsPage() {
     );
 
     const renderActiveSection = () => {
+        if (activeSection === "appearance") {
+            return (
+                <>
+                    <SectionHeading title="外观" description="为所有页面选择舒适的显示主题。" />
+                    <Card className="settings-card" title="界面主题">
+                        <Space direction="vertical" size={16}>
+                            <Radio.Group
+                                aria-label="界面主题"
+                                optionType="button"
+                                buttonStyle="solid"
+                                value={themeMode}
+                                onChange={event => onThemeChange(event.target.value)}
+                                options={[{ label: "浅色", value: "light" }, { label: "深色", value: "dark" }]}
+                            />
+                            <Text type="secondary">切换后立即生效，自动记住此浏览器的选择，无需保存全部设置。</Text>
+                        </Space>
+                    </Card>
+                </>
+            );
+        }
         if (activeSection === "javbus") {
             return (
                 <>
@@ -1259,7 +1281,7 @@ export default function SettingsPage() {
             <div className="webdav-page-header">
                 <div className="settings-heading-copy">
                     <Title level={3} style={{ marginBottom: 0 }}>设置</Title>
-                    <Text type="secondary">按运行配置、刮削源和下载服务分组管理可热更新项</Text>
+                    <Text type="secondary">管理界面主题、运行配置、刮削源和下载服务</Text>
                 </div>
                 <Space className="settings-header-actions" wrap>
                     {hasEnvOverrides && <Tag color="warning">环境变量覆盖中</Tag>}

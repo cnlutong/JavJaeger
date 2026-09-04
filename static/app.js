@@ -3056,7 +3056,6 @@
     Button: Button6,
     Card: Card5,
     Checkbox: Checkbox2,
-    ConfigProvider,
     Divider: Divider3,
     Drawer: Drawer2,
     Form: Form5,
@@ -3083,19 +3082,16 @@
     DownloadOutlined: DownloadOutlined2,
     FilterOutlined,
     FolderOpenOutlined: FolderOpenOutlined4,
-    MoonOutlined,
     PlayCircleOutlined: PlayCircleOutlined3,
     PlusOutlined: PlusOutlined2,
     ReloadOutlined: ReloadOutlined3,
     SaveOutlined: SaveOutlined2,
     SearchOutlined: SearchOutlined2,
-    SunOutlined,
     UnorderedListOutlined,
     UserOutlined,
     VideoCameraOutlined: VideoCameraOutlined2
   } = icons6;
-  var antTheme = antd6.theme || {};
-  var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React6.createElement(Component, null) : null;
+  var Icon3 = ({ as: Component }) => Component ? /* @__PURE__ */ React6.createElement(Component, { "aria-hidden": "true" }) : null;
   var INFORMATION_CHECK_STORAGE_KEY = "javjaeger.localLibrary.informationCheckFields";
   var LOCAL_LIBRARY_THEME_STORAGE_KEY = "javjaeger.localLibrary.theme";
   var LOCAL_LIBRARY_IMMERSIVE_LAYOUT_STORAGE_KEY = "javjaeger.localLibrary.immersiveLayout";
@@ -3128,8 +3124,8 @@
   ];
   var DEFAULT_INFORMATION_CHECK_FIELDS = INFORMATION_CHECK_FIELD_OPTIONS.map((option) => option.value);
   var LOCAL_LIBRARY_THEME_OPTIONS = [
-    { label: /* @__PURE__ */ React6.createElement("span", null, /* @__PURE__ */ React6.createElement(Icon3, { as: SunOutlined }), " \u6D45\u8272"), value: "light" },
-    { label: /* @__PURE__ */ React6.createElement("span", null, /* @__PURE__ */ React6.createElement(Icon3, { as: MoonOutlined }), " \u6C89\u6D78"), value: "dark" }
+    { label: /* @__PURE__ */ React6.createElement("span", null, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 }), " \u7BA1\u7406"), value: "light" },
+    { label: /* @__PURE__ */ React6.createElement("span", null, /* @__PURE__ */ React6.createElement(Icon3, { as: PlayCircleOutlined3 }), " \u6C89\u6D78"), value: "dark" }
   ];
   var LOCAL_LIBRARY_IMMERSIVE_LAYOUT_OPTIONS = [
     { label: /* @__PURE__ */ React6.createElement("span", null, /* @__PURE__ */ React6.createElement(Icon3, { as: AppstoreOutlined }), " \u6D77\u62A5\u5899"), value: "grid" },
@@ -3567,44 +3563,6 @@
     const restorePageStateOnPopRef = React6.useRef(true);
     const recordsRef = React6.useRef([]);
     const isDarkMode = cinemaMode || libraryTheme === "dark";
-    const libraryThemeConfig = React6.useMemo(() => {
-      if (!isDarkMode) {
-        return {};
-      }
-      return {
-        algorithm: antTheme.darkAlgorithm,
-        token: {
-          colorPrimary: "#2694FE",
-          colorInfo: "#2694FE",
-          colorSuccess: "#34d399",
-          colorWarning: "#F2C00B",
-          colorError: "#f87171",
-          colorBgLayout: "#111112",
-          colorBgContainer: "#1F1F22",
-          colorBgElevated: "#28292C",
-          colorBorder: "#494D53",
-          colorText: "#DFE2E5",
-          colorTextSecondary: "#AAAFB5",
-          borderRadius: 8
-        },
-        components: {
-          Card: {
-            colorBgContainer: "#1F1F22",
-            colorBorderSecondary: "#494D53"
-          },
-          Table: {
-            headerBg: "#28292C",
-            headerColor: "#DFE2E5",
-            rowHoverBg: "#28292C",
-            borderColor: "#494D53"
-          },
-          Segmented: {
-            itemSelectedBg: "#2694FE",
-            itemSelectedColor: "#ffffff"
-          }
-        }
-      };
-    }, [isDarkMode]);
     const records = library.records || [];
     recordsRef.current = records;
     const actors = actorLibrary.actors || [];
@@ -4688,7 +4646,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     ), /* @__PURE__ */ React6.createElement(
       Button6,
       {
-        icon: /* @__PURE__ */ React6.createElement(Icon3, { as: SunOutlined }),
+        icon: /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 }),
         onClick: () => cinemaMode && onExitCinema ? onExitCinema() : handleLibraryThemeChange("light")
       },
       "\u7BA1\u7406\u754C\u9762"
@@ -4844,9 +4802,9 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       ));
     };
     if (isDarkMode) {
-      return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { ref: libraryPageRef, className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()), renderRecordPreviewOverlay(), renderTranscodingDialog());
+      return /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement("div", { ref: libraryPageRef, className: `jav-local-scrape jav-library-page is-dark is-immersive-${immersiveLayout}` }, renderImmersiveView()), renderRecordPreviewOverlay(), renderTranscodingDialog());
     }
-    return /* @__PURE__ */ React6.createElement(ConfigProvider, { theme: libraryThemeConfig }, /* @__PURE__ */ React6.createElement("div", { ref: libraryPageRef, className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React6.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React6.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar-row is-primary" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React6.createElement(
+    return /* @__PURE__ */ React6.createElement(React6.Fragment, null, /* @__PURE__ */ React6.createElement("div", { ref: libraryPageRef, className: `jav-local-scrape jav-library-page ${isDarkMode ? "is-dark" : ""}` }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-layout" }, /* @__PURE__ */ React6.createElement("section", { className: "jav-local-results jav-library-results" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React6.createElement("div", null, /* @__PURE__ */ React6.createElement(Title5, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React6.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React6.createElement(Icon3, { as: DatabaseOutlined2 })), "\u5F71\u89C6\u5E93"), /* @__PURE__ */ React6.createElement(Text6, { type: "secondary", className: "jav-results-subtitle" }, isDarkMode ? "\u7535\u89C6\u5899\u5F0F\u6D4F\u89C8\u672C\u5730\u5F71\u7247\uFF0C\u6309\u5C01\u9762\u3001\u753B\u8D28\u548C\u8D44\u6599\u72B6\u6001\u5FEB\u901F\u5B9A\u4F4D\u6536\u85CF" : "\u4ECE\u672C\u5730\u6587\u4EF6\u5939\u76F4\u63A5\u626B\u63CF\u5165\u5E93\uFF0C\u5E76\u7528\u672C\u5730\u7D22\u5F15\u652F\u6301\u7B5B\u9009\u4E0E\u53BB\u91CD\u4E0B\u8F7D"))), /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-toolbar-row is-primary" }, /* @__PURE__ */ React6.createElement("div", { className: "jav-library-search-row" }, /* @__PURE__ */ React6.createElement(
       Input5,
       {
         allowClear: true,
@@ -5286,6 +5244,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     Input: Input6,
     InputNumber: InputNumber5,
     Row: Row3,
+    Radio,
     Select: Select4,
     Space: Space7,
     Spin,
@@ -5334,6 +5293,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
   ];
   var SETTINGS_SECTIONS = [
     { key: "overview", label: "\u6982\u89C8", icon: CheckCircleOutlined2 },
+    { key: "appearance", label: "\u5916\u89C2", icon: SettingOutlined3 },
     { key: "javbus", label: "JavBus API", icon: ApiOutlined3 },
     { key: "scrapers", label: "\u522E\u524A\u6E90", icon: DatabaseOutlined3 },
     { key: "downloads", label: "\u4E0B\u8F7D\u670D\u52A1", icon: CloudServerOutlined2 },
@@ -5759,7 +5719,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     }
     return rawMessage || fallback;
   };
-  function SettingsPage() {
+  function SettingsPage({ themeMode, onThemeChange }) {
     const [form] = Form6.useForm();
     const [loading, setLoading] = React7.useState(true);
     const [saving, setSaving] = React7.useState(false);
@@ -6162,6 +6122,19 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }
     ), /* @__PURE__ */ React7.createElement(Space7, { wrap: true }, /* @__PURE__ */ React7.createElement(Button7, { type: "primary", onClick: saveSettings, icon: /* @__PURE__ */ React7.createElement(Icon4, { as: SaveOutlined3 }), loading: saving }, "\u4FDD\u5B58\u5168\u90E8"), /* @__PURE__ */ React7.createElement(Button7, { onClick: resetForm, disabled: saving }, "\u91CD\u7F6E\u8868\u5355"))));
     const renderActiveSection = () => {
+      if (activeSection === "appearance") {
+        return /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(SectionHeading, { title: "\u5916\u89C2", description: "\u4E3A\u6240\u6709\u9875\u9762\u9009\u62E9\u8212\u9002\u7684\u663E\u793A\u4E3B\u9898\u3002" }), /* @__PURE__ */ React7.createElement(Card6, { className: "settings-card", title: "\u754C\u9762\u4E3B\u9898" }, /* @__PURE__ */ React7.createElement(Space7, { direction: "vertical", size: 16 }, /* @__PURE__ */ React7.createElement(
+          Radio.Group,
+          {
+            "aria-label": "\u754C\u9762\u4E3B\u9898",
+            optionType: "button",
+            buttonStyle: "solid",
+            value: themeMode,
+            onChange: (event) => onThemeChange(event.target.value),
+            options: [{ label: "\u6D45\u8272", value: "light" }, { label: "\u6DF1\u8272", value: "dark" }]
+          }
+        ), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u5207\u6362\u540E\u7ACB\u5373\u751F\u6548\uFF0C\u81EA\u52A8\u8BB0\u4F4F\u6B64\u6D4F\u89C8\u5668\u7684\u9009\u62E9\uFF0C\u65E0\u9700\u4FDD\u5B58\u5168\u90E8\u8BBE\u7F6E\u3002"))));
+      }
       if (activeSection === "javbus") {
         return /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(SectionHeading, { title: "JavBus API", description: "\u8C03\u6574\u7AD9\u70B9\u8BBF\u95EE\u3001\u4EE3\u7406\u3001\u7F13\u5B58\u548C\u56FE\u7247\u91CD\u8BD5\u7B56\u7565\u3002" }), renderJavbus());
       }
@@ -6176,7 +6149,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }
       return /* @__PURE__ */ React7.createElement(React7.Fragment, null, /* @__PURE__ */ React7.createElement(SectionHeading, { title: "\u6982\u89C8", description: "\u5148\u770B\u5F53\u524D\u914D\u7F6E\u72B6\u6001\uFF0C\u518D\u8FDB\u5165\u5177\u4F53\u5206\u7EC4\u7F16\u8F91\u3002" }), renderOverview());
     };
-    return /* @__PURE__ */ React7.createElement("div", { className: "webdav-page settings-page" }, /* @__PURE__ */ React7.createElement("style", null, settingPageStyles), /* @__PURE__ */ React7.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React7.createElement("div", { className: "settings-heading-copy" }, /* @__PURE__ */ React7.createElement(Title6, { level: 3, style: { marginBottom: 0 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u6309\u8FD0\u884C\u914D\u7F6E\u3001\u522E\u524A\u6E90\u548C\u4E0B\u8F7D\u670D\u52A1\u5206\u7EC4\u7BA1\u7406\u53EF\u70ED\u66F4\u65B0\u9879")), /* @__PURE__ */ React7.createElement(Space7, { className: "settings-header-actions", wrap: true }, hasEnvOverrides && /* @__PURE__ */ React7.createElement(Tag6, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon4, { as: ReloadOutlined4 }), onClick: loadSettings, loading }, "\u5237\u65B0"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", icon: /* @__PURE__ */ React7.createElement(Icon4, { as: SaveOutlined3 }), onClick: saveSettings, loading: saving }, "\u4FDD\u5B58\u5168\u90E8"))), /* @__PURE__ */ React7.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React7.createElement(Form6, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React7.createElement("div", { className: "settings-shell" }, /* @__PURE__ */ React7.createElement("aside", { className: "settings-nav", "aria-label": "\u8BBE\u7F6E\u5206\u7EC4" }, /* @__PURE__ */ React7.createElement("div", { className: "settings-nav-header" }, /* @__PURE__ */ React7.createElement("span", { className: "settings-nav-title" }, "\u8FD0\u884C\u914D\u7F6E"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u9009\u62E9\u4E00\u4E2A\u5206\u7EC4\u96C6\u4E2D\u7F16\u8F91")), /* @__PURE__ */ React7.createElement("div", { className: "settings-nav-list" }, SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ React7.createElement(
+    return /* @__PURE__ */ React7.createElement("div", { className: "webdav-page settings-page" }, /* @__PURE__ */ React7.createElement("style", null, settingPageStyles), /* @__PURE__ */ React7.createElement("div", { className: "webdav-page-header" }, /* @__PURE__ */ React7.createElement("div", { className: "settings-heading-copy" }, /* @__PURE__ */ React7.createElement(Title6, { level: 3, style: { marginBottom: 0 } }, "\u8BBE\u7F6E"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u7BA1\u7406\u754C\u9762\u4E3B\u9898\u3001\u8FD0\u884C\u914D\u7F6E\u3001\u522E\u524A\u6E90\u548C\u4E0B\u8F7D\u670D\u52A1")), /* @__PURE__ */ React7.createElement(Space7, { className: "settings-header-actions", wrap: true }, hasEnvOverrides && /* @__PURE__ */ React7.createElement(Tag6, { color: "warning" }, "\u73AF\u5883\u53D8\u91CF\u8986\u76D6\u4E2D"), /* @__PURE__ */ React7.createElement(Button7, { icon: /* @__PURE__ */ React7.createElement(Icon4, { as: ReloadOutlined4 }), onClick: loadSettings, loading }, "\u5237\u65B0"), /* @__PURE__ */ React7.createElement(Button7, { type: "primary", icon: /* @__PURE__ */ React7.createElement(Icon4, { as: SaveOutlined3 }), onClick: saveSettings, loading: saving }, "\u4FDD\u5B58\u5168\u90E8"))), /* @__PURE__ */ React7.createElement(Spin, { spinning: loading }, /* @__PURE__ */ React7.createElement(Form6, { form, layout: "vertical", onFinish: saveSettings }, /* @__PURE__ */ React7.createElement("div", { className: "settings-shell" }, /* @__PURE__ */ React7.createElement("aside", { className: "settings-nav", "aria-label": "\u8BBE\u7F6E\u5206\u7EC4" }, /* @__PURE__ */ React7.createElement("div", { className: "settings-nav-header" }, /* @__PURE__ */ React7.createElement("span", { className: "settings-nav-title" }, "\u8FD0\u884C\u914D\u7F6E"), /* @__PURE__ */ React7.createElement(Text7, { type: "secondary" }, "\u9009\u62E9\u4E00\u4E2A\u5206\u7EC4\u96C6\u4E2D\u7F16\u8F91")), /* @__PURE__ */ React7.createElement("div", { className: "settings-nav-list" }, SETTINGS_SECTIONS.map((section) => /* @__PURE__ */ React7.createElement(
       "button",
       {
         key: section.key,
@@ -6928,7 +6901,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         message: "GPU \u8F6C\u7801\u4E0D\u53EF\u7528",
         description: `${capabilities?.gpu_error || "\u672A\u68C0\u6D4B\u5230\u53EF\u7528 GPU \u786C\u4EF6\u7F16\u7801\u5668"}\u3002\u4E3A\u907F\u514D CPU \u8F6C\u7801\uFF0C\u65B0\u4EFB\u52A1\u5DF2\u88AB\u7981\u7528\u3002`
       }
-    ), /* @__PURE__ */ React9.createElement(Row4, { gutter: [16, 16] }, /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u6D3B\u52A8\u4EFB\u52A1", value: activeCount, valueStyle: { color: activeCount ? "#1677ff" : void 0 } }))), /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u6B63\u5728\u8F6C\u7801", value: counts.running || 0 }))), /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u5DF2\u5B8C\u6210", value: counts.completed || 0, valueStyle: { color: "#52c41a" } }))), /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u5931\u8D25 / \u53D6\u6D88", value: (counts.failed || 0) + (counts.cancelled || 0), valueStyle: { color: counts.failed || 0 ? "#ff4d4f" : void 0 } })))), /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 20 } }, /* @__PURE__ */ React9.createElement(Title8, { level: 5, style: { margin: 0 } }, "\u4EFB\u52A1\u961F\u5217"), /* @__PURE__ */ React9.createElement(Segmented2, { size: "small", value: filter, onChange: setFilter, options: [
+    ), /* @__PURE__ */ React9.createElement(Row4, { gutter: [16, 16] }, /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u6D3B\u52A8\u4EFB\u52A1", value: activeCount, valueStyle: { color: activeCount ? "var(--color-accent)" : void 0 } }))), /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u6B63\u5728\u8F6C\u7801", value: counts.running || 0 }))), /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u5DF2\u5B8C\u6210", value: counts.completed || 0, valueStyle: { color: "var(--color-success)" } }))), /* @__PURE__ */ React9.createElement(Col4, { xs: 12, md: 6 }, /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement(Statistic, { title: "\u5931\u8D25 / \u53D6\u6D88", value: (counts.failed || 0) + (counts.cancelled || 0), valueStyle: { color: counts.failed || 0 ? "var(--color-danger)" : void 0 } })))), /* @__PURE__ */ React9.createElement(Card8, null, /* @__PURE__ */ React9.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 20 } }, /* @__PURE__ */ React9.createElement(Title8, { level: 5, style: { margin: 0 } }, "\u4EFB\u52A1\u961F\u5217"), /* @__PURE__ */ React9.createElement(Segmented2, { size: "small", value: filter, onChange: setFilter, options: [
       { label: `\u5168\u90E8 ${tasks.length}`, value: "all" },
       { label: `\u6D3B\u52A8 ${activeCount}`, value: "active" },
       { label: `\u5B8C\u6210 ${counts.completed || 0}`, value: "completed" },
@@ -7029,6 +7002,48 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     return nextMap;
   };
 
+  // frontend/src/utils/theme.js
+  var APP_THEME_KEY = "javjaeger.theme";
+  var loadAppTheme = () => {
+    try {
+      return window.localStorage.getItem(APP_THEME_KEY) === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  };
+  var applyAppTheme = (mode) => {
+    document.documentElement.dataset.theme = mode;
+  };
+  var saveAppTheme = (mode) => {
+    try {
+      window.localStorage.setItem(APP_THEME_KEY, mode);
+    } catch {
+    }
+  };
+  var getAppThemeConfig = (mode) => {
+    const style = getComputedStyle(document.documentElement);
+    const color = (name) => style.getPropertyValue(`--color-${name}`).trim();
+    return {
+      algorithm: mode === "light" ? window.antd.theme.defaultAlgorithm : window.antd.theme.darkAlgorithm,
+      token: {
+        colorPrimary: color("accent"),
+        colorInfo: color("accent"),
+        colorSuccess: color("success"),
+        colorWarning: color("warning"),
+        colorError: color("danger"),
+        colorBgBase: color("bg"),
+        colorBgLayout: color("bg"),
+        colorBgContainer: color("surface"),
+        colorBgElevated: color("elevated"),
+        colorBorder: color("ring"),
+        colorText: color("text"),
+        colorTextSecondary: color("muted"),
+        borderRadius: 8,
+        fontFamily: "Inter, system-ui, sans-serif"
+      }
+    };
+  };
+
   // frontend/src/components/JavPage.jsx
   var React10 = window.React;
   var antd10 = window.antd;
@@ -7048,7 +7063,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     Divider: Divider6,
     List: List4,
     Tag: Tag9,
-    ConfigProvider: ConfigProvider2,
+    ConfigProvider,
     Segmented: Segmented3,
     Popconfirm: Popconfirm7
   } = antd10;
@@ -7117,6 +7132,16 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
     await Promise.all(runners);
   };
   function JavPage() {
+    const [themeMode, setThemeMode] = React10.useState(loadAppTheme);
+    const themeConfig = React10.useMemo(() => getAppThemeConfig(themeMode), [themeMode]);
+    const handleThemeChange = (mode) => {
+      applyAppTheme(mode);
+      saveAppTheme(mode);
+      setThemeMode(mode);
+    };
+    React10.useEffect(() => {
+      ConfigProvider.config({ holderRender: (children) => /* @__PURE__ */ React10.createElement(ConfigProvider, { theme: themeConfig }, children) });
+    }, [themeConfig]);
     const [collapsedLeft, setCollapsedLeft] = React10.useState(false);
     const [collapsedRight, setCollapsedRight] = React10.useState(false);
     const [versionInfo, setVersionInfo] = React10.useState({
@@ -8514,7 +8539,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
         localLibrary: /* @__PURE__ */ React10.createElement(LocalLibraryPage, { key: "library", onOpenTranscoding: () => setActivePage("transcoding") }),
         automation: /* @__PURE__ */ React10.createElement(AutomationPage, null),
         transcoding: /* @__PURE__ */ React10.createElement(TranscodingPage, null),
-        settings: /* @__PURE__ */ React10.createElement(SettingsPage, null),
+        settings: /* @__PURE__ */ React10.createElement(SettingsPage, { themeMode, onThemeChange: handleThemeChange }),
         storage: /* @__PURE__ */ React10.createElement("div", { className: "jav-storage-shell" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-storage-switcher" }, /* @__PURE__ */ React10.createElement("div", null, /* @__PURE__ */ React10.createElement(Title9, { level: 4 }, "\u7F51\u76D8\u4E0E\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary" }, "\u6D4F\u89C8\u5B58\u50A8\u6E90\uFF0C\u6216\u67E5\u770B Aria2 \u8FDE\u63A5\u4E0E\u4EFB\u52A1")), /* @__PURE__ */ React10.createElement(
           Segmented3,
           {
@@ -8529,281 +8554,257 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
       }[page] || /* @__PURE__ */ React10.createElement(WebDavPage, null);
       return /* @__PURE__ */ React10.createElement(Layout3, { className: "jav-workspace jav-page-workspace" }, /* @__PURE__ */ React10.createElement(Content3, { className: "jav-content jav-page-content" }, /* @__PURE__ */ React10.createElement("section", { className: "jav-results-panel jav-page-panel" }, pageContent)));
     };
-    return /* @__PURE__ */ React10.createElement(
-      ConfigProvider2,
+    return /* @__PURE__ */ React10.createElement(ConfigProvider, { theme: themeConfig }, /* @__PURE__ */ React10.createElement("div", { className: "jav-app" }, /* @__PURE__ */ React10.createElement(Layout3, { className: "jav-app-layout" }, /* @__PURE__ */ React10.createElement(Header, { className: "jav-header" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-header-left" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-brand" }, /* @__PURE__ */ React10.createElement(
+      "button",
       {
-        theme: {
-          algorithm: antd10.theme.darkAlgorithm,
-          token: {
-            colorPrimary: "#9184d9",
-            colorInfo: "#9184d9",
-            colorSuccess: "#63b394",
-            colorWarning: "#c9a05e",
-            colorError: "#e08188",
-            colorBgBase: "#161826",
-            colorBgLayout: "#161826",
-            colorBgContainer: "#232532",
-            colorBgElevated: "#20222f",
-            colorBorder: "#3f424d",
-            colorText: "#e9e9ed",
-            colorTextSecondary: "#b2b6ca",
-            borderRadius: 8,
-            fontFamily: "Inter, system-ui, sans-serif"
-          }
-        }
+        type: "button",
+        className: "jav-brand-logo-button",
+        "aria-label": "\u67E5\u770B JavJaeger logo \u5927\u56FE",
+        onClick: handleLogoPreviewOpen
       },
-      /* @__PURE__ */ React10.createElement("div", { className: "jav-app" }, /* @__PURE__ */ React10.createElement(Layout3, { className: "jav-app-layout" }, /* @__PURE__ */ React10.createElement(Header, { className: "jav-header" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-header-left" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-brand" }, /* @__PURE__ */ React10.createElement(
+      /* @__PURE__ */ React10.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger", className: "jav-brand-logo" })
+    ), /* @__PURE__ */ React10.createElement("span", { className: "jav-brand-copy" }, /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-name" }, HEADER_BRAND_NAME), /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-slogan" }, /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_QUOTE), /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_AUTHOR))))), /* @__PURE__ */ React10.createElement("div", { className: "jav-header-nav" }, /* @__PURE__ */ React10.createElement("nav", { className: "jav-primary-nav", "aria-label": "\u4E3B\u529F\u80FD\u5BFC\u822A" }, PRIMARY_NAV_ITEMS.map((item) => /* @__PURE__ */ React10.createElement(
+      "button",
+      {
+        key: item.value,
+        type: "button",
+        className: activePage === item.value ? "is-active" : "",
+        "aria-current": activePage === item.value ? "page" : void 0,
+        onClick: () => handleActivePageChange(item.value)
+      },
+      item.label
+    )))), /* @__PURE__ */ React10.createElement(Space10, { size: "middle", className: "jav-header-actions" }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-version" }, displayVersion, " (", versionInfo.build_date, ")"), /* @__PURE__ */ React10.createElement("a", { className: "jav-github-link", href: "https://github.com/cnlutong/JavJaeger", target: "_blank", rel: "noreferrer", "aria-label": "GitHub repository" }, GithubOutlined ? /* @__PURE__ */ React10.createElement(GithubOutlined, null) : /* @__PURE__ */ React10.createElement("svg", { viewBox: "0 0 24 24", fill: "currentColor", width: "24", height: "24" }, /* @__PURE__ */ React10.createElement("path", { d: "M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" }))))), logoPreviewOpen && /* @__PURE__ */ React10.createElement(
+      "div",
+      {
+        className: "jav-logo-preview-overlay",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "JavJaeger logo \u5927\u56FE",
+        onClick: handleLogoPreviewClose
+      },
+      /* @__PURE__ */ React10.createElement(
         "button",
         {
           type: "button",
-          className: "jav-brand-logo-button",
-          "aria-label": "\u67E5\u770B JavJaeger logo \u5927\u56FE",
-          onClick: handleLogoPreviewOpen
-        },
-        /* @__PURE__ */ React10.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger", className: "jav-brand-logo" })
-      ), /* @__PURE__ */ React10.createElement("span", { className: "jav-brand-copy" }, /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-name" }, HEADER_BRAND_NAME), /* @__PURE__ */ React10.createElement(Text10, { className: "jav-brand-slogan" }, /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_QUOTE), /* @__PURE__ */ React10.createElement("span", null, HEADER_SLOGAN_AUTHOR))))), /* @__PURE__ */ React10.createElement("div", { className: "jav-header-nav" }, /* @__PURE__ */ React10.createElement("nav", { className: "jav-primary-nav", "aria-label": "\u4E3B\u529F\u80FD\u5BFC\u822A" }, PRIMARY_NAV_ITEMS.map((item) => /* @__PURE__ */ React10.createElement(
-        "button",
-        {
-          key: item.value,
-          type: "button",
-          className: activePage === item.value ? "is-active" : "",
-          "aria-current": activePage === item.value ? "page" : void 0,
-          onClick: () => handleActivePageChange(item.value)
-        },
-        item.label
-      )))), /* @__PURE__ */ React10.createElement(Space10, { size: "middle", className: "jav-header-actions" }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-version" }, displayVersion, " (", versionInfo.build_date, ")"), /* @__PURE__ */ React10.createElement("a", { className: "jav-github-link", href: "https://github.com/cnlutong/JavJaeger", target: "_blank", rel: "noreferrer", "aria-label": "GitHub repository" }, GithubOutlined ? /* @__PURE__ */ React10.createElement(GithubOutlined, null) : /* @__PURE__ */ React10.createElement("svg", { viewBox: "0 0 24 24", fill: "currentColor", width: "24", height: "24" }, /* @__PURE__ */ React10.createElement("path", { d: "M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z" }))))), logoPreviewOpen && /* @__PURE__ */ React10.createElement(
-        "div",
-        {
-          className: "jav-logo-preview-overlay",
-          role: "dialog",
-          "aria-modal": "true",
-          "aria-label": "JavJaeger logo \u5927\u56FE",
+          className: "jav-logo-preview-close",
+          "aria-label": "\u5173\u95ED logo \u5927\u56FE",
           onClick: handleLogoPreviewClose
         },
-        /* @__PURE__ */ React10.createElement(
-          "button",
-          {
-            type: "button",
-            className: "jav-logo-preview-close",
-            "aria-label": "\u5173\u95ED logo \u5927\u56FE",
-            onClick: handleLogoPreviewClose
-          },
-          "\xD7"
-        ),
-        /* @__PURE__ */ React10.createElement("div", { className: "jav-logo-preview-frame", onClick: (event) => event.stopPropagation() }, /* @__PURE__ */ React10.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger logo \u5927\u56FE", className: "jav-logo-preview-image" }))
-      ), activePage === "jav" || activePage === "dispatch" ? /* @__PURE__ */ React10.createElement(Layout3, { className: `jav-workspace is-${activePage}` }, /* @__PURE__ */ React10.createElement(
-        Sider,
+        "\xD7"
+      ),
+      /* @__PURE__ */ React10.createElement("div", { className: "jav-logo-preview-frame", onClick: (event) => event.stopPropagation() }, /* @__PURE__ */ React10.createElement("img", { src: "/static/logo.jpg", alt: "JavJaeger logo \u5927\u56FE", className: "jav-logo-preview-image" }))
+    ), activePage === "jav" || activePage === "dispatch" ? /* @__PURE__ */ React10.createElement(Layout3, { className: `jav-workspace is-${activePage}` }, /* @__PURE__ */ React10.createElement(
+      Sider,
+      {
+        width: 320,
+        theme: "light",
+        collapsible: true,
+        collapsed: collapsedLeft,
+        onCollapse: (value) => setCollapsedLeft(value),
+        className: "jav-sidebar jav-sidebar-left"
+      },
+      /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, activePage === "dispatch" ? "\u6D3E\u53D1\u4EFB\u52A1" : "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), activePage === "jav" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page", excludeVr: false } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React10.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React10.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React10.createElement("a", { onClick: (e) => {
+        e.stopPropagation();
+        filterForm.setFieldsValue({ filterType: "star" });
+        setViewMode("browseActor");
+      } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React10.createElement(Option, { value: "genre", label: "\u7C7B\u522B" }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React10.createElement("span", null, "\u7C7B\u522B"), /* @__PURE__ */ React10.createElement("a", { onClick: (e) => {
+        e.stopPropagation();
+        filterForm.setFieldsValue({ filterType: "genre" });
+        setViewMode("browseCategory");
+      } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React10.createElement(Option, { value: "director", label: "\u5BFC\u6F14" }, "\u5BFC\u6F14"), /* @__PURE__ */ React10.createElement(Option, { value: "studio", label: "\u5236\u4F5C\u5546" }, "\u5236\u4F5C\u5546"), /* @__PURE__ */ React10.createElement(Option, { value: "label", label: "\u53D1\u884C\u5546" }, "\u53D1\u884C\u5546"), /* @__PURE__ */ React10.createElement(Option, { value: "series", label: "\u7CFB\u5217" }, "\u7CFB\u5217"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterValue", hidden: true }, /* @__PURE__ */ React10.createElement(Input8, null)), /* @__PURE__ */ React10.createElement(Form8.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", width: "100%" } }, /* @__PURE__ */ React10.createElement("div", { style: { flex: "1 1 0", minWidth: 0 } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterValueName", noStyle: true }, /* @__PURE__ */ React10.createElement(
+        Input8,
         {
-          width: 320,
-          theme: "light",
-          collapsible: true,
-          collapsed: collapsedLeft,
-          onCollapse: (value) => setCollapsedLeft(value),
-          className: "jav-sidebar jav-sidebar-left"
-        },
-        /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, activePage === "dispatch" ? "\u6D3E\u53D1\u4EFB\u52A1" : "\u67E5\u8BE2\u529F\u80FD"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), activePage === "jav" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: FilterOutlined2 }), " \u5F71\u7247\u5217\u8868\u7B5B\u9009"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { form: filterForm, onFinish: filterMovies, layout: "vertical", initialValues: { magnet: "exist", type: "normal", fetchMode: "page", excludeVr: false } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterType", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u9009\u62E9\u7B5B\u9009\u7C7B\u578B", allowClear: true, optionLabelProp: "label" }, /* @__PURE__ */ React10.createElement(Option, { value: "star", label: "\u6F14\u5458" }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React10.createElement("span", null, "\u6F14\u5458"), /* @__PURE__ */ React10.createElement("a", { onClick: (e) => {
-          e.stopPropagation();
-          filterForm.setFieldsValue({ filterType: "star" });
-          setViewMode("browseActor");
-        } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React10.createElement(Option, { value: "genre", label: "\u7C7B\u522B" }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React10.createElement("span", null, "\u7C7B\u522B"), /* @__PURE__ */ React10.createElement("a", { onClick: (e) => {
-          e.stopPropagation();
-          filterForm.setFieldsValue({ filterType: "genre" });
-          setViewMode("browseCategory");
-        } }, "\u6D4F\u89C8"))), /* @__PURE__ */ React10.createElement(Option, { value: "director", label: "\u5BFC\u6F14" }, "\u5BFC\u6F14"), /* @__PURE__ */ React10.createElement(Option, { value: "studio", label: "\u5236\u4F5C\u5546" }, "\u5236\u4F5C\u5546"), /* @__PURE__ */ React10.createElement(Option, { value: "label", label: "\u53D1\u884C\u5546" }, "\u53D1\u884C\u5546"), /* @__PURE__ */ React10.createElement(Option, { value: "series", label: "\u7CFB\u5217" }, "\u7CFB\u5217"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterValue", hidden: true }, /* @__PURE__ */ React10.createElement(Input8, null)), /* @__PURE__ */ React10.createElement(Form8.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", width: "100%" } }, /* @__PURE__ */ React10.createElement("div", { style: { flex: "1 1 0", minWidth: 0 } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "filterValueName", noStyle: true }, /* @__PURE__ */ React10.createElement(
-          Input8,
-          {
-            placeholder: "\u7B5B\u9009\u4EE3\u7801\u6216\u540D\u79F0",
-            onChange: (e) => filterForm.setFieldsValue({ filterValue: e.target.value }),
-            allowClear: true,
-            style: {
-              width: "100%",
-              height: 46,
-              minWidth: 0,
-              borderTopRightRadius: 0,
-              borderBottomRightRadius: 0
-            }
+          placeholder: "\u7B5B\u9009\u4EE3\u7801\u6216\u540D\u79F0",
+          onChange: (e) => filterForm.setFieldsValue({ filterValue: e.target.value }),
+          allowClear: true,
+          style: {
+            width: "100%",
+            height: 46,
+            minWidth: 0,
+            borderTopRightRadius: 0,
+            borderBottomRightRadius: 0
           }
-        ))), /* @__PURE__ */ React10.createElement(
-          Button10,
-          {
-            htmlType: "button",
-            onClick: handleAddCurrentFilter,
-            autoInsertSpace: false,
-            style: {
-              flex: "0 0 62px",
-              width: 62,
-              marginLeft: -1,
-              borderTopLeftRadius: 0,
-              borderBottomLeftRadius: 0,
-              height: 46,
-              paddingInline: 0
-            }
-          },
-          /* @__PURE__ */ React10.createElement("span", null, "\u52A0\u5165")
-        ))), selectedFilters.length > 0 && /* @__PURE__ */ React10.createElement(Form8.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, selectedFilters.map((filter) => /* @__PURE__ */ React10.createElement(
-          Tag9,
-          {
-            key: `${filter.type}:${filter.value}`,
-            closable: true,
-            color: filter.type === "star" ? "magenta" : "cyan",
-            onClose: () => removeSelectedFilter(filter.type, filter.value),
-            style: { margin: 0 }
-          },
-          FILTER_TYPE_LABELS2[filter.type] || filter.type,
-          ": ",
-          filter.label || filter.value
-        )), /* @__PURE__ */ React10.createElement(Button10, { type: "link", size: "small", htmlType: "button", onClick: () => setSelectedFilters([]) }, "\u6E05\u7A7A"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "magnet", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u78C1\u529B\u94FE\u63A5\u72B6\u6001" }, /* @__PURE__ */ React10.createElement(Option, { value: "exist" }, "\u6709\u78C1\u529B\u94FE\u63A5"), /* @__PURE__ */ React10.createElement(Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "type", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5F71\u7247\u7C7B\u578B" }, /* @__PURE__ */ React10.createElement(Option, { value: "normal" }, "\u6709\u7801\u5F71\u7247"), /* @__PURE__ */ React10.createElement(Option, { value: "uncensored" }, "\u65E0\u7801\u5F71\u7247"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "actorCountFilter", label: "\u6F14\u5458\u4EBA\u6570", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "1" }, "\u5355\u4EBA\u4F5C\u54C1 (=1)"), /* @__PURE__ */ React10.createElement(Option, { value: "2" }, "\u53CC\u4EBA\u4F5C\u54C1 (=2)"), /* @__PURE__ */ React10.createElement(Option, { value: "3" }, "\u4E09\u4EBA\u4F5C\u54C1 (=3)"), /* @__PURE__ */ React10.createElement(Option, { value: "<=2" }, "\u5C11\u4E8E\u7B49\u4E8E2\u4EBA"), /* @__PURE__ */ React10.createElement(Option, { value: "<=3" }, "\u5C11\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React10.createElement(Option, { value: ">=3" }, "\u5927\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React10.createElement(Option, { value: ">=4" }, "\u5927\u4E8E\u7B49\u4E8E4\u4EBA"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", label: "\u5B57\u5E55\u8981\u6C42", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "" }, "\u5305\u542B\u6216\u4E0D\u5305\u542B\u90FD\u53EF\u4EE5"), /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u5305\u542B\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u4E0D\u542B\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "excludeVr", label: "VR\u5F71\u7247", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(
-          Segmented3,
-          {
-            block: true,
-            options: [
-              { label: "\u4E0D\u6392\u9664VR", value: false },
-              { label: "\u6392\u9664VR", value: true }
-            ]
-          }
-        )), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "fetchMode", label: "\u83B7\u53D6\u65B9\u5F0F", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, null, /* @__PURE__ */ React10.createElement(Option, { value: "page" }, "\u9010\u9875\u83B7\u53D6 (\u6BCF\u987530\u4E2A)"), /* @__PURE__ */ React10.createElement(Option, { value: "all" }, "\u83B7\u53D6\u5168\u90E8 (\u6240\u6709\u9875)"))), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: FilterOutlined2 }) }, "\u7B5B\u9009"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }), " \u5F71\u7247\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: searchMovie, layout: "vertical" }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "keyword", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }) }, "\u641C\u7D22"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: searchMagnet, layout: "vertical" }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "movieId", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "sortBy", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u6392\u5E8F\u65B9\u5F0F", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "date" }, "\u65E5\u671F"), /* @__PURE__ */ React10.createElement(Option, { value: "size" }, "\u5927\u5C0F"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "sortOrder", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u6392\u5E8F\u987A\u5E8F", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "asc" }, "\u5347\u5E8F"), /* @__PURE__ */ React10.createElement(Option, { value: "desc" }, "\u964D\u5E8F"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 }) }, "\u67E5\u8BE2\u78C1\u529B\u94FE\u63A5"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: DatabaseOutlined4 }), " \u5F71\u7247\u8BC6\u522B"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: handleRecognizeMovie, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "htmlContent", rules: [{ required: true, message: "\u8BF7\u7C98\u8D34HTML\u6E90\u4EE3\u7801" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Input8.TextArea, { placeholder: "\u8BF7\u7C98\u8D34JAVLibrary\u7F51\u9875\u6E90\u4EE3\u7801...", rows: 4 })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React10.createElement(
-          Segmented3,
-          {
-            block: true,
-            options: [
-              { label: "\u4EC5\u8BC6\u522B", value: false },
-              { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
-            ]
-          }
-        )), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React10.createElement(
-          Segmented3,
-          {
-            block: true,
-            options: [
-              { label: "\u4E0D\u6392\u96644K", value: false },
-              { label: "\u6392\u96644K", value: true }
-            ]
-          }
-        )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }) }, "\u8BC6\u522B\u5E76\u4E0B\u8F7D")))), activePage === "dispatch" && /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }), " \u756A\u53F7\u81EA\u52A8\u4E0B\u8F7D"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: handleCodeDownload, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "movieCodes", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Input8.TextArea, { placeholder: "\u652F\u6301\u591A\u884C\u3001\u7A7A\u683C\u5206\u9694...", rows: 4 })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React10.createElement(
-          Segmented3,
-          {
-            block: true,
-            options: [
-              { label: "\u4EC5\u641C\u7D22", value: false },
-              { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
-            ]
-          }
-        )), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React10.createElement(
-          Segmented3,
-          {
-            block: true,
-            options: [
-              { label: "\u4E0D\u6392\u96644K", value: false },
-              { label: "\u6392\u96644K", value: true }
-            ]
-          }
-        )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }) }, "\u641C\u7D22\u5E76\u4E0B\u8F7D"))))
-      ), /* @__PURE__ */ React10.createElement(Content3, { className: "jav-content" }, /* @__PURE__ */ React10.createElement("section", { className: "jav-results-panel" }, viewMode === "search" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React10.createElement("div", null, /* @__PURE__ */ React10.createElement(Title9, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 })), activePage === "dispatch" ? "\u4E0B\u8F7D\u6D3E\u53D1" : "\u67E5\u8BE2\u7ED3\u679C"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-results-subtitle" }, activePage === "dispatch" ? "\u6279\u91CF\u756A\u53F7\u3001\u8D44\u6E90\u72B6\u6001\u4E0E\u6D3E\u53D1\u7ED3\u679C" : "\u5F53\u524D\u6279\u6B21\u8D44\u6E90\u6982\u89C8")), /* @__PURE__ */ React10.createElement(
+        }
+      ))), /* @__PURE__ */ React10.createElement(
         Button10,
         {
-          type: "primary",
-          disabled: !isCurrentDownloadToolReady || !moviesData || !moviesData.movies || moviesData.movies.length === 0,
-          loading,
-          icon: /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }),
-          onClick: handleDownloadAllMovies
+          htmlType: "button",
+          onClick: handleAddCurrentFilter,
+          autoInsertSpace: false,
+          style: {
+            flex: "0 0 62px",
+            width: 62,
+            marginLeft: -1,
+            borderTopLeftRadius: 0,
+            borderBottomLeftRadius: 0,
+            height: 46,
+            paddingInline: 0
+          }
         },
-        activePage === "dispatch" ? "\u6D3E\u53D1\u672C\u9875\u5168\u90E8\u5F71\u7247" : "\u4E0B\u8F7D\u672C\u9875\u5168\u90E8\u5F71\u7247"
-      )), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React10.createElement("strong", null, resultCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React10.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React10.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React10.createElement("strong", null, MAGNET_SOURCE_LABELS2[currentMagnetSource] || currentMagnetSource), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", globalExclude4k ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React10.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React10.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React10.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React10.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React10.createElement(
-        Sider,
+        /* @__PURE__ */ React10.createElement("span", null, "\u52A0\u5165")
+      ))), selectedFilters.length > 0 && /* @__PURE__ */ React10.createElement(Form8.Item, { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } }, selectedFilters.map((filter) => /* @__PURE__ */ React10.createElement(
+        Tag9,
         {
-          width: 300,
-          theme: "light",
-          collapsible: true,
-          collapsed: collapsedRight,
-          onCollapse: (value) => setCollapsedRight(value),
-          className: "jav-sidebar jav-sidebar-right",
-          reverseArrow: true
+          key: `${filter.type}:${filter.value}`,
+          closable: true,
+          color: filter.type === "star" ? "magenta" : "cyan",
+          onClose: () => removeSelectedFilter(filter.type, filter.value),
+          style: { margin: 0 }
         },
-        /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, activePage === "dispatch" ? "\u6D3E\u53D1\u8BBE\u7F6E" : "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React10.createElement(
-          Card9,
-          {
-            title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " \u4E0B\u8F7D\u5DE5\u5177"),
-            extra: /* @__PURE__ */ React10.createElement(
-              Button10,
-              {
-                type: "text",
-                size: "small",
-                title: "\u6253\u5F00\u914D\u7F6E",
-                icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SettingOutlined4 }),
-                onClick: openDownloadToolConfig
-              }
-            ),
-            size: "small",
-            className: "jav-tool-card"
-          },
-          /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, "\u5F53\u524D\u9009\u62E9\uFF1A", /* @__PURE__ */ React10.createElement(Text10, { strong: true, style: { marginLeft: 6, color: "#262626" } }, getDownloadToolConfig().label))),
-          /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 10 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, "WebDAV\uFF08\u7F51\u76D8\uFF09\uFF1A", webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React10.createElement("br", null), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, "Aria2\uFF1A", aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React10.createElement("br", null), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, "115\u7F51\u76D8\uFF1A", clientConfig.pan115?.configured ? "\u5DF2\u767B\u5F55" : "\u672A\u767B\u5F55")),
-          /* @__PURE__ */ React10.createElement(
-            Segmented3,
+        FILTER_TYPE_LABELS2[filter.type] || filter.type,
+        ": ",
+        filter.label || filter.value
+      )), /* @__PURE__ */ React10.createElement(Button10, { type: "link", size: "small", htmlType: "button", onClick: () => setSelectedFilters([]) }, "\u6E05\u7A7A"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "magnet", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u78C1\u529B\u94FE\u63A5\u72B6\u6001" }, /* @__PURE__ */ React10.createElement(Option, { value: "exist" }, "\u6709\u78C1\u529B\u94FE\u63A5"), /* @__PURE__ */ React10.createElement(Option, { value: "all" }, "\u5168\u90E8\u5F71\u7247"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "type", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5F71\u7247\u7C7B\u578B" }, /* @__PURE__ */ React10.createElement(Option, { value: "normal" }, "\u6709\u7801\u5F71\u7247"), /* @__PURE__ */ React10.createElement(Option, { value: "uncensored" }, "\u65E0\u7801\u5F71\u7247"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "actorCountFilter", label: "\u6F14\u5458\u4EBA\u6570", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "1" }, "\u5355\u4EBA\u4F5C\u54C1 (=1)"), /* @__PURE__ */ React10.createElement(Option, { value: "2" }, "\u53CC\u4EBA\u4F5C\u54C1 (=2)"), /* @__PURE__ */ React10.createElement(Option, { value: "3" }, "\u4E09\u4EBA\u4F5C\u54C1 (=3)"), /* @__PURE__ */ React10.createElement(Option, { value: "<=2" }, "\u5C11\u4E8E\u7B49\u4E8E2\u4EBA"), /* @__PURE__ */ React10.createElement(Option, { value: "<=3" }, "\u5C11\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React10.createElement(Option, { value: ">=3" }, "\u5927\u4E8E\u7B49\u4E8E3\u4EBA"), /* @__PURE__ */ React10.createElement(Option, { value: ">=4" }, "\u5927\u4E8E\u7B49\u4E8E4\u4EBA"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", label: "\u5B57\u5E55\u8981\u6C42", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u4E0D\u9650\u5236", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "" }, "\u5305\u542B\u6216\u4E0D\u5305\u542B\u90FD\u53EF\u4EE5"), /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u5305\u542B\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u4E0D\u542B\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "excludeVr", label: "VR\u5F71\u7247", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(
+        Segmented3,
+        {
+          block: true,
+          options: [
+            { label: "\u4E0D\u6392\u9664VR", value: false },
+            { label: "\u6392\u9664VR", value: true }
+          ]
+        }
+      )), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "fetchMode", label: "\u83B7\u53D6\u65B9\u5F0F", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, null, /* @__PURE__ */ React10.createElement(Option, { value: "page" }, "\u9010\u9875\u83B7\u53D6 (\u6BCF\u987530\u4E2A)"), /* @__PURE__ */ React10.createElement(Option, { value: "all" }, "\u83B7\u53D6\u5168\u90E8 (\u6240\u6709\u9875)"))), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: FilterOutlined2 }) }, "\u7B5B\u9009"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }), " \u5F71\u7247\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: searchMovie, layout: "vertical" }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "keyword", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }) }, "\u641C\u7D22"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u67E5\u8BE2"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: searchMagnet, layout: "vertical" }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "movieId", style: { marginBottom: 8 }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u8F93\u5165\u5F71\u7247\u756A\u53F7" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "sortBy", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u6392\u5E8F\u65B9\u5F0F", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "date" }, "\u65E5\u671F"), /* @__PURE__ */ React10.createElement(Option, { value: "size" }, "\u5927\u5C0F"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "sortOrder", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u6392\u5E8F\u987A\u5E8F", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "asc" }, "\u5347\u5E8F"), /* @__PURE__ */ React10.createElement(Option, { value: "desc" }, "\u964D\u5E8F"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 }) }, "\u67E5\u8BE2\u78C1\u529B\u94FE\u63A5"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: DatabaseOutlined4 }), " \u5F71\u7247\u8BC6\u522B"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: handleRecognizeMovie, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "htmlContent", rules: [{ required: true, message: "\u8BF7\u7C98\u8D34HTML\u6E90\u4EE3\u7801" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Input8.TextArea, { placeholder: "\u8BF7\u7C98\u8D34JAVLibrary\u7F51\u9875\u6E90\u4EE3\u7801...", rows: 4 })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React10.createElement(
+        Segmented3,
+        {
+          block: true,
+          options: [
+            { label: "\u4EC5\u8BC6\u522B", value: false },
+            { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
+          ]
+        }
+      )), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React10.createElement(
+        Segmented3,
+        {
+          block: true,
+          options: [
+            { label: "\u4E0D\u6392\u96644K", value: false },
+            { label: "\u6392\u96644K", value: true }
+          ]
+        }
+      )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 }) }, "\u8BC6\u522B\u5E76\u4E0B\u8F7D")))), activePage === "dispatch" && /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }), " \u756A\u53F7\u81EA\u52A8\u4E0B\u8F7D"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Form8, { onFinish: handleCodeDownload, layout: "vertical", initialValues: { autoDownload: true } }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "movieCodes", rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u756A\u53F7" }], style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Input8.TextArea, { placeholder: "\u652F\u6301\u591A\u884C\u3001\u7A7A\u683C\u5206\u9694...", rows: 4 })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "autoDownload", style: { marginBottom: 12 } }, /* @__PURE__ */ React10.createElement(
+        Segmented3,
+        {
+          block: true,
+          options: [
+            { label: "\u4EC5\u641C\u7D22", value: false },
+            { label: "\u81EA\u52A8\u4E0B\u8F7D\u6700\u4F73", value: true }
+          ]
+        }
+      )), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "hasSubtitle", style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Select6, { placeholder: "\u5B57\u5E55\u7B5B\u9009", allowClear: true }, /* @__PURE__ */ React10.createElement(Option, { value: "true" }, "\u6709\u5B57\u5E55"), /* @__PURE__ */ React10.createElement(Option, { value: "false" }, "\u65E0\u5B57\u5E55"))), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "exclude4k", style: { marginBottom: 16 } }, /* @__PURE__ */ React10.createElement(
+        Segmented3,
+        {
+          block: true,
+          options: [
+            { label: "\u4E0D\u6392\u96644K", value: false },
+            { label: "\u6392\u96644K", value: true }
+          ]
+        }
+      )), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }) }, "\u641C\u7D22\u5E76\u4E0B\u8F7D"))))
+    ), /* @__PURE__ */ React10.createElement(Content3, { className: "jav-content" }, /* @__PURE__ */ React10.createElement("section", { className: "jav-results-panel" }, viewMode === "search" && /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement("div", { className: "jav-results-header" }, /* @__PURE__ */ React10.createElement("div", null, /* @__PURE__ */ React10.createElement(Title9, { level: 4, className: "jav-results-title" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-section-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 })), activePage === "dispatch" ? "\u4E0B\u8F7D\u6D3E\u53D1" : "\u67E5\u8BE2\u7ED3\u679C"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", className: "jav-results-subtitle" }, activePage === "dispatch" ? "\u6279\u91CF\u756A\u53F7\u3001\u8D44\u6E90\u72B6\u6001\u4E0E\u6D3E\u53D1\u7ED3\u679C" : "\u5F53\u524D\u6279\u6B21\u8D44\u6E90\u6982\u89C8")), /* @__PURE__ */ React10.createElement(
+      Button10,
+      {
+        type: "primary",
+        disabled: !isCurrentDownloadToolReady || !moviesData || !moviesData.movies || moviesData.movies.length === 0,
+        loading,
+        icon: /* @__PURE__ */ React10.createElement(Icon6, { as: DownloadOutlined4 }),
+        onClick: handleDownloadAllMovies
+      },
+      activePage === "dispatch" ? "\u6D3E\u53D1\u672C\u9875\u5168\u90E8\u5F71\u7247" : "\u4E0B\u8F7D\u672C\u9875\u5168\u90E8\u5F71\u7247"
+    )), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-grid" }, /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u7ED3\u679C"), /* @__PURE__ */ React10.createElement("strong", null, resultCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "\u5F71\u7247")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u78C1\u529B"), /* @__PURE__ */ React10.createElement("strong", null, magnetsReadyCount), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, magnetsLoadedCount, "/", resultCount || 0, " \u5DF2\u68C0\u7D22")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, getDownloadToolConfig().label), /* @__PURE__ */ React10.createElement("strong", null, isCurrentDownloadToolReady ? "\u5C31\u7EEA" : "\u672A\u5C31\u7EEA"), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, downloadTool === "115" ? `\u76EE\u5F55 ${clientConfig.pan115?.save_dir_id || "0"}` : downloadTool === "aria2" ? aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : pikpakCredentials?.username || clientConfig.pikpak.username || "\u672A\u767B\u5F55")), /* @__PURE__ */ React10.createElement("div", { className: "jav-kpi-card" }, /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-label" }, "\u6765\u6E90"), /* @__PURE__ */ React10.createElement("strong", null, MAGNET_SOURCE_LABELS2[currentMagnetSource] || currentMagnetSource), /* @__PURE__ */ React10.createElement("span", { className: "jav-kpi-note" }, "4K\u8FC7\u6EE4\uFF1A", globalExclude4k ? "\u5F00\u542F" : "\u5173\u95ED"))), /* @__PURE__ */ React10.createElement("div", { className: "jav-process-strip" }, /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${resultCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SearchOutlined4 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u68C0\u7D22"), /* @__PURE__ */ React10.createElement("em", null, loading ? "\u8FDB\u884C\u4E2D" : resultCount > 0 ? "\u5DF2\u5B8C\u6210" : "\u5F85\u5F00\u59CB"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${magnetsLoadedCount > 0 ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u8D44\u6E90"), /* @__PURE__ */ React10.createElement("em", null, magnetsReadyCount > 0 ? `${magnetsReadyCount} \u53EF\u7528` : magnetsLoadedCount > 0 ? "\u65E0\u53EF\u7528" : "\u5F85\u5339\u914D"))), /* @__PURE__ */ React10.createElement("div", { className: `jav-process-item ${isCurrentDownloadToolReady ? "is-active" : ""}` }, /* @__PURE__ */ React10.createElement("span", { className: "jav-process-icon" }, /* @__PURE__ */ React10.createElement(Icon6, { as: SafetyCertificateOutlined2 })), /* @__PURE__ */ React10.createElement("span", null, /* @__PURE__ */ React10.createElement("strong", null, "\u6D3E\u53D1"), /* @__PURE__ */ React10.createElement("em", null, isCurrentDownloadToolReady ? "\u5DF2\u5C31\u7EEA" : downloadTool === "aria2" ? "\u672A\u8FDE\u63A5Aria2" : downloadTool === "115" ? "\u672A\u914D\u7F6E115" : clientConfig.pikpak.configured ? "\u53EF\u914D\u7F6E" : "\u672A\u767B\u5F55")))), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-section-divider" })), renderContent())), /* @__PURE__ */ React10.createElement(
+      Sider,
+      {
+        width: 300,
+        theme: "light",
+        collapsible: true,
+        collapsed: collapsedRight,
+        onCollapse: (value) => setCollapsedRight(value),
+        className: "jav-sidebar jav-sidebar-right",
+        reverseArrow: true
+      },
+      /* @__PURE__ */ React10.createElement("div", { className: "jav-sidebar-content" }, /* @__PURE__ */ React10.createElement(Title9, { level: 5, className: "jav-sidebar-title" }, activePage === "dispatch" ? "\u6D3E\u53D1\u8BBE\u7F6E" : "\u4E0B\u8F7D\u7BA1\u7406"), /* @__PURE__ */ React10.createElement(Divider6, { className: "jav-sidebar-divider" }), /* @__PURE__ */ React10.createElement(
+        Card9,
+        {
+          title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " \u4E0B\u8F7D\u5DE5\u5177"),
+          extra: /* @__PURE__ */ React10.createElement(
+            Button10,
             {
-              value: downloadTool,
-              block: true,
-              onChange: handleDownloadToolChange,
-              options: [
-                { label: "PikPak", value: "pikpak" },
-                { label: "115", value: "115" },
-                { label: "\u76F4\u63A5\u4E0B\u8F7D", value: "aria2" }
-              ]
+              type: "text",
+              size: "small",
+              title: "\u6253\u5F00\u914D\u7F6E",
+              icon: /* @__PURE__ */ React10.createElement(Icon6, { as: SettingOutlined4 }),
+              onClick: openDownloadToolConfig
             }
-          )
-        ), /* @__PURE__ */ React10.createElement(
-          Drawer4,
+          ),
+          size: "small",
+          className: "jav-tool-card"
+        },
+        /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, "\u5F53\u524D\u9009\u62E9\uFF1A", /* @__PURE__ */ React10.createElement(Text10, { strong: true, style: { marginLeft: 6, color: "#262626" } }, getDownloadToolConfig().label))),
+        /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 10 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, "WebDAV\uFF08\u7F51\u76D8\uFF09\uFF1A", webdavConnected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React10.createElement("br", null), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, "Aria2\uFF1A", aria2Connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), /* @__PURE__ */ React10.createElement("br", null), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, "115\u7F51\u76D8\uFF1A", clientConfig.pan115?.configured ? "\u5DF2\u767B\u5F55" : "\u672A\u767B\u5F55")),
+        /* @__PURE__ */ React10.createElement(
+          Segmented3,
           {
-            title: downloadTool === "aria2" ? "\u914D\u7F6E Aria2\uFF08\u76F4\u63A5\u4E0B\u8F7D\uFF09" : downloadTool === "115" ? "\u914D\u7F6E 115\u7F51\u76D8" : "\u914D\u7F6E \u7F51\u76D8\uFF08PikPak\uFF09",
-            open: downloadToolConfigOpen,
-            onClose: closeDownloadToolConfig,
-            width: 360,
-            placement: "right",
-            destroyOnClose: true
-          },
-          downloadTool === "aria2" ? /* @__PURE__ */ React10.createElement(Card9, { size: "small", title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " Aria2 \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, aria2Connected ? "Aria2 \u5DF2\u8FDE\u63A5" : "Aria2 \u672A\u8FDE\u63A5")), /* @__PURE__ */ React10.createElement(Form8, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "url", label: "Aria2 RPC \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 RPC \u5730\u5740" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "http://127.0.0.1:6800/jsonrpc" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "secret", label: "RPC Secret" }, /* @__PURE__ */ React10.createElement(Input8.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2?.configured && /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))) : downloadTool === "115" ? /* @__PURE__ */ React10.createElement(Card9, { size: "small", title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " 115\u7F51\u76D8\u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, clientConfig.pan115?.configured ? "115 \u5DF2\u626B\u7801\u767B\u5F55" : "115 \u672A\u767B\u5F55"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, "\u4FDD\u5B58\u76EE\u5F55 ID\uFF1A", clientConfig.pan115?.save_dir_id || "0"), pan115DownloadJob && /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, "\u540E\u53F0\u4EFB\u52A1\uFF1A", pan115DownloadJob.status || "queued", "\uFF0C", pan115DownloadJob.completed_count || 0, "/", pan115DownloadJob.total_count || 0, pan115DownloadJob.total_batches ? `\uFF0C\u6279\u6B21 ${pan115DownloadJob.current_batch || 0}/${pan115DownloadJob.total_batches}` : ""), pan115QrSession?.qrcode_image_url && /* @__PURE__ */ React10.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React10.createElement(
-            "img",
-            {
-              src: pan115QrSession.qrcode_image_url,
-              alt: "115 \u767B\u5F55\u4E8C\u7EF4\u7801",
-              style: { width: 220, height: 220, maxWidth: "100%", border: "1px solid #f0f0f0", borderRadius: 8 }
-            }
-          ), /* @__PURE__ */ React10.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, pan115QrStatus?.state === "scanned" ? "\u5DF2\u626B\u7801\uFF0C\u8BF7\u5728\u624B\u673A\u7AEF\u786E\u8BA4" : pan115QrStatus?.state === "expired" ? "\u4E8C\u7EF4\u7801\u5DF2\u8FC7\u671F" : pan115QrStatus?.state === "canceled" ? "\u626B\u7801\u5DF2\u53D6\u6D88" : "\u8BF7\u4F7F\u7528 115 \u624B\u673A\u7AEF\u626B\u7801"))), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", block: true, onClick: handlePan115QrStart, loading: pan115QrLoading }, pan115QrSession ? "\u91CD\u65B0\u83B7\u53D6\u4E8C\u7EF4\u7801" : "\u626B\u7801\u767B\u5F55 115"), /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => {
-            closeDownloadToolConfig();
-            setActivePage("settings");
-          } }, "\u6253\u5F00\u8BBE\u7F6E"))) : /* @__PURE__ */ React10.createElement(Card9, { size: "small", title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " WebDAV \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, webdavConnected ? "WebDAV \u5DF2\u8FDE\u63A5" : "WebDAV \u672A\u8FDE\u63A5")), /* @__PURE__ */ React10.createElement(Form8, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "url", label: "WebDAV \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV \u5730\u5740" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "https://dav.example.com/" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "username", label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "password", label: "\u5BC6\u7801" }, /* @__PURE__ */ React10.createElement(Input8.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav?.configured && /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))
-        ), /* @__PURE__ */ React10.createElement(
-          Button10,
-          {
-            type: "default",
+            value: downloadTool,
             block: true,
-            icon: /* @__PURE__ */ React10.createElement(Icon6, { as: HistoryOutlined }),
-            onClick: fetchHistory,
-            className: "jav-sidebar-action"
-          },
-          "\u67E5\u770B\u5386\u53F2\u8BB0\u5F55"
-        ), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: LoginOutlined2 }), " PikPak \u767B\u5F55"), size: "small", className: "jav-tool-card" }, !isLoggedIn ? /* @__PURE__ */ React10.createElement(Form8, { layout: "vertical", onFinish: handlePikPakLogin }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "username", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7528\u6237\u540D" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u7528\u6237\u540D", autoComplete: "username" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "password", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u5BC6\u7801" }] }, /* @__PURE__ */ React10.createElement(Input8.Password, { placeholder: "\u5BC6\u7801", autoComplete: "current-password" })), /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading }, "\u767B\u5F55"), clientConfig.pikpak.configured && /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => handlePikPakLoginFromConfig(), loading }, "\u4F7F\u7528\u914D\u7F6E\u767B\u5F55"))) : /* @__PURE__ */ React10.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React10.createElement(Text10, { type: "success", strong: true }, "\u5DF2\u767B\u5F55"), /* @__PURE__ */ React10.createElement("div", { style: { marginTop: 8 } }, pikpakCredentials?.username), /* @__PURE__ */ React10.createElement(Button10, { danger: true, style: { marginTop: 12 }, block: true, onClick: handleLogout, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: LogoutOutlined }) }, "\u9000\u51FA\u767B\u5F55"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u6765\u6E90"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(
-          Form8,
+            onChange: handleDownloadToolChange,
+            options: [
+              { label: "PikPak", value: "pikpak" },
+              { label: "115", value: "115" },
+              { label: "\u76F4\u63A5\u4E0B\u8F7D", value: "aria2" }
+            ]
+          }
+        )
+      ), /* @__PURE__ */ React10.createElement(
+        Drawer4,
+        {
+          title: downloadTool === "aria2" ? "\u914D\u7F6E Aria2\uFF08\u76F4\u63A5\u4E0B\u8F7D\uFF09" : downloadTool === "115" ? "\u914D\u7F6E 115\u7F51\u76D8" : "\u914D\u7F6E \u7F51\u76D8\uFF08PikPak\uFF09",
+          open: downloadToolConfigOpen,
+          onClose: closeDownloadToolConfig,
+          width: 360,
+          placement: "right",
+          destroyOnClose: true
+        },
+        downloadTool === "aria2" ? /* @__PURE__ */ React10.createElement(Card9, { size: "small", title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " Aria2 \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: aria2Connected ? "#52c41a" : "#ff4d4f" } }, aria2Connected ? "Aria2 \u5DF2\u8FDE\u63A5" : "Aria2 \u672A\u8FDE\u63A5")), /* @__PURE__ */ React10.createElement(Form8, { form: aria2Form, layout: "vertical", onFinish: handleAria2Connect }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "url", label: "Aria2 RPC \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 Aria2 RPC \u5730\u5740" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "http://127.0.0.1:6800/jsonrpc" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "secret", label: "RPC Secret" }, /* @__PURE__ */ React10.createElement(Input8.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading: aria2Loading }, "\u8FDE\u63A5 Aria2"), clientConfig.aria2?.configured && /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => handleAria2ConnectFromConfig(), loading: aria2Loading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5")))) : downloadTool === "115" ? /* @__PURE__ */ React10.createElement(Card9, { size: "small", title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " 115\u7F51\u76D8\u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", size: "middle", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: clientConfig.pan115?.configured ? "#52c41a" : "#ff4d4f" } }, clientConfig.pan115?.configured ? "115 \u5DF2\u626B\u7801\u767B\u5F55" : "115 \u672A\u767B\u5F55"), /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, "\u4FDD\u5B58\u76EE\u5F55 ID\uFF1A", clientConfig.pan115?.save_dir_id || "0"), pan115DownloadJob && /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, "\u540E\u53F0\u4EFB\u52A1\uFF1A", pan115DownloadJob.status || "queued", "\uFF0C", pan115DownloadJob.completed_count || 0, "/", pan115DownloadJob.total_count || 0, pan115DownloadJob.total_batches ? `\uFF0C\u6279\u6B21 ${pan115DownloadJob.current_batch || 0}/${pan115DownloadJob.total_batches}` : ""), pan115QrSession?.qrcode_image_url && /* @__PURE__ */ React10.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React10.createElement(
+          "img",
           {
-            form: magnetSettingsForm,
-            layout: "vertical",
-            initialValues: { magnetSource: "javbus", globalExclude4k: false },
-            onValuesChange: handleMagnetSettingsChange
-          },
-          /* @__PURE__ */ React10.createElement(Form8.Item, { name: "magnetSource", label: "\u9009\u62E9\u6765\u6E90", style: { marginBottom: "12px" } }, /* @__PURE__ */ React10.createElement(Select6, null, /* @__PURE__ */ React10.createElement(Option, { value: "javbus" }, "JavBus API (\u9ED8\u8BA4)"), /* @__PURE__ */ React10.createElement(Option, { value: "cilisousuo" }, "Cilisousuo"), /* @__PURE__ */ React10.createElement(Option, { value: "yhg007" }, "YHG007"))),
-          /* @__PURE__ */ React10.createElement(Form8.Item, { name: "globalExclude4k", style: { marginBottom: 0 } }, /* @__PURE__ */ React10.createElement(
-            Segmented3,
-            {
-              block: true,
-              options: [
-                { label: "\u4E0D\u6392\u96644K", value: false },
-                { label: "\u5168\u5C40\u6392\u96644K", value: true }
-              ]
-            }
-          ))
-        )))
-      )) : renderStandalonePage(activePage)))
-    );
+            src: pan115QrSession.qrcode_image_url,
+            alt: "115 \u767B\u5F55\u4E8C\u7EF4\u7801",
+            style: { width: 220, height: 220, maxWidth: "100%", border: "1px solid #f0f0f0", borderRadius: 8 }
+          }
+        ), /* @__PURE__ */ React10.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12 } }, pan115QrStatus?.state === "scanned" ? "\u5DF2\u626B\u7801\uFF0C\u8BF7\u5728\u624B\u673A\u7AEF\u786E\u8BA4" : pan115QrStatus?.state === "expired" ? "\u4E8C\u7EF4\u7801\u5DF2\u8FC7\u671F" : pan115QrStatus?.state === "canceled" ? "\u626B\u7801\u5DF2\u53D6\u6D88" : "\u8BF7\u4F7F\u7528 115 \u624B\u673A\u7AEF\u626B\u7801"))), /* @__PURE__ */ React10.createElement(Button10, { type: "primary", block: true, onClick: handlePan115QrStart, loading: pan115QrLoading }, pan115QrSession ? "\u91CD\u65B0\u83B7\u53D6\u4E8C\u7EF4\u7801" : "\u626B\u7801\u767B\u5F55 115"), /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => {
+          closeDownloadToolConfig();
+          setActivePage("settings");
+        } }, "\u6253\u5F00\u8BBE\u7F6E"))) : /* @__PURE__ */ React10.createElement(Card9, { size: "small", title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: ThunderboltOutlined3 }), " WebDAV \u914D\u7F6E"), className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement("div", { style: { marginBottom: 8 } }, /* @__PURE__ */ React10.createElement(Text10, { type: "secondary", style: { fontSize: 12, color: webdavConnected ? "#52c41a" : "#ff4d4f" } }, webdavConnected ? "WebDAV \u5DF2\u8FDE\u63A5" : "WebDAV \u672A\u8FDE\u63A5")), /* @__PURE__ */ React10.createElement(Form8, { form: webdavForm, layout: "vertical", onFinish: handleWebdavConnect }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "url", label: "WebDAV \u5730\u5740", rules: [{ required: true, message: "\u8BF7\u8F93\u5165 WebDAV \u5730\u5740" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "https://dav.example.com/" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "username", label: "\u7528\u6237\u540D" }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "password", label: "\u5BC6\u7801" }, /* @__PURE__ */ React10.createElement(Input8.Password, { placeholder: "\u53EF\u9009" })), /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading: webdavLoading }, "\u8FDE\u63A5 WebDAV"), clientConfig.webdav?.configured && /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => handleWebdavConnectFromConfig(), loading: webdavLoading }, "\u4F7F\u7528\u914D\u7F6E\u8FDE\u63A5"))))
+      ), /* @__PURE__ */ React10.createElement(
+        Button10,
+        {
+          type: "default",
+          block: true,
+          icon: /* @__PURE__ */ React10.createElement(Icon6, { as: HistoryOutlined }),
+          onClick: fetchHistory,
+          className: "jav-sidebar-action"
+        },
+        "\u67E5\u770B\u5386\u53F2\u8BB0\u5F55"
+      ), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: LoginOutlined2 }), " PikPak \u767B\u5F55"), size: "small", className: "jav-tool-card" }, !isLoggedIn ? /* @__PURE__ */ React10.createElement(Form8, { layout: "vertical", onFinish: handlePikPakLogin }, /* @__PURE__ */ React10.createElement(Form8.Item, { name: "username", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u7528\u6237\u540D" }] }, /* @__PURE__ */ React10.createElement(Input8, { placeholder: "\u7528\u6237\u540D", autoComplete: "username" })), /* @__PURE__ */ React10.createElement(Form8.Item, { name: "password", style: { marginBottom: "12px" }, rules: [{ required: true, message: "\u8BF7\u8F93\u5165\u5BC6\u7801" }] }, /* @__PURE__ */ React10.createElement(Input8.Password, { placeholder: "\u5BC6\u7801", autoComplete: "current-password" })), /* @__PURE__ */ React10.createElement(Space10, { direction: "vertical", style: { width: "100%" } }, /* @__PURE__ */ React10.createElement(Button10, { type: "primary", htmlType: "submit", block: true, loading }, "\u767B\u5F55"), clientConfig.pikpak.configured && /* @__PURE__ */ React10.createElement(Button10, { block: true, onClick: () => handlePikPakLoginFromConfig(), loading }, "\u4F7F\u7528\u914D\u7F6E\u767B\u5F55"))) : /* @__PURE__ */ React10.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React10.createElement(Text10, { type: "success", strong: true }, "\u5DF2\u767B\u5F55"), /* @__PURE__ */ React10.createElement("div", { style: { marginTop: 8 } }, pikpakCredentials?.username), /* @__PURE__ */ React10.createElement(Button10, { danger: true, style: { marginTop: 12 }, block: true, onClick: handleLogout, icon: /* @__PURE__ */ React10.createElement(Icon6, { as: LogoutOutlined }) }, "\u9000\u51FA\u767B\u5F55"))), /* @__PURE__ */ React10.createElement(Card9, { title: /* @__PURE__ */ React10.createElement(React10.Fragment, null, /* @__PURE__ */ React10.createElement(Icon6, { as: LinkOutlined2 }), " \u78C1\u529B\u94FE\u63A5\u6765\u6E90"), size: "small", className: "jav-tool-card" }, /* @__PURE__ */ React10.createElement(
+        Form8,
+        {
+          form: magnetSettingsForm,
+          layout: "vertical",
+          initialValues: { magnetSource: "javbus", globalExclude4k: false },
+          onValuesChange: handleMagnetSettingsChange
+        },
+        /* @__PURE__ */ React10.createElement(Form8.Item, { name: "magnetSource", label: "\u9009\u62E9\u6765\u6E90", style: { marginBottom: "12px" } }, /* @__PURE__ */ React10.createElement(Select6, null, /* @__PURE__ */ React10.createElement(Option, { value: "javbus" }, "JavBus API (\u9ED8\u8BA4)"), /* @__PURE__ */ React10.createElement(Option, { value: "cilisousuo" }, "Cilisousuo"), /* @__PURE__ */ React10.createElement(Option, { value: "yhg007" }, "YHG007"))),
+        /* @__PURE__ */ React10.createElement(Form8.Item, { name: "globalExclude4k", style: { marginBottom: 0 } }, /* @__PURE__ */ React10.createElement(
+          Segmented3,
+          {
+            block: true,
+            options: [
+              { label: "\u4E0D\u6392\u96644K", value: false },
+              { label: "\u5168\u5C40\u6392\u96644K", value: true }
+            ]
+          }
+        ))
+      )))
+    )) : renderStandalonePage(activePage))));
   }
 
   // frontend/src/App.jsx
@@ -8815,6 +8816,7 @@ ${(actor.movie_ids || []).join("\n")}`.toLowerCase();
   // frontend/src/main.jsx
   var React12 = window.React;
   var ReactDOM = window.ReactDOM;
+  applyAppTheme(loadAppTheme());
   var root = ReactDOM.createRoot(document.getElementById("root"));
   root.render(/* @__PURE__ */ React12.createElement(App, null));
 })();

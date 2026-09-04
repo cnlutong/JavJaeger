@@ -287,10 +287,10 @@ export default function TranscodingPage() {
             )}
 
             <Row gutter={[16, 16]}>
-                <Col xs={12} md={6}><Card><Statistic title="活动任务" value={activeCount} valueStyle={{ color: activeCount ? "#1677ff" : undefined }} /></Card></Col>
+                <Col xs={12} md={6}><Card><Statistic title="活动任务" value={activeCount} valueStyle={{ color: activeCount ? "var(--color-accent)" : undefined }} /></Card></Col>
                 <Col xs={12} md={6}><Card><Statistic title="正在转码" value={counts.running || 0} /></Card></Col>
-                <Col xs={12} md={6}><Card><Statistic title="已完成" value={counts.completed || 0} valueStyle={{ color: "#52c41a" }} /></Card></Col>
-                <Col xs={12} md={6}><Card><Statistic title="失败 / 取消" value={(counts.failed || 0) + (counts.cancelled || 0)} valueStyle={{ color: (counts.failed || 0) ? "#ff4d4f" : undefined }} /></Card></Col>
+                <Col xs={12} md={6}><Card><Statistic title="已完成" value={counts.completed || 0} valueStyle={{ color: "var(--color-success)" }} /></Card></Col>
+                <Col xs={12} md={6}><Card><Statistic title="失败 / 取消" value={(counts.failed || 0) + (counts.cancelled || 0)} valueStyle={{ color: (counts.failed || 0) ? "var(--color-danger)" : undefined }} /></Card></Col>
             </Row>
 
             <Card>

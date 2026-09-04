@@ -1,5 +1,6 @@
 /* Nocturne — production adaptation of the accepted Claude Design system. */
 :root {
+    color-scheme: dark;
     --color-bg: #161826;
     --color-header: #141622;
     --color-surface: #232532;
@@ -14,9 +15,53 @@
     --color-success: #63b394;
     --color-warning: #c9a05e;
     --color-danger: #e08188;
+    --color-danger-bg: rgba(224, 129, 136, 0.2);
+    --color-control: rgba(20, 22, 34, 0.42);
+    --color-placeholder: rgba(233, 233, 237, 0.34);
+    --color-hover: rgba(233, 233, 237, 0.06);
+    --color-selected: rgba(145, 132, 217, 0.18);
+    --color-selected-text: #f5f4ff;
+    --color-primary: rgba(145, 132, 217, 0.2);
+    --color-primary-text: #f5f4ff;
+    --color-primary-hover: rgba(145, 132, 217, 0.3);
+    --color-disabled: rgba(233, 233, 237, 0.32);
+    --color-disabled-bg: rgba(233, 233, 237, 0.04);
+    --color-disabled-border: rgba(233, 233, 237, 0.12);
     --nocturne-divider: rgba(233, 233, 237, 0.1);
     --nocturne-shadow: 0 0 0 1px var(--color-ring), 0 16px 40px rgba(0, 0, 0, 0.35);
     --font-ui: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="light"] {
+    color-scheme: light;
+    --color-bg: #f4f5fa;
+    --color-header: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-2: #edf0f6;
+    --color-elevated: #ffffff;
+    --color-text: #242638;
+    --color-muted: #535a70;
+    --color-dim: #656d82;
+    --color-ring: #d2d7e2;
+    --color-accent: #6954b8;
+    --color-accent-soft: #5943a2;
+    --color-success: #24765a;
+    --color-warning: #946215;
+    --color-danger: #b84050;
+    --color-danger-bg: #b84050;
+    --color-control: #ffffff;
+    --color-placeholder: #656d82;
+    --color-hover: #e9ecf4;
+    --color-selected: #e9e3f7;
+    --color-selected-text: #5943a2;
+    --color-primary: #6954b8;
+    --color-primary-text: #ffffff;
+    --color-primary-hover: #57439f;
+    --color-disabled: #858a99;
+    --color-disabled-bg: #eef0f5;
+    --color-disabled-border: #d9dde7;
+    --nocturne-divider: rgba(36, 38, 56, 0.12);
+    --nocturne-shadow: 0 0 0 1px var(--color-ring), 0 12px 32px rgba(36, 38, 56, 0.1);
 }
 
 html,
@@ -29,6 +74,10 @@ body,
 body {
     color: var(--color-text);
     font: 13px/1.55 var(--font-ui);
+}
+
+body:has(.jav-app) {
+    background: var(--color-bg);
 }
 
 body::before {
@@ -60,7 +109,7 @@ body::before {
     padding: 0 18px;
     color: var(--color-text);
     line-height: normal;
-    background: rgba(20, 22, 34, 0.96) !important;
+    background: var(--color-header) !important;
     border-bottom: 1px solid var(--nocturne-divider);
     backdrop-filter: blur(18px);
 }
@@ -131,7 +180,7 @@ body::before {
 .jav-primary-nav button {
     min-height: 30px;
     padding: 0 9px;
-    color: rgba(233, 233, 237, 0.66) !important;
+    color: var(--color-muted) !important;
     font: 500 12px/1 var(--font-ui);
     white-space: nowrap;
     background: transparent !important;
@@ -143,14 +192,14 @@ body::before {
 
 .jav-primary-nav button:hover {
     color: var(--color-text) !important;
-    background: rgba(233, 233, 237, 0.06) !important;
+    background: var(--color-hover) !important;
     box-shadow: none !important;
     transform: none !important;
 }
 
 .jav-primary-nav button.is-active {
-    color: #f5f4ff !important;
-    background: rgba(145, 132, 217, 0.18) !important;
+    color: var(--color-selected-text) !important;
+    background: var(--color-selected) !important;
     box-shadow: inset 0 0 0 1px rgba(181, 171, 252, 0.28) !important;
 }
 
@@ -272,7 +321,7 @@ body::before {
     font-size: 12px;
 }
 
-.jav-app .ant-card,
+:root .ant-card,
 .jav-app .webdav-connection-card,
 .jav-app .webdav-work-card,
 .jav-app .settings-card {
@@ -283,16 +332,16 @@ body::before {
     box-shadow: none !important;
 }
 
-.jav-app .ant-card-head,
+:root .ant-card-head,
 .jav-app .webdav-connection-card .ant-card-head,
 .jav-app .webdav-work-card .ant-card-head {
     min-height: 40px !important;
     color: var(--color-muted) !important;
-    background: rgba(20, 22, 34, 0.24) !important;
+    background: var(--color-surface-2) !important;
     border-bottom-color: var(--nocturne-divider) !important;
 }
 
-.jav-app .ant-card-head-title,
+:root .ant-card-head-title,
 .jav-app .webdav-connection-card .ant-card-head-title,
 .jav-app .webdav-work-card .ant-card-head-title {
     color: var(--color-muted) !important;
@@ -304,47 +353,47 @@ body::before {
     margin-bottom: 10px !important;
 }
 
-.jav-app .ant-form-item {
+:root .ant-form-item {
     margin-bottom: 10px;
 }
 
-.jav-app .ant-form-item-label > label {
+:root .ant-form-item-label > label {
     color: var(--color-muted) !important;
     font-size: 12px;
 }
 
-.jav-app .ant-input,
-.jav-app .ant-input-affix-wrapper,
-.jav-app .ant-input-number,
-.jav-app .ant-select-selector,
-.jav-app .ant-picker,
-.jav-app textarea.ant-input {
+:root .ant-input,
+:root .ant-input-affix-wrapper,
+:root .ant-input-number,
+:root .ant-select-selector,
+:root .ant-picker,
+:root textarea.ant-input {
     color: var(--color-text) !important;
-    background: rgba(20, 22, 34, 0.42) !important;
+    background: var(--color-control) !important;
     border-color: var(--color-ring) !important;
     border-radius: 6px !important;
     box-shadow: none !important;
 }
 
-.jav-app .ant-input::placeholder,
-.jav-app textarea.ant-input::placeholder {
-    color: rgba(233, 233, 237, 0.34) !important;
+:root .ant-input::placeholder,
+:root textarea.ant-input::placeholder {
+    color: var(--color-placeholder) !important;
 }
 
-.jav-app .ant-input:hover,
-.jav-app .ant-input-affix-wrapper:hover,
-.jav-app .ant-select-selector:hover {
+:root .ant-input:hover,
+:root .ant-input-affix-wrapper:hover,
+:root .ant-select-selector:hover {
     border-color: #75798c !important;
 }
 
-.jav-app .ant-input:focus,
-.jav-app .ant-input-affix-wrapper-focused,
-.jav-app .ant-select-focused .ant-select-selector {
+:root .ant-input:focus,
+:root .ant-input-affix-wrapper-focused,
+:root .ant-select-focused .ant-select-selector {
     border-color: var(--color-accent) !important;
     box-shadow: 0 0 0 2px rgba(145, 132, 217, 0.14) !important;
 }
 
-.jav-app .ant-btn {
+:root .ant-btn {
     min-height: 30px;
     color: var(--color-text);
     background: transparent;
@@ -355,43 +404,84 @@ body::before {
     font-weight: 500;
 }
 
-.jav-app .ant-btn:hover:not(:disabled) {
+:root .ant-btn:hover:not(:disabled) {
     color: var(--color-accent-soft) !important;
     background: rgba(145, 132, 217, 0.1) !important;
     border-color: var(--color-accent) !important;
 }
 
-.jav-app .ant-btn-primary,
+:root .ant-btn-primary,
 .jav-app .webdav-page .ant-btn-primary {
-    color: #f5f4ff !important;
-    background: rgba(145, 132, 217, 0.2) !important;
+    color: var(--color-primary-text) !important;
+    background: var(--color-primary) !important;
     border-color: var(--color-accent) !important;
 }
 
-.jav-app .ant-btn-dangerous {
+:root .ant-btn-primary:hover:not(:disabled) {
+    color: var(--color-primary-text) !important;
+    background: var(--color-primary-hover) !important;
+}
+
+:root .ant-btn-dangerous {
     color: var(--color-danger) !important;
     border-color: rgba(224, 129, 136, 0.55) !important;
 }
 
-.jav-app .ant-btn:disabled,
-.jav-app .ant-btn.ant-btn-disabled,
-.jav-app .ant-btn-primary:disabled,
-.jav-app .ant-btn-primary.ant-btn-disabled {
-    color: rgba(233, 233, 237, 0.32) !important;
-    background: rgba(233, 233, 237, 0.04) !important;
-    border-color: rgba(233, 233, 237, 0.12) !important;
+.jav-state-panel {
+    color: var(--color-muted);
+    background: var(--color-surface) !important;
+    border-color: var(--color-ring) !important;
+}
+
+.jav-process-icon {
+    color: var(--color-dim);
+    background: var(--color-surface-2);
+}
+
+:root .ant-btn-primary.ant-btn-dangerous:not(:disabled) {
+    color: var(--color-primary-text) !important;
+    background: var(--color-danger-bg) !important;
+    border-color: var(--color-danger) !important;
+}
+
+:root .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+    color: var(--color-primary-text) !important;
+    background: var(--color-primary) !important;
+    border-color: var(--color-accent) !important;
+}
+
+:root .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled):hover {
+    background: var(--color-primary-hover) !important;
+}
+
+:root .ant-drawer-close,
+:root .ant-modal-close {
+    padding: 0 !important;
+    color: var(--color-muted) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+:root .ant-btn:disabled,
+:root .ant-btn.ant-btn-disabled,
+:root .ant-btn-primary:disabled,
+:root .ant-btn-primary.ant-btn-disabled {
+    color: var(--color-disabled) !important;
+    background: var(--color-disabled-bg) !important;
+    border-color: var(--color-disabled-border) !important;
     box-shadow: none !important;
 }
 
-.jav-app .ant-segmented {
+:root .ant-segmented {
     color: var(--color-muted);
-    background: rgba(20, 22, 34, 0.45);
+    background: var(--color-surface-2);
     border: 1px solid var(--color-ring);
 }
 
-.jav-app .ant-segmented-item-selected {
-    color: #f5f4ff;
-    background: rgba(145, 132, 217, 0.2);
+:root .ant-segmented-item-selected {
+    color: var(--color-selected-text);
+    background: var(--color-selected);
     box-shadow: inset 0 0 0 1px rgba(181, 171, 252, 0.26);
 }
 
@@ -445,22 +535,22 @@ body::before {
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22) !important;
 }
 
-.jav-app .ant-table-wrapper,
-.jav-app .ant-table,
-.jav-app .ant-table-container,
-.jav-app .ant-table-content,
-.jav-app .ant-table-cell {
+:root .ant-table-wrapper,
+:root .ant-table,
+:root .ant-table-container,
+:root .ant-table-content,
+:root .ant-table-cell {
     color: var(--color-text) !important;
     background: transparent !important;
 }
 
-.jav-app .ant-table-container {
+:root .ant-table-container {
     overflow: hidden;
     border: 1px solid var(--color-ring) !important;
     border-radius: 8px;
 }
 
-.jav-app .ant-table-thead > tr > th {
+:root .ant-table-thead > tr > th {
     color: var(--color-dim) !important;
     background: var(--color-surface-2) !important;
     border-bottom-color: var(--color-ring) !important;
@@ -470,23 +560,23 @@ body::before {
     text-transform: uppercase;
 }
 
-.jav-app .ant-table-tbody > tr > td {
+:root .ant-table-tbody > tr > td {
     border-bottom-color: var(--nocturne-divider) !important;
 }
 
-.jav-app .ant-table-tbody > tr:hover > td {
-    background: rgba(233, 233, 237, 0.04) !important;
+:root .ant-table-tbody > tr:hover > td {
+    background: var(--color-disabled-bg) !important;
 }
 
-.jav-app .ant-typography,
-.jav-app .ant-breadcrumb,
-.jav-app .ant-breadcrumb a,
-.jav-app .ant-breadcrumb-link,
-.jav-app .ant-badge-status-text {
+:root .ant-typography,
+:root .ant-breadcrumb,
+:root .ant-breadcrumb a,
+:root .ant-breadcrumb-link,
+:root .ant-badge-status-text {
     color: var(--color-text);
 }
 
-.jav-app .ant-typography-secondary {
+:root .ant-typography-secondary {
     color: var(--color-dim) !important;
 }
 
@@ -501,7 +591,7 @@ body::before {
 
 .jav-app .webdav-page-header,
 .jav-app .webdav-status-cluster,
-.jav-app .ant-breadcrumb {
+:root .ant-breadcrumb {
     color: var(--color-text) !important;
     background: var(--color-surface) !important;
     border-color: var(--color-ring) !important;
@@ -566,7 +656,7 @@ body::before {
 
 .settings-nav-item.is-active,
 .settings-nav-item:hover {
-    color: #f5f4ff !important;
+    color: var(--color-selected-text) !important;
     background: rgba(145, 132, 217, 0.15) !important;
 }
 
@@ -598,6 +688,152 @@ body::before {
     backdrop-filter: blur(12px);
 }
 
+/* Keep preview artwork and actions usable at both desktop and mobile widths. */
+.jav-library-preview:not(.is-landscape) {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    align-items: start;
+}
+
+.jav-library-preview-poster .jav-library-poster {
+    max-height: 72vh;
+    max-width: 100%;
+    width: min(100%, calc(72vh * var(--jav-library-preview-poster-ratio, 0.666667)));
+    margin-inline: auto;
+}
+
+.jav-library-preview-header,
+.jav-library-preview-header .ant-space {
+    flex-wrap: wrap;
+}
+
+/* Cinema layout and preview retain their layout while following the global palette. */
+:root[data-theme="light"] .jav-library-page.is-dark,
+:root[data-theme="light"] .jav-library-dark-surface {
+    --color-background-body: var(--color-bg);
+    --color-background-surface: var(--color-surface);
+    --color-background-card: var(--color-surface);
+    --color-background-popover: var(--color-elevated);
+    --color-background-muted: var(--color-surface-2);
+    --color-overlay-hover: var(--color-hover);
+    --color-border: var(--color-ring);
+    --color-border-emphasized: var(--color-ring);
+    --color-text-primary: var(--color-text);
+    --color-text-secondary: var(--color-muted);
+    --color-accent: inherit;
+    --color-accent-muted: var(--color-selected);
+    --color-warning: inherit;
+    --color-warning-muted: #fff3d9;
+}
+
+:root[data-theme="light"] .jav-app:has(.jav-library-page.is-dark) .jav-page-workspace,
+:root[data-theme="light"] .jav-app:has(.jav-library-page.is-dark) .jav-page-content,
+:root[data-theme="light"] .jav-app:has(.jav-library-page.is-dark) .jav-page-panel,
+:root[data-theme="light"] .jav-library-page.is-dark,
+:root[data-theme="light"] .jav-library-page.is-previewing,
+:root[data-theme="light"] .jav-library-immersive-shell,
+:root[data-theme="light"] .jav-library-immersive-corridor,
+:root[data-theme="light"] .jav-library-preview-backdrop {
+    color: var(--color-text);
+    background: var(--color-bg) !important;
+}
+
+:root[data-theme="light"] .jav-library-immersive-header,
+:root[data-theme="light"] .jav-library-immersive-brand-icon,
+:root[data-theme="light"] .jav-library-page .jav-library-results,
+:root[data-theme="light"] .jav-library-actor-pill,
+:root[data-theme="light"] .jav-library-actor-card,
+:root[data-theme="light"] .jav-library-preview-poster-extras,
+:root[data-theme="light"] .jav-library-preview-file,
+:root[data-theme="light"] .jav-library-page .jav-library-poster.is-placeholder,
+:root[data-theme="light"] .jav-library-page.is-dark .jav-library-poster,
+:root[data-theme="light"] .jav-library-immersive-shell button:not(.ant-btn),
+:root[data-theme="light"] .jav-library-page.is-dark .ant-input,
+:root[data-theme="light"] .jav-library-page.is-dark .ant-input-affix-wrapper,
+:root[data-theme="light"] .jav-library-page.is-dark .ant-select-selector {
+    color: var(--color-text) !important;
+    background: var(--color-surface) !important;
+    border-color: var(--color-ring) !important;
+}
+
+:root[data-theme="light"] .jav-library-immersive-brand strong,
+:root[data-theme="light"] .jav-library-immersive-shelf-hero h1,
+:root[data-theme="light"] .jav-library-immersive-corridor-copy h1,
+:root[data-theme="light"] .jav-library-immersive-section-heading h2,
+:root[data-theme="light"] .jav-library-immersive-card-copy strong,
+:root[data-theme="light"] .jav-library-immersive-empty strong,
+:root[data-theme="light"] .jav-library-preview-title.ant-typography,
+:root[data-theme="light"] .jav-library-preview-meta-row strong,
+:root[data-theme="light"] .jav-library-preview-section .ant-typography {
+    color: var(--color-text) !important;
+}
+
+:root[data-theme="light"] .jav-library-immersive-brand small,
+:root[data-theme="light"] .jav-library-immersive-eyebrow,
+:root[data-theme="light"] .jav-library-immersive-shelf-hero p,
+:root[data-theme="light"] .jav-library-immersive-corridor-copy p,
+:root[data-theme="light"] .jav-library-immersive-corridor-copy > span,
+:root[data-theme="light"] .jav-library-immersive-section-heading span,
+:root[data-theme="light"] .jav-library-immersive-card-copy > span,
+:root[data-theme="light"] .jav-library-immersive-empty,
+:root[data-theme="light"] .jav-library-preview-meta-row span {
+    color: var(--color-muted);
+}
+
+:root[data-theme="light"] .jav-library-immersive-hero-tags span,
+:root[data-theme="light"] .jav-library-page.is-dark .jav-library-media-tags .ant-tag,
+:root[data-theme="light"] .jav-library-immersive-corridor-arrow.ant-btn {
+    color: var(--color-accent-soft);
+    background: var(--color-selected);
+    border-color: var(--color-ring);
+}
+
+:root[data-theme="light"] .jav-library-immersive-card-shade {
+    background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.98) 85%);
+}
+
+:root[data-theme="light"] .jav-library-immersive-card-copy {
+    padding: 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.94);
+}
+
+:root[data-theme="light"] .jav-library-immersive-shelf-hero::after,
+:root[data-theme="light"] .jav-library-preview-backdrop::after {
+    background: linear-gradient(90deg, rgba(244, 245, 250, 0.97), rgba(244, 245, 250, 0.9));
+}
+
+:root[data-theme="light"] .jav-library-preview-backdrop::before {
+    opacity: 0.2;
+}
+
+:root[data-theme="light"] .jav-library-immersive-grid-card,
+:root[data-theme="light"] .jav-library-immersive-corridor-card,
+:root[data-theme="light"] .jav-library-immersive-shelf-hero-poster,
+:root[data-theme="light"] .jav-library-preview-poster .jav-library-poster,
+:root[data-theme="light"] .jav-library-page .jav-library-results {
+    box-shadow: 0 8px 24px rgba(36, 38, 56, 0.1) !important;
+}
+
+:root[data-theme="light"] .jav-library-immersive-grid-card:hover,
+:root[data-theme="light"] .jav-library-immersive-shell button:focus-visible,
+:root[data-theme="light"] .jav-library-immersive-shell button.is-active {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+:root[data-theme="light"] .jav-library-immersive-thumbs {
+    border-color: var(--color-ring);
+}
+
+:root[data-theme="light"] .jav-library-preview-poster img {
+    background: var(--color-surface-2) !important;
+}
+
+:root[data-theme="light"] .jav-library-page.is-previewing .jav-library-preview-surface {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
 @media (max-width: 1180px) {
     .jav-header.ant-layout-header {
         grid-template-columns: auto minmax(0, 1fr);
@@ -626,6 +862,11 @@ body::before {
 }
 
 @media (max-width: 760px) {
+    .jav-library-preview:not(.is-landscape),
+    .jav-library-preview.is-landscape {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .jav-library-toolbar-row {
         flex-wrap: nowrap;
     }

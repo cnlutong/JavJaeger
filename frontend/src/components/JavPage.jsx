@@ -8,6 +8,7 @@ import TranscodingPage from "./TranscodingPage.jsx";
 import { fetchClientConfig, fetchWithRetry } from "../utils/api.js";
 import { buildHistoryRedispatchPayload } from "../utils/historyRedispatch.mjs";
 import { buildMagnetDataMapFromResults } from "../utils/magnets.mjs";
+import { applyAppTheme, getAppThemeConfig, loadAppTheme, saveAppTheme } from "../utils/theme.js";
 import {
     clearPikPakSession,
     loadAria2Settings,
@@ -113,6 +114,16 @@ const runWithConcurrency = async (items, limit, worker) => {
 
 // Main Application Component
 export default function JavPage() {
+    const [themeMode, setThemeMode] = React.useState(loadAppTheme);
+    const themeConfig = React.useMemo(() => getAppThemeConfig(themeMode), [themeMode]);
+    const handleThemeChange = (mode) => {
+        applyAppTheme(mode);
+        saveAppTheme(mode);
+        setThemeMode(mode);
+    };
+    React.useEffect(() => {
+        ConfigProvider.config({ holderRender: children => <ConfigProvider theme={themeConfig}>{children}</ConfigProvider> });
+    }, [themeConfig]);
     // ---- State ----
     const [collapsedLeft, setCollapsedLeft] = React.useState(false);
     const [collapsedRight, setCollapsedRight] = React.useState(false);
@@ -1774,7 +1785,7 @@ export default function JavPage() {
             localLibrary: <LocalLibraryPage key="library" onOpenTranscoding={() => setActivePage('transcoding')} />,
             automation: <AutomationPage />,
             transcoding: <TranscodingPage />,
-            settings: <SettingsPage />,
+            settings: <SettingsPage themeMode={themeMode} onThemeChange={handleThemeChange} />,
             storage: (
                 <div className="jav-storage-shell">
                     <div className="jav-storage-switcher">
@@ -1812,27 +1823,7 @@ export default function JavPage() {
 
     // ---- Render ---
     return (
-        <ConfigProvider
-            theme={{
-                algorithm: antd.theme.darkAlgorithm,
-                token: {
-                    colorPrimary: '#9184d9',
-                    colorInfo: '#9184d9',
-                    colorSuccess: '#63b394',
-                    colorWarning: '#c9a05e',
-                    colorError: '#e08188',
-                    colorBgBase: '#161826',
-                    colorBgLayout: '#161826',
-                    colorBgContainer: '#232532',
-                    colorBgElevated: '#20222f',
-                    colorBorder: '#3f424d',
-                    colorText: '#e9e9ed',
-                    colorTextSecondary: '#b2b6ca',
-                    borderRadius: 8,
-                    fontFamily: 'Inter, system-ui, sans-serif'
-                },
-            }}
-        >
+        <ConfigProvider theme={themeConfig}>
             <div className="jav-app">
                 <Layout className="jav-app-layout">
                     <Header className="jav-header">
