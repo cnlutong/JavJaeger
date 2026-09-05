@@ -416,9 +416,11 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/{path:path}` 是最后注册的代理 catch-all。新增具体 API 时必须放在代理路由之前。
 
-`/api/movies/local-library/information/check` 会检查元数据以及默认本地资料文件（NFO、本地封面）是否缺失，可通过逗号分隔的 `fields` 指定检查标准：`title`、`date`、`stars`、`genres`、`cover_url`、`nfo`、`poster_file`。`/api/movies/local-library/information/download` 支持传入同样的 `fields`，并支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
+`/api/movies/local-library/information/check` 默认读取索引中的元数据和最近核验的本地资料状态，不访问媒体硬盘。可通过逗号分隔的 `fields` 指定检查标准：`title`、`date`、`stars`、`genres`、`cover_url`、`nfo`、`poster_file`。传入 `refresh_files=true` 且选择本地资料字段时，才重新核验文件；界面的“资料检查”使用此方式。旧索引尚未核验的文件以 `unchecked_fields` / `unchecked_count` 标记，界面显示“本地文件待核验”。`/api/movies/local-library/information/download` 支持传入同样的 `fields`，并支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
 
-本地影视库扫描启用 `probe_media`、本地刮削入库，以及 `/api/movies/local-library/information/download` 补全 API 元数据时，后端会对可访问的视频文件运行 `ffprobe`，记录分辨率、码率、编码、封装格式和时长等媒体信息。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回可展示的分辨率、码率、编码和封装格式。
+本地影视库扫描启用 `probe_media` 时，只对新增、大小或修改时间变化、缺少媒体参数的文件运行 `ffprobe`，其余复用已索引的参数。目录遍历及媒体探测在工作线程执行。本地刮削入库和 `/api/movies/local-library/information/download` 补全 API 元数据仍会探测对应的视频，记录分辨率、码率、编码、封装格式和时长。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回这些参数。
+
+影视库列表的 `files[].exists` 来自扫描或主动核验时保存的 `files[].filesystem` 快照，未核验时为 `null`。核验按目录合并读取，每个父目录枚举一次，不读取视频内容；浏览、分页、轮询、“刷新影视库”及服务重启不会自动重新扫描媒体硬盘。播放、转码和永久删除仍在执行时验证实际文件。外部手动增删文件后，可运行扫描更新索引，或通过“资料检查”更新已有文件的状态。补全资料后只更新涉及影片的文件快照。
 
 `/api/movies/local-library/clean-invalid` 会重新探测影视库索引中的本地视频文件；如果一个现存视频文件仍读取不到分辨率、码率等媒体信息，则删除该物理文件并同步移除影视库文件记录。若 `ffprobe` 不可用，接口会失败返回且不会删除文件。
 
@@ -429,6 +431,8 @@ GET    /api/automation/tasks/{task_id}/runs
 `/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情，包含大小、修改时间以及通过 `ffprobe` 可探测到的分辨率和码率；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `auto_best`、`skip`、`keep_newer`、`keep_older`、`keep_larger`、`keep_higher_resolution`、`keep_higher_bitrate`，旧的 `keep_source` 和 `keep_target` 仍兼容。`auto_best` 会按分辨率、码率、文件大小、修改时间依次选择保留文件；源文件更优时移动源文件覆盖目标，目标文件更优时保留目标并删除源文件，仍无法判断时保留目标且不删除源文件。分辨率或码率无法探测、两边相同或缺少冲突策略时，后端不会自动覆盖文件。
 启用整理时，元数据标记为 VR 的影片会统一存入目标根目录下的 `VR/` 文件夹，再应用原有文件夹和命名模板。影视库扫描会同时依据元数据和路径中的 `VR/` 目录写入 `is_vr` 分类；列表、海报墙和详情会显示 VR 标记，并可在“影片类型”中筛选 VR 或普通影片。
 如果同一次预览中多个源文件生成相同目标路径，预览项会标记 `target_duplicate`；这类批次内重复目标不会被一键冲突策略自动处理，需要先调整命名模板或移除重复项。后端 apply 会重新检查同一请求内的重复目标并返回 `target_duplicate`，不会移动这些源文件。
+
+预览及预览后台任务支持 `code_overrides`（源文件绝对路径到番号的映射），用于手动修正识别失败的文件。后端只接受本次扫描范围内的视频文件及完整有效的番号；修正后重新生成预览，执行前不会修改源文件。浏览器通过 session storage 保存扫描／刮削任务标识与非敏感预览配置，刷新后继续查询进度；后端重启导致任务失效时会提示重新扫描。执行结果保留逐文件的成功、失败及入库异常信息。
 
 ## 开发约定
 
@@ -464,6 +468,8 @@ JavJaeger/
 只编辑 `frontend/src/**`。当前入口直接加载 `frontend/src/design/JavJaeger.dc.html`，使用从 [Claude Design 项目](https://claude.ai/design/p/dd9314b9-ac26-4ea3-8746-99ec32b2de8c?file=JavJaeger.dc.html) 导入的原 HTML、`support.js`、`_ds` 样式和 logo。五个原文件保留导入内容，校验和测试用于防止无意改版；`integration.mjs` 将原页面控件接入现有 API，`template.mjs` 和 `host.css` 处理播放器、字段绑定、弹窗与窄屏适配。原来的 Ant Design 页面及 `nocturne.css` 不再由入口加载。
 
 构建会将 HTML 作为文本、logo 作为 data URL 打包，生成 `static/app.js` 和 `static/app.css`。不要手改这两个产物。运行时无需连接 Claude Design 或登录设计服务。
+
+页面只计算当前视图及已打开的共享弹窗。影视库、影院海报墙、演员目录和大批量检索结果每页显示 60 项；影院系列与 VR 分组每页显示 6 组、每组预览 12 部，可通过“查看全部”访问完整结果。筛选或排序变化会回到第一页，筛选与排序始终作用于完整数据。短时间切换影院和影视库会复用 30 秒内已加载的数据；“刷新影视库”和扫描、刮削、删除完成后的刷新不受此限制，但都只读取索引。后台队列内容未变化时不会重绘页面；影片结果和弹窗先显示，再补齐磁力或硬件检测结果。封面及头像只在实际请求图片时检查对应文件。
 
 ```bash
 npm run build:frontend
@@ -505,7 +511,9 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-浏览器测试自动创建临时配置、数据目录和独立端口，启动真实 FastAPI 后端；下载、删除、登录及设置修改由测试模拟，不访问现有媒体库或真实账户。覆盖九个主页面、桌面与窄屏布局，以及查询、派发、刮削、影视库、自动任务、网盘、转码和设置交互。需要网络加载页面 CDN 资源；真实外部服务和 GPU 编码仍需在目标部署环境联调。Python 默认使用项目 `.venv`，也可通过 `JAVJAEGER_QA_PYTHON` 指定已安装 `requirements.txt` 的解释器。
+浏览器测试自动创建临时配置、数据目录和独立端口，启动真实 FastAPI 后端；外部下载、登录和 GPU 由测试模拟，配置保存、临时媒体整理与播放、索引移除、自动任务保存和空结果运行直接通过真实后端验证，不访问现有媒体库或真实账户。覆盖九个主页面、桌面与窄屏布局，以及查询、派发、刮削、影视库、自动任务、网盘、转码和设置交互。需要网络加载页面 CDN 资源；真实外部服务和 GPU 编码仍需在目标部署环境联调。Python 默认使用项目 `.venv`，也可通过 `JAVJAEGER_QA_PYTHON` 指定已安装 `requirements.txt` 的解释器。
+
+大库性能回归使用 10,000 部影片、每部 5 GB、合计 50 TB 的逻辑索引。`tests/test_library_read_performance.py` 统计浏览磁盘调用、目录枚举和重复 `ffprobe` 次数；浏览器回归覆盖同规模列表的导航、分页和输入。这是索引规模与调用次数模拟，不会创建或读写真实 50 TB 视频。
 
 ## 安全边界
 

@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import datetime
 import json
 import logging
@@ -491,6 +492,7 @@ class ActorLibraryService:
     async def _ensure_actor_avatar(self, actor_key: str, actor: dict[str, Any], overwrite: bool) -> bool:
         existing_path = await self.get_avatar_path(actor_key)
         if existing_path and not overwrite:
+            actor["avatar_file"] = actor.get("avatar_file") or existing_path.name
             return False
 
         target = self._avatar_target(actor_key)
@@ -594,7 +596,7 @@ class ActorLibraryService:
             actor_payload["movie_count"] = len(actor_payload["movie_ids"])
             actor_payload["movies"] = [movies[movie_id] for movie_id in actor_payload["movie_ids"]]
             actor_payload.pop("avatar_url", None)
-            if await self.get_avatar_path(actor_key):
+            if actor.get("avatar_file"):
                 actor_payload["avatar_url"] = f"/api/movies/local-library/actors/{actor_key}/avatar"
             actors.append(actor_payload)
         actors.sort(key=lambda item: (-int(item.get("movie_count") or 0), str(item.get("name") or "")))
@@ -605,7 +607,9 @@ class ActorLibraryService:
         actor = records.get(str(actor_key or ""))
         if not actor:
             return None
+        return await asyncio.to_thread(self._avatar_path, actor_key, copy.deepcopy(actor))
 
+    def _avatar_path(self, actor_key: str, actor: dict[str, Any]) -> Path | None:
         candidates: list[Path] = []
         avatar_file = str(actor.get("avatar_file") or "").strip()
         if avatar_file:
@@ -704,17 +708,21 @@ class LocalMovieLibraryService:
         return values
 
     async def get_summary(self) -> dict[str, Any]:
-        records = [dict(record) for record in await self.get_all()]
+        records = copy.deepcopy(await self.get_all())
+        return await asyncio.to_thread(self._build_summary, records)
+
+    def _build_summary(self, records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in records:
+            for file in record.get("files", []):
+                file["exists"] = file.get("filesystem", {}).get("exists")
             metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
             record["cover_url"] = metadata.get("cover_url") or record.get("img") or ""
             record["media_info"] = self._record_media_info(record)
             record.pop("poster_url", None)
             record.pop("thumbnail_url", None)
-            if await self.get_poster_path(str(record.get("movie_id") or "")):
+            if any(file.get("filesystem", {}).get("poster") for file in record.get("files", [])):
                 record["poster_url"] = f"/api/movies/local-library/poster/{record.get('movie_id')}"
-            thumbnail_path = await self.get_thumbnail_path(str(record.get("movie_id") or ""))
-            if thumbnail_path:
+            if any(file.get("filesystem", {}).get("thumbnail") for file in record.get("files", [])):
                 record["thumbnail_url"] = f"/api/movies/local-library/thumbnail/{record.get('movie_id')}"
             elif metadata.get("list_thumbnail_url"):
                 record["thumbnail_url"] = metadata.get("list_thumbnail_url")
@@ -739,45 +747,43 @@ class LocalMovieLibraryService:
             return metadata.get("cover_url") or record.get("cover_url") or record.get("img")
         return metadata.get(field_name) if field_name in metadata else record.get(field_name)
 
-    def _iter_existing_video_paths(self, record: dict[str, Any]) -> list[Path]:
-        paths: list[Path] = []
-        for file_record in record.get("files", []):
-            video_path = Path(str(file_record.get("path") or ""))
-            if not video_path.name:
-                continue
+    def _scan_file_states(self, files: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """Read directory entries once per parent; never open media contents."""
+        directories: dict[Path, list[Path]] = {}
+        for file in files:
+            path = Path(str(file.get("path") or ""))
+            if path.name:
+                directories.setdefault(path.parent, []).append(path)
+        checked_at = datetime.datetime.now().isoformat()
+        states = {}
+        for directory, paths in directories.items():
             try:
-                resolved = video_path.resolve()
+                with os.scandir(directory) as entries:
+                    names = {os.path.normcase(entry.name) for entry in entries if entry.is_file()}
             except OSError:
-                continue
-            if resolved.exists() and resolved.is_file():
-                paths.append(resolved)
-        return paths
+                names = set()
+            for path in paths:
+                states[str(path)] = {
+                    "checked_at": checked_at,
+                    "exists": os.path.normcase(path.name) in names,
+                    "nfo": os.path.normcase(path.with_suffix(".nfo").name) in names,
+                    "poster": any(os.path.normcase(name) in names for name in
+                                  (f"{path.stem}-poster.jpg", f"{path.stem}-poster.png", "poster.jpg", "folder.jpg", "cover.jpg")),
+                    "thumbnail": any(os.path.normcase(name) in names for name in
+                                     (f"{path.stem}-thumb.jpg", f"{path.stem}-thumb.png", "thumb.jpg", "thumbnail.jpg")),
+                }
+        return states
 
-    def _has_nfo_file(self, record: dict[str, Any]) -> bool:
-        for video_path in self._iter_existing_video_paths(record):
-            try:
-                if video_path.with_suffix(".nfo").exists():
-                    return True
-            except OSError:
-                continue
-        return False
-
-    def _has_poster_file(self, record: dict[str, Any]) -> bool:
-        for video_path in self._iter_existing_video_paths(record):
-            candidates = [
-                video_path.with_name(f"{video_path.stem}-poster.jpg"),
-                video_path.with_name(f"{video_path.stem}-poster.png"),
-                video_path.with_name("poster.jpg"),
-                video_path.with_name("folder.jpg"),
-                video_path.with_name("cover.jpg"),
-            ]
-            for candidate in candidates:
-                try:
-                    if candidate.exists() and candidate.is_file():
-                        return True
-                except OSError:
-                    continue
-        return False
+    async def refresh_file_states(self, movie_ids: list[str] | None = None) -> None:
+        records = await self.load_records()
+        selected = {str(movie_id).upper() for movie_id in movie_ids} if movie_ids is not None else None
+        files = [file for key, record in records.items() if selected is None or key in selected for file in record.get("files", [])]
+        states = await asyncio.to_thread(self._scan_file_states, [{"path": file.get("path")} for file in files])
+        async with self._lock:
+            for file in files:
+                file["filesystem"] = states.get(str(Path(str(file.get("path") or ""))), {})
+            if files:
+                await self._save_locked()
 
     def _missing_information_fields(
         self,
@@ -796,24 +802,33 @@ class LocalMovieLibraryService:
                 is_missing = True
             if is_missing:
                 missing.append(field_name)
-        if "nfo" in selected_fields and has_remote_metadata and not self._has_nfo_file(record):
-            missing.append("nfo")
-        if "poster_file" in selected_fields and self._information_value(record, "cover_url") and not self._has_poster_file(record):
-            missing.append("poster_file")
+        for field, asset, required in (("nfo", "nfo", has_remote_metadata), ("poster_file", "poster", self._information_value(record, "cover_url"))):
+            states = [file.get("filesystem", {}) for file in record.get("files", [])]
+            if field in selected_fields and required and all(state.get("checked_at") for state in states):
+                if not any(state.get("exists") and state.get(asset) for state in states):
+                    missing.append(field)
         return missing
 
-    async def get_information_check(self, field_names: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+    async def get_information_check(self, field_names: list[str] | tuple[str, ...] | None = None, refresh_files: bool = False) -> dict[str, Any]:
         selected_fields = normalize_local_library_information_fields(field_names)
-        records = await self.get_all()
+        if refresh_files and any(field in selected_fields for field in ("nfo", "poster_file")):
+            await self.refresh_file_states()
+        records = copy.deepcopy(await self.get_all())
+        return await asyncio.to_thread(self._check_information, records, selected_fields)
+
+    def _check_information(self, records: list[dict[str, Any]], selected_fields: tuple[str, ...]) -> dict[str, Any]:
         checked_records: list[dict[str, Any]] = []
         for record in records:
             missing_fields = self._missing_information_fields(record, selected_fields)
+            unchecked_fields = [field for field in selected_fields if field in ("nfo", "poster_file")
+                                and any(not file.get("filesystem", {}).get("checked_at") for file in record.get("files", []))]
             checked_record = {
                 "movie_id": record.get("movie_id"),
                 "title": record.get("title") or record.get("movie_id"),
                 "scrape_status": record.get("scrape_status") or "",
                 "has_metadata": self._has_remote_metadata(record),
-                "info_complete": not missing_fields,
+                "info_complete": not missing_fields and not unchecked_fields,
+                "unchecked_fields": unchecked_fields,
                 "missing_fields": missing_fields,
                 "missing_labels": [
                     LOCAL_LIBRARY_INFORMATION_FIELD_LABELS.get(field_name, field_name)
@@ -822,7 +837,7 @@ class LocalMovieLibraryService:
             }
             checked_records.append(checked_record)
 
-        incomplete_records = [record for record in checked_records if not record["info_complete"]]
+        incomplete_records = [record for record in checked_records if record["missing_fields"] or record["unchecked_fields"]]
         return {
             "success": True,
             "fields": list(selected_fields),
@@ -831,6 +846,7 @@ class LocalMovieLibraryService:
             "total_movies": len(checked_records),
             "complete_count": len(checked_records) - len(incomplete_records),
             "incomplete_count": len(incomplete_records),
+            "unchecked_count": sum(bool(record["unchecked_fields"]) for record in checked_records),
             "records": checked_records,
             "incomplete_records": incomplete_records,
         }
@@ -1107,7 +1123,9 @@ class LocalMovieLibraryService:
         record = records.get((movie_id or "").upper())
         if not record:
             return None
+        return await asyncio.to_thread(self._poster_path, copy.deepcopy(record))
 
+    def _poster_path(self, record: dict[str, Any]) -> Path | None:
         for file_record in record.get("files", []):
             video_path = Path(str(file_record.get("path") or ""))
             if not video_path.name:
@@ -1132,7 +1150,9 @@ class LocalMovieLibraryService:
         record = records.get((movie_id or "").upper())
         if not record:
             return None
+        return await asyncio.to_thread(self._thumbnail_path, copy.deepcopy(record))
 
+    def _thumbnail_path(self, record: dict[str, Any]) -> Path | None:
         for file_record in record.get("files", []):
             video_path = Path(str(file_record.get("path") or ""))
             if not video_path.name:
@@ -1236,6 +1256,7 @@ class LocalMovieLibraryService:
         normalized_root = os.path.abspath(scan_root)
         recognized_files = [item for item in files if item.get("movie_id")]
         unrecognized_files = [item for item in files if not item.get("movie_id")]
+        file_states = await asyncio.to_thread(self._scan_file_states, recognized_files)
 
         async with self._lock:
             previous_movie_ids = set(self._cache.keys())
@@ -1271,6 +1292,7 @@ class LocalMovieLibraryService:
                     self._cache[movie_id] = record
 
                 file_record = dict(item)
+                file_record["filesystem"] = file_states.get(str(Path(str(item.get("path") or ""))), {})
                 metadata = file_record.pop("metadata", None)
                 full_text = file_record.pop("full_text", None)
                 scrape_status = file_record.pop("scrape_status", None)

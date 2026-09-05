@@ -14,17 +14,18 @@ export function adaptTemplate(source, logo) {
         .replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">')
         .replace('{{ e.meta }}</span>\n            </div>', '{{ e.meta }}</span>\n            </button>')
         .replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"')
-        .replace('onClick="{{ f.send }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ f.send }}"')
+        .replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"')
+        .replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"')
         .replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"')
         .replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"')
-        .replace('onClick="{{ lb.stopScan }}"', 'disabled="{{ true }}" title="扫描完成后自动更新" onClick="{{ lb.stopScan }}"');
+        .replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">停止</button>', '<span style="font-size:12px;color:var(--dim)">后台执行中</span>');
     const start = html.indexOf('  <sc-if value="{{ cn.player }}">');
     const end = html.indexOf('  <sc-if value="{{ at.auto }}">', start);
     html = html.slice(0, start) + `
   <sc-if value="{{ cn.player }}">
     <div class="jj-player" role="dialog" aria-label="本地影片播放">
-      <div style="display:flex;align-items:center;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} · {{ cn.player.title }}</span><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">停止播放</button></div>
-      <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} · {{ cn.player.title }}</span><select class="input" aria-label="播放文件" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">停止播放</button></div>
+      <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
     </div>
   </sc-if>
 
@@ -50,6 +51,41 @@ export function adaptTemplate(source, logo) {
     html = html.replace('没有符合条件的影片</h5>', '{{ cn.emptyTitle }}</h5>')
         .replace('当前组合过滤掉了全部结果。去掉一个条件，或清空后重新选择。', '{{ cn.emptyBody }}')
         .replace('onClick="{{ cn.clearFilters }}">清空条件', 'onClick="{{ cn.clearFilters }}">{{ cn.clearText }}');
+    html = html.replace(/批次 b-20260723-1418[^<]+/, '{{ d.batchSummary }}')
+        .replace('全部 128', '全部 {{ d.historyCount }}').replace('未入库 3', '未入库 {{ d.missingCount }}').replace('失败 2</span>', '失败 {{ d.failureCount }}</span>')
+        .replace('<div style="background:rgba(201,160,94,.06);', '<sc-if value="{{ d.hasFailed }}"><div style="background:rgba(201,160,94,.06);')
+        .replace('      <div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">下载历史', '      </sc-if><div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">下载历史')
+        .replace('标记跳过</button>', '忽略此项</button>')
+        .replace('复制 ffmpeg 命令', '复制转码参数')
+        .replace('<button class="btn btn-ghost" onClick="{{ au.autoLayout }}">自动排版</button>', '')
+        .replace('运行中任务 2 / 4', '已启用任务 {{ au.enabledCount }} / {{ au.taskCount }}')
+        .replace('今日自动派发 18 部', '今日自动派发 {{ au.dispatchedToday }} 部')
+        .replace('今日跳过 41 · 错误 2', '今日跳过 {{ au.skippedToday }} · 错误 {{ au.errorsToday }}')
+        .replace('<b style="color:var(--bad);font-weight:500">AV1 不可用</b><br>av1_nvenc 硬件探针失败：当前驱动 535.161 不支持。相关预设已禁用，不会回退 CPU。', '{{ tc.hardwareMessage }}')
+        .replace('并发上限 2', '并发上限 {{ tc.maxConcurrent }}')
+        .replaceAll(/每 [125]s 轮询/g, '每 3s 更新')
+        .replace(' · 全局并发 5', '')
+        .replace('可用变量 {code} {title} {actors} {studio} {label} {series} {year} {date}', '可用变量 {{ sc.namingFields }}')
+        .replace('onClick="{{ s.run }}">{{ s.runText }}', 'disabled="{{ s.loading }}" onClick="{{ s.run }}">{{ s.runText }}')
+        .replace('onClick="{{ sc.preview }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.preview }}"')
+        .replace('onClick="{{ sc.reset }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.reset }}"')
+        .replace('onClick="{{ d.run }}"', 'disabled="{{ !d.runCount }}" onClick="{{ d.run }}"');
+    html = html.replace('YHG007 来源不可达', '查询失败')
+        .replace(/HTTPConnectionPool\(host='yhg007.com'[\s\S]*?已保留上一次 JavBus 结果缓存。/, '{{ s.error }}。可重试或检查来源设置。')
+        .replace('3 个文件冲突需要处理', '{{ sc.nConf }} 个文件冲突需要处理')
+        .replace('115 网盘未配置', '当前网盘未连接')
+        .replace(/缺少 Cookie，无法列目录或提交离线任务。[\s\S]*?后重新连接。/, '请到设置中连接当前网盘，再浏览目录。')
+        .replace('onClick="{{ sc.applyStrategy }}"', 'disabled="{{ !sc.nConf }}" onClick="{{ sc.applyStrategy }}"')
+        .replace('onChange="{{ au.togglePauseAll }}"', 'disabled="{{ au.pauseAll }}" onChange="{{ au.togglePauseAll }}"')
+        .replace('onClick="{{ se.save }}"', 'disabled="{{ se.isOverview }}" onClick="{{ se.save }}"');
+    html = html.replace('      <sc-if value="{{ sc.hasPreview }}">\n', `<sc-if value="{{ sc.outcome }}"><div style="background:var(--surf);border-radius:8px;padding:16px"><h5>执行结果 · {{ sc.outcome.summary }}</h5><p>失败项可修正配置后重新生成预览；已完成的文件无需重复处理。</p><sc-for list="{{ sc.outcome.rows }}" as="r"><div style="padding:8px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere"><span style="color:{{ r.fg }}">{{ r.status }}</span> · {{ r.path }}<div style="color:var(--dim)">{{ r.note }}</div></div></sc-for></div></sc-if><sc-if value="{{ sc.hasPreview }}">`);
+    for (const action of ['au.save', 'au.runNow', 'au.toggleRun', 'au.remove']) html = html.replace(`onClick="{{ ${action} }}"`, `disabled="{{ !au.hasTask }}" onClick="{{ ${action} }}"`);
+    html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>')
+        .replace('flex:none">{{ a.initial }}</div>', 'flex:none;position:relative;overflow:hidden">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></div>')
+        .replace('<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span>', '<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span><sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>')
+        .replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="详情与配置" style="position:fixed;top:0;right:0;bottom:0;')
+        .replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=')
+        .replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
     const poster = key => `<sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>`;
     html = html.replace(/(<div style="width:70px;aspect-ratio:3\/2;[^"]*)">{{ r.code }}<\/div>/, `$1;position:relative;overflow:hidden">${poster('r')}{{ r.code }}</div>`)
         .replace('position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">', `position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">${poster('r')}`);
@@ -57,11 +93,42 @@ export function adaptTemplate(source, logo) {
         .replaceAll('display:grid;place-items:center;overflow:hidden">\n                  <span', `display:grid;place-items:center;overflow:hidden">${poster('it')}\n                  <span`)
         .replaceAll('display:grid;place-items:center;overflow:hidden">\n                <span', `display:grid;place-items:center;overflow:hidden">${poster('it')}\n                <span`)
         .replace('<div style="position:absolute;top:0;right:0;width:62%;height:66%;', '<sc-if value="{{ cn.hero.cover }}"><img src="{{ cn.hero.cover }}" alt="" style="position:absolute;top:0;right:0;width:65%;height:75%;object-fit:cover;opacity:.5"></sc-if><div style="position:absolute;top:0;right:0;width:62%;height:66%;')
-        .replaceAll('手动指定番号', '修复说明')
         .replace('右侧实时预览一条真实文件名', '右侧使用示例元数据预览命名规则');
+    html = html.replace('  <sc-if value="{{ at.auto }}">', `
+  <sc-if value="{{ sc.repair }}">
+    <div class="dialog-backdrop" style="background:var(--ovl)"><div class="dialog elev-lg" role="dialog" aria-modal="true" aria-label="手动指定番号" style="width:480px">
+      <div class="dialog-title">手动指定番号</div><p style="overflow-wrap:anywhere">{{ sc.repair.src }}</p>
+      <input class="input" aria-label="正确番号" value="{{ sc.repair.code }}" onChange="{{ sc.repair.setCode }}" placeholder="ABP-123">
+      <p>重新识别并生成预览，确认执行前不会修改源文件。</p>
+      <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ sc.repair.cancel }}">取消</button><button class="btn btn-primary" onClick="{{ sc.repair.submit }}">重新生成预览</button></div>
+    </div></div>
+  </sc-if>
+  <sc-if value="{{ at.auto }}">`);
+    html = html.replace('onClick="{{ s.openBrowse }}"', 'aria-label="浏览筛选目录" onClick="{{ s.openBrowse }}"');
+    html = html.replace('<div style="position:absolute;left:50%;top:64px;', '<div class="jj-catalog" role="dialog" aria-modal="true" aria-label="筛选目录" style="position:fixed;left:50%;top:64px;')
+        .replace('<aside style="position:absolute;top:52px;right:16px;', '<aside class="jj-popover" role="dialog" aria-label="后台任务" style="position:fixed;top:52px;right:16px;')
+        .replace('<div style="position:absolute;top:64px;left:50%;', '<div class="jj-toast" role="status" aria-live="polite" style="position:fixed;top:64px;left:50%;');
     html = html.replace('<div style="position:relative;flex:none;height:56px;', '<div class="jj-cinema-bar" style="position:relative;flex:none;height:56px;')
+        .replace('<div style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;', '<div class="jj-cinema-shelves" style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;')
+        .replace('<div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">', '<div class="jj-filter-options" style="display:flex;gap:6px;flex-wrap:wrap;flex:1">')
         .replace('<div style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;', '<div class="jj-cinema-hero" style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;')
         .replaceAll('display:flex;gap:11px;overflow:hidden', 'display:flex;gap:11px;overflow-x:auto')
         .replace('style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default"', 'style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default;max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"');
+    html = html.replace(/<(div|span)([^>]*onClick="{{ (?:n.pick|a.open|f.open|c.go|t.pick|it.pick|t.go)[^>]*?)>/g, '<$1 role="button" tabIndex="0"$2>');
+    html = html.replace('<div style="display:flex;align-items:stretch;gap:0">', '<div class="jj-auto-flow" style="display:flex;align-items:stretch;gap:0">')
+        .replace('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">', '<div class="jj-auto-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">');
+    html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
+    html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
+    const pager = key => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="分页"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">上一页</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">下一页</button></nav></sc-if>`;
+    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager('lb.paging')}$2`)
+        .replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager('s.paging')}$2`)
+        .replace('<sc-if value="{{ cn.showWall }}">', `<sc-if value="{{ cn.showWall }}">${pager('cn.paging')}`)
+        .replace('<sc-if value="{{ cn.showActors }}">', `<sc-if value="{{ cn.showActors }}">${pager('cn.actorPaging')}`)
+        .replace('<sc-if value="{{ cn.showShelves }}">', `<sc-if value="{{ cn.showShelves }}">${pager('cn.shelfPaging')}`)
+        .replace('<sc-for list="{{ s.browse.groups }}"', `${pager('s.browse.paging')}<sc-for list="{{ s.browse.groups }}"`)
+        .replace('{{ sh.meta }}</span>', '{{ sh.meta }}</span><sc-if value="{{ sh.openAll }}"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">查看全部</button></sc-if>')
+        .replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">刷新影视库</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">')
+        .replace('value="{{ lb.q }}"', 'aria-label="影视库搜索" value="{{ lb.q }}"')
+        .replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     return html;
 }

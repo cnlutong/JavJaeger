@@ -941,6 +941,19 @@ async def preview_local_scrape(
         },
     )
     video_files = _walk_video_files(directory, request.recursive, request.max_depth)
+    scanned_paths = {path.resolve() for path in video_files}
+    code_overrides = {}
+    for source_path, value in request.code_overrides.items():
+        try:
+            path = resolve_user_path(source_path)
+        except UserPathError as exc:
+            return {"success": False, "error": exc.code, "message": exc.message}
+        code = recognize_designation(value.strip())
+        if path not in scanned_paths:
+            return {"success": False, "error": "override_path_not_scanned", "message": "手动番号只能应用于当前扫描范围内的视频文件"}
+        if not code or code != value.strip().upper():
+            return {"success": False, "error": "invalid_designation", "message": "请输入有效的完整番号"}
+        code_overrides[path] = code
     _emit_progress(
         progress_callback,
         {
@@ -953,9 +966,9 @@ async def preview_local_scrape(
     candidates = [
         LocalFileCandidate(
             path=path,
-            code=recognize_designation(path.stem),
-            recognition_method="regex",
-            recognition_message="recognized" if recognize_designation(path.stem) else "unrecognized",
+            code=code_overrides.get(path.resolve()) or recognize_designation(path.stem),
+            recognition_method="manual" if path.resolve() in code_overrides else "regex",
+            recognition_message="recognized" if path.resolve() in code_overrides or recognize_designation(path.stem) else "unrecognized",
         )
         for path in video_files
     ]

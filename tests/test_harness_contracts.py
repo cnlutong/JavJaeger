@@ -4390,6 +4390,7 @@ def test_local_library_summary_exposes_cover_and_local_poster(tmp_path):
         poster_path = await service.get_poster_path("ABP-123")
         poster.unlink()
         thumbnail.unlink()
+        await service.get_information_check(refresh_files=True)
         refreshed_summary = await service.get_summary()
         return summary, poster_path, refreshed_summary
 

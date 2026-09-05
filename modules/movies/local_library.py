@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import hashlib
 import json
@@ -142,7 +143,7 @@ def _read_nfo_record(video_path: Path, fallback_code: str | None) -> dict[str, A
     return record
 
 
-def _build_library_file_record(path: Path, root: Path, probe_media: bool = False) -> dict[str, Any]:
+def _build_library_file_record(path: Path, root: Path, probe_media: bool = False, previous: dict[str, Any] | None = None) -> dict[str, Any]:
     code = recognize_designation(path.stem)
     relative_path = path.relative_to(root)
     record = {
@@ -158,7 +159,14 @@ def _build_library_file_record(path: Path, root: Path, probe_media: bool = False
     }
     record.update(_read_nfo_record(path, code))
     record["is_vr"] = bool(record["is_vr"] or (record.get("metadata") or {}).get("is_vr"))
-    if probe_media:
+    # ponytail: size/mtime reuse detects normal edits; content integrity needs an explicit check.
+    unchanged = bool(previous and record["modified_at"] and record["size"] == previous.get("size")
+                     and record["modified_at"] == previous.get("modified_at"))
+    if unchanged:
+        for key in ("width", "height", "resolution_pixels", "bitrate", "codec", "container", "duration_seconds"):
+            if previous.get(key) not in (None, "", 0):
+                record.setdefault(key, previous[key])
+    if probe_media and not (unchanged and _has_readable_video_media(previous)):
         record.update(_probe_video_metadata(path))
     return record
 
@@ -411,6 +419,11 @@ def _regularize_scan_files(records: list[dict[str, Any]]) -> tuple[list[dict[str
     }
 
 
+def _collect_library_scan_records(root: Path, request: LocalLibraryScanRequest, ignored_paths: list[Path], previous: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    video_files = _filter_ignored_video_files(_walk_video_files(root, request.recursive, request.max_depth), ignored_paths)
+    return [_build_library_file_record(path, root, request.probe_media, previous.get(os.path.normcase(os.path.abspath(path)))) for path in video_files]
+
+
 async def _scan_local_library_directory(directory: str, request: LocalLibraryScanRequest) -> dict[str, Any]:
     try:
         root = resolve_existing_directory(directory)
@@ -418,8 +431,9 @@ async def _scan_local_library_directory(directory: str, request: LocalLibrarySca
         return {"success": False, "error": exc.code, "message": exc.message}
 
     ignored_paths = _resolve_ignored_paths(root, _scan_ignored_paths_from_request(request))
-    video_files = _filter_ignored_video_files(_walk_video_files(root, request.recursive, request.max_depth), ignored_paths)
-    records = [_build_library_file_record(path, root, request.probe_media) for path in video_files]
+    previous = {os.path.normcase(os.path.abspath(file["path"])): dict(file)
+                for record in await local_movie_library_service.get_all() for file in record.get("files", []) if file.get("path")}
+    records = await asyncio.to_thread(_collect_library_scan_records, root, request, ignored_paths, previous)
     movie_ids = sorted({str(record["movie_id"]).upper() for record in records if record.get("movie_id")})
     metadata_map = await _scrape_metadata(movie_ids, request.concurrent) if request.scrape else {}
     scan_time = datetime.datetime.now().isoformat()
@@ -450,7 +464,7 @@ async def _scan_local_library_directory(directory: str, request: LocalLibrarySca
         "regularization_failed_count": 0,
     }
     if request.regularize_files:
-        records, regularize_result = _regularize_scan_files(records)
+        records, regularize_result = await asyncio.to_thread(_regularize_scan_files, records)
 
     result = await local_movie_library_service.update_from_scan(
         str(root),
@@ -533,8 +547,8 @@ def parse_information_check_fields(fields: str | list[str] | tuple[str, ...] | N
     return normalize_local_library_information_fields(raw_fields)
 
 
-async def get_local_library_information_check(fields: str | list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
-    return await local_movie_library_service.get_information_check(parse_information_check_fields(fields))
+async def get_local_library_information_check(fields: str | list[str] | tuple[str, ...] | None = None, refresh_files: bool = False) -> dict[str, Any]:
+    return await local_movie_library_service.get_information_check(parse_information_check_fields(fields), refresh_files=refresh_files)
 
 
 async def clean_invalid_local_library_files() -> dict[str, Any]:
@@ -628,6 +642,7 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
 
 async def download_missing_local_library_information(request: LocalLibraryInformationDownloadRequest) -> dict[str, Any]:
     selected_fields = parse_information_check_fields(request.fields)
+    await local_movie_library_service.refresh_file_states(request.movie_ids or None)
     check = await local_movie_library_service.get_information_check(selected_fields)
     all_records = check.get("records", [])
     requested_ids = {
@@ -721,6 +736,7 @@ async def download_missing_local_library_information(request: LocalLibraryInform
             **asset_result,
         })
 
+    await local_movie_library_service.refresh_file_states([candidate["movie_id"] for candidate in candidate_records])
     next_check = await local_movie_library_service.get_information_check(selected_fields)
     return {
         "success": True,

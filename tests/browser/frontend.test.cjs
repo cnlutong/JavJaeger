@@ -77,23 +77,15 @@ async function openApp(t, width = 1440, setup = async () => {}) {
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-mount.png'), fullPage: true });
 
     assert.equal(await page.locator('.sc-logic-error').count(), 0, 'imported component renders');
-    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    try { await page.getByRole('button', { name: '管理界面', exact: true }).click(); }
+    catch (error) {
+        await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-mount-failure.png'), fullPage: true });
+        fs.writeFileSync(path.join(os.tmpdir(), 'javjaeger-mount-failure.html'), await page.content());
+        throw error;
+    }
     return page;
 }
 
-const button = (root, label) => root.getByRole('button', { name: new RegExp(label.split('').join('\\s*')) });
-const choose = async (page, selector, text) => {
-    await selector.locator("xpath=ancestor-or-self::*[contains(concat(' ', @class, ' '), ' ant-select ')][1]").click();
-    await page.locator('.ant-select-dropdown:visible .ant-select-item-option').filter({ hasText: text }).first().click();
-};
-const closeDrawer = async page => {
-    await page.locator('.ant-drawer-open .ant-drawer-close').last().click();
-    await page.locator('.ant-drawer-open').waitFor({ state: 'hidden' });
-};
-const confirm = async (page, label) => {
-    await button(page.locator('.ant-popconfirm:visible'), label).click();
-    await page.locator('.ant-popconfirm:visible').waitFor({ state: 'hidden' });
-};
 const movie = (id = 'QA-001') => ({ id, title: `QA 测试影片 ${id}`, gid: '123', uc: 0, date: '2026-09-01', stars: [{ name: '测试演员', id: 'qa-star' }], genres: [{ name: '测试标签', id: 'qa-genre' }] });
 const magnet = { name: 'QA test magnet', link: 'magnet:?xt=urn:btih:0123456789012345678901234567890123456789', size: '1 GB', source: 'javbus' };
 
@@ -118,7 +110,7 @@ async function libraryFixture(page, count = 4) {
             const id = url.pathname.split('/')[4];
             state.records = id ? state.records.filter(r => r.movie_id !== id) : [];
         }
-        return route.fulfill({ json: { success: true, records: state.records, total_movies: state.records.length, total_files: state.records.length, total_size: state.records.length * 102400 } });
+        return route.fulfill({ json: { success: true, records: state.records, total_movies: state.records.length, total_files: state.records.length, total_size: state.records.reduce((sum, record) => sum + record.total_size, 0) } });
     });
     return state;
 }
@@ -131,6 +123,78 @@ const approve = async (page, label) => {
     if (await checkbox.count()) await checkbox.check();
     await dialog.getByRole('button', { name: label, exact: true }).click();
 };
+
+test('performance: 10000 movies and 50 TB keep navigation, paging and input responsive', async t => {
+    let state;
+    const page = await openApp(t, 1440, async p => {
+        state = await libraryFixture(p, 10000);
+        state.records.forEach((record, i) => {
+            record.stars = [`QA Actor ${i % 2000}`];
+            record.series = `QA Series ${i % 1000}`;
+            record.total_size = record.files[0].size = 5000000000;
+        });
+    });
+    const samples = {};
+    for (const name of ['影视库', '设置', '影片检索', '影视库']) {
+        const start = performance.now();
+        await navigate(page, name);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        samples[name] = Math.round(performance.now() - start);
+    }
+    const rowCount = await page.locator('tbody tr').count();
+    t.diagnostic(JSON.stringify({ navigationMs: samples, rowCount }));
+    assert.ok(rowCount <= 60, `render at most one page, got ${rowCount} rows`);
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await page.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await page.getByRole('textbox', { name: '影视库搜索', exact: true }).fill('QA-10000');
+    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
+    assert.match(await page.locator('tbody').innerText(), /QA-10000/);
+    await page.getByRole('button', { name: '清空关键词', exact: true }).click();
+    await page.getByText('第 1 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-performance-library.png'), fullPage: false });
+    await navigate(page, '影院模式');
+    await page.getByRole('button', { name: '全部影片', exact: true }).click();
+    await page.getByText('第 1 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await page.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-performance-cinema.png'), fullPage: false });
+    await page.getByRole('button', { name: '系列', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '查看全部', exact: true }).count(), 6);
+    await page.getByRole('button', { name: '查看全部', exact: true }).first().click();
+    await page.getByText(/命中 10 部/).waitFor();
+    assert.equal(state.records.reduce((sum, record) => sum + record.total_size, 0), 50000000000000);
+    assert.equal(state.requests.filter(request => request.path.endsWith('/scan/jobs')).length, 0);
+});
+
+test('performance: delayed magnets and GPU probes never delay opening results or dialogs', async t => {
+    let releaseMagnets, releaseCaps;
+    const magnets = new Promise(resolve => { releaseMagnets = resolve; });
+    const caps = new Promise(resolve => { releaseCaps = resolve; });
+    t.after(() => { releaseMagnets(); releaseCaps(); });
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/movies/QA-001', route => route.fulfill({ json: movie() }));
+        await p.route('**/api/magnets/**', async route => { await magnets; await route.fulfill({ json: [magnet] }); });
+        await p.route('**/api/movies/transcoding/presets', async route => { await caps; await route.fulfill({ json: { gpu_available: false, presets: [] } }); });
+    });
+    await navigate(page, '影片检索');
+    await field(page, '番号').fill('QA-001');
+    await page.getByRole('button', { name: '查询番号', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-001', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '详情', exact: true }).click();
+    await page.locator('.jj-drawer').waitFor();
+    releaseMagnets();
+    await page.keyboard.press('Escape');
+    await navigate(page, '影视库');
+    await page.locator('tbody tr').first().getByRole('button', { name: '详情', exact: true }).click();
+    await page.locator('.jj-drawer').getByRole('button', { name: '转码', exact: true }).click();
+    await page.getByText('正在检测 GPU 和可用转码预设…', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '加入队列', exact: true }).isDisabled(), true);
+    await page.keyboard.press('Escape');
+    const responded = page.waitForResponse(response => response.url().endsWith('/transcoding/presets'));
+    releaseCaps(); await responded;
+    assert.equal(await page.getByRole('button', { name: '加入队列', exact: true }).count(), 0);
+});
 
 test('imported runtime renders all original pages with no demo data or errors', async t => {
     const page = await openApp(t);
@@ -324,9 +388,8 @@ test('theme persists and all pages remain reachable at mobile width', async t =>
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-design-mobile.png'), fullPage: true });
 });
 
-test('indexed file playback uses the real selected-file endpoint and native video controls', async t => {
-    const page = await openApp(t, 1440, libraryFixture);
-    const bytes = await page.evaluate(async () => {
+async function sampleVideo(page) {
+    return page.evaluate(async () => {
         const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 144;
         const ctx = canvas.getContext('2d'), stream = canvas.captureStream(10), recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' }), chunks = [];
         recorder.ondataavailable = e => chunks.push(e.data);
@@ -335,6 +398,11 @@ test('indexed file playback uses the real selected-file endpoint and native vide
         await new Promise(resolve => setTimeout(resolve, 1200)); recorder.stop(); await stopped; clearInterval(frames); stream.getTracks().forEach(track => track.stop());
         return [...new Uint8Array(await new Blob(chunks).arrayBuffer())];
     });
+}
+
+test('indexed file playback uses the real selected-file endpoint and native video controls', async t => {
+    const page = await openApp(t, 1440, libraryFixture);
+    const bytes = await sampleVideo(page);
     await page.route('**/api/movies/local-library/*/play?file_index=0', r => r.fulfill({ contentType: 'video/webm', body: Buffer.from(bytes) }));
     await navigate(page, '影视库');
     await page.locator('tbody tr').first().getByRole('button', { name: '详情', exact: true }).click();
@@ -376,5 +444,245 @@ test('transcode selected file, task cancel/retry/delete and failed capability re
     await navigate(page, '影视库'); await page.locator('tbody tr').first().getByRole('button', { name: '详情' }).click();
     await page.getByRole('button', { name: '转码', exact: true }).last().click();
     await page.getByText('请求失败（HTTP 503）', { exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: '加入队列', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '加入队列', exact: true }).isDisabled(), true);
+});
+
+test('audit: every rendered page button has an action and dynamic panels have accurate counts', async t => {
+    const page = await openApp(t, 1440, libraryFixture);
+    const inventory = [];
+    for (const name of ['影片检索', '下载派发', '本地刮削', '影视库', '自动模式', '转码', '网盘与下载', '设置']) {
+        await navigate(page, name);
+        const controls = await page.locator('button:visible').evaluateAll(buttons => buttons.map(button => {
+            const key = Object.keys(button).find(key => key.startsWith('__reactProps'));
+            return { name: button.textContent.trim() || button.title || button.getAttribute('aria-label'), enabled: !button.disabled, bound: typeof button[key]?.onClick === 'function' };
+        }));
+        assert.deepEqual(controls.filter(control => control.enabled && !control.bound), [], name);
+        assert.doesNotMatch(await page.locator('body').innerText(), /批次 b-20260723|全部 128|未入库 3|3 个文件冲突/);
+        inventory.push({ page: name, controls });
+    }
+    fs.writeFileSync(path.join(os.tmpdir(), 'javjaeger-control-audit.json'), JSON.stringify(inventory, null, 2));
+});
+
+test('audit: filter catalogue, source switching, pagination, HTML recognition, selection and reset', async t => {
+    const calls = [];
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/movies?*', r => { calls.push(new URL(r.request().url())); return r.fulfill({ json: { movies: [movie()], pagination: { hasNextPage: new URL(r.request().url()).searchParams.get('page') === '1' } } }); });
+        await p.route('**/api/movies/all?*', r => { calls.push(new URL(r.request().url())); return r.fulfill({ json: { movies: [movie()] } }); });
+        await p.route('**/api/movies/recognize', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { movies: [movie()] } }); });
+        await p.route('**/api/movies/QA-*', r => r.fulfill({ json: movie() }));
+        await p.route('**/api/magnets/**', r => { calls.push(new URL(r.request().url())); return r.fulfill({ json: [magnet] }); });
+        await p.route('**/static/actors.json', r => r.fulfill({ json: { 'QA': [{ id: 'qa-star', name: '测试演员' }] } }));
+    });
+    await navigate(page, '影片检索');
+    await page.getByRole('button', { name: '标签筛选', exact: true }).click();
+    await page.getByRole('button', { name: '浏览筛选目录', exact: true }).click();
+    await page.getByText('测试演员', { exact: true }).click();
+    await page.getByRole('button', { name: '添加为筛选条件', exact: true }).click();
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-001', { exact: true }).waitFor();
+    assert.ok(calls.some(url => url.searchParams?.get('filters')?.includes('qa-star')));
+    await field(page, '磁力来源').selectOption('YHG007');
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === '下一页' && button.disabled));
+    assert.ok(calls.some(url => url.searchParams?.get('source') === 'yhg007'));
+    assert.ok(calls.some(url => url.searchParams?.get('page') === '2'));
+    await page.getByRole('button', { name: '全选本页', exact: true }).click();
+    await page.getByRole('button', { name: '加入自动任务', exact: true }).click();
+    await page.getByRole('textbox', { name: '番号列表', exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: '番号列表', exact: true }).inputValue(), 'QA-001');
+    await navigate(page, '影片检索');
+    await page.getByRole('button', { name: '影片识别', exact: true }).click();
+    await page.locator('textarea').fill('<div id="videothumblist">QA-001</div>');
+    await page.getByRole('button', { name: '开始识别', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-001', { exact: true }).waitFor();
+    assert.ok(calls.some(body => body.html_content?.includes('videothumblist')));
+    await page.getByRole('button', { name: '重置', exact: true }).click();
+    assert.equal(await page.getByText('QA 测试影片 QA-001', { exact: true }).count(), 0);
+});
+
+test('audit: failed batch retry, ignore and history check/clear form a complete workflow', async t => {
+    let attempts = 0, cleared = false;
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/movies/download-by-codes', r => r.fulfill({ json: { magnet_results: [{ ...magnet, movie_id: 'QA-001' }] } }));
+        await p.route('**/api/pikpak/download', r => { attempts++; return r.fulfill({ json: { success: false, results: [{ movie_id: 'QA-001', success: false, message: '测试连接失败' }] } }); });
+        await p.route('**/api/history', r => { if (r.request().method() === 'DELETE') cleared = true; return r.fulfill({ json: r.request().method() === 'GET' ? (cleared ? [] : [{ movie_id: 'QA-001', download_resources: [{ link: magnet.link, source: 'javbus' }] }]) : { success: true } }); });
+        await p.route('**/api/history/check-local-library', r => r.fulfill({ json: { success: true, records: [{ movie_id: 'QA-001', needs_reselect: true, in_local_library: false }] } }));
+    });
+    await navigate(page, '下载派发');
+    await page.locator('textarea').fill('QA-001 qa-001');
+    await page.getByRole('button', { name: '派发 1 个番号', exact: true }).click(); await approve(page, '开始派发');
+    await page.getByText('测试连接失败', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '重新派发全部失败', exact: true }).click(); await approve(page, '开始派发');
+    await page.waitForFunction(() => document.body.textContent.includes('测试连接失败'));
+    assert.equal(attempts, 2);
+    await page.getByRole('button', { name: '忽略此项', exact: true }).click();
+    assert.equal(await page.getByText('上一批派发部分失败', { exact: true }).count(), 0);
+    await page.getByRole('button', { name: '核对本地库', exact: true }).click();
+    await page.getByText('未入库 1', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '清空历史', exact: true }).click(); await approve(page, '清空');
+    await page.getByText('全部 0', { exact: true }).waitFor(); assert.equal(cleared, true);
+});
+
+test('audit: actor cards, completeness filters and drawers work on mobile', async t => {
+    const page = await openApp(t, 390, libraryFixture);
+    await navigate(page, '影视库');
+    await page.locator('label').filter({ has: page.locator('input[name="jj-lbv"]') }).filter({ hasText: '演员' }).click();
+    await page.locator('.jj-actor-card').click();
+    assert.equal(await field(page, '演员').inputValue(), '测试演员');
+    await page.locator('label').filter({ has: page.locator('input[name="jj-lbm"]') }).filter({ hasText: '缺资料' }).click();
+    assert.equal(await page.locator('tbody tr').count(), 1);
+    await page.locator('tbody tr').getByRole('button', { name: '详情', exact: true }).click();
+    const drawer = page.locator('.jj-drawer');
+    const bounds = await drawer.boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 391, 'drawer fits mobile viewport');
+    await drawer.evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-audit-mobile-drawer.png'), fullPage: false });
+    await page.keyboard.press('Escape'); assert.equal(await drawer.count(), 0);
+});
+
+test('audit: real backend saves settings, repairs a designation, organizes media, plays it and removes only its index', async t => {
+    const input = path.join(scratch, 'audit-inbox'), output = path.join(scratch, 'audit-library');
+    fs.mkdirSync(input); fs.mkdirSync(output);
+    const page = await openApp(t, 1440, async p => {
+        for (const pattern of ['**/api/system/settings', '**/api/movies/local-scrape/**', '**/api/movies/local-library**']) await p.route(pattern, route => route.continue());
+    });
+    fs.writeFileSync(path.join(input, 'unknown.webm'), Buffer.from(await sampleVideo(page)));
+    await navigate(page, '设置');
+    await page.locator('aside').getByRole('button', { name: /^JavBus API/ }).click();
+    await page.getByRole('spinbutton', { name: '请求超时（秒）', exact: true }).fill('9');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.equal(JSON.parse(fs.readFileSync(path.join(scratch, 'config.json'), 'utf8')).javbus.timeout_seconds, 9);
+    await navigate(page, '本地刮削');
+    await field(page, '扫描目录').fill(input); await field(page, '整理输出目录').fill(output);
+    await field(page, '文件夹命名规则').fill('{code}');
+    await page.locator('label').filter({ hasText: /^联网刮削元数据/ }).getByRole('checkbox').uncheck();
+    await page.getByRole('button', { name: '生成预览', exact: true }).click();
+    await page.getByRole('button', { name: '手动指定番号', exact: true }).click();
+    await page.getByRole('textbox', { name: '正确番号', exact: true }).fill('ABP-123');
+    await page.getByRole('button', { name: '重新生成预览', exact: true }).click();
+    await page.getByText('可执行', { exact: true }).last().waitFor();
+    await page.getByRole('button', { name: /^确认执行/ }).click(); await approve(page, '开始执行');
+    await page.getByText('刮削执行完成：1 成功，0 失败', { exact: true }).waitFor();
+    assert.equal(fs.existsSync(path.join(input, 'unknown.webm')), false, 'backend moved the actual fixture');
+    await navigate(page, '影视库');
+    await page.locator('tbody tr').filter({ hasText: 'ABP-123' }).getByRole('button', { name: '详情', exact: true }).click();
+    await page.getByRole('button', { name: '播放', exact: true }).click();
+    const video = page.locator('video'); await video.waitFor(); await video.evaluate(el => el.play());
+    await page.waitForFunction(() => document.querySelector('video')?.currentTime > 0);
+    assert.equal(await video.evaluate(el => el.error), null);
+    await page.getByRole('button', { name: '停止播放', exact: true }).click();
+    await page.getByRole('button', { name: '管理界面', exact: true }).click(); await navigate(page, '影视库');
+    await page.locator('tbody tr').filter({ hasText: 'ABP-123' }).getByRole('button', { name: '详情', exact: true }).click();
+    await page.getByRole('button', { name: '移除记录', exact: true }).click(); await approve(page, '移除记录');
+    await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 0);
+    assert.ok(fs.readdirSync(path.join(output, 'ABP-123')).some(name => name.endsWith('.webm')), 'index removal preserves the real file');
+});
+
+test('audit: desktop and mobile page layouts expose their controls without application errors', async t => {
+    for (const width of [1440, 390]) {
+        const page = await openApp(t, width, libraryFixture);
+        for (const [index, name] of ['影片检索', '下载派发', '本地刮削', '影视库', '自动模式', '转码', '网盘与下载', '设置'].entries()) {
+            await navigate(page, name);
+            if (name === '自动模式') await page.getByRole('button', { name: '新建', exact: true }).click();
+            await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-audit-${width}-${index}.png`), fullPage: true });
+            assert.equal(await page.locator('.sc-logic-error').count(), 0, `${name} ${width}`);
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${name} ${width}`);
+        }
+    }
+});
+
+test('audit: refresh restores a running preview and partial execution keeps per-file outcomes', async t => {
+    let ready = false;
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/movies/local-scrape/**', r => {
+            const url = r.request().url();
+            if (r.request().method() === 'POST') return r.fulfill({ json: { task_id: url.includes('preview') ? 'restore-preview' : 'partial-apply' } });
+            if (url.includes('partial-apply')) return r.fulfill({ json: { status: 'failed', result: { success: false, success_count: 1, failed_count: 1, results: [{ source_path: '/qa/QA-001.mp4', success: true }, { source_path: '/qa/QA-002.mp4', success: false, error: 'apply_failed' }] } } });
+            return r.fulfill({ json: ready ? { status: 'success', result: { success: true, items: [{ source_path: '/qa/QA-001.mp4', code: 'QA-001', scrape_status: 'found', metadata: { id: 'QA-001', title: 'QA' } }] } } : { status: 'running', percent: 20 } });
+        });
+    });
+    await navigate(page, '本地刮削'); await field(page, '扫描目录').fill('/qa');
+    await page.getByRole('button', { name: '生成预览', exact: true }).click();
+    await page.waitForFunction(() => sessionStorage.getItem('localScrapeActiveTask'));
+    await page.reload({ waitUntil: 'networkidle' }); await page.getByRole('button', { name: '管理界面', exact: true }).click(); await navigate(page, '本地刮削');
+    assert.equal(await field(page, '扫描目录').inputValue(), '/qa');
+    ready = true; await page.getByRole('button', { name: /^确认执行/ }).click(); await approve(page, '开始执行');
+    await page.getByRole('heading', { name: '执行结果 · 1 成功，1 失败', exact: true }).waitFor();
+    assert.equal(await page.getByText('/qa/QA-002.mp4', { exact: false }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /^确认执行/ }).count(), 0);
+});
+
+test('audit: provider fields, order, enablement, tests and reset/save operate on actual settings payloads', async t => {
+    let stored = { javbus: { enabled: false }, scrapers: { priority: ['javbus', 'libredmm'], javbus: { enabled: false, base_url: 'https://qa.invalid' }, libredmm: { enabled: false, request_delay: 100 } } };
+    const calls = [];
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/system/settings', r => { if (r.request().method() === 'PUT') { stored = r.request().postDataJSON(); calls.push(stored); } return r.fulfill({ json: stored }); });
+        await p.route('**/api/movies/metadata-scrapers/test', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { results: r.request().postDataJSON().providers.map(provider => ({ provider, success: true, elapsed_ms: 3 })) } }); });
+        await p.route('**/api/movies/metadata-scrapers/apply-test-results', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { success: true } }); });
+    });
+    await navigate(page, '设置'); await page.locator('aside').getByRole('button', { name: /^刮削源/ }).click();
+    const cards = page.locator('div:has(> .jj-provider-fields)');
+    await cards.filter({ hasText: 'libredmm' }).getByRole('spinbutton').fill('200');
+    await cards.filter({ hasText: 'libredmm' }).getByRole('button', { name: '启用', exact: true }).click();
+    await cards.filter({ hasText: 'libredmm' }).getByRole('button', { name: /上移/ }).click();
+    await page.getByRole('button', { name: '保存', exact: true }).click(); await page.getByText('设置已保存', { exact: true }).waitFor();
+    assert.equal(stored.scrapers.priority[0], 'libredmm'); assert.equal(stored.scrapers.libredmm.request_delay, 200); assert.equal(stored.scrapers.libredmm.enabled, true);
+    await cards.filter({ hasText: 'libredmm' }).getByRole('button', { name: '测试', exact: true }).click();
+    await page.getByText('测试成功', { exact: true }).waitFor();
+    await page.getByRole('button', { name: /按测试结果/ }).click(); await page.getByText('已按测试结果更新配置', { exact: true }).waitFor();
+    assert.ok(calls.some(body => body.results?.[0].provider === 'libredmm'));
+    await cards.filter({ hasText: 'libredmm' }).getByRole('spinbutton').fill('300');
+    await page.getByRole('button', { name: '重置改动', exact: true }).click();
+    assert.equal(await cards.filter({ hasText: 'libredmm' }).getByRole('spinbutton').inputValue(), '200');
+});
+
+test('audit: real automation backend saves all four nodes, toggles scheduling and records a no-download run', async t => {
+    const page = await openApp(t, 1440, async p => { await p.route('**/api/automation/tasks**', r => r.continue()); });
+    await navigate(page, '自动模式'); await page.getByRole('button', { name: '新建', exact: true }).click();
+    await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('QA empty workflow');
+    await page.getByRole('combobox', { name: '检索方式', exact: true }).selectOption('codes');
+    await page.getByRole('button', { name: '保存节点', exact: true }).click();
+    await page.getByRole('button', { name: /^01.*触发/ }).click();
+    await page.getByRole('combobox', { name: '触发方式', exact: true }).selectOption('scheduled');
+    await page.getByRole('textbox', { name: '执行时间 HH:MM', exact: true }).fill('23:59');
+    await page.getByRole('button', { name: '保存节点', exact: true }).click();
+    await page.getByRole('button', { name: /^03.*磁力/ }).click();
+    await page.getByRole('combobox', { name: '磁力来源', exact: true }).selectOption('yhg007');
+    await page.getByRole('button', { name: '保存节点', exact: true }).click();
+    await page.getByRole('button', { name: /^04.*下载/ }).click();
+    await page.getByRole('combobox', { name: '下载工具', exact: true }).selectOption('aria2');
+    await page.getByRole('button', { name: '保存节点', exact: true }).click();
+    await page.getByRole('button', { name: '启用任务', exact: true }).click(); await page.getByText('任务状态已保存', { exact: true }).waitFor();
+    await page.getByText('已启用任务 1 / 1', { exact: false }).waitFor();
+    await page.getByRole('checkbox').filter({ visible: true }).click(); await approve(page, '停用全部');
+    await page.getByRole('button', { name: '立即运行一次', exact: true }).click(); await approve(page, '立即运行');
+    await page.getByText('运行已完成', { exact: true }).waitFor();
+    const tasks = await (await page.request.get(baseURL + '/api/automation/tasks')).json();
+    assert.equal(tasks.tasks[0].enabled, false); assert.equal(tasks.tasks[0].runs[0].found_count, 0);
+    assert.equal(tasks.tasks[0].nodes.find(n => n.type === 'magnet').config.source, 'yhg007');
+    await page.getByRole('button', { name: '删除任务', exact: true }).click(); await approve(page, '删除任务');
+    await page.getByText('任务已删除', { exact: true }).waitFor();
+});
+
+test('audit: 115 folders load every page, navigate back and dispatch with the source identity', async t => {
+    const calls = [];
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/webdav/status', r => r.fulfill({ json: { webdav_connected: false, aria2_connected: true } }));
+        await p.route('**/api/115/status', r => r.fulfill({ json: { connected: true } }));
+        await p.route('**/api/115/files?*', r => {
+            const url = new URL(r.request().url()); calls.push(url.searchParams.get('cid'));
+            const items = url.searchParams.get('cid') === '10' ? [{ id: '20', name: 'QA.mp4', kind: 'file', size: 1024 ** 3, pick_code: 'qa-pick' }] : Number(url.searchParams.get('offset')) ? [{ id: '11', name: '第二页目录', kind: 'folder' }] : [{ id: '10', name: '测试目录', kind: 'folder' }];
+            return r.fulfill({ json: { items, count: url.searchParams.get('cid') === '10' ? 1 : 2 } });
+        });
+        await p.route('**/api/aria2/downloads', r => r.fulfill({ json: { downloads: [] } }));
+        await p.route('**/api/webdav/download', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { success: true, results: [{ success: true }] } }); });
+    });
+    await navigate(page, '网盘与下载'); await page.locator('aside').getByText('115 网盘', { exact: true }).click();
+    await page.getByText('第二页目录', { exact: true }).waitFor();
+    await page.getByText('测试目录', { exact: true }).click(); await page.getByText('QA.mp4', { exact: true }).waitFor();
+    await page.locator('tr').filter({ hasText: 'QA.mp4' }).getByRole('button', { name: '发送', exact: true }).click(); await approve(page, '发送');
+    await page.getByText('已发送到 Aria2', { exact: true }).waitFor();
+    assert.equal(calls.find(body => body.files)?.files[0].source_type, 'pan115');
+    await page.getByText('上一级', { exact: true }).click(); await page.getByText('测试目录', { exact: true }).waitFor();
 });

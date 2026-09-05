@@ -5788,8 +5788,40 @@ class Component extends DCLogic {
     return nextTemplates;
   };
 
+  // frontend/src/utils/localScrapeNamingTemplates.mjs
+  var LOCAL_SCRAPE_NAMING_FIELDS = [
+    { id: "code", label: "\u756A\u53F7", placeholder: "{code}", sample: "ABP-123" },
+    { id: "title", label: "\u6807\u9898", placeholder: "{title}", sample: "\u5F71\u7247\u6807\u9898" },
+    { id: "actor", label: "\u9996\u4F4D\u6F14\u5458", placeholder: "{actor}", sample: "\u6F14\u5458A" },
+    { id: "actors", label: "\u5168\u90E8\u6F14\u5458", placeholder: "{actors}", sample: "\u6F14\u5458A \u6F14\u5458B" },
+    { id: "year", label: "\u5E74\u4EFD", placeholder: "{year}", sample: "2024" },
+    { id: "date", label: "\u53D1\u884C\u65E5\u671F", placeholder: "{date}", sample: "2024-05-17" },
+    { id: "studio", label: "\u5236\u4F5C\u5546", placeholder: "{studio}", sample: "Studio" },
+    { id: "maker", label: "\u5236\u4F5C\u5546\u522B\u540D", placeholder: "{maker}", sample: "Studio" },
+    { id: "publisher", label: "\u53D1\u884C\u5546", placeholder: "{publisher}", sample: "Publisher" },
+    { id: "series", label: "\u7CFB\u5217", placeholder: "{series}", sample: "Series" },
+    { id: "director", label: "\u5BFC\u6F14", placeholder: "{director}", sample: "Director" },
+    { id: "original", label: "\u539F\u6587\u4EF6\u540D", placeholder: "{original}", sample: "ABP-123" }
+  ];
+  var LOCAL_SCRAPE_NAMING_SEPARATORS = [
+    { id: "space", label: "\u7A7A\u683C", value: " " },
+    { id: "slash", label: "\u6587\u4EF6\u5939\u5C42\u7EA7", value: "/" },
+    { id: "dash", label: "\u77ED\u6A2A\u7EBF", value: " - " },
+    { id: "underscore", label: "\u4E0B\u5212\u7EBF", value: "_" },
+    { id: "dot", label: "\u70B9\u53F7", value: "." }
+  ];
+  var fieldById = new Map(LOCAL_SCRAPE_NAMING_FIELDS.map((field) => [field.id, field]));
+  var separatorById = new Map(LOCAL_SCRAPE_NAMING_SEPARATORS.map((separator) => [separator.id, separator]));
+  var separatorByValue = new Map(LOCAL_SCRAPE_NAMING_SEPARATORS.map((separator) => [separator.value, separator]));
+
   // frontend/src/design/integration.mjs
   var designDataExports = "\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };";
+  function adaptDesignScript(script) {
+    for (const [key, route, method] of [["cn", "cinema", "vCinema"], ["d", "dispatch", "vDispatch"], ["tc", "transcode", "vTranscode"], ["sc", "scrape", "vScrape"], ["lb", "library", "vLibrary"], ["au", "auto", "vAuto"], ["fs", "storage", "vStorage"], ["se", "settings", "vSettings"]]) {
+      script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === "fs" ? " || st.fsAdd" : ""}) ? this.${method}() : {}`);
+    }
+    return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", "let wallRows = (isWall ? LIB : [])\n").replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
+  }
   var ACC = "var(--acc)";
   var OK = "var(--ok)";
   var WARN = "var(--warn)";
@@ -5811,6 +5843,8 @@ class Component extends DCLogic {
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
   };
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
+  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask" };
+  var scrapeConfigKeys = ["scScanDir", "scOutDir", "scFolderRule", "scFileRule", "scMaxDepth", "scConcurrent", "scOpts", "scOverrides"];
   function movieView(record, local = false) {
     const metadata = record.metadata || {}, media = record.media_info || metadata.media_info || {};
     const tags = names(record.genres || metadata.genres);
@@ -5824,11 +5858,11 @@ class Component extends DCLogic {
       actors: names(record.stars || metadata.stars),
       tags,
       date: String(record.date || metadata.date || ""),
-      dur: `${record.duration || metadata.duration || Math.round((media.duration_seconds || 0) / 60) || "\u2014"} \u5206`,
-      studio: record.studio?.name || record.studio || metadata.studio?.name || "\u2014",
-      label: record.publisher?.name || record.publisher || record.label?.name || metadata.label?.name || "\u2014",
-      series: record.series?.name || record.series || metadata.series?.name || "\u2014",
-      director: record.director?.name || record.director || metadata.director?.name || "\u2014",
+      dur: `${record.duration || record.videoLength || metadata.duration || metadata.videoLength || Math.round((media.duration_seconds || 0) / 60) || "\u2014"} \u5206`,
+      studio: record.studio?.name || record.studio || metadata.studio?.name || metadata.studio || "\u2014",
+      label: record.publisher?.name || record.publisher || record.label?.name || metadata.publisher?.name || metadata.publisher || metadata.label?.name || "\u2014",
+      series: record.series?.name || record.series || metadata.series?.name || metadata.series || "\u2014",
+      director: record.director?.name || record.director || metadata.director?.name || metadata.director || "\u2014",
       local: local || record.in_local_library ? "in" : "none",
       vr: tags.includes("VR"),
       sub: tags.includes("\u4E2D\u6587\u5B57\u5E55"),
@@ -5839,7 +5873,7 @@ class Component extends DCLogic {
       size: size(record.total_size || files.reduce((sum, file) => sum + Number(file.size || 0), 0)),
       c: record.information_complete === false ? 0 : 100,
       added: String(record.updated_at || record.added_at || record.created_at || ""),
-      gone: local && (record.file_count ?? files.length) === 0,
+      gone: local && ((record.file_count ?? files.length) === 0 || files.some((file) => file.exists === false)),
       mag: "",
       magCount: 0,
       cover: imageSource(record.poster_url || record.cover_url || record.img || metadata.cover_url || metadata.img || "")
@@ -5909,10 +5943,52 @@ class Component extends DCLogic {
           infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"]
         };
         this.magnets = /* @__PURE__ */ new Map();
+        this.libraryByCode = /* @__PURE__ */ new Map();
+        this.latestByActor = /* @__PURE__ */ new Map();
+        this.pendingWrites = /* @__PURE__ */ new Map();
         this.requestVersion = 0;
         this._disposed = false;
+        for (const [key, storageKey] of Object.entries(jobStorage)) {
+          try {
+            const saved = JSON.parse(window.sessionStorage.getItem(storageKey) || "null");
+            if (!saved?.taskId) continue;
+            if (key === "scrapeTask") {
+              for (const field of scrapeConfigKeys) if (saved.config?.[field] !== void 0) this.state[field] = saved.config[field];
+              this.state.scPhase = "scanning";
+              this.scrapePreviewConfig = JSON.stringify(this.scrapePayload());
+            } else this.state.lbScanning = true;
+            this.state[key] = { id: saved.taskId, operation: saved.type, status: "running" };
+          } catch {
+            window.sessionStorage.removeItem(storageKey);
+          }
+        }
+      }
+      setState(update, callback) {
+        const patch = typeof update === "function" ? update(this.state) : { ...update };
+        for (const [page, filters] of [
+          ["lbPage", ["lbQ", "lbActor", "lbStudio", "lbRes", "lbM", "lbSubOnly", "lbMissing", "lbSort"]],
+          ["cnPage", ["cnTab", "cnActor", "cnF", "cnSort"]],
+          ["cnShelfPage", ["cnTab"]],
+          ["catalogPage", ["browse", "browseQ"]],
+          ["searchPage", ["sMode", "code", "page", "fList"]]
+        ]) {
+          if (filters.some((key) => key in patch && patch[key] !== this.state[key])) patch[page] = null;
+        }
+        super.setState(patch, callback);
       }
       async request(url, method = "GET", body) {
+        if (method === "GET") return this.fetchJSON(url, method, body);
+        const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body]);
+        if (this.pendingWrites.has(key)) return this.pendingWrites.get(key);
+        const pending = this.fetchJSON(url, method, body);
+        this.pendingWrites.set(key, pending);
+        try {
+          return await pending;
+        } finally {
+          this.pendingWrites.delete(key);
+        }
+      }
+      async fetchJSON(url, method, body) {
         const options = { method };
         if (body !== void 0) {
           if (body instanceof FormData) options.body = body;
@@ -5922,9 +5998,17 @@ class Component extends DCLogic {
           }
         }
         const response = await fetch(url, options);
-        if (!response.ok) throw new Error(`\u8BF7\u6C42\u5931\u8D25\uFF08HTTP ${response.status}\uFF09`);
+        if (!response.ok) {
+          const error = new Error(`\u8BF7\u6C42\u5931\u8D25\uFF08HTTP ${response.status}\uFF09`);
+          error.status = response.status;
+          throw error;
+        }
         const result = await response.json();
-        if (result?.success === false || result?.error && !result.status) throw new Error(safeText(result.message || result.error));
+        if (result?.success === false || result?.error && !result.status) {
+          const error = new Error(safeText(result.message || result.error));
+          error.result = result;
+          throw error;
+        }
         return result;
       }
       async perform(action, success) {
@@ -5937,9 +6021,69 @@ class Component extends DCLogic {
           return null;
         }
       }
+      async copyText(text) {
+        if (navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(text);
+            return;
+          } catch {
+          }
+        }
+        const previous = document.activeElement, field = document.createElement("textarea");
+        field.value = text;
+        field.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+        document.body.append(field);
+        field.select();
+        try {
+          if (!document.execCommand("copy")) throw new Error("\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9\u5E76\u590D\u5236\u6587\u672C");
+        } finally {
+          field.remove();
+          previous?.focus({ preventScroll: true });
+        }
+      }
       componentDidMount() {
+        this._keyboard = (event) => {
+          if (event.key === "Escape") {
+            if (this.state.dlg) this.renderVals().dlg.cancel();
+            else for (const key of ["fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying"]) {
+              if (this.state[key]) {
+                this.setState({ [key]: null });
+                break;
+              }
+            }
+          }
+          if (["Enter", " "].includes(event.key) && event.target.matches('[role="button"]')) {
+            event.preventDefault();
+            event.target.click();
+          }
+          if (event.key === "Tab" && this._activeDialog) {
+            const controls = [...this._activeDialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')].filter((control) => control.getClientRects().length);
+            const first = controls[0], last = controls.at(-1);
+            if (first && event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (last && !event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        };
+        document.addEventListener("keydown", this._keyboard);
+        this._dialogObserver = new MutationObserver(() => {
+          const dialogs = [...document.querySelectorAll('[role="dialog"]')].filter((dialog) => dialog.getClientRects().length);
+          dialogs.sort((a, b) => Number(getComputedStyle(a.closest(".dialog-backdrop") || a).zIndex) - Number(getComputedStyle(b.closest(".dialog-backdrop") || b).zIndex));
+          const next = dialogs.at(-1);
+          if (next === this._activeDialog) return;
+          if (next) {
+            if (!this._activeDialog) this._focusBeforeDialog = document.activeElement;
+            const target = next.querySelector("input:not(:disabled), select:not(:disabled), button:not(:disabled)");
+            target?.focus({ preventScroll: true });
+          } else if (this._focusBeforeDialog?.isConnected) this._focusBeforeDialog.focus({ preventScroll: true });
+          this._activeDialog = next;
+        });
+        this._dialogObserver.observe(document.body, { childList: true, subtree: true });
         this.perform(async () => {
-          await Promise.all([this.loadLibrary(), this.loadSettings(), this.loadConnections(), this.loadHistory(), this.loadTasks(), this.loadTranscodes(), this.loadCatalogs()]);
+          await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map((load) => this.perform(load)));
           const config = this.state.clientConfig;
           for (const key of ["webdav", "aria2", "pikpak"]) {
             if (config[key]?.configured && (config[key].auto_connect || config[key].auto_login)) await this.perform(() => this.connect(key, true));
@@ -5950,6 +6094,8 @@ class Component extends DCLogic {
       componentWillUnmount() {
         this._disposed = true;
         clearInterval(this._poll);
+        if (this._keyboard) document.removeEventListener("keydown", this._keyboard);
+        this._dialogObserver?.disconnect();
         for (const key of ["_tt", "_st", "_sc1", "_sc2", "_bt"]) clearTimeout(this[key]);
       }
       allConnected() {
@@ -5957,9 +6103,9 @@ class Component extends DCLogic {
       }
       go(route) {
         return () => {
-          this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null });
+          this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
           this.perform(async () => {
-            if (["cinema", "library"].includes(route)) await this.loadLibrary();
+            if (["cinema", "library"].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 3e4)) await this.loadLibrary();
             if (route === "storage") await this.loadFiles(this.state.fsSrc, this.state.directory);
             if (route === "transcode") await this.loadTranscodes(true);
             if (route === "auto") await this.loadTasks();
@@ -5996,6 +6142,12 @@ class Component extends DCLogic {
           this.request("/api/movies/local-library/actors")
         ]);
         data.LIB.splice(0, data.LIB.length, ...(library.records || library.movies || []).map((record) => movieView(record, true)));
+        this.libraryByCode = new Map(data.LIB.map((movie) => [movie.code, movie]));
+        this.latestByActor.clear();
+        this._cinemaCounts = null;
+        for (const movie of data.LIB) for (const actor of movie.actors) {
+          if (!this.latestByActor.has(actor) || movie.date > this.latestByActor.get(actor).date) this.latestByActor.set(actor, movie);
+        }
         data.CN_ACTORS.splice(0, data.CN_ACTORS.length, ...(actors.actors || []).map((actor) => ({ ...actor, count: actor.movie_count, size: size(actor.total_size), noAvatar: !actor.avatar_url })));
         const dims = [["actor", "\u6F14\u5458", "actors"], ["series", "\u7CFB\u5217", "series"], ["studio", "\u5236\u4F5C\u5546", "studio"], ["res", "\u5206\u8FA8\u7387", "res"], ["flag", "\u6807\u8BB0", "tags"]];
         data.FILTER_DIMS.splice(0, data.FILTER_DIMS.length, ...dims.map(([key, name, field]) => ({
@@ -6004,7 +6156,26 @@ class Component extends DCLogic {
           options: [...new Set(data.LIB.flatMap((movie) => movie[field]))].filter((value) => value && value !== "\u2014"),
           test: (movie, value) => Array.isArray(movie[field]) ? movie[field].includes(value) : movie[field] === value
         })));
-        this.setState({ libraryLoaded: true, librarySummary: library, lbPaths: settings.directories || [], lbExcludes: settings.ignored_paths || [], cnHero: data.LIB.some((movie) => movie.code === this.state.cnHero) ? this.state.cnHero : data.LIB[0]?.code || "" });
+        this.setState({
+          libraryLoaded: true,
+          librarySummary: library,
+          librarySettings: settings,
+          ...!this.state.lbPathCfg ? { lbPaths: settings.directories || [], lbExcludes: settings.ignored_paths || [] } : {},
+          cnHero: data.LIB.some((movie) => movie.code === this.state.cnHero) ? this.state.cnHero : data.LIB[0]?.code || ""
+        });
+        this._libraryLoadedAt = Date.now();
+        await this.checkInformation();
+      }
+      async checkInformation(refreshFiles = false) {
+        const result = await this.request("/api/movies/local-library/information/check?fields=" + id(this.state.infoFields.join(",")) + "&refresh_files=" + refreshFiles);
+        const incomplete = new Map((result.incomplete_records || []).map((record) => [record.movie_id, record]));
+        for (const movie of data.LIB) {
+          const missing = incomplete.get(movie.code);
+          movie.c = missing ? Math.max(0, Math.round(100 * (1 - (missing.missing_fields?.length || missing.missing_labels?.length || 1) / Math.max(1, result.fields?.length || this.state.infoFields.length)))) : 100;
+          movie.missing = missing?.missing_labels;
+          movie.unchecked = Boolean(missing?.unchecked_fields?.length);
+        }
+        this.setState({ checkResult: result });
       }
       async loadHistory() {
         const history = await this.request("/api/history");
@@ -6014,30 +6185,35 @@ class Component extends DCLogic {
       async loadTasks() {
         const result = await this.request("/api/automation/tasks");
         const tasks = result.tasks || [];
+        if (JSON.stringify(tasks) === JSON.stringify(this.state.tasks)) return;
         this.setState({ tasks, auTask: tasks.some((task) => task.id === this.state.auTask) ? this.state.auTask : tasks[0]?.id || "" });
       }
       async loadTranscodes(capabilities = false) {
         const payload = await this.request("/api/movies/transcoding/tasks");
-        data.TC.splice(0, data.TC.length, ...(payload.tasks || []).map((task) => ({
-          ...task,
-          raw: task,
-          code: task.movie_id,
-          title: task.movie_title,
-          file: task.source_path,
-          preset: task.preset_name,
-          codec: task.options?.video_codec || "",
-          gpu: task.gpu_name || task.hardware_backend,
-          pct: task.progress,
-          eta: task.eta_seconds == null ? "\u2014" : `${Math.ceil(task.eta_seconds / 60)} \u5206`,
-          elapsed: `${task.elapsed_seconds || 0} \u79D2`,
-          inSize: size(task.input_size),
-          outSize: size(task.output_size)
-        })));
+        const snapshot = JSON.stringify(payload.tasks || []), changed = snapshot !== this._transcodeSnapshot;
+        this._transcodeSnapshot = snapshot;
+        if (changed) {
+          data.TC.splice(0, data.TC.length, ...(payload.tasks || []).map((task) => ({
+            ...task,
+            raw: task,
+            code: task.movie_id,
+            title: task.movie_title,
+            file: task.source_path,
+            preset: task.preset_name,
+            codec: task.options?.video_codec || "",
+            gpu: task.gpu_name || task.hardware_backend,
+            pct: task.progress,
+            eta: task.eta_seconds == null ? "\u2014" : `${Math.ceil(task.eta_seconds / 60)} \u5206`,
+            elapsed: `${task.elapsed_seconds || 0} \u79D2`,
+            inSize: size(task.input_size),
+            outSize: size(task.output_size)
+          })));
+        }
         if (capabilities) {
           this.setState({ tcCaps: {} });
           this.setState({ tcCaps: await this.request("/api/movies/transcoding/presets") });
         }
-        this.forceUpdate?.();
+        if (changed) this.forceUpdate?.();
       }
       async getMagnets(movie, source = this.state.src) {
         const query = new URLSearchParams({ source: sourceKey(source), sortBy: this.state.sortBy, sortOrder: this.state.sortOrder, exclude4k: String(this.state.exclude4k) });
@@ -6055,8 +6231,8 @@ class Component extends DCLogic {
         const version = ++this.requestVersion, st = { ...this.state };
         data.MOVIES.splice(0);
         this.magnets.clear();
-        this.setState({ loading: true, sel: [], detail: null, searchError: "", searchDone: false, nextPage: false });
-        await this.perform(async () => {
+        this.setState({ loading: true, sel: [], detail: null, searchError: "", searchDone: false, nextPage: false, searchPage: null });
+        try {
           let payload;
           if (st.sMode === "recognize") payload = await this.request("/api/movies/recognize", "POST", { html_content: st.recogHtml, auto_download: false, magnet_source: sourceKey(st.src), has_subtitle_filter: st.sub === "0" ? null : st.sub, exclude_4k: st.exclude4k });
           else if (st.sMode === "filter") {
@@ -6070,10 +6246,10 @@ class Component extends DCLogic {
             payload = { movies: [st.sMode === "magnet" && sourceKey(st.src) !== "javbus" ? { id: st.code.trim() } : await this.request(`/api/movies/${id(st.code.trim())}`)] };
           }
           if (version !== this.requestVersion || this._disposed) return;
-          const movies = (payload.movies || []).map((movie) => movieView(movie));
+          const movies = (payload.movies || []).map((movie) => ({ ...movieView(movie), magnetsLoading: true }));
           data.MOVIES.splice(0, data.MOVIES.length, ...movies);
           this.magnets.clear();
-          this.setState({ searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage || payload.has_next_page || movies.length >= 30) });
+          this.setState({ loading: false, magnetsLoading: true, searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage ?? payload.pagination?.nextPage ?? payload.has_next_page ?? movies.length >= 30) });
           for (let offset = 0; offset < movies.length; offset += 4) {
             await Promise.all(movies.slice(offset, offset + 4).map(async (movie) => {
               try {
@@ -6082,84 +6258,125 @@ class Component extends DCLogic {
                 this.magnets.set(movie.code, magnets);
                 movie.mag = magnets[0] ? `${magnets[0].name} \xB7 ${magnets[0].size}` : "";
                 movie.magCount = magnets.length;
-              } catch {
+              } catch (error) {
                 movie.mag = "";
+                movie.magnetError = safeText(error.message);
+                if (st.sMode === "magnet") throw error;
+              } finally {
+                movie.magnetsLoading = false;
               }
             }));
             if (version !== this.requestVersion) return;
             this.forceUpdate?.();
           }
           if (st.autoDownload && st.sMode !== "magnet") this.confirmDispatch(movies.map((movie) => movie.code));
-        });
-        if (version === this.requestVersion) this.setState({ loading: false });
+        } catch (error) {
+          if (version === this.requestVersion) {
+            this.setState({ searchError: safeText(error.message), searchDone: true });
+            this.toast(safeText(error.message), BAD);
+          }
+        }
+        if (version === this.requestVersion) this.setState({ loading: false, magnetsLoading: false });
       };
+      clearSearch() {
+        ++this.requestVersion;
+        data.MOVIES.splice(0);
+        this.magnets.clear();
+        this.setState({ loading: false, magnetsLoading: false, searchDone: false, searchError: "", nextPage: false, sel: [], detail: null });
+      }
       visible() {
         return this.state.sMode === "magnet" ? [] : data.MOVIES;
       }
       setSrc(src) {
         return () => {
           this.setState({ src });
-          if (this.state.searchDone) void this.runSearch();
+          if (this.state.searchDone || this.state.loading) void this.runSearch();
         };
       }
       dispatchOne(movie) {
         return () => this.confirmDispatch([movie.code]);
       }
       confirmDispatch(codes, magnets) {
+        codes = [...new Set(codes.map((code) => String(code).trim().toUpperCase()).filter(Boolean))];
         if (!codes.length) {
           this.toast("\u8BF7\u9009\u62E9\u5F71\u7247\u6216\u586B\u5199\u756A\u53F7", WARN);
           return;
         }
+        const st = { ...this.state }, chosen = magnets || (st.route === "search" ? codes.flatMap((code) => (this.magnets.get(code) || []).slice(0, 1)) : null);
         this.ask({
-          title: `\u6D3E\u53D1 ${codes.length} \u90E8\u5230 ${this.state.tool}\uFF1F`,
+          title: `\u6D3E\u53D1 ${codes.length} \u90E8\u5230 ${st.tool}\uFF1F`,
           color: ACC,
           okText: "\u5F00\u59CB\u6D3E\u53D1",
           body: "\u5C06\u63D0\u4EA4\u771F\u5B9E\u4E0B\u8F7D\u4EFB\u52A1\uFF1B\u672C\u5730\u5DF2\u6709\u5F71\u7247\u4E0E\u5DF2\u5C1D\u8BD5\u94FE\u63A5\u7531\u540E\u7AEF\u68C0\u67E5\u3002",
           list: codes,
           run: () => this.perform(async () => {
-            let entries = magnets;
-            if (!entries && this.state.route === "search") entries = codes.flatMap((code) => (this.magnets.get(code) || []).slice(0, 1));
+            let entries = chosen;
             if (!entries) {
               const payload = await this.request("/api/movies/download-by-codes", "POST", {
                 movie_codes: codes.join("\n"),
                 auto_download: false,
-                magnet_source: sourceKey(this.state.route === "dispatch" ? this.state.dSrc : this.state.src),
-                has_subtitle_filter: this.state.route === "dispatch" ? this.state.dSubOnly ? "true" : null : this.state.sub === "0" ? null : this.state.sub,
-                exclude_4k: this.state.route === "dispatch" ? this.state.dNo4k : this.state.exclude4k
+                magnet_source: sourceKey(st.route === "dispatch" ? st.dSrc : st.src),
+                has_subtitle_filter: st.route === "dispatch" ? st.dSubOnly ? "true" : null : st.sub === "0" ? null : st.sub,
+                exclude_4k: st.route === "dispatch" ? st.dNo4k : st.exclude4k
               });
               entries = payload.magnet_results || [];
             }
             const usable = entries.filter((item) => item.link || item.magnet_link);
             if (!usable.length) throw new Error("\u6CA1\u6709\u53EF\u6D3E\u53D1\u7684\u78C1\u529B\uFF1B\u53EF\u80FD\u5DF2\u5165\u5E93\u6216\u94FE\u63A5\u5747\u5DF2\u5C1D\u8BD5");
-            const tool = toolKey(this.state.tool);
-            const body = { magnet_links: usable.map((item) => item.link || item.magnet_link), movie_ids: usable.map((item) => item.movie_id || item.id || codes[0]), magnet_sources: usable.map((item) => item.source || sourceKey(this.state.src)) };
+            const tool = toolKey(st.tool);
+            const body = { magnet_links: usable.map((item) => item.link || item.magnet_link), movie_ids: usable.map((item) => item.movie_id || item.id || codes[0]), magnet_sources: usable.map((item) => item.source || sourceKey(st.route === "dispatch" ? st.dSrc : st.src)) };
             if (tool === "pikpak" && this.auth && !this.auth.fromConfig) Object.assign(body, { username: this.auth.username, password: this.auth.password });
             const endpoint = { pikpak: "/api/pikpak/download", pan115: "/api/115/download", aria2: "/api/aria2/download-magnets" }[tool];
-            const result = await this.request(endpoint, "POST", body);
-            await this.loadHistory();
-            if (result.results?.some((item) => item.success === false && !item.skipped)) throw new Error("\u90E8\u5206\u4E0B\u8F7D\u6D3E\u53D1\u5931\u8D25\uFF0C\u8BF7\u67E5\u770B\u4E0B\u8F7D\u5386\u53F2");
-          }, "\u4E0B\u8F7D\u4EFB\u52A1\u5DF2\u63D0\u4EA4")
+            let result;
+            try {
+              result = await this.request(endpoint, "POST", body);
+            } catch (error) {
+              if (!error.result?.results) throw error;
+              result = error.result;
+            }
+            this.setState({ dispatchResult: result, dispatchTool: st.tool });
+            await this.perform(() => this.loadHistory());
+            if (result.results?.some((item) => item.success === false && !item.skipped)) throw new Error("\u90E8\u5206\u4E0B\u8F7D\u6D3E\u53D1\u5931\u8D25\uFF0C\u8BF7\u5230\u4E0B\u8F7D\u6D3E\u53D1\u9875\u5904\u7406\u5931\u8D25\u9879");
+            if (result.results?.length && result.results.every((item) => item.skipped)) {
+              this.toast("\u5168\u90E8\u8D44\u6E90\u5DF2\u8DF3\u8FC7\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", WARN);
+              return;
+            }
+            this.toast("\u4E0B\u8F7D\u4EFB\u52A1\u5DF2\u63D0\u4EA4", OK);
+          })
         });
       }
       async poll() {
         if (this._polling || this._disposed) return;
         this._polling = true;
         try {
-          if (["transcode", "library", "cinema"].includes(this.state.route)) await this.loadTranscodes();
+          if (["transcode", "library", "cinema"].includes(this.state.route)) await this.perform(() => this.loadTranscodes());
+          if (this.state.route === "storage" && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
+          if (this.state.route === "auto") await this.perform(() => this.loadTasks());
           for (const [key, prefix] of [["scanTask", "/api/movies/local-library/scan/jobs/"], ["scrapeTask", "/api/movies/local-scrape/jobs/"]]) {
             const current = this.state[key];
             if (!current || ["success", "completed", "failed"].includes(current.status)) continue;
-            const task = await this.request(prefix + id(current.id));
+            let task;
+            try {
+              task = await this.request(prefix + id(current.id));
+            } catch (error) {
+              if (error.status === 404) {
+                window.sessionStorage.removeItem(jobStorage[key]);
+                this.setState({ [key]: { ...current, status: "failed" }, ...key === "scrapeTask" ? { scPhase: "idle" } : { lbScanning: false } });
+                throw new Error("\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u6216\u751F\u6210\u9884\u89C8");
+              }
+              throw error;
+            }
             this.setState({ [key]: { ...task, id: current.id, operation: current.operation } });
-            if (["success", "completed"].includes(task.status)) {
+            if (["success", "completed", "failed"].includes(task.status)) window.sessionStorage.removeItem(jobStorage[key]);
+            if (key === "scrapeTask" && current.operation === "apply" && task.result && ["success", "completed", "failed"].includes(task.status)) {
+              this.setState({ scPhase: "idle", scrapeResult: task.result });
+              data.SCRAPE_ROWS.splice(0);
+              await this.loadLibrary();
+              this.toast(`\u522E\u524A\u6267\u884C\u5B8C\u6210\uFF1A${task.result.success_count || 0} \u6210\u529F\uFF0C${task.result.failed_count || 0} \u5931\u8D25`, task.status === "failed" ? WARN : OK);
+            } else if (["success", "completed"].includes(task.status)) {
               if (key === "scanTask") {
                 this.setState({ lbScanning: false });
                 await this.loadLibrary();
-              } else if (current.operation === "apply") {
-                this.setState({ scPhase: "idle", scrapeResult: task.result });
-                data.SCRAPE_ROWS.splice(0);
-                await this.loadLibrary();
-                this.toast(`\u522E\u524A\u6267\u884C\u5B8C\u6210\uFF1A${task.result?.success_count || 0} \u6210\u529F\uFF0C${task.result?.failed_count || 0} \u5931\u8D25`, task.result?.failed_count ? WARN : OK);
               } else this.applyScrapeResult(task.result);
             } else if (task.status === "failed") {
               this.setState({ lbScanning: false, scPhase: "idle" });
@@ -6170,6 +6387,41 @@ class Component extends DCLogic {
         } finally {
           this._polling = false;
         }
+      }
+      async startJob(key, url, payload, operation = "preview") {
+        const config = key === "scrapeTask" ? Object.fromEntries(scrapeConfigKeys.map((field) => [field, this.state[field]])) : void 0;
+        const task = await this.request(url, "POST", payload);
+        window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
+        this.setState({ [key]: { id: task.task_id, status: "running", operation } });
+        return task;
+      }
+      cinemaCounts(actor) {
+        if (this._cinemaCounts?.actor === actor) return this._cinemaCounts.counts;
+        const counts = new Map(data.FILTER_DIMS.map((dim) => [dim.key, /* @__PURE__ */ new Map()]));
+        for (const movie of data.LIB) {
+          if (actor && !movie.actors.includes(actor)) continue;
+          for (const [key, field] of [["actor", "actors"], ["series", "series"], ["studio", "studio"], ["res", "res"], ["flag", "tags"]]) {
+            for (const value of new Set(Array.isArray(movie[field]) ? movie[field] : [movie[field]])) {
+              const group = counts.get(key);
+              group.set(value, (group.get(value) || 0) + 1);
+            }
+          }
+        }
+        this._cinemaCounts = { actor, counts };
+        return counts;
+      }
+      pageItems(items, key, filters, limit = 60) {
+        const signature = JSON.stringify(filters), saved = this.state[key];
+        const pages = Math.max(1, Math.ceil(items.length / limit));
+        const index = Math.min(saved?.signature === signature ? saved.index : 0, pages - 1);
+        return { items: items.slice(index * limit, (index + 1) * limit), paging: {
+          visible: pages > 1,
+          text: `\u7B2C ${index + 1} / ${pages} \u9875 \xB7 \u5171 ${items.length} \u9879`,
+          first: index === 0,
+          last: index === pages - 1,
+          prev: () => this.setState({ [key]: { signature, index: Math.max(0, index - 1) } }),
+          next: () => this.setState({ [key]: { signature, index: Math.min(pages - 1, index + 1) } })
+        } };
       }
       vCinema() {
         if (!data.LIB.length) return { tabs: [], showHero: false, showShelves: false, showWall: true, showActors: false, wall: [], wallEmpty: true, wallMeta: this.state.libraryLoaded ? "\u5F71\u89C6\u5E93\u4E3A\u7A7A\uFF0C\u8BF7\u5230\u7BA1\u7406\u754C\u9762\u6DFB\u52A0\u8DEF\u5F84\u5E76\u626B\u63CF\u5165\u5E93" : "\u6B63\u5728\u8BFB\u53D6\u5F71\u89C6\u5E93\u2026", emptyTitle: "\u5F71\u89C6\u5E93\u4E3A\u7A7A", emptyBody: "\u6DFB\u52A0\u5A92\u4F53\u8DEF\u5F84\u5E76\u626B\u63CF\u5165\u5E93\u540E\uFF0C\u5373\u53EF\u5728\u8FD9\u91CC\u6D4F\u89C8\u548C\u64AD\u653E\u3002", clearText: "\u914D\u7F6E\u5F71\u89C6\u5E93", clearFilters: this.go("library"), libMeta: "0 \u90E8", filterGroups: [], sorts: [], filterCount: 0, hasFilters: false, exit: this.go("library"), closePlayer: () => this.setState({ cnPlaying: null }) };
@@ -6183,15 +6435,56 @@ class Component extends DCLogic {
         view.emptyTitle = "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247";
         view.emptyBody = "\u5F53\u524D\u7EC4\u5408\u8FC7\u6EE4\u6389\u4E86\u5168\u90E8\u7ED3\u679C\u3002\u53BB\u6389\u4E00\u4E2A\u6761\u4EF6\uFF0C\u6216\u6E05\u7A7A\u540E\u91CD\u65B0\u9009\u62E9\u3002";
         view.clearText = "\u6E05\u7A7A\u6761\u4EF6";
-        for (const row of view.wall) row.cover = data.LIB.find((movie) => movie.code === row.code)?.cover;
-        view.play = () => this.setState({ cnPlaying: view.hero.code, cnPaused: false, cnBuffering: false });
+        for (const row of view.wall) row.cover = this.libraryByCode.get(row.code)?.cover;
+        const heroFiles = data.LIB.find((movie) => movie.code === view.hero.code)?.raw.files || [];
+        view.hero.playText = heroFiles.some((file) => file.exists !== false) ? "\u64AD\u653E" : "\u6587\u4EF6\u7F3A\u5931";
+        view.play = () => {
+          const index = heroFiles.findIndex((file) => file.exists !== false);
+          if (index < 0) {
+            this.toast("\u672C\u5730\u6587\u4EF6\u7F3A\u5931\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u5F71\u89C6\u5E93", WARN);
+            return;
+          }
+          this.setState({ cnPlaying: view.hero.code, playerIndex: index, cnPaused: false, cnBuffering: false });
+        };
         if (view.player) {
+          const playing = data.LIB.find((movie) => movie.code === this.state.cnPlaying);
           view.player.url = `/api/movies/local-library/${id(this.state.cnPlaying)}/play?file_index=${this.state.playerIndex || 0}`;
           view.player.error = () => this.toast("\u6D4F\u89C8\u5668\u65E0\u6CD5\u64AD\u653E\u6B64\u6587\u4EF6\uFF0C\u53EF\u4ECE\u5F71\u7247\u8BE6\u60C5\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1", WARN);
+          view.player.files = (playing.raw.files || []).map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}` }));
+          view.player.fileIndex = String(this.state.playerIndex || 0);
+          view.player.selectFile = (event) => this.setState({ playerIndex: Number(event.target.value) });
+          view.player.ended = () => {
+            if ((this.state.playerIndex || 0) + 1 < playing.files) this.setState({ playerIndex: (this.state.playerIndex || 0) + 1 });
+          };
         }
+        for (const actor of view.actors) actor.avatarUrl = data.CN_ACTORS.find((item) => item.name === actor.name)?.avatar_url || "";
         if (this.state.cnTab === "\u63A8\u8350") view.shelves = [{ name: "\u6700\u8FD1\u5165\u5E93", meta: `${data.LIB.length} \u90E8`, cardW: "158px", items: data.LIB.slice(0, 12).map((movie) => ({ ...movie, sub: movie.actors.join(" / "), ring: "var(--t08)", ringW: "1px", pick: () => this.setState({ cnHero: movie.code }) })) }];
-        if (this.state.cnTab === "\u7CFB\u5217") view.shelves = [...new Set(data.LIB.map((movie) => movie.series))].filter((series) => series !== "\u2014").map((series) => ({ name: series, meta: "", cardW: "158px", items: data.LIB.filter((movie) => movie.series === series).map((movie) => ({ ...movie, sub: movie.actors.join(" / "), ring: "var(--t08)", ringW: "1px", pick: () => this.setState({ cnHero: movie.code }) })) }));
-        for (const shelf of view.shelves) for (const row of shelf.items) row.cover = data.LIB.find((movie) => movie.code === row.code)?.cover;
+        if (["\u7CFB\u5217", "VR"].includes(this.state.cnTab)) {
+          const vr = this.state.cnTab === "VR", groups = /* @__PURE__ */ new Map();
+          for (const movie of data.LIB) {
+            if (vr ? !movie.vr : movie.series === "\u2014") continue;
+            const key = vr ? movie.res : movie.series;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(movie);
+          }
+          view.shelves = [...groups].map(([key, movies]) => ({
+            name: vr ? `VR ${key}` : key,
+            meta: `${movies.length} \u90E8`,
+            cardW: "158px",
+            openAll: () => this.setState({ cnTab: "\u5168\u90E8\u5F71\u7247", cnActor: null, cnF: { actor: [], series: vr ? [] : [key], studio: [], res: vr ? [key] : [], flag: vr ? ["VR"] : [] } }),
+            items: movies.slice(0, 12).map((movie) => ({ ...movie, sub: movie.actors.join(" / "), ring: "var(--t08)", ringW: "1px", pick: () => this.setState({ cnHero: movie.code }) }))
+          }));
+        }
+        const shelves = this.pageItems(view.shelves, "cnShelfPage", [this.state.cnTab], 6);
+        view.shelves = shelves.items;
+        view.shelfPaging = shelves.paging;
+        for (const shelf of view.shelves) for (const row of shelf.items) row.cover = this.libraryByCode.get(row.code)?.cover;
+        const wall = this.pageItems(view.wall, "cnPage", [this.state.cnTab, this.state.cnActor, this.state.cnF, this.state.cnSort]);
+        view.wall = wall.items;
+        view.paging = wall.paging;
+        const actors = this.pageItems(view.actors, "cnActorPage", []);
+        view.actors = actors.items;
+        view.actorPaging = actors.paging;
         return view;
       }
       vLibrary() {
@@ -6210,15 +6503,16 @@ class Component extends DCLogic {
             status: "",
             stFg: DIM2,
             change: (event) => this.setState({ [key]: st[key].map((value, i) => i === index ? event.target.value : value) }),
-            browse: () => this.browseDirectory(path, { key, index }),
+            browse: () => this.perform(() => this.browseDirectory(path, { key, index })),
             remove: () => this.setState({ [key]: st[key].filter((_, i) => i !== index) })
           }))
         }));
         view.savePaths = () => this.perform(async () => {
-          await this.request("/api/movies/local-library/settings", "PUT", { directories: st.lbPaths.filter((path) => path.trim()), ignored_paths: st.lbExcludes.filter((path) => path.trim()) });
+          await this.request("/api/movies/local-library/settings", "PUT", { directories: st.lbPaths.map((path) => path.trim()).filter(Boolean), ignored_paths: st.lbExcludes.map((path) => path.trim()).filter(Boolean) });
           this.setState({ lbPathCfg: false });
         }, "\u8DEF\u5F84\u914D\u7F6E\u5DF2\u4FDD\u5B58");
         view.scanAll = () => this.scanLibrary(st.lbPaths);
+        view.refresh = () => this.perform(() => this.loadLibrary(), "\u5F71\u89C6\u5E93\u5DF2\u5237\u65B0");
         view.stopScan = () => this.toast("\u5F53\u524D\u626B\u63CF\u7531\u540E\u7AEF\u8FD0\u884C\uFF0C\u5B8C\u6210\u540E\u4F1A\u81EA\u52A8\u66F4\u65B0", WARN);
         view.runSearch = () => this.forceUpdate?.();
         view.checkItems = [["title", "\u6807\u9898"], ["date", "\u53D1\u884C\u65E5\u671F"], ["stars", "\u6F14\u5458"], ["genres", "\u6807\u7B7E"], ["cover_url", "\u5C01\u9762\u94FE\u63A5"], ["nfo", "NFO \u6587\u4EF6"], ["poster_file", "\u672C\u5730\u5C01\u9762"]].map(([key, label]) => ({ label, hint: "", on: st.infoFields.includes(key), toggle: () => this.setState({ infoFields: st.infoFields.includes(key) ? st.infoFields.filter((value) => value !== key) : [...st.infoFields, key] }) }));
@@ -6226,24 +6520,25 @@ class Component extends DCLogic {
         view.scanPercent = st.scanTask?.percent || 0;
         const sortField = st.lbSort.startsWith("\u53D1\u884C") ? "date" : st.lbSort.startsWith("\u756A\u53F7") ? "code" : st.lbSort.includes("\u4F53\u79EF") ? "total_size" : "added";
         view.rows.sort((a, b) => {
-          const left = data.LIB.find((movie) => movie.code === a.code), right = data.LIB.find((movie) => movie.code === b.code);
-          return sortField === "total_size" ? right.raw.total_size - left.raw.total_size : sortField === "code" ? left.code.localeCompare(right.code) : String(right[sortField]).localeCompare(String(left[sortField]));
+          const left = this.libraryByCode.get(a.code), right = this.libraryByCode.get(b.code);
+          return sortField === "total_size" ? Number(right.raw.total_size || 0) - Number(left.raw.total_size || 0) : sortField === "code" ? left.code.localeCompare(right.code) : String(right[sortField]).localeCompare(String(left[sortField]));
         });
+        const page = this.pageItems(view.rows, "lbPage", [st.lbQ, st.lbActor, st.lbStudio, st.lbRes, st.lbM, st.lbSubOnly, st.lbMissing, st.lbSort]);
+        view.rows = page.items;
+        view.paging = page.paging;
         for (const row of view.rows) {
-          row.cover = data.LIB.find((movie) => movie.code === row.code)?.cover;
-          row.cNote = st.checkResult ? row.cNote : "\u5F85\u68C0\u67E5";
-          row.completeness = st.checkResult ? row.completeness : "\u2014";
+          const movie = this.libraryByCode.get(row.code);
+          row.cover = movie?.cover;
+          row.cNote = movie?.unchecked ? "\u672C\u5730\u6587\u4EF6\u5F85\u6838\u9A8C" : st.checkResult ? row.cNote : "\u5F85\u68C0\u67E5";
+          row.completeness = st.checkResult && !movie?.unchecked ? row.completeness : "\u2014";
         }
         view.actorOptions = ["\u5168\u90E8\u6F14\u5458", ...new Set(data.LIB.flatMap((movie) => movie.actors))].map((t) => ({ t }));
         view.studioOptions = ["\u5168\u90E8\u5236\u4F5C\u5546", ...new Set(data.LIB.map((movie) => movie.studio))].map((t) => ({ t }));
         view.runCheck = () => this.perform(async () => {
-          const result = await this.request("/api/movies/local-library/information/check?fields=" + id(st.infoFields.join(",")));
-          this.setState({ checkResult: result, lbCheckCfg: false });
-          const incomplete = new Map((result.incomplete_records || []).map((record2) => [record2.movie_id, record2]));
-          for (const movie of data.LIB) {
-            movie.c = incomplete.has(movie.code) ? 0 : 100;
-            movie.missing = incomplete.get(movie.code)?.missing_labels;
-          }
+          if (!st.infoFields.length) throw new Error("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u9879\u68C0\u67E5\u5185\u5BB9");
+          await this.checkInformation(true);
+          await this.loadLibrary();
+          this.setState({ lbCheckCfg: false });
         }, "\u8D44\u6599\u68C0\u67E5\u5B8C\u6210");
         view.clean = () => this.ask({
           title: "\u6E05\u6D17\u65E0\u6548\u5A92\u4F53\u6587\u4EF6\uFF1F",
@@ -6267,7 +6562,12 @@ class Component extends DCLogic {
             await this.loadLibrary();
           }, "\u5F71\u89C6\u5E93\u7D22\u5F15\u5DF2\u6E05\u7A7A")
         });
-        view.actors = data.CN_ACTORS.map((actor) => ({ ...actor, initial: actor.name.slice(0, 1), meta: `${actor.count} \u90E8`, avatar: actor.noAvatar ? "\u6682\u65E0\u5934\u50CF" : "\u672C\u5730\u5934\u50CF", avatarFg: DIM2, open: () => this.setState({ lbActor: actor.name, lbView: "list" }) }));
+        view.actors = data.CN_ACTORS.map((actor) => ({ ...actor, avatarUrl: actor.avatar_url || "", initial: actor.name.slice(0, 1), meta: `${actor.count} \u90E8`, avatar: actor.noAvatar ? "\u6682\u65E0\u5934\u50CF" : "\u672C\u5730\u5934\u50CF", avatarFg: DIM2, open: () => this.setState({ lbActor: actor.name, lbView: "list" }) }));
+        if (view.showActor) {
+          const actors = this.pageItems(view.actors, "lbActorPage", []);
+          view.actors = actors.items;
+          view.paging = actors.paging;
+        }
         const record = data.LIB.find((movie) => movie.code === st.lbDetail);
         if (view.d && record) {
           view.d.fields = [["\u53D1\u884C\u65E5\u671F", record.date], ["\u5236\u4F5C\u5546", record.studio], ["\u53D1\u884C\u5546", record.label], ["\u7CFB\u5217", record.series], ["\u5206\u8FA8\u7387 / \u7F16\u7801", `${record.res} \xB7 ${record.codec}`], ["\u4F53\u79EF", record.size]].map(([k, v]) => ({ k, v, fg: "var(--fg)", mono: "inherit", fs: "12px" }));
@@ -6275,11 +6575,11 @@ class Component extends DCLogic {
             idx: index,
             path: file.path,
             size: size(file.size),
-            codec: record.codec,
-            status: "\u5DF2\u7D22\u5F15",
-            stFg: OK,
+            codec: file.media_info?.codec || record.codec,
+            status: file.exists === false ? "\u6587\u4EF6\u7F3A\u5931" : "\u5DF2\u7D22\u5F15",
+            stFg: file.exists === false ? BAD : OK,
             fg: "var(--fg)",
-            gone: false,
+            gone: file.exists === false,
             play: () => this.setState({ cnPlaying: record.code, playerIndex: index, route: "cinema", lbDetail: null }),
             transcode: () => this.openTranscode(record.code, index)
           }));
@@ -6308,12 +6608,13 @@ class Component extends DCLogic {
       }
       completeInformation(codes, onlyMissing) {
         return this.perform(async () => {
-          await this.request("/api/movies/local-library/information/download", "POST", { movie_ids: codes, only_missing: onlyMissing, write_nfo: true, download_images: true, overwrite_existing: !onlyMissing });
+          const result = await this.request("/api/movies/local-library/information/download", "POST", { movie_ids: codes, only_missing: onlyMissing, write_nfo: true, download_images: true, overwrite_existing: !onlyMissing });
           await this.loadLibrary();
+          if (result.failed_count) throw new Error(`\u8D44\u6599\u66F4\u65B0\uFF1A${result.updated_count || 0} \u6210\u529F\uFF0C${result.failed_count} \u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u522E\u524A\u6E90\u6216\u6587\u4EF6\u5199\u5165\u6743\u9650`);
         }, "\u5F71\u7247\u8D44\u6599\u5DF2\u66F4\u65B0");
       }
       scanLibrary(paths) {
-        const directories = paths.filter((path) => path.trim());
+        const directories = paths.map((path) => path.trim()).filter(Boolean);
         if (!directories.length) {
           this.setState({ lbPathCfg: true });
           return;
@@ -6325,16 +6626,23 @@ class Component extends DCLogic {
           color: ACC,
           okText: "\u5F00\u59CB\u626B\u63CF",
           run: () => this.perform(async () => {
-            const task = await this.request("/api/movies/local-library/scan/jobs", "POST", { directories, ignored_paths: this.state.lbExcludes, recursive: true, probe_media: true });
-            this.setState({ scanTask: { id: task.task_id, status: "running" }, lbScanning: true });
+            await this.startJob("scanTask", "/api/movies/local-library/scan/jobs", { directories, ignored_paths: this.state.lbExcludes, recursive: true, probe_media: true }, "scan");
+            this.setState({ lbScanning: true });
           }, "\u540E\u53F0\u626B\u63CF\u5DF2\u542F\u52A8")
         });
       }
       openTranscode(code, fileIndex = 0) {
         return this.perform(async () => {
-          await this.loadTranscodes(true);
-          const preset = this.state.tcCaps.presets?.find((item) => item.id === "adaptive_h265" && item.available !== false) || this.state.tcCaps.presets?.find((item) => item.available !== false);
-          this.setState({ route: "library", lbTc: { code, fileIndex }, lbTcPreset: preset?.id || "", tcOptions: {} });
+          const selection = { code, fileIndex };
+          this.setState({ route: "library", lbTc: selection, tcCaps: {}, tcOptions: {}, lbTcPreset: "", tcCapsLoading: true });
+          try {
+            await this.loadTranscodes(true);
+            if (this.state.lbTc !== selection || this._disposed) return;
+            const preset = this.state.tcCaps.presets?.find((item) => item.id === "adaptive_h265" && item.available !== false) || this.state.tcCaps.presets?.find((item) => item.available !== false);
+            this.setState({ lbTcPreset: preset?.id || "" });
+          } finally {
+            this.setState({ tcCapsLoading: false });
+          }
         });
       }
       transcodeDialog(selection) {
@@ -6363,14 +6671,15 @@ class Component extends DCLogic {
             codecFg: DIM,
             pick: () => this.setState({ lbTcPreset: item.id, tcOptions: {} })
           })),
-          custom: !preset?.adaptive,
+          custom: Boolean(preset) && !preset.adaptive,
+          canSubmit: !st.tcCapsLoading && caps.gpu_available && preset?.available !== false && Boolean(preset),
           customFields: [
             this.formField("\u7F16\u7801\u5668", st.tcOptions.video_codec ?? preset?.options?.video_codec ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, video_codec: value } }), "select", caps.available_encoders || []),
             this.formField("CQ / CRF", st.tcOptions.crf ?? preset?.options?.crf ?? 24, (value) => this.setState({ tcOptions: { ...st.tcOptions, crf: Number(value) } })),
             this.formField("\u6700\u5927\u9AD8\u5EA6\uFF08\u7559\u7A7A\u4FDD\u6301\u539F\u59CB\uFF09", st.tcOptions.max_height ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, max_height: value ? Number(value) : null } })),
             ...[["quality_mode", "\u8D28\u91CF\u6A21\u5F0F", "select", ["crf", "bitrate"]], ["video_bitrate_kbps", "\u89C6\u9891\u7801\u7387 kbps", "number"], ["speed_preset", "\u901F\u5EA6\u9884\u8BBE", "select", ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]], ["tune", "\u8C03\u4F18", "select", ["", "film", "animation", "grain", "fastdecode", "zerolatency"]], ["frame_rate", "\u5E27\u7387", "number"], ["pixel_format", "\u50CF\u7D20\u683C\u5F0F", "select", ["auto", "yuv420p", "yuv420p10le"]], ["audio_codec", "\u97F3\u9891\u7F16\u7801", "select", caps.audio_codecs || ["copy", "aac"]], ["audio_bitrate_kbps", "\u97F3\u9891\u7801\u7387 kbps", "number"], ["audio_channels", "\u97F3\u9891\u58F0\u9053", "number"], ["copy_subtitles", "\u4FDD\u7559\u5B57\u5E55", "check"], ["copy_metadata", "\u4FDD\u7559\u5143\u6570\u636E", "check"], ["deinterlace", "\u53BB\u9694\u884C", "check"]].map(([key, label, kind, options]) => this.formField(label, st.tcOptions[key] ?? preset?.options?.[key] ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, [key]: value === "" || kind === "number" && value === 0 ? null : value } }), kind, options))
           ],
-          note: caps.gpu_available ? "\u4EC5\u5BF9\u5F53\u524D\u9009\u4E2D\u6587\u4EF6\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1\uFF0C\u8F93\u51FA\u66F4\u5C0F\u65F6\u624D\u66FF\u6362\u3002" : "\u672A\u68C0\u6D4B\u5230\u53EF\u7528 GPU\uFF0C\u65E0\u6CD5\u521B\u5EFA\u8F6C\u7801\u4EFB\u52A1\u3002",
+          note: st.tcCapsLoading ? "\u6B63\u5728\u68C0\u6D4B GPU \u548C\u53EF\u7528\u8F6C\u7801\u9884\u8BBE\u2026" : caps.gpu_available ? "\u4EC5\u5BF9\u5F53\u524D\u9009\u4E2D\u6587\u4EF6\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1\uFF0C\u8F93\u51FA\u66F4\u5C0F\u65F6\u624D\u66FF\u6362\u3002" : "\u672A\u68C0\u6D4B\u5230\u53EF\u7528 GPU\uFF0C\u65E0\u6CD5\u521B\u5EFA\u8F6C\u7801\u4EFB\u52A1\u3002",
           openPanel: this.go("transcode"),
           submit: () => this.perform(async () => {
             if (!caps.gpu_available || !preset || preset.available === false) throw new Error("\u6CA1\u6709\u53EF\u7528\u7684 GPU \u8F6C\u7801\u9884\u8BBE");
@@ -6393,6 +6702,8 @@ class Component extends DCLogic {
         view.nActive = active.length;
         view.nDone = done.length;
         view.nBad = bad.length;
+        view.maxConcurrent = caps.max_concurrent_tasks ?? "\u2014";
+        view.hardwareMessage = caps.gpu_error ? safeText(caps.gpu_error) : caps.gpu_available ? "\u786C\u4EF6\u68C0\u6D4B\u901A\u8FC7\uFF1B\u53EA\u63D0\u4F9B\u5F53\u524D\u8BBE\u5907\u53EF\u7528\u7684\u9884\u8BBE\u3002" : "\u672A\u68C0\u6D4B\u5230\u53EF\u7528\u7684 GPU \u786C\u4EF6\u7F16\u7801\u5668\uFF0C\u8BF7\u68C0\u67E5 FFmpeg \u548C\u663E\u5361\u9A71\u52A8\u3002";
         view.caps = [["FFmpeg", caps.ffmpeg_available], ["ffprobe", caps.ffprobe_available], ["GPU", caps.gpu_available]].map(([label, available]) => ({ label, value: available === void 0 ? "\u5F85\u68C0\u6D4B" : available ? "\u53EF\u7528" : "\u4E0D\u53EF\u7528", dot: available ? OK : DIM2, fg: DIM }));
         view.presets = (caps.presets || []).map((preset) => ({ name: preset.name, desc: preset.description, codec: preset.options?.video_codec, op: preset.available === false ? ".5" : "1", bg: "var(--t03)", ring: "var(--t09)", tagBg: "var(--t08)", tagFg: ACC, codecFg: DIM, tag: preset.available === false ? "\u4E0D\u53EF\u7528" : "\u53EF\u7528" }));
         view.refresh = () => this.perform(() => this.loadTranscodes(true), "\u8F6C\u7801\u961F\u5217\u5DF2\u5237\u65B0");
@@ -6402,6 +6713,7 @@ class Component extends DCLogic {
         }, "\u5B8C\u6210\u8BB0\u5F55\u5DF2\u6E05\u7406") });
         for (const row of view.rows) {
           const task = data.TC.find((item) => item.id === row.id);
+          row.canDelete = ["completed", "failed", "cancelled"].includes(task.status);
           row.cancel = () => this.ask({ title: `\u53D6\u6D88 ${task.code} \u8F6C\u7801\uFF1F`, body: "\u7EC8\u6B62\u7F16\u7801\u5E76\u4FDD\u7559\u539F\u6587\u4EF6\u3002", color: WARN, okText: "\u53D6\u6D88\u4EFB\u52A1", run: () => this.transcodeAction(task, "cancel") });
           row.retry = () => this.transcodeAction(task, "retry");
           row.del = () => this.transcodeAction(task, "", "DELETE");
@@ -6411,28 +6723,43 @@ class Component extends DCLogic {
           view.d.fields = [["\u6587\u4EF6", task.file], ["\u7F16\u7801\u5668", task.codec], ["\u786C\u4EF6", task.gpu], ["\u8F93\u5165\u5927\u5C0F", task.inSize], ["\u8F93\u51FA\u5927\u5C0F", task.outSize]].map(([k, v]) => ({ k, v, mono: "inherit", fs: "12px" }));
           view.d.retry = () => this.transcodeAction(task, "retry");
           view.d.cancel = () => this.transcodeAction(task, "cancel");
-          view.d.copy = () => this.perform(() => navigator.clipboard.writeText(JSON.stringify(task.raw.options, null, 2)), "\u8F6C\u7801\u53C2\u6570\u5DF2\u590D\u5236");
+          view.d.copy = () => this.perform(() => this.copyText(JSON.stringify(task.raw.options, null, 2)), "\u8F6C\u7801\u53C2\u6570\u5DF2\u590D\u5236");
         }
         return view;
       }
       scrapePayload() {
-        const st = this.state;
+        const st = this.state, opts = { ...st.scOpts };
+        for (const key of ["write_nfo", "download_images", "download_sample_images", "download_actor_images", "download_list_thumbnail"]) opts[key] = Boolean(opts[key] && opts.scrape && (["write_nfo", "download_images"].includes(key) || opts.download_images));
         return {
-          ...st.scOpts,
+          ...opts,
           directory: st.scScanDir,
           target_directory: st.scOutDir || null,
+          code_overrides: st.scOverrides || {},
           folder_template: st.scFolderRule,
           naming_template: st.scFileRule,
-          max_depth: st.scMaxDepth ? Number(st.scMaxDepth) : null,
-          concurrent: Number(st.scConcurrent) || 3
+          max_depth: st.scMaxDepth === "" ? null : Number(st.scMaxDepth),
+          concurrent: Number(st.scConcurrent)
         };
+      }
+      previewScrape() {
+        return this.perform(async () => {
+          if (this.state.scPhase === "scanning") throw new Error("\u5F53\u524D\u4EFB\u52A1\u8FD0\u884C\u4E2D\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210");
+          if (!this.state.scScanDir.trim()) throw new Error("\u8BF7\u586B\u5199\u626B\u63CF\u76EE\u5F55");
+          const payload = this.scrapePayload();
+          if (!Number.isInteger(payload.concurrent) || payload.concurrent < 1 || payload.concurrent > 5) throw new Error("\u5E76\u53D1\u6570\u5E94\u4E3A 1\u20135 \u7684\u6574\u6570");
+          if (payload.max_depth !== null && (!Number.isInteger(payload.max_depth) || payload.max_depth < 0)) throw new Error("\u9012\u5F52\u6DF1\u5EA6\u5E94\u4E3A\u975E\u8D1F\u6574\u6570\u6216\u7559\u7A7A");
+          const task = await this.startJob("scrapeTask", "/api/movies/local-scrape/preview/jobs", payload);
+          this.scrapePreviewConfig = JSON.stringify(payload);
+          this.setState({ scPhase: "scanning", scPct: 0, scRepair: null });
+          return task;
+        });
       }
       applyScrapeResult(result) {
         if (!result || result.success === false) {
           this.setState({ scPhase: "idle" });
           throw new Error("\u522E\u524A\u4EFB\u52A1\u5931\u8D25");
         }
-        this.setState({ scrapeResult: result, scPhase: "preview", scPct: 100, scSkip: [] });
+        this.setState({ scrapeResult: result, scPhase: "preview", scPct: 100, scSkip: [], pathEdits: {}, scCmp: null, scInspect: null });
         const side = (file) => ({ size: size(file?.size), res: file?.height ? `${file.height}p` : "\u2014", codec: file?.codec || "\u2014", bitrate: file?.bitrate || "\u2014", dur: file?.duration_seconds || "\u2014", date: file?.modified_at || "\u2014", path: file?.path || "\u2014" });
         data.SCRAPE_ROWS.splice(0, data.SCRAPE_ROWS.length, ...(result.items || []).map((item) => ({
           raw: item,
@@ -6441,11 +6768,11 @@ class Component extends DCLogic {
           code: item.code || "\u672A\u8BC6\u522B",
           dst: item.target_video_path || item.target_path || "\u2014",
           dstMeta: "",
-          kind: item.target_duplicate || !isConformingLocalScrapeItem(item) ? "error" : item.target_exists ? "conflict" : "ok",
+          kind: item.target_duplicate || !(isConformingLocalScrapeItem(item) || !this.state.scOpts.scrape && item.scrape_status === "recognized" && item.code) ? "error" : item.target_exists ? "conflict" : "ok",
           note: item.target_duplicate ? "\u591A\u4E2A\u6E90\u6587\u4EF6\u6307\u5411\u540C\u4E00\u76EE\u6807\uFF0C\u8BF7\u4FEE\u6539\u547D\u540D\u89C4\u5219" : getLocalScrapeIssueReason(item),
           existing: side(item.target_file),
           incoming: side(item.source_file),
-          betterSide: "existing"
+          betterSide: ""
         })));
       }
       executeScrape(organize = this.state.scOpts.organize) {
@@ -6467,14 +6794,37 @@ class Component extends DCLogic {
           list: rows.map((row) => row.src),
           run: () => this.perform(async () => {
             const payload = { ...this.scrapePayload(), organize, items: rows.map((row) => ({ source_path: row.src, code: row.raw.code, metadata: row.raw.metadata, conflict_resolution: this.state.pathEdits[row.src] || (row.kind === "conflict" ? null : void 0) })) };
-            if (rows.some((row) => row.kind === "conflict" && !this.state.pathEdits[row.src])) throw new Error("\u8BF7\u5148\u4E3A\u51B2\u7A81\u6587\u4EF6\u9009\u62E9\u4FDD\u7559\u7B56\u7565");
-            const task = await this.request("/api/movies/local-scrape/apply/jobs", "POST", payload);
-            this.setState({ scrapeTask: { id: task.task_id, status: "running", operation: "apply" }, scPhase: "scanning" });
+            if (organize && rows.some((row) => row.kind === "conflict" && !this.state.pathEdits[row.src])) throw new Error("\u8BF7\u5148\u4E3A\u51B2\u7A81\u6587\u4EF6\u9009\u62E9\u4FDD\u7559\u7B56\u7565");
+            await this.startJob("scrapeTask", "/api/movies/local-scrape/apply/jobs", payload, "apply");
+            this.setState({ scPhase: "scanning" });
           }, "\u522E\u524A\u6267\u884C\u5DF2\u542F\u52A8")
         });
       }
       vScrape() {
         const view = super.vScrape(), st = this.state, rows = data.SCRAPE_ROWS;
+        view.namingFields = LOCAL_SCRAPE_NAMING_FIELDS.map((field) => field.placeholder).join(" ");
+        view.outcome = st.scPhase === "idle" && st.scrapeResult?.results ? {
+          summary: `${st.scrapeResult.success_count || 0} \u6210\u529F\uFF0C${st.scrapeResult.failed_count || 0} \u5931\u8D25${st.scrapeResult.library_failed_count ? `\uFF0C${st.scrapeResult.library_failed_count} \u4E2A\u76EE\u5F55\u5165\u5E93\u5931\u8D25\uFF0C\u8BF7\u5230\u5F71\u89C6\u5E93\u91CD\u65B0\u626B\u63CF` : ""}`,
+          rows: st.scrapeResult.results.map((item) => ({ path: item.target_video_path || item.source_path, status: item.success ? item.skipped ? "\u5DF2\u8DF3\u8FC7" : "\u5DF2\u5B8C\u6210" : "\u5931\u8D25", note: safeText(item.message || item.error || item.image_error, ""), fg: item.success ? OK : BAD }))
+        } : null;
+        if (view.outcome) view.idle = false;
+        view.setScanDir = (event) => this.setState({ scScanDir: event.target.value, scOverrides: {} });
+        view.repair = st.scRepair ? {
+          src: st.scRepair.src,
+          code: st.scRepair.code,
+          setCode: (event) => this.setState({ scRepair: { ...st.scRepair, code: event.target.value.toUpperCase() } }),
+          cancel: () => this.setState({ scRepair: null }),
+          submit: () => this.perform(async () => {
+            if (!st.scRepair.code.trim()) throw new Error("\u8BF7\u586B\u5199\u6B63\u786E\u756A\u53F7");
+            this.setState({ scOverrides: { ...st.scOverrides, [st.scRepair.src]: st.scRepair.code.trim() } });
+            return this.previewScrape();
+          })
+        } : null;
+        view.openDesigner = () => this.setState({ scDesigner: true, scParts: st.scFileRule.match(/\{[^}]+\}|[^{}]+/g) || [] });
+        if (view.designer) {
+          view.designer.vars = [...LOCAL_SCRAPE_NAMING_FIELDS.map((field) => field.placeholder), " ", "-"].map((value) => ({ t: value === " " ? "\u7A7A\u683C" : value, add: () => this.setState({ scParts: [...st.scParts, value] }) }));
+          view.designer.preview = LOCAL_SCRAPE_NAMING_FIELDS.reduce((text, field) => text.replaceAll(field.placeholder, field.sample), st.scParts.join("")) + ".mkv";
+        }
         view.subtitle = st.scPhase === "preview" ? `\u626B\u63CF ${st.scScanDir} \xB7 ${rows.length} \u4E2A\u6587\u4EF6` : st.scPhase === "scanning" ? "\u540E\u53F0\u4EFB\u52A1\u8FD0\u884C\u4E2D" : "\u914D\u7F6E\u626B\u63CF\u8DEF\u5F84\u540E\u751F\u6210\u9884\u89C8";
         view.scanLog = (st.scrapeTask?.logs || []).map((entry) => ({ t: safeText(typeof entry === "string" ? entry : entry.message), fg: DIM }));
         view.stats = [stat("\u626B\u63CF\u6587\u4EF6", st.scrapeResult?.total_files ?? rows.length), stat("\u53EF\u6267\u884C", rows.filter((row) => row.kind === "ok").length, "", OK), stat("\u6587\u4EF6\u51B2\u7A81", rows.filter((row) => row.kind === "conflict").length, "", WARN), stat("\u5F02\u5E38", rows.filter((row) => row.kind === "error").length, "", BAD)];
@@ -6492,13 +6842,16 @@ class Component extends DCLogic {
           saveLocalScrapeTaskTemplate(window.localStorage, `\u522E\u524A\u6A21\u677F ${st.scrapeTemplates.length + 1}`, { directory: st.scScanDir, targetDirectory: st.scOutDir, folderTemplate: st.scFolderRule, namingTemplate: st.scFileRule, maxDepth: st.scMaxDepth, concurrent: st.scConcurrent, ...Object.fromEntries(Object.entries(optionNames).map(([key, name]) => [key, st.scOpts[name]])) });
           this.setState({ scrapeTemplates: loadLocalScrapeTaskTemplates() });
         }, "\u6A21\u677F\u5DF2\u4FDD\u5B58");
-        view.preview = () => this.perform(async () => {
-          if (!st.scScanDir.trim()) throw new Error("\u8BF7\u586B\u5199\u626B\u63CF\u76EE\u5F55");
-          const payload = this.scrapePayload();
-          this.scrapePreviewConfig = JSON.stringify(payload);
-          const task = await this.request("/api/movies/local-scrape/preview/jobs", "POST", payload);
-          this.setState({ scrapeTask: { id: task.task_id, status: "running" }, scPhase: "scanning", scPct: 0 });
-        });
+        view.preview = () => this.previewScrape();
+        view.reset = () => {
+          if (st.scPhase === "scanning") {
+            this.toast("\u540E\u53F0\u4EFB\u52A1\u8FD0\u884C\u4E2D\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210", WARN);
+            return;
+          }
+          data.SCRAPE_ROWS.splice(0);
+          this.scrapePreviewConfig = null;
+          this.setState({ scPhase: "idle", scrapeTask: null, scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} });
+        };
         view.applyStrategy = () => {
           const strategy = st.scStrategy.split(" ")[0];
           this.setState({ pathEdits: { ...st.pathEdits, ...Object.fromEntries(rows.filter((row) => row.kind === "conflict").map((row) => [row.src, strategy])) } });
@@ -6515,15 +6868,23 @@ class Component extends DCLogic {
           view.cmp.skip = () => this.setState({ scSkip: [...st.scSkip, st.scCmp], scCmp: null });
         }
         for (const row of view.rows) {
+          if (st.pathEdits[row.src]) row.note = `\u5904\u7406\u7B56\u7565\uFF1A${st.pathEdits[row.src]}`;
           row.inspect = () => this.ask({ title: row.code, body: rows.find((item) => item.src === row.src)?.note || row.src, color: DIM, okText: "\u5173\u95ED" });
-          row.fix = () => {
-            this.toast("\u4FEE\u6539\u6E90\u6587\u4EF6\u540D\u6216\u547D\u540D\u89C4\u5219\u540E\u91CD\u65B0\u751F\u6210\u9884\u89C8", WARN);
-          };
+          row.fix = () => this.setState({ scRepair: { src: row.src, code: rows.find((item) => item.src === row.src)?.raw.code || "" } });
         }
         return view;
       }
       vDispatch() {
-        const st = this.state, codes = st.dScope === "1" ? data.MOVIES.map((movie) => movie.code) : st.dScope === "2" ? st.sel : st.dCodes.split(/[\s,，]+/).filter(Boolean);
+        const st = this.state, codes = [...new Set((st.dScope === "1" ? data.MOVIES.map((movie) => movie.code) : st.dScope === "2" ? st.sel : st.dCodes.split(/[\s,，]+/)).map((code) => code.trim().toUpperCase()).filter(Boolean))];
+        const failed = (st.dispatchResult?.results || []).filter((result) => result.success === false && !result.skipped).map((result) => ({
+          code: result.movie_id || "",
+          reason: safeText(result.message || result.error),
+          tool: st.dispatchTool,
+          time: "",
+          noRetry: !result.movie_id,
+          retry: () => this.confirmDispatch([result.movie_id]),
+          skip: () => this.setState({ dispatchResult: { ...st.dispatchResult, results: st.dispatchResult.results.filter((item) => item !== result) } })
+        }));
         const history = data.HISTORY.map((record) => ({
           raw: record,
           code: record.movie_id || record.id || "",
@@ -6569,7 +6930,13 @@ class Component extends DCLogic {
           runCount: codes.length,
           run: () => this.confirmDispatch(codes),
           stats: [stat("\u5386\u53F2\u8BB0\u5F55", history.length), stat("PikPak", st.pikLogged ? "\u5DF2\u767B\u5F55" : "\u672A\u767B\u5F55"), stat("Aria2", st.connections.aria2_connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), stat("115 \u7F51\u76D8", this.allConnected() ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E")],
-          failed: [],
+          failed,
+          hasFailed: failed.length > 0,
+          batchSummary: `\u5931\u8D25 ${failed.length} \u9879`,
+          retryAll: () => this.confirmDispatch(failed.map((item) => item.code).filter(Boolean)),
+          historyCount: history.length,
+          missingCount: history.filter((item) => item.raw.needs_reselect).length,
+          failureCount: history.filter((item) => item.raw.status === "failed").length,
           hf0: st.dHf === "0",
           hf1: st.dHf === "1",
           hf2: st.dHf === "2",
@@ -6587,7 +6954,7 @@ class Component extends DCLogic {
             await this.request("/api/history", "DELETE");
             await this.loadHistory();
           }, "\u4E0B\u8F7D\u5386\u53F2\u5DF2\u6E05\u7A7A") }),
-          history: history.filter((record) => st.dHf === "0" || (st.dHf === "1" ? record.local !== "\u5DF2\u5165\u5E93" : record.status === "failed"))
+          history: history.filter((record) => st.dHf === "0" || (st.dHf === "1" ? record.raw.needs_reselect : record.raw.status === "failed"))
         };
       }
       formField(label, value, update, kind = "text", options = [], hint = "") {
@@ -6603,6 +6970,7 @@ class Component extends DCLogic {
           mono: "inherit",
           ls: "normal",
           isText: kind === "text" || kind === "number",
+          isTextarea: kind === "textarea",
           isSecret: kind === "secret",
           isSelect: kind === "select",
           isCheck: kind === "check",
@@ -6618,23 +6986,42 @@ class Component extends DCLogic {
       createAuto(codes = []) {
         const draft = buildDefaultTask();
         if (codes.length) Object.assign(draft.nodes.find((node) => node.type === "search").config, { mode: "codes", codes: codes.join("\n") });
-        this.setState({ route: "auto", auTask: "", autoDraft: draft, auNode: "search" });
+        this.setState({ route: "auto", auTask: "", autoDraft: draft, auNode: "search", autoFiltersText: null, nodeBeforeEdit: structuredClone(draft) });
       }
       editAuto(update) {
         this.setState({ autoDraft: { ...this.state.autoDraft || this.state.tasks.find((task) => task.id === this.state.auTask), ...update } });
       }
       async saveAuto() {
+        this.applyAutoFilters();
         const task = this.state.autoDraft || this.state.tasks.find((task2) => task2.id === this.state.auTask);
         if (!task?.name.trim()) throw new Error("\u8BF7\u5148\u521B\u5EFA\u4EFB\u52A1\u5E76\u586B\u5199\u540D\u79F0");
+        if (task.trigger.type === "scheduled" && !/^([01]\d|2[0-3]):[0-5]\d$/.test(task.trigger.scheduled_time || "")) throw new Error("\u8BF7\u586B\u5199\u6709\u6548\u7684\u6267\u884C\u65F6\u95F4 HH:MM");
+        if (task.trigger.type === "interval" && (!Number.isInteger(task.trigger.interval_minutes) || task.trigger.interval_minutes < 1)) throw new Error("\u95F4\u9694\u5206\u949F\u5FC5\u987B\u4E3A\u6B63\u6574\u6570");
         const result = await this.request(`/api/automation/tasks${task.id ? "/" + id(task.id) : ""}`, task.id ? "PUT" : "POST", task);
         await this.loadTasks();
-        this.setState({ autoDraft: null, auTask: result.id || result.task?.id || task.id || this.state.auTask });
+        this.setState({ autoDraft: null, auNode: null, autoFiltersText: null, nodeBeforeEdit: null, auTask: result.id || result.task?.id || task.id || this.state.auTask });
         return result.task || result;
+      }
+      applyAutoFilters() {
+        if (this.state.autoFiltersText == null) return;
+        let filters;
+        try {
+          filters = JSON.parse(this.state.autoFiltersText);
+        } catch {
+          throw new Error("\u7B5B\u9009\u6761\u4EF6 JSON \u683C\u5F0F\u9519\u8BEF");
+        }
+        if (!Array.isArray(filters) || filters.some((item) => !item?.type || !item?.value)) throw new Error("\u7B5B\u9009\u6761\u4EF6\u987B\u4E3A\u542B type \u548C value \u7684\u6570\u7EC4");
+        const task = this.state.autoDraft || this.state.tasks.find((item) => item.id === this.state.auTask);
+        if (task) this.editAuto({ nodes: task.nodes.map((item) => item.id === this.state.auNode ? { ...item, config: { ...item.config, filters } } : item) });
+        this.setState({ autoFiltersText: null });
       }
       vAuto() {
         const st = this.state, task = st.autoDraft || st.tasks.find((item) => item.id === st.auTask), titles = { trigger: "\u89E6\u53D1", search: "\u68C0\u7D22", magnet: "\u78C1\u529B", download: "\u4E0B\u8F7D" };
         const node = task?.nodes.find((item) => item.id === st.auNode);
         const triggerText = (trigger) => trigger?.type === "scheduled" ? `\u5B9A\u65F6 ${trigger.scheduled_time}` : trigger?.type === "interval" ? `\u95F4\u9694 ${trigger.interval_minutes} \u5206\u949F` : "\u81EA\u52A8\u8FD0\u884C";
+        const today = (/* @__PURE__ */ new Date()).toDateString(), runsToday = st.tasks.flatMap((item) => item.runs || []).filter((run) => new Date(run.started_at).toDateString() === today);
+        const errorCount = (run) => Math.max(run.error ? 1 : 0, (run.items || []).filter((item) => item.status === "dispatch_failed").length);
+        const nodeSummary = (item) => item.type === "trigger" ? triggerText(task.trigger) : item.type === "download" ? { pikpak: "PikPak", pan115: "115 \u7F51\u76D8", aria2: "Aria2" }[item.config.tool] || "\u9009\u62E9\u4E0B\u8F7D\u5DE5\u5177" : item.type === "magnet" ? `${item.config.source || "javbus"} \xB7 ${item.config.exclude_4k ? "\u6392\u9664 4K" : "\u5141\u8BB8 4K"}` : item.config.mode === "codes" ? `\u6307\u5B9A ${String(item.config.codes || "").split(/[\s,，;；]+/).filter(Boolean).length} \u4E2A\u756A\u53F7` : item.config.mode === "filter" ? `${item.config.filters?.length || 0} \u4E2A\u7B5B\u9009\u6761\u4EF6` : item.config.keyword || "\u586B\u5199\u68C0\u7D22\u5173\u952E\u8BCD";
         const field = (label, key, kind = "text", options = []) => this.formField(label, node?.type === "trigger" ? task.trigger[key] : node?.config[key], (value) => {
           if (node.type === "trigger") this.editAuto({ trigger: { ...task.trigger, [key]: value || null } });
           else this.editAuto({ nodes: task.nodes.map((item) => item.id === node.id ? { ...item, config: { ...item.config, [key]: value } } : item) });
@@ -6642,10 +7029,10 @@ class Component extends DCLogic {
         let fields = [];
         if (node?.type === "trigger") fields = [field("\u89E6\u53D1\u65B9\u5F0F", "type", "select", ["auto", "scheduled", "interval"]), field("\u6267\u884C\u65F6\u95F4 HH:MM", "scheduled_time"), field("\u95F4\u9694\u5206\u949F", "interval_minutes", "number")];
         if (node?.type === "search") fields = [
-          field("\u68C0\u7D22\u65B9\u5F0F", "mode", "select", ["keyword", "filters", "codes"]),
+          field("\u68C0\u7D22\u65B9\u5F0F", "mode", "select", ["keyword", "filter", "codes"]),
           field("\u5173\u952E\u8BCD", "keyword"),
-          field("\u756A\u53F7\u5217\u8868", "codes"),
-          this.formField("\u7B5B\u9009\u6761\u4EF6 JSON", st.autoFiltersText ?? JSON.stringify(node.config.filters || []), (value) => this.setState({ autoFiltersText: value })),
+          field("\u756A\u53F7\u5217\u8868", "codes", "textarea"),
+          this.formField("\u7B5B\u9009\u6761\u4EF6 JSON", st.autoFiltersText ?? JSON.stringify(node.config.filters || []), (value) => this.setState({ autoFiltersText: value }), "textarea"),
           field("\u7ED3\u679C\u4E0A\u9650", "max_results", "number"),
           field("\u78C1\u529B", "magnet", "select", ["exist", "all"]),
           field("\u7C7B\u578B", "type", "select", ["normal", "uncensored"]),
@@ -6667,6 +7054,11 @@ class Component extends DCLogic {
           })),
           create: () => this.createAuto(),
           hasTask: Boolean(task),
+          taskCount: st.tasks.length,
+          enabledCount: st.tasks.filter((item) => item.enabled).length,
+          dispatchedToday: runsToday.reduce((sum, run) => sum + (run.dispatched_count || 0), 0),
+          skippedToday: runsToday.reduce((sum, run) => sum + (run.skipped_count || 0), 0),
+          errorsToday: runsToday.reduce((sum, run) => sum + errorCount(run), 0),
           cur: { name: task?.name || "\u521B\u5EFA\u81EA\u52A8\u4EFB\u52A1", setName: (event) => this.editAuto({ name: event.target.value }), summary: task ? triggerText(task.trigger) : "\u70B9\u51FB\u65B0\u5EFA\u5F00\u59CB\u914D\u7F6E", last: task?.last_run_at || "\u5C1A\u672A\u8FD0\u884C", status: task?.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u505C\u7528", tagBg: "var(--t08)", tagFg: task?.enabled ? OK : DIM2, toggleText: task?.enabled ? "\u505C\u7528\u4EFB\u52A1" : "\u542F\u7528\u4EFB\u52A1", toggleFg: task?.enabled ? WARN : ACC },
           save: () => this.perform(() => this.saveAuto(), "\u81EA\u52A8\u4EFB\u52A1\u5DF2\u4FDD\u5B58"),
           remove: () => {
@@ -6685,23 +7077,23 @@ class Component extends DCLogic {
           runNow: () => {
             if (task) this.ask({ title: `\u8FD0\u884C ${task.name}\uFF1F`, body: "\u5C06\u4FDD\u5B58\u5F53\u524D\u914D\u7F6E\u5E76\u6267\u884C\u771F\u5B9E\u68C0\u7D22\u548C\u4E0B\u8F7D\u6D3E\u53D1\u3002", color: ACC, okText: "\u7ACB\u5373\u8FD0\u884C", run: () => this.perform(async () => {
               const saved = await this.saveAuto();
-              await this.request(`/api/automation/tasks/${id(saved.id)}/run`, "POST");
+              this.toast("\u81EA\u52A8\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u53EF\u5728\u8FD0\u884C\u8BB0\u5F55\u4E2D\u67E5\u770B\u8FDB\u5EA6", ACC);
+              const run = await this.request(`/api/automation/tasks/${id(saved.id)}/run`, "POST");
               await this.loadTasks();
-            }, "\u8FD0\u884C\u5DF2\u63D0\u4EA4") });
+              if (["failed", "partial"].includes(run.status)) throw new Error("\u8FD0\u884C\u5B58\u5728\u5931\u8D25\u9879\uFF0C\u8BF7\u5C55\u5F00\u8FD0\u884C\u8BB0\u5F55\u67E5\u770B");
+              this.toast(run.status === "success" ? "\u8FD0\u884C\u5DF2\u5B8C\u6210" : "\u8FD0\u884C\u5DF2\u63D0\u4EA4", OK);
+            }) });
           },
           pauseAll: st.tasks.length > 0 && st.tasks.every((item) => !item.enabled),
           togglePauseAll: () => this.ask({ title: "\u505C\u7528\u5168\u90E8\u81EA\u52A8\u4EFB\u52A1\uFF1F", body: "\u5173\u95ED\u540E\u7EED\u81EA\u52A8\u89E6\u53D1\uFF0C\u5DF2\u8FD0\u884C\u4EFB\u52A1\u4E0D\u53D7\u5F71\u54CD\u3002\u6062\u590D\u65F6\u8BF7\u9010\u9879\u542F\u7528\u3002", color: WARN, okText: "\u505C\u7528\u5168\u90E8", run: () => this.perform(async () => {
             for (const item of st.tasks.filter((item2) => item2.enabled)) await this.request(`/api/automation/tasks/${id(item.id)}`, "PUT", { enabled: false });
             await this.loadTasks();
           }, "\u81EA\u52A8\u4EFB\u52A1\u5DF2\u505C\u7528") }),
-          autoLayout: () => {
-            if (task) this.editAuto({ nodes: task.nodes.map((item, index) => ({ ...item, position: { x: 48 + index * 248, y: 110 } })) });
-          },
           nodes: (task?.nodes || []).map((item, index) => ({
             title: titles[item.type],
             step: String(index + 1).padStart(2, "0"),
             desc: titles[item.type],
-            meta: item.type === "trigger" ? triggerText(task.trigger) : Object.entries(item.config).filter(([, value]) => typeof value !== "object").map(([key, value]) => `${key}: ${value}`).join(" \xB7 "),
+            meta: nodeSummary(item),
             badge: "",
             hasArrow: index < task.nodes.length - 1,
             bg: "var(--t03)",
@@ -6714,11 +7106,7 @@ class Component extends DCLogic {
           node: node ? { title: titles[node.type], fields } : null,
           closeNode: () => this.setState({ auNode: null, autoDraft: st.nodeBeforeEdit || st.autoDraft, autoFiltersText: null }),
           saveNode: () => this.perform(async () => {
-            if (node?.type === "search" && st.autoFiltersText != null) {
-              const filters = JSON.parse(st.autoFiltersText);
-              if (!Array.isArray(filters) || filters.some((item) => !item.type || !item.value)) throw new Error("\u7B5B\u9009\u6761\u4EF6\u987B\u4E3A\u542B type \u548C value \u7684\u6570\u7EC4");
-              this.editAuto({ nodes: task.nodes.map((item) => item.id === node.id ? { ...item, config: { ...item.config, filters } } : item) });
-            }
+            this.applyAutoFilters();
             this.setState({ auNode: null });
           }, "\u8282\u70B9\u5DF2\u66F4\u65B0\uFF0C\u4FDD\u5B58\u4EFB\u52A1\u540E\u751F\u6548"),
           refresh: () => this.perform(() => this.loadTasks()),
@@ -6729,7 +7117,7 @@ class Component extends DCLogic {
             matched: run.magnet_count,
             dispatched: run.dispatched_count,
             skipped: run.skipped_count,
-            errors: run.error ? 1 : 0,
+            errors: errorCount(run),
             result: safeText(run.error, run.status),
             dispatchFg: OK,
             errFg: BAD,
@@ -6740,26 +7128,38 @@ class Component extends DCLogic {
       }
       async connect(key, fromConfig = false) {
         const values = this.state.settingsDraft[key] || {};
-        if (key === "pikpak") {
-          const result = await this.request(`/api/pikpak/login${fromConfig ? "-config" : ""}`, "POST", fromConfig ? void 0 : { username: values.username, password: values.password });
-          this.auth = fromConfig ? { username: result.username, fromConfig: true } : { username: values.username, password: values.password };
-          persistPikPakSession(this.auth);
-          this.setState({ pikLogged: true });
-        } else if (key === "pan115") {
-          if (values.cookie) await this.request("/api/115/cookie", "POST", { cookie: values.cookie, enabled: values.enabled !== false });
-          const result = await this.request("/api/115/status");
-          if (!result.connected) throw new Error("115 \u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u626B\u7801\u767B\u5F55");
-        } else {
-          const form = new FormData();
-          if (!fromConfig) {
-            form.set(`${key}_url`, values.url || "");
-            if (key === "webdav") {
-              form.set("username", values.username || "");
-              form.set("password", values.password || loadWebDavSettings().password || "");
-            } else form.set("aria2_secret", values.secret || loadAria2Settings().secret || "");
+        try {
+          if (key === "pikpak") {
+            const result = await this.request(`/api/pikpak/login${fromConfig ? "-config" : ""}`, "POST", fromConfig ? void 0 : { username: values.username, password: values.password });
+            this.auth = fromConfig ? { username: result.username, fromConfig: true } : { username: values.username, password: values.password };
+            persistPikPakSession(this.auth);
+            this.setState({ pikLogged: true });
+          } else if (key === "pan115") {
+            if (values.cookie) await this.request("/api/115/cookie", "POST", { cookie: values.cookie, enabled: values.enabled !== false });
+            const result = await this.request("/api/115/status");
+            if (!result.connected) throw new Error("115 \u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u626B\u7801\u767B\u5F55");
+          } else {
+            const form = new FormData();
+            let credentials = values;
+            if (!fromConfig) {
+              form.set(`${key}_url`, values.url || "");
+              const saved = key === "webdav" ? loadWebDavSettings() : loadAria2Settings();
+              const sameAccount = saved.url === values.url && (key !== "webdav" || saved.username === values.username);
+              if (key === "webdav") {
+                credentials = { ...values, password: values.password || (sameAccount ? saved.password : "") || "" };
+                form.set("username", values.username || "");
+                form.set("password", credentials.password);
+              } else {
+                credentials = { ...values, secret: values.secret || (sameAccount ? saved.secret : "") || "" };
+                form.set("aria2_secret", credentials.secret);
+              }
+            }
+            await this.request(`/api/${key}/connect${fromConfig ? "-config" : ""}`, "POST", fromConfig ? void 0 : form);
+            if (!fromConfig) (key === "webdav" ? saveWebDavSettings : saveAria2Settings)(credentials);
           }
-          await this.request(`/api/${key}/connect${fromConfig ? "-config" : ""}`, "POST", fromConfig ? void 0 : form);
-          if (!fromConfig) (key === "webdav" ? saveWebDavSettings : saveAria2Settings)(values);
+        } catch (error) {
+          await this.perform(() => this.loadConnections());
+          throw error;
         }
         await this.loadConnections();
       }
@@ -6796,8 +7196,8 @@ class Component extends DCLogic {
         if (this.state.connections.aria2_connected) await this.loadAria();
       }
       async loadAria() {
-        const payload = await this.request("/api/aria2/downloads");
-        this.setState({ ariaTasks: payload.downloads || [] });
+        const payload = await this.request("/api/aria2/downloads"), tasks = payload.downloads || [];
+        if (JSON.stringify(tasks) !== JSON.stringify(this.state.ariaTasks)) this.setState({ ariaTasks: tasks });
       }
       ariaAction(task, action) {
         return this.perform(async () => {
@@ -6817,16 +7217,27 @@ class Component extends DCLogic {
           this.toast("\u672C\u5730\u76EE\u5F55\u7528\u4E8E\u6D4F\u89C8\uFF0C\u8FDC\u7A0B\u6587\u4EF6\u53EF\u53D1\u9001\u5230 Aria2", WARN);
           return;
         }
+        if (!files.length || !this.state.connections.aria2_connected) {
+          this.toast("\u8BF7\u8FDE\u63A5 Aria2 \u5E76\u9009\u62E9\u6587\u4EF6\u6216\u76EE\u5F55", WARN);
+          return;
+        }
+        const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
         this.ask({ title: `\u53D1\u9001 ${files.length} \u4E2A\u6587\u4EF6\u5230 Aria2\uFF1F`, body: "\u4ECE\u5F53\u524D\u7F51\u76D8\u4E0B\u8F7D\u5230\u5DF2\u8FDE\u63A5\u7684 Aria2\u3002", list: files.map((file) => file.name), color: ACC, okText: "\u53D1\u9001", run: () => this.perform(async () => {
-          const result = await this.request("/api/webdav/download", "POST", { files: files.map((file) => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === "folder", source_type: this.state.fsSrc === "115" ? "pan115" : "webdav" })), video_filter: this.state.fsVideoOnly, min_file_size_mb: this.minFileSize() });
+          const result = await this.request("/api/webdav/download", "POST", { files: files.map((file) => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === "folder", source_type: source === "115" ? "pan115" : "webdav" })), video_filter: videoFilter, min_file_size_mb: minSize });
           if (result.results?.some((item) => item.success === false && !item.skipped)) throw new Error("\u90E8\u5206\u6587\u4EF6\u53D1\u9001\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4E0B\u8F7D\u4EFB\u52A1");
           this.setState({ fsSel: [] });
           await this.loadAria();
-        }, "\u5DF2\u53D1\u9001\u5230 Aria2") });
+          if (result.results?.length && result.results.every((item) => item.skipped)) {
+            this.toast("\u5168\u90E8\u6587\u4EF6\u4E0D\u7B26\u5408\u7B5B\u9009\u6761\u4EF6\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", WARN);
+            return;
+          }
+          this.toast("\u5DF2\u53D1\u9001\u5230 Aria2", OK);
+        }) });
       }
       vStorage() {
         const st = this.state, connected = st.fsSrc === "local" || (st.fsSrc === "115" ? this.allConnected() : st.connections.webdav_connected);
-        const rows = st.fileRows.filter((file) => file.is_directory || file.kind === "folder" || (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm)$/i.test(file.name)) && Number(file.size) >= this.minFileSize() * 1024 ** 2);
+        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected);
+        const rows = st.fileRows.filter((file) => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === "folder" || (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= this.minFileSize() * 1024 ** 2));
         const selected = rows.filter((file) => st.fsSel.includes(file.path || file.id)), tasks = st.ariaTasks || [];
         return {
           sources: [["local", "\u670D\u52A1\u7AEF\u672C\u5730", true], ["webdav", "WebDAV", st.connections.webdav_connected], ["115", "115 \u7F51\u76D8", this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? "\u53EF\u7528" : "\u672A\u8FDE\u63A5", dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: "", op: 1, cursor: "pointer", needsCfg: key !== "local", bg: key === st.fsSrc ? "rgba(145,132,217,.08)" : "transparent", ring: key === st.fsSrc ? ACC : "var(--t09)", config: () => this.setState({ route: "settings", seTab: name }), pick: () => {
@@ -6857,6 +7268,7 @@ class Component extends DCLogic {
             return {
               ...file,
               isDir: dir,
+              canSend,
               type: dir ? "\u6587\u4EF6\u5939" : file.kind || "\u6587\u4EF6",
               size: size(file.size),
               date: file.modified || file.modified_time || file.mtime || "\u2014",
@@ -6879,7 +7291,7 @@ class Component extends DCLogic {
           selSize: size(selected.reduce((sum, file) => sum + Number(file.size || 0), 0)),
           clearSel: () => this.setState({ fsSel: [] }),
           sendSel: () => this.sendFiles(selected),
-          canSend: st.fsSrc !== "local",
+          canSend,
           refreshAria: () => this.perform(() => this.loadAria()),
           ariaConnected: st.connections.aria2_connected,
           ariaDown: !st.connections.aria2_connected,
@@ -6918,8 +7330,10 @@ class Component extends DCLogic {
         const sources = st.settingsDraft.scrapers || {}, priority = sources.priority || [], providers = [.../* @__PURE__ */ new Set([...priority, ...Object.keys(sources).filter((name) => name !== "priority")])];
         const updateSource = (name, updates) => this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, [name]: { ...sources[name], ...updates } } } });
         const testSources = (providers2) => this.perform(async () => {
+          const stored = withSecretPlaceholders(st.settings);
+          if (JSON.stringify(st.settingsDraft.scrapers) !== JSON.stringify(stored.scrapers) || JSON.stringify(st.settingsDraft.javbus) !== JSON.stringify(stored.javbus)) throw new Error("\u522E\u524A\u6E90\u914D\u7F6E\u5DF2\u4FEE\u6539\uFF0C\u8BF7\u5148\u4FDD\u5B58\uFF0C\u518D\u6D4B\u8BD5\u8FDE\u63A5");
           const result = await this.request("/api/movies/metadata-scrapers/test", "POST", { providers: providers2, concurrent: 3, apply_results: false });
-          this.setState({ sourcesResult: result.results || [] });
+          this.setState({ sourcesResult: [...st.sourcesResult.filter((item) => !providers2.includes(item.provider || item.name)), ...result.results || []] });
         }, "\u522E\u524A\u6E90\u6D4B\u8BD5\u5DF2\u5B8C\u6210");
         return {
           tabs: tabs.map((name) => ({ name, status: status(name), dot: status(name) === "\u5DF2\u8FDE\u63A5" ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? "rgba(145,132,217,.12)" : "transparent", fg: name === st.seTab ? "var(--fg)" : DIM, fw: name === st.seTab ? 500 : 400, pick: () => this.setState({ seTab: name }) })),
@@ -6975,8 +7389,8 @@ class Component extends DCLogic {
             await this.loadSettings();
             await this.loadConnections();
           }, "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58"),
-          reload: () => this.perform(() => this.loadSettings()),
-          reset: () => this.setState({ settingsDraft: withSecretPlaceholders(st.settings) }),
+          reload: () => this.perform(() => this.loadSettings(), "\u914D\u7F6E\u5DF2\u91CD\u65B0\u8F7D\u5165"),
+          reset: () => this.setState({ settingsDraft: withSecretPlaceholders(st.settings), sourcesResult: [] }),
           startQr: () => this.perform(() => this.startQr()),
           showQrLogin: key === "pan115",
           logout: () => {
@@ -6995,17 +7409,24 @@ class Component extends DCLogic {
         view.bg.items = data.TC.filter((task) => ["running", "queued"].includes(task.status)).map((task) => ({ kind: "\u8F6C\u7801", name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go("transcode") }));
         for (const key of ["scanTask", "scrapeTask"]) if (st[key] && !["success", "completed", "failed"].includes(st[key].status)) view.bg.items.push({ kind: key === "scanTask" ? "\u626B\u63CF\u5165\u5E93" : "\u522E\u524A", name: st[key].message || "\u540E\u53F0\u8FD0\u884C\u4E2D", pct: st[key].percent || 0, pctText: "", meta: st[key].status, fg: ACC, go: this.go(key === "scanTask" ? "library" : "scrape") });
         view.bg.count = view.bg.items.length;
-        const search = view.s, movies = this.visible();
+        const search = view.s, movies = st.route === "search" ? this.visible() : [];
+        const movieIndex = new Map(movies.map((movie) => [movie.code, movie]));
+        search.paging = this.pageItems(movies, "searchPage", []).paging;
+        search.selectPage = () => this.setState({ sel: [.../* @__PURE__ */ new Set([...st.sel, ...search.rows.map((row) => row.code)])] });
         Object.assign(search, {
-          offline: false,
-          srcText: st.searchDone ? "\u5DF2\u83B7\u53D6\u7ED3\u679C" : "\u5F85\u67E5\u8BE2",
-          srcDot: DIM2,
+          offline: Boolean(st.searchError),
+          error: st.searchError,
+          srcText: st.searchError ? "\u67E5\u8BE2\u5931\u8D25" : st.searchDone ? "\u5DF2\u83B7\u53D6\u7ED3\u679C" : "\u5F85\u67E5\u8BE2",
+          srcDot: st.searchError ? BAD : DIM2,
           srcFg: DIM,
           showGrid: !st.loading && movies.length > 0 && st.view === "grid",
           showList: !st.loading && movies.length > 0 && st.view === "list",
-          empty: !st.loading && movies.length === 0 && st.sMode !== "magnet",
+          empty: !st.loading && !st.searchError && movies.length === 0 && st.sMode !== "magnet",
           emptyTitle: st.searchDone ? "\u6CA1\u6709\u5339\u914D\u7684\u5F71\u7247" : "\u5F00\u59CB\u68C0\u7D22",
           emptyBody: "\u586B\u5199\u6761\u4EF6\u540E\u67E5\u8BE2\u771F\u5B9E\u5F71\u7247\u6570\u636E\u3002",
+          showPager: !st.loading && !st.searchError && st.searchDone && st.sMode === "filter" && st.fetchMode === "page",
+          pagerText: `\u672C\u9875 ${movies.length} \u90E8 \xB7 \u662F\u5426\u6709\u4E0B\u4E00\u9875\u4EE5\u6765\u6E90\u8FD4\u56DE\u7ED3\u679C\u4E3A\u51C6`,
+          magnetProgress: st.searchDone ? `\u5DF2\u67E5\u8BE2 ${this.magnets.size} / ${data.MOVIES.length} \u90E8\u5F71\u7247\u7684\u78C1\u529B` : "",
           nextDisabled: !st.nextPage,
           noResults: !movies.length,
           summary: `${movies.length} \u90E8`,
@@ -7020,27 +7441,66 @@ class Component extends DCLogic {
           batchAuto: () => this.createAuto(st.sel),
           toggleExclude4k: () => {
             this.setState({ exclude4k: !st.exclude4k });
-            if (st.searchDone) void this.runSearch();
+            if (st.searchDone || st.loading) void this.runSearch();
           },
           toolStatus: this.toolStates().find((tool) => tool.name === st.tool)?.hint || "\u672A\u8FDE\u63A5",
           toolCfg: this.toolConfig(st.toolCfg)
         });
+        const reset = search.reset;
+        search.reset = () => {
+          reset();
+          this.clearSearch();
+          this.setState({ recogHtml: "" });
+        };
+        for (const mode of search.modes) {
+          const pick = mode.pick;
+          mode.pick = () => {
+            pick();
+            this.clearSearch();
+          };
+        }
+        for (const key of ["setSortSize", "setSortDate", "setOrderDesc", "setOrderAsc", "setSub0", "setSubTrue", "setSubFalse"]) {
+          const change = search[key];
+          search[key] = () => {
+            change();
+            if (st.searchDone || st.loading) void this.runSearch();
+          };
+        }
         search.magRows = this.magnetRows(st.code);
         const activeTool = this.toolStates().find((tool) => tool.name === st.tool);
         search.toolDot = activeTool?.dot;
         search.toolFg = activeTool?.fg;
-        for (const row of search.rows) row.cover = data.MOVIES.find((movie) => movie.code === row.code)?.cover;
+        for (const row of search.rows) {
+          const movie = movieIndex.get(row.code);
+          row.cover = movie?.cover;
+          if (!movie?.mag) row.magText = movie?.magnetsLoading ? "\u6B63\u5728\u67E5\u8BE2\u78C1\u529B\u2026" : movie?.magnetError ? `\u78C1\u529B\u83B7\u53D6\u5931\u8D25\uFF1A${movie.magnetError}` : "\u5F53\u524D\u6761\u4EF6\u4E0B\u6CA1\u6709\u53EF\u7528\u78C1\u529B";
+        }
         for (const row of search.rows) row.open = () => this.perform(async () => {
+          const version = this.requestVersion;
           const original = data.MOVIES.find((movie) => movie.code === row.code);
-          const detail = movieView(await this.request(`/api/movies/${id(row.code)}`));
-          Object.assign(original, detail);
-          this.magnets.set(row.code, await this.getMagnets(original));
           this.setState({ detail: row.code });
+          const detail = movieView(await this.request(`/api/movies/${id(row.code)}`));
+          if (version !== this.requestVersion || this._disposed) return;
+          Object.assign(original, detail);
+          this.forceUpdate?.();
+          const magnets = await this.getMagnets(original);
+          if (version !== this.requestVersion || this._disposed) return;
+          this.magnets.set(row.code, magnets);
+          original.mag = magnets[0] ? `${magnets[0].name} \xB7 ${magnets[0].size}` : "";
+          original.magCount = magnets.length;
+          this.forceUpdate?.();
         });
         if (search.d) {
           search.d.magnets = this.magnetRows(st.detail);
           search.d.magCount = search.d.magnets.length;
-          search.d.copy = () => this.perform(() => navigator.clipboard.writeText(st.detail), "\u756A\u53F7\u5DF2\u590D\u5236");
+          search.d.copy = () => this.perform(() => this.copyText(st.detail), "\u756A\u53F7\u5DF2\u590D\u5236");
+        }
+        if (search.browse) {
+          const groups = search.browse.groups;
+          const page = this.pageItems(groups.flatMap((group) => group.items), "catalogPage", [st.browse, st.browseQ]);
+          const visible = new Set(page.items);
+          search.browse.groups = groups.map((group) => ({ ...group, items: group.items.filter((item) => visible.has(item)) })).filter((group) => group.items.length);
+          search.browse.paging = page.paging;
         }
         view.version = window.versionInfo?.version || "";
         return view;
@@ -7081,14 +7541,14 @@ class Component extends DCLogic {
 
   // frontend/src/design/template.mjs
   function adaptTemplate(source, logo) {
-    let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(">v2.4.1</span>", ">{{ version }}</span>").replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('onClick="{{ f.send }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ f.send }}"').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('onClick="{{ lb.stopScan }}"', 'disabled="{{ true }}" title="\u626B\u63CF\u5B8C\u6210\u540E\u81EA\u52A8\u66F4\u65B0" onClick="{{ lb.stopScan }}"');
+    let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(">v2.4.1</span>", ">{{ version }}</span>").replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
     const start = html.indexOf('  <sc-if value="{{ cn.player }}">');
     const end = html.indexOf('  <sc-if value="{{ at.auto }}">', start);
     html = html.slice(0, start) + `
   <sc-if value="{{ cn.player }}">
     <div class="jj-player" role="dialog" aria-label="\u672C\u5730\u5F71\u7247\u64AD\u653E">
-      <div style="display:flex;align-items:center;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} \xB7 {{ cn.player.title }}</span><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">\u505C\u6B62\u64AD\u653E</button></div>
-      <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} \xB7 {{ cn.player.title }}</span><select class="input" aria-label="\u64AD\u653E\u6587\u4EF6" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">\u505C\u6B62\u64AD\u653E</button></div>
+      <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
     </div>
   </sc-if>
 
@@ -7101,13 +7561,36 @@ class Component extends DCLogic {
               </div>`);
     html = html.replaceAll('value="{{ f.value }}"', 'aria-label="{{ f.label }}" value="{{ f.value }}"').replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:var(--mono)"', '<sc-if value="{{ f.isCheck }}"><label><input type="checkbox" checked="{{ f.on }}" onChange="{{ f.set }}">{{ f.label }}</label></sc-if><sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:var(--mono)"');
     html = html.replace("\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247</h5>", "{{ cn.emptyTitle }}</h5>").replace("\u5F53\u524D\u7EC4\u5408\u8FC7\u6EE4\u6389\u4E86\u5168\u90E8\u7ED3\u679C\u3002\u53BB\u6389\u4E00\u4E2A\u6761\u4EF6\uFF0C\u6216\u6E05\u7A7A\u540E\u91CD\u65B0\u9009\u62E9\u3002", "{{ cn.emptyBody }}").replace('onClick="{{ cn.clearFilters }}">\u6E05\u7A7A\u6761\u4EF6', 'onClick="{{ cn.clearFilters }}">{{ cn.clearText }}');
+    html = html.replace(/批次 b-20260723-1418[^<]+/, "{{ d.batchSummary }}").replace("\u5168\u90E8 128", "\u5168\u90E8 {{ d.historyCount }}").replace("\u672A\u5165\u5E93 3", "\u672A\u5165\u5E93 {{ d.missingCount }}").replace("\u5931\u8D25 2</span>", "\u5931\u8D25 {{ d.failureCount }}</span>").replace('<div style="background:rgba(201,160,94,.06);', '<sc-if value="{{ d.hasFailed }}"><div style="background:rgba(201,160,94,.06);').replace('      <div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">\u4E0B\u8F7D\u5386\u53F2', '      </sc-if><div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">\u4E0B\u8F7D\u5386\u53F2').replace("\u6807\u8BB0\u8DF3\u8FC7</button>", "\u5FFD\u7565\u6B64\u9879</button>").replace("\u590D\u5236 ffmpeg \u547D\u4EE4", "\u590D\u5236\u8F6C\u7801\u53C2\u6570").replace('<button class="btn btn-ghost" onClick="{{ au.autoLayout }}">\u81EA\u52A8\u6392\u7248</button>', "").replace("\u8FD0\u884C\u4E2D\u4EFB\u52A1 2 / 4", "\u5DF2\u542F\u7528\u4EFB\u52A1 {{ au.enabledCount }} / {{ au.taskCount }}").replace("\u4ECA\u65E5\u81EA\u52A8\u6D3E\u53D1 18 \u90E8", "\u4ECA\u65E5\u81EA\u52A8\u6D3E\u53D1 {{ au.dispatchedToday }} \u90E8").replace("\u4ECA\u65E5\u8DF3\u8FC7 41 \xB7 \u9519\u8BEF 2", "\u4ECA\u65E5\u8DF3\u8FC7 {{ au.skippedToday }} \xB7 \u9519\u8BEF {{ au.errorsToday }}").replace('<b style="color:var(--bad);font-weight:500">AV1 \u4E0D\u53EF\u7528</b><br>av1_nvenc \u786C\u4EF6\u63A2\u9488\u5931\u8D25\uFF1A\u5F53\u524D\u9A71\u52A8 535.161 \u4E0D\u652F\u6301\u3002\u76F8\u5173\u9884\u8BBE\u5DF2\u7981\u7528\uFF0C\u4E0D\u4F1A\u56DE\u9000 CPU\u3002', "{{ tc.hardwareMessage }}").replace("\u5E76\u53D1\u4E0A\u9650 2", "\u5E76\u53D1\u4E0A\u9650 {{ tc.maxConcurrent }}").replaceAll(/每 [125]s 轮询/g, "\u6BCF 3s \u66F4\u65B0").replace(" \xB7 \u5168\u5C40\u5E76\u53D1 5", "").replace("\u53EF\u7528\u53D8\u91CF {code} {title} {actors} {studio} {label} {series} {year} {date}", "\u53EF\u7528\u53D8\u91CF {{ sc.namingFields }}").replace('onClick="{{ s.run }}">{{ s.runText }}', 'disabled="{{ s.loading }}" onClick="{{ s.run }}">{{ s.runText }}').replace('onClick="{{ sc.preview }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.preview }}"').replace('onClick="{{ sc.reset }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.reset }}"').replace('onClick="{{ d.run }}"', 'disabled="{{ !d.runCount }}" onClick="{{ d.run }}"');
+    html = html.replace("YHG007 \u6765\u6E90\u4E0D\u53EF\u8FBE", "\u67E5\u8BE2\u5931\u8D25").replace(/HTTPConnectionPool\(host='yhg007.com'[\s\S]*?已保留上一次 JavBus 结果缓存。/, "{{ s.error }}\u3002\u53EF\u91CD\u8BD5\u6216\u68C0\u67E5\u6765\u6E90\u8BBE\u7F6E\u3002").replace("3 \u4E2A\u6587\u4EF6\u51B2\u7A81\u9700\u8981\u5904\u7406", "{{ sc.nConf }} \u4E2A\u6587\u4EF6\u51B2\u7A81\u9700\u8981\u5904\u7406").replace("115 \u7F51\u76D8\u672A\u914D\u7F6E", "\u5F53\u524D\u7F51\u76D8\u672A\u8FDE\u63A5").replace(/缺少 Cookie，无法列目录或提交离线任务。[\s\S]*?后重新连接。/, "\u8BF7\u5230\u8BBE\u7F6E\u4E2D\u8FDE\u63A5\u5F53\u524D\u7F51\u76D8\uFF0C\u518D\u6D4F\u89C8\u76EE\u5F55\u3002").replace('onClick="{{ sc.applyStrategy }}"', 'disabled="{{ !sc.nConf }}" onClick="{{ sc.applyStrategy }}"').replace('onChange="{{ au.togglePauseAll }}"', 'disabled="{{ au.pauseAll }}" onChange="{{ au.togglePauseAll }}"').replace('onClick="{{ se.save }}"', 'disabled="{{ se.isOverview }}" onClick="{{ se.save }}"');
+    html = html.replace('      <sc-if value="{{ sc.hasPreview }}">\n', `<sc-if value="{{ sc.outcome }}"><div style="background:var(--surf);border-radius:8px;padding:16px"><h5>\u6267\u884C\u7ED3\u679C \xB7 {{ sc.outcome.summary }}</h5><p>\u5931\u8D25\u9879\u53EF\u4FEE\u6B63\u914D\u7F6E\u540E\u91CD\u65B0\u751F\u6210\u9884\u89C8\uFF1B\u5DF2\u5B8C\u6210\u7684\u6587\u4EF6\u65E0\u9700\u91CD\u590D\u5904\u7406\u3002</p><sc-for list="{{ sc.outcome.rows }}" as="r"><div style="padding:8px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere"><span style="color:{{ r.fg }}">{{ r.status }}</span> \xB7 {{ r.path }}<div style="color:var(--dim)">{{ r.note }}</div></div></sc-for></div></sc-if><sc-if value="{{ sc.hasPreview }}">`);
+    for (const action of ["au.save", "au.runNow", "au.toggleRun", "au.remove"]) html = html.replace(`onClick="{{ ${action} }}"`, `disabled="{{ !au.hasTask }}" onClick="{{ ${action} }}"`);
+    html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>').replace('flex:none">{{ a.initial }}</div>', 'flex:none;position:relative;overflow:hidden">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></div>').replace('<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span>', '<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span><sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>').replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="\u8BE6\u60C5\u4E0E\u914D\u7F6E" style="position:fixed;top:0;right:0;bottom:0;').replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=').replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
     const poster = (key) => `<sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>`;
     html = html.replace(/(<div style="width:70px;aspect-ratio:3\/2;[^"]*)">{{ r.code }}<\/div>/, `$1;position:relative;overflow:hidden">${poster("r")}{{ r.code }}</div>`).replace('position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">', `position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">${poster("r")}`);
     html = html.replace('box-shadow:inset 0 -1px 0 var(--line2)">\n                <span', `box-shadow:inset 0 -1px 0 var(--line2)">${poster("m")}
                 <span`).replaceAll('display:grid;place-items:center;overflow:hidden">\n                  <span', `display:grid;place-items:center;overflow:hidden">${poster("it")}
                   <span`).replaceAll('display:grid;place-items:center;overflow:hidden">\n                <span', `display:grid;place-items:center;overflow:hidden">${poster("it")}
-                <span`).replace('<div style="position:absolute;top:0;right:0;width:62%;height:66%;', '<sc-if value="{{ cn.hero.cover }}"><img src="{{ cn.hero.cover }}" alt="" style="position:absolute;top:0;right:0;width:65%;height:75%;object-fit:cover;opacity:.5"></sc-if><div style="position:absolute;top:0;right:0;width:62%;height:66%;').replaceAll("\u624B\u52A8\u6307\u5B9A\u756A\u53F7", "\u4FEE\u590D\u8BF4\u660E").replace("\u53F3\u4FA7\u5B9E\u65F6\u9884\u89C8\u4E00\u6761\u771F\u5B9E\u6587\u4EF6\u540D", "\u53F3\u4FA7\u4F7F\u7528\u793A\u4F8B\u5143\u6570\u636E\u9884\u89C8\u547D\u540D\u89C4\u5219");
-    html = html.replace('<div style="position:relative;flex:none;height:56px;', '<div class="jj-cinema-bar" style="position:relative;flex:none;height:56px;').replace('<div style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;', '<div class="jj-cinema-hero" style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;').replaceAll("display:flex;gap:11px;overflow:hidden", "display:flex;gap:11px;overflow-x:auto").replace('style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default"', 'style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default;max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"');
+                <span`).replace('<div style="position:absolute;top:0;right:0;width:62%;height:66%;', '<sc-if value="{{ cn.hero.cover }}"><img src="{{ cn.hero.cover }}" alt="" style="position:absolute;top:0;right:0;width:65%;height:75%;object-fit:cover;opacity:.5"></sc-if><div style="position:absolute;top:0;right:0;width:62%;height:66%;').replace("\u53F3\u4FA7\u5B9E\u65F6\u9884\u89C8\u4E00\u6761\u771F\u5B9E\u6587\u4EF6\u540D", "\u53F3\u4FA7\u4F7F\u7528\u793A\u4F8B\u5143\u6570\u636E\u9884\u89C8\u547D\u540D\u89C4\u5219");
+    html = html.replace('  <sc-if value="{{ at.auto }}">', `
+  <sc-if value="{{ sc.repair }}">
+    <div class="dialog-backdrop" style="background:var(--ovl)"><div class="dialog elev-lg" role="dialog" aria-modal="true" aria-label="\u624B\u52A8\u6307\u5B9A\u756A\u53F7" style="width:480px">
+      <div class="dialog-title">\u624B\u52A8\u6307\u5B9A\u756A\u53F7</div><p style="overflow-wrap:anywhere">{{ sc.repair.src }}</p>
+      <input class="input" aria-label="\u6B63\u786E\u756A\u53F7" value="{{ sc.repair.code }}" onChange="{{ sc.repair.setCode }}" placeholder="ABP-123">
+      <p>\u91CD\u65B0\u8BC6\u522B\u5E76\u751F\u6210\u9884\u89C8\uFF0C\u786E\u8BA4\u6267\u884C\u524D\u4E0D\u4F1A\u4FEE\u6539\u6E90\u6587\u4EF6\u3002</p>
+      <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ sc.repair.cancel }}">\u53D6\u6D88</button><button class="btn btn-primary" onClick="{{ sc.repair.submit }}">\u91CD\u65B0\u751F\u6210\u9884\u89C8</button></div>
+    </div></div>
+  </sc-if>
+  <sc-if value="{{ at.auto }}">`);
+    html = html.replace('onClick="{{ s.openBrowse }}"', 'aria-label="\u6D4F\u89C8\u7B5B\u9009\u76EE\u5F55" onClick="{{ s.openBrowse }}"');
+    html = html.replace('<div style="position:absolute;left:50%;top:64px;', '<div class="jj-catalog" role="dialog" aria-modal="true" aria-label="\u7B5B\u9009\u76EE\u5F55" style="position:fixed;left:50%;top:64px;').replace('<aside style="position:absolute;top:52px;right:16px;', '<aside class="jj-popover" role="dialog" aria-label="\u540E\u53F0\u4EFB\u52A1" style="position:fixed;top:52px;right:16px;').replace('<div style="position:absolute;top:64px;left:50%;', '<div class="jj-toast" role="status" aria-live="polite" style="position:fixed;top:64px;left:50%;');
+    html = html.replace('<div style="position:relative;flex:none;height:56px;', '<div class="jj-cinema-bar" style="position:relative;flex:none;height:56px;').replace('<div style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;', '<div class="jj-cinema-shelves" style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;').replace('<div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">', '<div class="jj-filter-options" style="display:flex;gap:6px;flex-wrap:wrap;flex:1">').replace('<div style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;', '<div class="jj-cinema-hero" style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;').replaceAll("display:flex;gap:11px;overflow:hidden", "display:flex;gap:11px;overflow-x:auto").replace('style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default"', 'style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default;max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"');
+    html = html.replace(/<(div|span)([^>]*onClick="{{ (?:n.pick|a.open|f.open|c.go|t.pick|it.pick|t.go)[^>]*?)>/g, '<$1 role="button" tabIndex="0"$2>');
+    html = html.replace('<div style="display:flex;align-items:stretch;gap:0">', '<div class="jj-auto-flow" style="display:flex;align-items:stretch;gap:0">').replace('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">', '<div class="jj-auto-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">');
+    html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
+    html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
+    const pager = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager("s.paging")}$2`).replace('<sc-if value="{{ cn.showWall }}">', `<sc-if value="{{ cn.showWall }}">${pager("cn.paging")}`).replace('<sc-if value="{{ cn.showActors }}">', `<sc-if value="{{ cn.showActors }}">${pager("cn.actorPaging")}`).replace('<sc-if value="{{ cn.showShelves }}">', `<sc-if value="{{ cn.showShelves }}">${pager("cn.shelfPaging")}`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace("{{ sh.meta }}</span>", '{{ sh.meta }}</span><sc-if value="{{ sh.openAll }}"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">\u67E5\u770B\u5168\u90E8</button></sc-if>').replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">').replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     return html;
   }
 
@@ -7115,7 +7598,7 @@ class Component extends DCLogic {
   Promise.resolve().then(() => {
     const name = "JavJaeger";
     window.__dcUpdate(name, "html", adaptTemplate(JavJaeger_dc_default.match(/<x-dc>([\s\S]*?)<\/x-dc>/)[1], logo_default), false);
-    window.__dcUpdate(name, "js", JavJaeger_dc_default.match(/<script[^>]*data-dc-script[^>]*>([\s\S]*?)<\/script>/)[1] + designDataExports, false);
+    window.__dcUpdate(name, "js", adaptDesignScript(JavJaeger_dc_default.match(/<script[^>]*data-dc-script[^>]*>([\s\S]*?)<\/script>/)[1]) + designDataExports, false);
     const entry = window.__dcRegistry[name];
     entry.Logic = connectDesign(entry.Logic);
     entry.fetched = true;

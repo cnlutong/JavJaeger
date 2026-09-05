@@ -35,6 +35,7 @@ class BatchMoviesRequest(BaseModel):
 
 class LocalScrapePreviewRequest(BaseModel):
     directory: str
+    code_overrides: dict[str, str] = {}
     recursive: bool = True
     max_depth: Optional[int] = None
     scrape: bool = True
