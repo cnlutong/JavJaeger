@@ -478,7 +478,8 @@ class TranscodingService:
         self._started = False
         self._shutting_down = False
         self._capabilities_cache: dict[str, Any] | None = None
-        self._last_progress_save: dict[str, float] = {}
+        self._capabilities_lock = asyncio.Lock()
+        self._last_progress_save_at = 0.0
 
     async def startup(self) -> None:
         async with self._lifecycle_lock:
@@ -749,9 +750,10 @@ class TranscodingService:
         return result
 
     async def _get_capabilities(self) -> dict[str, Any]:
-        if self._capabilities_cache is None:
-            self._capabilities_cache = await asyncio.to_thread(self.capability_detector)
-        return dict(self._capabilities_cache)
+        async with self._capabilities_lock:
+            if self._capabilities_cache is None:
+                self._capabilities_cache = await asyncio.to_thread(self.capability_detector)
+            return dict(self._capabilities_cache)
 
     def _bind_options_to_gpu(
         self,
@@ -857,8 +859,9 @@ class TranscodingService:
                 current.elapsed_seconds = max(0, int(time.monotonic() - started))
                 current.stage = "GPU 正在转码"
                 now = time.monotonic()
-                if now - self._last_progress_save.get(task_id, 0.0) >= 1.0:
-                    self._last_progress_save[task_id] = now
+                # Live progress is in memory; share one disk checkpoint across all workers.
+                if now - self._last_progress_save_at >= 5.0:
+                    self._last_progress_save_at = now
                     await self._save_unlocked()
 
         try:
@@ -930,7 +933,6 @@ class TranscodingService:
             async with self._lock:
                 self._processes.pop(task_id, None)
                 self._cancel_events.pop(task_id, None)
-                self._last_progress_save.pop(task_id, None)
                 if source_path is not None:
                     self._active_sources.discard(self._source_key(source_path))
 

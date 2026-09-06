@@ -79,9 +79,9 @@ async def search_movies(request: Request):
 
 
 @router.get("/api/movies/local-library")
-async def get_local_movie_library():
+async def get_local_movie_library(compact: bool = False):
     try:
-        return await get_local_library_payload()
+        return await get_local_library_payload(compact=compact)
     except Exception as exc:
         logger.error("Local library read failed: %s", exc)
         return {"success": False, "error": "library_read_failed", "message": "读取本地影片库失败"}
@@ -171,9 +171,9 @@ async def clean_invalid_local_movie_library_files():
 
 
 @router.get("/api/movies/local-library/actors")
-async def get_local_movie_library_actors():
+async def get_local_movie_library_actors(compact: bool = False):
     try:
-        return await local_actor_library_service.get_summary()
+        return await local_actor_library_service.get_summary(compact=compact)
     except Exception as exc:
         logger.error("Local actor library read failed: %s", exc)
         return {"success": False, "error": "actor_library_read_failed", "message": "璇诲彇婕斿憳淇℃伅搴撳け璐?"}

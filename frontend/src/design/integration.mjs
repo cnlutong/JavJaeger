@@ -22,6 +22,8 @@ export function adaptDesignScript(script) {
         .replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, 'const latest = this.latestByActor.get(a.name);')
         .replace('let wallRows = LIB\n', 'let wallRows = (isWall ? LIB : [])\n')
         .replace('filterGroups: dims.map((d) => ({', 'filterGroups: (isWall ? dims : []).map((d) => ({')
+        .replace('const o = st.scOpts;', 'const o = st.scOpts, skipped = new Set(st.scSkip);')
+        .replaceAll('st.scSkip.includes(', 'skipped.has(')
         .replace('LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length', 'this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0')
         .replace("gb(b.size) - gb(a.size)", 'Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)');
 }
@@ -91,7 +93,8 @@ export function connectDesign(Base) {
             this.magnets = new Map();
             this.libraryByCode = new Map();
             this.latestByActor = new Map();
-            this.pendingWrites = new Map();
+            this.pendingRequests = new Map();
+            this._readGeneration = 0;
             this.requestVersion = 0;
             this._disposed = false;
             for (const [key, storageKey] of Object.entries(jobStorage)) {
@@ -115,6 +118,9 @@ export function connectDesign(Base) {
                 ['cnShelfPage', ['cnTab']],
                 ['catalogPage', ['browse', 'browseQ']],
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
+                ['historyPage', ['dHf']], ['tcPage', ['tcF']], ['scPage', ['scF', 'scPhase']],
+                ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize']], ['directoryPage', ['browsePath']],
+                ['dlgPage', ['dlg']],
             ]) {
                 if (filters.some(key => key in patch && patch[key] !== this.state[key])) patch[page] = null;
             }
@@ -122,12 +128,12 @@ export function connectDesign(Base) {
         }
 
         async request(url, method = 'GET', body) {
-            if (method === 'GET') return this.fetchJSON(url, method, body);
-            const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body]);
-            if (this.pendingWrites.has(key)) return this.pendingWrites.get(key);
+            const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body, method === 'GET' ? this._readGeneration : null]);
+            if (this.pendingRequests.has(key)) return this.pendingRequests.get(key);
+            if (method !== 'GET') this._readGeneration++;
             const pending = this.fetchJSON(url, method, body);
-            this.pendingWrites.set(key, pending);
-            try { return await pending; } finally { this.pendingWrites.delete(key); }
+            this.pendingRequests.set(key, pending);
+            try { return await pending; } finally { this.pendingRequests.delete(key); if (method !== 'GET') this._readGeneration++; }
         }
 
         async fetchJSON(url, method, body) {
@@ -243,7 +249,7 @@ export function connectDesign(Base) {
         }
         async loadLibrary() {
             const [library, settings, actors] = await Promise.all([
-                this.request('/api/movies/local-library'), this.request('/api/movies/local-library/settings'), this.request('/api/movies/local-library/actors'),
+                this.request('/api/movies/local-library?compact=true'), this.request('/api/movies/local-library/settings'), this.request('/api/movies/local-library/actors?compact=true'),
             ]);
             data.LIB.splice(0, data.LIB.length, ...(library.records || library.movies || []).map(record => movieView(record, true)));
             this.libraryByCode = new Map(data.LIB.map(movie => [movie.code, movie]));
@@ -266,6 +272,7 @@ export function connectDesign(Base) {
         }
         async checkInformation(refreshFiles = false) {
             const result = await this.request('/api/movies/local-library/information/check?fields=' + id(this.state.infoFields.join(',')) + '&refresh_files=' + refreshFiles);
+            if (refreshFiles) this._readGeneration++;
             const incomplete = new Map((result.incomplete_records || []).map(record => [record.movie_id, record]));
             for (const movie of data.LIB) {
                 const missing = incomplete.get(movie.code);
@@ -495,7 +502,6 @@ export function connectDesign(Base) {
                 view.player.selectFile = event => this.setState({ playerIndex: Number(event.target.value) });
                 view.player.ended = () => { if ((this.state.playerIndex || 0) + 1 < playing.files) this.setState({ playerIndex: (this.state.playerIndex || 0) + 1 }); };
             }
-            for (const actor of view.actors) actor.avatarUrl = data.CN_ACTORS.find(item => item.name === actor.name)?.avatar_url || '';
             if (this.state.cnTab === '推荐') view.shelves = [{ name: '最近入库', meta: `${data.LIB.length} 部`, cardW: '158px', items: data.LIB.slice(0, 12).map(movie => ({ ...movie, sub: movie.actors.join(' / '), ring: 'var(--t08)', ringW: '1px', pick: () => this.setState({ cnHero: movie.code }) })) }];
             if (['系列', 'VR'].includes(this.state.cnTab)) {
                 const vr = this.state.cnTab === 'VR', groups = new Map();
@@ -517,6 +523,8 @@ export function connectDesign(Base) {
             view.wall = wall.items; view.paging = wall.paging;
             const actors = this.pageItems(view.actors, 'cnActorPage', []);
             view.actors = actors.items; view.actorPaging = actors.paging;
+            const avatars = new Map(data.CN_ACTORS.map(actor => [actor.name, actor.avatar_url]));
+            for (const actor of view.actors) actor.avatarUrl = avatars.get(actor.name) || '';
             return view;
         }
 
@@ -624,6 +632,8 @@ export function connectDesign(Base) {
         transcodeAction(task, action, method = 'POST') { return this.perform(async () => { await this.request(`/api/movies/transcoding/tasks/${id(task.id)}${action ? '/' + action : ''}`, method); await this.loadTranscodes(); }, '转码任务已更新'); }
         vTranscode() {
             const view = super.vTranscode(), caps = this.state.tcCaps;
+            const page = this.pageItems(view.rows, 'tcPage', [this.state.tcF]);
+            view.rows = page.items; view.paging = page.paging;
             const active = data.TC.filter(task => ['running', 'queued'].includes(task.status)), done = data.TC.filter(task => task.status === 'completed'), bad = data.TC.filter(task => ['failed', 'cancelled'].includes(task.status));
             view.stats = [stat('活动任务', active.length), stat('已完成', done.length, '', OK), stat('异常 / 取消', bad.length, '', WARN), stat('节省空间', size(done.reduce((sum, task) => sum + Math.max(0, task.raw.input_size - task.raw.output_size), 0)), '', ACC)];
             view.nActive = active.length; view.nDone = done.length; view.nBad = bad.length;
@@ -677,7 +687,7 @@ export function connectDesign(Base) {
         }
         executeScrape(organize = this.state.scOpts.organize) {
             if (this.scrapePreviewConfig !== JSON.stringify(this.scrapePayload())) { this.toast('配置已改变，请重新生成预览后执行', WARN); return; }
-            const rows = data.SCRAPE_ROWS.filter(row => row.kind !== 'error' && !this.state.scSkip.includes(row.src));
+            const skipped = new Set(this.state.scSkip), rows = data.SCRAPE_ROWS.filter(row => row.kind !== 'error' && !skipped.has(row.src));
             if (!rows.length) { this.toast('请先生成预览并选择可执行文件', WARN); return; }
             this.ask({ title: '执行刮削整理？', color: WARN, okText: '开始执行', ackText: organize ? '我已确认目标路径与冲突处理规则' : '', body: organize ? '会按预览移动或替换文件，请确认冲突处理。' : '在原目录写入元数据与图片，不移动视频。', list: rows.map(row => row.src),
                 run: () => this.perform(async () => {
@@ -720,11 +730,14 @@ export function connectDesign(Base) {
             view.reset = () => { if (st.scPhase === 'scanning') { this.toast('后台任务运行中，请等待完成', WARN); return; } data.SCRAPE_ROWS.splice(0); this.scrapePreviewConfig = null; this.setState({ scPhase: 'idle', scrapeTask: null, scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} }); };
             view.applyStrategy = () => { const strategy = st.scStrategy.split(' ')[0]; this.setState({ pathEdits: { ...st.pathEdits, ...Object.fromEntries(rows.filter(row => row.kind === 'conflict').map(row => [row.src, strategy])) } }); this.toast('已为冲突项设置处理策略'); };
             view.execute = () => this.executeScrape(); view.dryRun = () => this.executeScrape(false);
-            view.execNote = `${rows.filter(row => row.kind !== 'error' && !st.scSkip.includes(row.src)).length} 个待处理文件`;
+            const skipped = new Set(st.scSkip);
+            view.execNote = `${rows.filter(row => row.kind !== 'error' && !skipped.has(row.src)).length} 个待处理文件`;
             if (view.cmp) {
                 view.cmp.sides.forEach((side, index) => { side.better = false; side.keep = () => this.setState({ pathEdits: { ...st.pathEdits, [st.scCmp]: index === 0 ? 'keep_target' : 'keep_source' }, scCmp: null }); });
                 view.cmp.skip = () => this.setState({ scSkip: [...st.scSkip, st.scCmp], scCmp: null });
             }
+            const page = this.pageItems(view.rows, 'scPage', [st.scF, st.scPhase]);
+            view.rows = page.items; view.paging = page.paging;
             for (const row of view.rows) {
                 if (st.pathEdits[row.src]) row.note = `处理策略：${st.pathEdits[row.src]}`;
                 row.inspect = () => this.ask({ title: row.code, body: rows.find(item => item.src === row.src)?.note || row.src, color: DIM, okText: '关闭' });
@@ -740,6 +753,7 @@ export function connectDesign(Base) {
             const history = data.HISTORY.map(record => ({ raw: record, code: record.movie_id || record.id || '', title: record.title || '', res: selectHistoryRedispatchResource(record)?.link || '', src: selectHistoryRedispatchResource(record)?.source || '', tool: record.download_tool || record.tool || '', time: record.timestamp || record.download_time || record.date || '',
                 status: record.status || '已记录', local: record.in_local_library ? '已入库' : record.needs_reselect ? '未入库' : '待核对', stBg: 'var(--t08)', stFg: DIM, localFg: DIM2, actText: '重新派发', act: () => { const resource = selectHistoryRedispatchResource(record, sourceKey(st.dSrc)); this.confirmDispatch([record.movie_id || record.id], resource ? [{ ...resource, movie_id: record.movie_id || record.id }] : undefined); },
             }));
+            const page = this.pageItems(history.filter(record => st.dHf === '0' || (st.dHf === '1' ? record.raw.needs_reselect : record.raw.status === 'failed')), 'historyPage', [st.dHf]);
             return { tool: st.tool, src: st.dSrc, tools: this.toolStates().map(tool => ({ ...tool, key: tool.name, status: tool.hint, meta: '', active: st.tool === tool.name, bg: st.tool === tool.name ? 'var(--t08)' : 'transparent', ring: 'var(--t09)', needsAction: !tool.connected, actionText: '配置', pick: () => this.setState({ tool: tool.name }), action: () => this.setState({ route: 'settings', seTab: tool.name }) })),
                 scope1: st.dScope === '1', scope2: st.dScope === '2', scope3: st.dScope === '3', setScope1: () => this.setState({ dScope: '1' }), setScope2: () => this.setState({ dScope: '2' }), setScope3: () => this.setState({ dScope: '3' }),
                 codes: st.dCodes, setCodes: event => this.setState({ dCodes: event.target.value }), setSrc: event => this.setState({ dSrc: event.target.value }),
@@ -752,7 +766,7 @@ export function connectDesign(Base) {
                 checkNote: st.dChecked ? '已核对本地库' : '尚未核对本地库', check: () => this.perform(async () => { const result = await this.request('/api/history/check-local-library', 'POST'); data.HISTORY.splice(0, data.HISTORY.length, ...(result.records || [])); this.setState({ dChecked: true }); }, '本地库核对完成'),
                 refresh: () => this.perform(() => this.loadHistory(), '历史记录已刷新'),
                 clear: () => this.ask({ title: '清空下载历史？', body: '将同时清空已尝试链接，后续派发可能再次尝试旧链接。', ackText: '我确认清空历史记录', color: BAD, okText: '清空', run: () => this.perform(async () => { await this.request('/api/history', 'DELETE'); await this.loadHistory(); }, '下载历史已清空') }),
-                history: history.filter(record => st.dHf === '0' || (st.dHf === '1' ? record.raw.needs_reselect : record.raw.status === 'failed')),
+                history: page.items, paging: page.paging,
             };
         }
 
@@ -912,22 +926,26 @@ export function connectDesign(Base) {
             const st = this.state, connected = st.fsSrc === 'local' || (st.fsSrc === '115' ? this.allConnected() : st.connections.webdav_connected);
             const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected);
             const rows = st.fileRows.filter(file => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === 'folder' || ((!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= this.minFileSize() * 1024 ** 2)));
-            const selected = rows.filter(file => st.fsSel.includes(file.path || file.id)), tasks = st.ariaTasks || [];
+            const selectedKeys = new Set(st.fsSel), selected = rows.filter(file => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
+            const page = this.pageItems(rows, 'fsPage', [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize]);
+            const taskPage = this.pageItems(tasks, 'fsTaskPage', []);
+            const directories = this.pageItems([...(st.browseParent != null ? [{ name: '..', path: st.browseParent }] : []), ...st.directories], 'directoryPage', [st.browsePath]);
             return {
+                paging: page.paging, taskPaging: taskPage.paging, directoryPaging: directories.paging,
                 sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.setState({ fsSrc: key, fileRows: [], directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
                 subtitle: st.fsSrc === 'local' ? '服务端本地目录' : '远程目录 · 可发送到 Aria2', offline: !connected, showFiles: connected, goSettings: () => this.setState({ route: 'settings', seTab: st.fsSrc === '115' ? '115 网盘' : 'WebDAV' }),
                 q: st.fsQ, setQ: event => this.setState({ fsQ: event.target.value }), videoOnly: st.fsVideoOnly, toggleVideo: () => this.setState({ fsVideoOnly: !st.fsVideoOnly }), minSize: st.fsMinSize, setMinSize: event => this.setState({ fsMinSize: event.target.value }),
                 crumbs: [{ name: '根目录 / ', fg: ACC, go: () => this.perform(() => this.loadFiles(st.fsSrc, '')) }, { name: st.directory || '/', fg: DIM, go: () => this.perform(() => this.loadFiles()) }, { name: '上一级', fg: ACC, go: () => this.perform(() => { const trail = st.directoryTrail || []; const parent = st.fsSrc === '115' ? trail.at(-1) || '' : st.directoryParent ?? (st.directory.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/'); this.setState({ directoryTrail: trail.slice(0, -1) }); return this.loadFiles(st.fsSrc, parent); }) }],
                 dirMeta: `${rows.length} 项`, allSel: rows.length > 0 && selected.length === rows.length, toggleAll: () => this.setState({ fsSel: selected.length === rows.length ? [] : rows.map(file => file.path || file.id) }),
-                rows: rows.map(file => { const dir = file.is_directory || file.kind === 'folder', key = file.path || file.id; return { ...file, isDir: dir, canSend, type: dir ? '文件夹' : file.kind || '文件', size: size(file.size), date: file.modified || file.modified_time || file.mtime || '—', icon: dir ? 'ph-folder' : 'ph-file', iconFg: dir ? ACC : DIM, fg: dir ? ACC : 'var(--fg)', cursor: dir ? 'pointer' : 'default', sel: st.fsSel.includes(key), toggle: () => this.setState({ fsSel: st.fsSel.includes(key) ? st.fsSel.filter(value => value !== key) : [...st.fsSel, key] }),
+                rows: page.items.map(file => { const dir = file.is_directory || file.kind === 'folder', key = file.path || file.id; return { ...file, isDir: dir, canSend, type: dir ? '文件夹' : file.kind || '文件', size: size(file.size), date: file.modified || file.modified_time || file.mtime || '—', icon: dir ? 'ph-folder' : 'ph-file', iconFg: dir ? ACC : DIM, fg: dir ? ACC : 'var(--fg)', cursor: dir ? 'pointer' : 'default', sel: selectedKeys.has(key), toggle: () => this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter(value => value !== key) : [...st.fsSel, key] }),
                     open: () => { if (dir) { this.setState({ directoryTrail: [...(st.directoryTrail || []), st.directory] }); return this.perform(() => this.loadFiles(st.fsSrc, key)); } }, send: () => this.sendFiles([file]) }; }),
                 selCount: st.route === 'storage' ? selected.length : 0, selSize: size(selected.reduce((sum, file) => sum + Number(file.size || 0), 0)), clearSel: () => this.setState({ fsSel: [] }), sendSel: () => this.sendFiles(selected), canSend,
                 refreshAria: () => this.perform(() => this.loadAria()), ariaConnected: st.connections.aria2_connected, ariaDown: !st.connections.aria2_connected, ariaStatus: st.connections.aria2_connected ? '已连接' : '未连接', ariaDot: st.connections.aria2_connected ? OK : DIM2, ariaFg: DIM, ariaMeta: `${tasks.length} 个任务`, connectAria: () => this.perform(() => this.connect('aria2', true), 'Aria2 已连接'), jobs115: null,
                 browsePath: () => this.perform(() => this.browseDirectory()), closeAdd: () => this.setState({ fsAdd: null }),
-                addForm: st.fsAdd === 'browse' ? { title: '浏览服务端目录', desc: '选择服务端可访问的目录', path: st.browsePath, entries: [...(st.browseParent != null ? [{ name: '..', path: st.browseParent }] : []), ...st.directories].map(entry => ({ name: entry.name || entry.path, meta: entry.path, open: () => this.perform(() => this.browseDirectory(entry.path, st.browserTarget)) })) } : null,
+                addForm: st.fsAdd === 'browse' ? { title: '浏览服务端目录', desc: '选择服务端可访问的目录', path: st.browsePath, entries: directories.items.map(entry => ({ name: entry.name || entry.path, meta: entry.path, open: () => this.perform(() => this.browseDirectory(entry.path, st.browserTarget)) })) } : null,
                 pickPath: () => { const target = st.browserTarget; this.setState({ fsAdd: null }); if (target) this.setState({ [target.key]: st[target.key].map((value, index) => index === target.index ? st.browsePath : value) }); else this.perform(() => this.loadFiles('local', st.browsePath)); },
                 pauseAll: () => this.ask({ title: '暂停全部下载？', body: '暂停当前活动及等待中的 Aria2 任务。', color: WARN, okText: '暂停', run: () => this.perform(async () => { for (const task of tasks.filter(task => ['active', 'waiting'].includes(task.status))) await this.request(`/api/aria2/pause/${id(task.gid)}`, 'POST'); await this.loadAria(); }, '下载已暂停') }),
-                tasks: tasks.map(task => ({ name: task.name, dir: task.gid, pct: Number(task.totalLength) ? Math.round(100 * Number(task.completedLength) / Number(task.totalLength)) : 0, speed: `${size(task.downloadSpeed)}/s`, eta: '—', sizeText: `${size(task.completedLength)} / ${size(task.totalLength)}`, status: task.status, stFg: task.status === 'error' ? BAD : DIM, fg: 'var(--fg)', canPause: ['active', 'waiting'].includes(task.status), canResume: task.status === 'paused', pause: () => this.ariaAction(task, 'pause'), resume: () => this.ariaAction(task, 'resume'), del: () => this.ask({ title: '删除 Aria2 任务？', body: `从 Aria2 移除 ${task.name} 下载任务，保留已下载文件。`, color: BAD, okText: '删除', run: () => this.ariaAction(task, 'remove') }) })),
+                tasks: taskPage.items.map(task => ({ name: task.name, dir: task.gid, pct: Number(task.totalLength) ? Math.round(100 * Number(task.completedLength) / Number(task.totalLength)) : 0, speed: `${size(task.downloadSpeed)}/s`, eta: '—', sizeText: `${size(task.completedLength)} / ${size(task.totalLength)}`, status: task.status, stFg: task.status === 'error' ? BAD : DIM, fg: 'var(--fg)', canPause: ['active', 'waiting'].includes(task.status), canResume: task.status === 'paused', pause: () => this.ariaAction(task, 'pause'), resume: () => this.ariaAction(task, 'resume'), del: () => this.ask({ title: '删除 Aria2 任务？', body: `从 Aria2 移除 ${task.name} 下载任务，保留已下载文件。`, color: BAD, okText: '删除', run: () => this.ariaAction(task, 'remove') }) })),
             };
         }
 
@@ -971,6 +989,10 @@ export function connectDesign(Base) {
             view.bg.items = data.TC.filter(task => ['running', 'queued'].includes(task.status)).map(task => ({ kind: '转码', name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go('transcode') }));
             for (const key of ['scanTask', 'scrapeTask']) if (st[key] && !['success', 'completed', 'failed'].includes(st[key].status)) view.bg.items.push({ kind: key === 'scanTask' ? '扫描入库' : '刮削', name: st[key].message || '后台运行中', pct: st[key].percent || 0, pctText: '', meta: st[key].status, fg: ACC, go: this.go(key === 'scanTask' ? 'library' : 'scrape') });
             view.bg.count = view.bg.items.length;
+            const background = this.pageItems(view.bg.items, 'bgPage', [], 6);
+            view.bg.items = background.items; view.bg.paging = background.paging;
+            const confirmation = this.pageItems(view.dlg.list, 'dlgPage', []);
+            view.dlg.list = confirmation.items; view.dlg.paging = confirmation.paging;
             const search = view.s, movies = st.route === 'search' ? this.visible() : [];
             const movieIndex = new Map(movies.map(movie => [movie.code, movie]));
             search.paging = this.pageItems(movies, 'searchPage', []).paging;

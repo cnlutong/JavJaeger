@@ -65,9 +65,23 @@ test('performance: unchanged task polling does not schedule a render', async () 
     assert.equal(renders, 1);
 });
 
+test('performance: duplicate reads share a request but a write starts a fresh read', async () => {
+    const instance = app(), reads = [];
+    globalThis.fetch = async (url, options) => options.method === 'GET'
+        ? new Promise(resolve => reads.push(resolve)) : json({ success: true });
+    const first = instance.request('/api/history'), duplicate = instance.request('/api/history');
+    assert.equal(reads.length, 1);
+    await instance.request('/api/history', 'DELETE');
+    const fresh = instance.request('/api/history');
+    assert.equal(reads.length, 2);
+    reads[0](json(['old'])); reads[1](json(['new']));
+    assert.deepEqual(await Promise.all([first, duplicate, fresh]), [['old'], ['old'], ['new']]);
+    instance.componentWillUnmount();
+});
+
 test('performance: rapid library navigation reuses loaded data and explicit refresh stays fresh', async () => {
     const instance = app(); let reads = 0;
-    globalThis.fetch = async url => { if (url === '/api/movies/local-library') reads++; return json({ records: [], actors: [], directories: [], incomplete_records: [] }); };
+    globalThis.fetch = async url => { if (new URL(url, 'http://local').pathname === '/api/movies/local-library') reads++; return json({ records: [], actors: [], directories: [], incomplete_records: [] }); };
     await instance.loadLibrary();
     instance.go('library')(); instance.go('cinema')();
     assert.equal(reads, 1);
@@ -77,13 +91,15 @@ test('performance: rapid library navigation reuses loaded data and explicit refr
     await new Promise(resolve => setImmediate(resolve));
 });
 
-test('performance: library refresh reads the index and only an explicit check verifies files', async () => {
-    const instance = app(), checks = [];
+test('performance: library refresh reads compact index and only an explicit check verifies files', async () => {
+    const instance = app(), checks = [], summaries = [];
     globalThis.fetch = async url => {
         if (url.includes('/information/check')) checks.push(new URL(url, 'http://local').searchParams.get('refresh_files'));
+        if (['/api/movies/local-library', '/api/movies/local-library/actors'].includes(new URL(url, 'http://local').pathname)) summaries.push(new URL(url, 'http://local').searchParams.get('compact'));
         return json({ records: [], actors: [], directories: [], incomplete_records: [] });
     };
     await instance.loadLibrary(); await instance.loadLibrary();
+    assert.deepEqual(summaries, ['true', 'true', 'true', 'true']);
     assert.deepEqual(checks, ['false', 'false']);
     await instance.vLibrary().runCheck();
     assert.equal(checks.filter(value => value === 'true').length, 1);
@@ -188,10 +204,58 @@ test('search dispatch submits the displayed selected magnet and its source', asy
 });
 
 const json = value => new Response(JSON.stringify(value));
+
+test('performance: 10000 history, transcode, scrape and storage entries render one page', () => {
+    const instance = app(), data = instance.constructor.data;
+    for (let i = 0; i < 10000; i++) {
+        data.HISTORY.push({ movie_id: `QA-${i}`, title: `QA ${i}`, download_links: [] });
+        data.TC.push({ id: `task-${i}`, status: 'completed', code: `QA-${i}`, raw: { input_size: 5e9, output_size: 4e9 } });
+        data.SCRAPE_ROWS.push({ src: `/qa/${i}.mp4`, code: `QA-${i}`, kind: 'ok', raw: {} });
+    }
+    instance.setState({ scPhase: 'preview', fileRows: data.SCRAPE_ROWS.map(row => ({ path: row.src, name: row.code + '.mp4', size: 5e9 })), ariaTasks: data.TC.map(task => ({ gid: task.id, name: task.code, status: 'completed' })) });
+    for (const [method, field] of [['vDispatch', 'history'], ['vTranscode', 'rows'], ['vScrape', 'rows'], ['vStorage', 'rows']]) {
+        const before = performance.now(), view = instance[method]();
+        assert.equal(view[field].length, 60, method);
+        assert.match(view.paging.text, /10000/);
+        const first = view[field][0];
+        view.paging.next();
+        assert.notDeepEqual(instance[method]()[field][0], first);
+        console.log(JSON.stringify({ method, count: 10000, viewMs: Math.round(performance.now() - before) }));
+    }
+    const storage = instance.vStorage(); storage.toggleAll();
+    assert.equal(instance.state.fsSel.length, 10000, 'batch selection still includes all filtered entries');
+    assert.equal(instance.vStorage().rows.every(row => row.sel), true);
+    assert.equal(instance.vStorage().tasks.length, 60);
+    instance.setState({ fsQ: 'QA-9999' });
+    assert.equal(instance.vStorage().rows.length, 1);
+    instance.componentWillUnmount();
+});
 const localRecord = (code, overrides = {}) => ({ movie_id: code, title: code, files: [{ path: `/${code}.mp4`, size: 100 }], stars: [], genres: [], total_size: 100, ...overrides });
+test('performance: batch confirmation and background menu stay bounded without losing actions', () => {
+    const instance = app(), data = instance.constructor.data;
+    const list = Array.from({ length: 10000 }, (_, i) => `QA-${i}`);
+    data.TC.push(...list.map(code => ({ code, status: 'queued' })));
+    let submitted = 0;
+    instance.ask({ title: 'QA batch', list, ackText: 'QA acknowledge', run: () => { submitted = list.length; } });
+    let view = instance.renderVals();
+    assert.equal(view.dlg.list.length, 60);
+    assert.equal(view.dlg.blocked, true);
+    assert.equal(view.bg.count, 10000);
+    assert.equal(view.bg.items.length, 6);
+    view.dlg.paging.next(); view.bg.paging.next();
+    view = instance.renderVals();
+    assert.equal(view.dlg.list[0].t, 'QA-60');
+    assert.equal(view.bg.items[0].name, 'QA-6');
+    view.dlg.ack(); instance.renderVals().dlg.confirm();
+    assert.equal(submitted, 10000);
+    instance.ask({ title: 'QA next batch', list });
+    assert.equal(instance.renderVals().dlg.list[0].t, 'QA-0');
+    instance.componentWillUnmount();
+});
+
 async function loadRecords(instance, records, incomplete = []) {
     globalThis.fetch = async url => json(url.includes('/information/check') ? { fields: ['title', 'date'], incomplete_records: incomplete, incomplete_count: incomplete.length }
-        : url.endsWith('/settings') ? { directories: [], ignored_paths: [] } : url.endsWith('/actors') ? { actors: [] } : { records });
+        : url.endsWith('/settings') ? { directories: [], ignored_paths: [] } : new URL(url, 'http://local').pathname.endsWith('/actors') ? { actors: [] } : { records });
     await instance.loadLibrary();
 }
 

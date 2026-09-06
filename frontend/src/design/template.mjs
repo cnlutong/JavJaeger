@@ -120,6 +120,14 @@ export function adaptTemplate(source, logo) {
     html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
     html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
     const pager = key => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="分页"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">上一页</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">下一页</button></nav></sc-if>`;
+    html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager('dlg.paging')}<sc-if value="{{ dlg.hasList }}">`)
+        .replace('<sc-for list="{{ bg.items }}"', `${pager('bg.paging')}<sc-for list="{{ bg.items }}"`);
+    for (const [route, key] of [['dispatch', 'd'], ['transcode', 'tc'], ['scrape', 'sc']]) {
+        html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager(key + '.paging')}$2`);
+    }
+    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager('fs.paging')}$2`)
+        .replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager('fs.taskPaging')}$2`)
+        .replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager('fs.directoryPaging')}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager('lb.paging')}$2`)
         .replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager('s.paging')}$2`)
         .replace('<sc-if value="{{ cn.showWall }}">', `<sc-if value="{{ cn.showWall }}">${pager('cn.paging')}`)

@@ -54,6 +54,8 @@ class AutomationService:
         self._lock = asyncio.Lock()
         self._scheduler_task: asyncio.Task | None = None
         self._running_task_ids: set[str] = set()
+        self._cache_signature = None
+        self._cached_tasks: list[AutomationTask] = []
 
     async def startup(self) -> None:
         await self._load_tasks()
@@ -451,16 +453,28 @@ class AutomationService:
             return await self._load_tasks_unlocked()
 
     async def _load_tasks_unlocked(self) -> list[AutomationTask]:
-        if not self.storage_path.exists():
-            return []
+        return await asyncio.to_thread(self._read_tasks)
+
+    def _read_tasks(self) -> list[AutomationTask]:
         try:
-            data = json.loads(self.storage_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logger.error("读取自动任务失败: %s", exc)
+            facts = self.storage_path.stat()
+        except FileNotFoundError:
+            self._cache_signature = None
+            self._cached_tasks = []
             return []
-        return [AutomationTask(**item) for item in data.get("tasks", [])]
+        signature = (facts.st_mtime_ns, facts.st_size, facts.st_ino)
+        if signature != self._cache_signature:
+            try:
+                data = json.loads(self.storage_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                logger.error("读取自动任务失败: %s", exc)
+                return []
+            self._cached_tasks = [AutomationTask(**item) for item in data.get("tasks", [])]
+            self._cache_signature = signature
+        return [task.model_copy(deep=True) for task in self._cached_tasks]
 
     async def _save_tasks_unlocked(self, tasks: list[AutomationTask]) -> None:
+        self._cache_signature = None
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"tasks": [task.model_dump() for task in tasks]}
         self.storage_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

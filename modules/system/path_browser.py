@@ -1,4 +1,5 @@
 import os
+import stat
 import string
 from pathlib import Path
 from typing import Any
@@ -15,21 +16,22 @@ def _directory_entry(path: Path) -> dict[str, Any]:
     }
 
 
-def _file_manager_entry(path: Path) -> dict[str, Any]:
-    is_directory = path.is_dir()
+def _file_manager_entry(path: Path, facts: os.stat_result | None = None, is_symlink: bool | None = None) -> dict[str, Any]:
+    is_directory = False
     size = 0
     modified = ""
     try:
-        stat = path.stat()
-        size = 0 if is_directory else stat.st_size
-        modified = str(stat.st_mtime)
+        facts = facts or path.stat()
+        is_directory = stat.S_ISDIR(facts.st_mode)
+        size = 0 if is_directory else facts.st_size
+        modified = str(facts.st_mtime)
     except OSError:
         pass
     return {
         "name": path.name or str(path),
         "path": str(path),
         "is_directory": is_directory,
-        "is_symlink": path.is_symlink(),
+        "is_symlink": path.is_symlink() if is_symlink is None else is_symlink,
         "size": size,
         "modified": modified,
     }
@@ -69,38 +71,39 @@ def _root_directories() -> list[Path]:
 def _list_child_directories(directory: Path) -> list[dict[str, Any]]:
     entries: list[Path] = []
     try:
-        children = list(directory.iterdir())
+        with os.scandir(directory) as children:
+            for child in children:
+                try:
+                    if child.is_dir():
+                        path = Path(child.path)
+                        entries.append(path.resolve() if child.is_symlink() else path)
+                except OSError:
+                    continue
     except OSError:
-        children = []
-
-    for child in children:
-        try:
-            if child.is_dir():
-                entries.append(child.resolve())
-        except OSError:
-            continue
+        pass
 
     return [_directory_entry(path) for path in sorted(_dedupe_paths(entries), key=lambda item: item.name.lower())]
 
 
 def _list_file_manager_entries(directory: Path) -> list[dict[str, Any]]:
-    entries: list[Path] = []
+    entries: dict[str, dict[str, Any]] = {}
     try:
-        children = list(directory.iterdir())
+        with os.scandir(directory) as children:
+            for child in children:
+                try:
+                    facts = child.stat()
+                    if not (stat.S_ISDIR(facts.st_mode) or stat.S_ISREG(facts.st_mode)):
+                        continue
+                    path = Path(child.path)
+                    if child.is_symlink():
+                        path = path.resolve()
+                    entry = _file_manager_entry(path, facts, False)
+                    entries[os.path.normcase(str(path))] = entry
+                except OSError:
+                    continue
     except OSError:
-        children = []
-
-    for child in children:
-        try:
-            if child.is_dir() or child.is_file():
-                entries.append(child.resolve())
-        except OSError:
-            continue
-
-    return [
-        _file_manager_entry(path)
-        for path in sorted(_dedupe_paths(entries), key=lambda item: (not item.is_dir(), item.name.lower()))
-    ]
+        pass
+    return sorted(entries.values(), key=lambda item: (not item["is_directory"], item["name"].lower()))
 
 
 def list_directory_payload(path: str | None = None) -> dict[str, Any]:

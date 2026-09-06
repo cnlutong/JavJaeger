@@ -47,12 +47,12 @@ async def get_client_config():
 
 
 @router.get("/api/system/directories")
-async def list_system_directories(path: str | None = None):
+def list_system_directories(path: str | None = None):
     return list_directory_payload(path)
 
 
 @router.get("/api/system/files")
-async def list_system_files(path: str | None = None):
+def list_system_files(path: str | None = None):
     return list_file_entries_payload(path)
 
 

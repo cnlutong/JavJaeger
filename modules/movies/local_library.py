@@ -532,8 +532,8 @@ async def scan_local_library(request: LocalLibraryScanRequest) -> dict[str, Any]
     return _aggregate_scan_results(results)
 
 
-async def get_local_library_payload() -> dict[str, Any]:
-    payload = await local_movie_library_service.get_summary()
+async def get_local_library_payload(compact: bool = False) -> dict[str, Any]:
+    payload = await local_movie_library_service.get_summary(compact=compact)
     for record in payload.get("records", []):
         record["is_vr"] = bool(record.get("is_vr") or movie_detail_is_vr(record.get("metadata") or record))
     return payload

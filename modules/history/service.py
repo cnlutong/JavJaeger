@@ -175,6 +175,10 @@ class DownloadHistoryService:
         records.sort(key=lambda item: item.get("download_time", ""), reverse=True)
         return records
 
+    async def _ensure_loaded(self) -> None:
+        if not self._loaded:
+            await self.load_records()
+
     async def clear(self) -> dict[str, Any]:
         async with self._lock:
             parent_dir = os.path.dirname(self.file_path)
@@ -187,13 +191,13 @@ class DownloadHistoryService:
         return {"success": True, "message": "历史记录已清空"}
 
     async def is_movie_downloaded(self, movie_id: str) -> bool:
-        await self.load_records()
+        await self._ensure_loaded()
         return _normalize_movie_id(movie_id) in self._cache
 
     async def is_magnet_downloaded(self, movie_id: str, magnet_link: str) -> bool:
         if not movie_id or not magnet_link:
             return False
-        await self.load_records()
+        await self._ensure_loaded()
         record = self._cache.get(_normalize_movie_id(movie_id))
         if not record:
             return False
@@ -206,7 +210,7 @@ class DownloadHistoryService:
     async def get_magnet_source(self, movie_id: str, magnet_link: str) -> str:
         if not movie_id or not magnet_link:
             return ""
-        await self.load_records()
+        await self._ensure_loaded()
         record = self._cache.get(_normalize_movie_id(movie_id))
         if not record:
             return ""
@@ -217,14 +221,14 @@ class DownloadHistoryService:
         return ""
 
     async def get_downloaded_magnet_links(self, movie_id: str) -> list[str]:
-        await self.load_records()
+        await self._ensure_loaded()
         record = self._cache.get(_normalize_movie_id(movie_id))
         if not record:
             return []
         return [resource["link"] for resource in _extract_download_resources(record)]
 
     async def get_downloaded_magnet_resources(self, movie_id: str) -> list[dict[str, str]]:
-        await self.load_records()
+        await self._ensure_loaded()
         record = self._cache.get(_normalize_movie_id(movie_id))
         if not record:
             return []
@@ -236,7 +240,17 @@ class DownloadHistoryService:
         magnet_links: list[str] | None = None,
         magnet_sources: list[str] | None = None,
     ) -> None:
-        await self.load_records()
+        await self._ensure_loaded()
+        metadata = {}
+        for raw_movie_id in movie_ids:
+            movie_id = _normalize_movie_id(raw_movie_id)
+            if not movie_id or movie_id in metadata:
+                continue
+            try:
+                metadata[movie_id] = await javbus_api_service.get_movie_detail(movie_id)
+            except Exception as exc:
+                logger.error("Failed to load movie metadata for %s: %s", movie_id, exc)
+                metadata[movie_id] = {}
         async with self._lock:
             current_time = datetime.datetime.now().isoformat()
 
@@ -245,11 +259,7 @@ class DownloadHistoryService:
                 if not movie_id:
                     continue
 
-                try:
-                    movie_data = await javbus_api_service.get_movie_detail(movie_id)
-                except Exception as exc:
-                    logger.error("Failed to load movie metadata for %s: %s", movie_id, exc)
-                    movie_data = {}
+                movie_data = metadata[movie_id]
 
                 record = self._cache.get(
                     movie_id,
@@ -585,16 +595,20 @@ class ActorLibraryService:
             "downloaded_avatar_count": changed_avatar_count,
         }
 
-    async def get_summary(self) -> dict[str, Any]:
+    async def get_summary(self, compact: bool = False) -> dict[str, Any]:
         records = await self.load_records()
         actors: list[dict[str, Any]] = []
         for actor_key, actor in records.items():
             movies = actor.get("movies") if isinstance(actor.get("movies"), dict) else {}
             actor_payload = dict(actor)
             actor_payload["key"] = actor_key
-            actor_payload["movie_ids"] = sorted(movies.keys())
-            actor_payload["movie_count"] = len(actor_payload["movie_ids"])
-            actor_payload["movies"] = [movies[movie_id] for movie_id in actor_payload["movie_ids"]]
+            actor_payload["movie_count"] = len(movies)
+            if compact:
+                actor_payload.pop("movie_ids", None)
+                actor_payload.pop("movies", None)
+            else:
+                actor_payload["movie_ids"] = sorted(movies.keys())
+                actor_payload["movies"] = [movies[movie_id] for movie_id in actor_payload["movie_ids"]]
             actor_payload.pop("avatar_url", None)
             if actor.get("avatar_file"):
                 actor_payload["avatar_url"] = f"/api/movies/local-library/actors/{actor_key}/avatar"
@@ -707,9 +721,18 @@ class LocalMovieLibraryService:
         values.sort(key=lambda item: item.get("movie_id", ""))
         return values
 
-    async def get_summary(self) -> dict[str, Any]:
-        records = copy.deepcopy(await self.get_all())
-        return await asyncio.to_thread(self._build_summary, records)
+    async def get_summary(self, compact: bool = False) -> dict[str, Any]:
+        records = await self.get_all()
+        if compact:
+            # Keep browsing/playback fields without copying scraped full-text blobs.
+            summaries = []
+            for record in records:
+                summary = {key: value for key, value in record.items() if key not in ("full_text", "metadata")}
+                metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+                summary["metadata"] = {key: value for key, value in metadata.items() if key not in ("raw", "samples")}
+                summaries.append(summary)
+            records = summaries
+        return await asyncio.to_thread(self._build_summary, copy.deepcopy(records))
 
     def _build_summary(self, records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in records:

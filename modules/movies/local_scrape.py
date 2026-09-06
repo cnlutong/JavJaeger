@@ -940,8 +940,8 @@ async def preview_local_scrape(
             "total": 0,
         },
     )
-    video_files = _walk_video_files(directory, request.recursive, request.max_depth)
-    scanned_paths = {path.resolve() for path in video_files}
+    video_files = await asyncio.to_thread(_walk_video_files, directory, request.recursive, request.max_depth)
+    scanned_paths = set(video_files)
     code_overrides = {}
     for source_path, value in request.code_overrides.items():
         try:
@@ -966,11 +966,12 @@ async def preview_local_scrape(
     candidates = [
         LocalFileCandidate(
             path=path,
-            code=code_overrides.get(path.resolve()) or recognize_designation(path.stem),
-            recognition_method="manual" if path.resolve() in code_overrides else "regex",
-            recognition_message="recognized" if path.resolve() in code_overrides or recognize_designation(path.stem) else "unrecognized",
+            code=code,
+            recognition_method="manual" if path in code_overrides else "regex",
+            recognition_message="recognized" if code else "unrecognized",
         )
         for path in video_files
+        for code in [code_overrides.get(path) or recognize_designation(path.stem)]
     ]
 
     semaphore = asyncio.Semaphore(max(1, min(request.concurrent, 5)))
@@ -1059,27 +1060,32 @@ async def preview_local_scrape(
             scrape_logs.append(_scrape_diagnostic_log(scrape_reason, "warning"))
 
         metadata = _build_metadata(movie_detail, candidate.code, candidate.path.stem)
-        target_dir, target_video, target_stem = _build_target_paths(
-            candidate.path,
-            metadata,
-            request.organize,
-            request.target_directory,
-            request.naming_template,
-            request.folder_template,
-        )
+        def inspect_files():
+            target_dir, target_video, target_stem = _build_target_paths(
+                candidate.path, metadata, request.organize, request.target_directory,
+                request.naming_template, request.folder_template,
+            )
+            current_nfo = candidate.path.with_suffix(".nfo")
+            current_poster = candidate.path.with_name(f"{candidate.path.stem}-poster.jpg")
+            will_move = target_video.resolve() != candidate.path
+            conflict = target_video.exists() and will_move
+            return {
+                "source_file": _file_detail(candidate.path, True, include_media=conflict),
+                "target_file": _file_detail(target_video, True, include_media=True) if conflict else None,
+                "already_scraped": current_nfo.exists() and current_poster.exists(),
+                "target_stem": target_stem, "target_dir": str(target_dir),
+                "target_video_path": str(target_video), "target_exists": conflict, "will_move": will_move,
+            }
 
-        current_nfo = candidate.path.with_suffix(".nfo")
-        current_poster = candidate.path.with_name(f"{candidate.path.stem}-poster.jpg")
-        already_scraped = current_nfo.exists() and current_poster.exists()
-        conflict = target_video.exists() and target_video.resolve() != candidate.path.resolve()
+        async with semaphore:
+            file_state = await asyncio.to_thread(inspect_files)
 
         item = {
+            **file_state,
             "source_path": str(candidate.path),
-            "relative_path": str(candidate.path.relative_to(directory.resolve())),
+            "relative_path": str(candidate.path.relative_to(directory)),
             "file_name": candidate.path.name,
-            "file_size": _file_size(candidate.path),
-            "source_file": _file_detail(candidate.path, True, include_media=conflict),
-            "target_file": _file_detail(target_video, target_video.exists(), include_media=True) if conflict else None,
+            "file_size": file_state["source_file"]["size"],
             "code": candidate.code,
             "recognition_method": candidate.recognition_method if candidate.code else "failed",
             "recognition_message": candidate.recognition_message,
@@ -1088,18 +1094,12 @@ async def preview_local_scrape(
             "error": error,
             "scrape_reason": scrape_reason,
             "scrape_logs": scrape_logs,
-            "already_scraped": already_scraped,
             "metadata": metadata,
-            "target_stem": target_stem,
-            "target_dir": str(target_dir),
-            "target_video_path": str(target_video),
-            "target_exists": conflict,
             "will_write_nfo": bool(request.write_nfo and metadata.get("id")),
             "will_download_images": bool(request.download_images and candidate.code and movie_detail),
             "will_download_sample_images": bool(request.download_sample_images and metadata.get("samples")),
             "will_download_actor_images": bool(request.download_actor_images and metadata.get("actor_refs")),
             "will_download_list_thumbnail": bool(request.download_list_thumbnail and metadata.get("list_thumbnail_url")),
-            "will_move": str(target_video.resolve()) != str(candidate.path.resolve()),
         }
         completed += 1
         _emit_progress(
@@ -1124,24 +1124,27 @@ async def preview_local_scrape(
                 "item": item,
                 "source_path": source_path,
                 "file_name": item.get("file_name") or source_path.name,
-                "file_size": item.get("file_size") or _file_size(source_path),
+                "file_size": item.get("file_size") or 0,
                 "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else {},
                 "code": item.get("code"),
                 "target_video": target_video,
                 "target_stem": item.get("target_stem") or target_video.stem,
             }
         )
-    _number_same_movie_duplicate_target_records(target_records)
-    for record in target_records:
-        item = record["item"]
-        source_path = record["source_path"]
-        target_video = record["target_video"]
-        conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
-        item["target_video_path"] = str(target_video)
-        item["target_stem"] = record["target_stem"]
-        item["target_exists"] = conflict
-        item["target_file"] = _file_detail(target_video, target_video.exists(), include_media=True) if conflict else None
-        item["will_move"] = str(target_video.resolve()) != str(source_path.resolve())
+    def finalize_targets():
+        _number_same_movie_duplicate_target_records(target_records)
+        for record in target_records:
+            item = record["item"]
+            target_video = record["target_video"]
+            if str(target_video) == item["target_video_path"]:
+                continue
+            will_move = target_video.resolve() != record["source_path"]
+            conflict = target_video.exists() and will_move
+            item.update(target_video_path=str(target_video), target_stem=record["target_stem"],
+                        target_exists=conflict, will_move=will_move,
+                        target_file=_file_detail(target_video, True, include_media=True) if conflict else None)
+
+    await asyncio.to_thread(finalize_targets)
 
     target_counts = Counter(str(item.get("target_video_path") or "").lower() for item in items)
     for item in items:
@@ -1150,7 +1153,7 @@ async def preview_local_scrape(
         item["target_duplicate"] = target_duplicate
     payload = {
         "success": True,
-        "directory": str(directory.resolve()),
+        "directory": str(directory),
         "total_files": len(video_files),
         "recognized_count": sum(1 for item in items if item.get("code")),
         "found_count": sum(1 for item in items if item.get("scrape_status") == "found"),
@@ -1506,7 +1509,7 @@ async def apply_local_scrape(
             subtitles = _related_subtitles(source_path)
             conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
             conflict_resolution = str(item.conflict_resolution or "").strip()
-            keep_side = _choose_conflict_keep_side(source_path, target_video, conflict_resolution) if conflict else None
+            keep_side = await asyncio.to_thread(_choose_conflict_keep_side, source_path, target_video, conflict_resolution) if conflict else None
             unresolved_auto_best = bool(conflict and conflict_resolution == "auto_best" and keep_side is None)
             if conflict and not request.overwrite_existing and not conflict_resolution:
                 results.append(
@@ -1577,12 +1580,12 @@ async def apply_local_scrape(
                 )
                 continue
 
-            _move_file(source_path, target_video, overwrite_target)
+            await asyncio.to_thread(_move_file, source_path, target_video, overwrite_target)
             current_video = target_video
 
             for subtitle in subtitles:
                 subtitle_target = _subtitle_target_path(subtitle, source_path, target_dir, target_stem)
-                _move_file(subtitle, subtitle_target, overwrite_target)
+                await asyncio.to_thread(_move_file, subtitle, subtitle_target, overwrite_target)
                 moved_assets.append(str(subtitle_target))
 
             poster_name = None
@@ -1608,11 +1611,12 @@ async def apply_local_scrape(
 
             nfo_path = None
             if request.write_nfo and metadata.get("id"):
-                nfo_path = _write_nfo(current_video, metadata, poster_name, sample_names)
+                nfo_path = await asyncio.to_thread(_write_nfo, current_video, metadata, poster_name, sample_names)
 
             library_recorded = False
             library_root = _library_root_for_applied_video(request, source_path, current_video)
-            library_record = _build_library_record_for_applied_video(
+            library_record = await asyncio.to_thread(
+                _build_library_record_for_applied_video,
                 current_video,
                 library_root,
                 metadata,

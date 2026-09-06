@@ -5820,7 +5820,7 @@ class Component extends DCLogic {
     for (const [key, route, method] of [["cn", "cinema", "vCinema"], ["d", "dispatch", "vDispatch"], ["tc", "transcode", "vTranscode"], ["sc", "scrape", "vScrape"], ["lb", "library", "vLibrary"], ["au", "auto", "vAuto"], ["fs", "storage", "vStorage"], ["se", "settings", "vSettings"]]) {
       script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === "fs" ? " || st.fsAdd" : ""}) ? this.${method}() : {}`);
     }
-    return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", "let wallRows = (isWall ? LIB : [])\n").replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
+    return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", "let wallRows = (isWall ? LIB : [])\n").replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("const o = st.scOpts;", "const o = st.scOpts, skipped = new Set(st.scSkip);").replaceAll("st.scSkip.includes(", "skipped.has(").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
   }
   var ACC = "var(--acc)";
   var OK = "var(--ok)";
@@ -5945,7 +5945,8 @@ class Component extends DCLogic {
         this.magnets = /* @__PURE__ */ new Map();
         this.libraryByCode = /* @__PURE__ */ new Map();
         this.latestByActor = /* @__PURE__ */ new Map();
-        this.pendingWrites = /* @__PURE__ */ new Map();
+        this.pendingRequests = /* @__PURE__ */ new Map();
+        this._readGeneration = 0;
         this.requestVersion = 0;
         this._disposed = false;
         for (const [key, storageKey] of Object.entries(jobStorage)) {
@@ -5970,22 +5971,29 @@ class Component extends DCLogic {
           ["cnPage", ["cnTab", "cnActor", "cnF", "cnSort"]],
           ["cnShelfPage", ["cnTab"]],
           ["catalogPage", ["browse", "browseQ"]],
-          ["searchPage", ["sMode", "code", "page", "fList"]]
+          ["searchPage", ["sMode", "code", "page", "fList"]],
+          ["historyPage", ["dHf"]],
+          ["tcPage", ["tcF"]],
+          ["scPage", ["scF", "scPhase"]],
+          ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize"]],
+          ["directoryPage", ["browsePath"]],
+          ["dlgPage", ["dlg"]]
         ]) {
           if (filters.some((key) => key in patch && patch[key] !== this.state[key])) patch[page] = null;
         }
         super.setState(patch, callback);
       }
       async request(url, method = "GET", body) {
-        if (method === "GET") return this.fetchJSON(url, method, body);
-        const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body]);
-        if (this.pendingWrites.has(key)) return this.pendingWrites.get(key);
+        const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body, method === "GET" ? this._readGeneration : null]);
+        if (this.pendingRequests.has(key)) return this.pendingRequests.get(key);
+        if (method !== "GET") this._readGeneration++;
         const pending = this.fetchJSON(url, method, body);
-        this.pendingWrites.set(key, pending);
+        this.pendingRequests.set(key, pending);
         try {
           return await pending;
         } finally {
-          this.pendingWrites.delete(key);
+          this.pendingRequests.delete(key);
+          if (method !== "GET") this._readGeneration++;
         }
       }
       async fetchJSON(url, method, body) {
@@ -6137,9 +6145,9 @@ class Component extends DCLogic {
       }
       async loadLibrary() {
         const [library, settings, actors] = await Promise.all([
-          this.request("/api/movies/local-library"),
+          this.request("/api/movies/local-library?compact=true"),
           this.request("/api/movies/local-library/settings"),
-          this.request("/api/movies/local-library/actors")
+          this.request("/api/movies/local-library/actors?compact=true")
         ]);
         data.LIB.splice(0, data.LIB.length, ...(library.records || library.movies || []).map((record) => movieView(record, true)));
         this.libraryByCode = new Map(data.LIB.map((movie) => [movie.code, movie]));
@@ -6168,6 +6176,7 @@ class Component extends DCLogic {
       }
       async checkInformation(refreshFiles = false) {
         const result = await this.request("/api/movies/local-library/information/check?fields=" + id(this.state.infoFields.join(",")) + "&refresh_files=" + refreshFiles);
+        if (refreshFiles) this._readGeneration++;
         const incomplete = new Map((result.incomplete_records || []).map((record) => [record.movie_id, record]));
         for (const movie of data.LIB) {
           const missing = incomplete.get(movie.code);
@@ -6457,7 +6466,6 @@ class Component extends DCLogic {
             if ((this.state.playerIndex || 0) + 1 < playing.files) this.setState({ playerIndex: (this.state.playerIndex || 0) + 1 });
           };
         }
-        for (const actor of view.actors) actor.avatarUrl = data.CN_ACTORS.find((item) => item.name === actor.name)?.avatar_url || "";
         if (this.state.cnTab === "\u63A8\u8350") view.shelves = [{ name: "\u6700\u8FD1\u5165\u5E93", meta: `${data.LIB.length} \u90E8`, cardW: "158px", items: data.LIB.slice(0, 12).map((movie) => ({ ...movie, sub: movie.actors.join(" / "), ring: "var(--t08)", ringW: "1px", pick: () => this.setState({ cnHero: movie.code }) })) }];
         if (["\u7CFB\u5217", "VR"].includes(this.state.cnTab)) {
           const vr = this.state.cnTab === "VR", groups = /* @__PURE__ */ new Map();
@@ -6485,6 +6493,8 @@ class Component extends DCLogic {
         const actors = this.pageItems(view.actors, "cnActorPage", []);
         view.actors = actors.items;
         view.actorPaging = actors.paging;
+        const avatars = new Map(data.CN_ACTORS.map((actor) => [actor.name, actor.avatar_url]));
+        for (const actor of view.actors) actor.avatarUrl = avatars.get(actor.name) || "";
         return view;
       }
       vLibrary() {
@@ -6697,6 +6707,9 @@ class Component extends DCLogic {
       }
       vTranscode() {
         const view = super.vTranscode(), caps = this.state.tcCaps;
+        const page = this.pageItems(view.rows, "tcPage", [this.state.tcF]);
+        view.rows = page.items;
+        view.paging = page.paging;
         const active = data.TC.filter((task) => ["running", "queued"].includes(task.status)), done = data.TC.filter((task) => task.status === "completed"), bad = data.TC.filter((task) => ["failed", "cancelled"].includes(task.status));
         view.stats = [stat("\u6D3B\u52A8\u4EFB\u52A1", active.length), stat("\u5DF2\u5B8C\u6210", done.length, "", OK), stat("\u5F02\u5E38 / \u53D6\u6D88", bad.length, "", WARN), stat("\u8282\u7701\u7A7A\u95F4", size(done.reduce((sum, task) => sum + Math.max(0, task.raw.input_size - task.raw.output_size), 0)), "", ACC)];
         view.nActive = active.length;
@@ -6780,7 +6793,7 @@ class Component extends DCLogic {
           this.toast("\u914D\u7F6E\u5DF2\u6539\u53D8\uFF0C\u8BF7\u91CD\u65B0\u751F\u6210\u9884\u89C8\u540E\u6267\u884C", WARN);
           return;
         }
-        const rows = data.SCRAPE_ROWS.filter((row) => row.kind !== "error" && !this.state.scSkip.includes(row.src));
+        const skipped = new Set(this.state.scSkip), rows = data.SCRAPE_ROWS.filter((row) => row.kind !== "error" && !skipped.has(row.src));
         if (!rows.length) {
           this.toast("\u8BF7\u5148\u751F\u6210\u9884\u89C8\u5E76\u9009\u62E9\u53EF\u6267\u884C\u6587\u4EF6", WARN);
           return;
@@ -6859,7 +6872,8 @@ class Component extends DCLogic {
         };
         view.execute = () => this.executeScrape();
         view.dryRun = () => this.executeScrape(false);
-        view.execNote = `${rows.filter((row) => row.kind !== "error" && !st.scSkip.includes(row.src)).length} \u4E2A\u5F85\u5904\u7406\u6587\u4EF6`;
+        const skipped = new Set(st.scSkip);
+        view.execNote = `${rows.filter((row) => row.kind !== "error" && !skipped.has(row.src)).length} \u4E2A\u5F85\u5904\u7406\u6587\u4EF6`;
         if (view.cmp) {
           view.cmp.sides.forEach((side, index) => {
             side.better = false;
@@ -6867,6 +6881,9 @@ class Component extends DCLogic {
           });
           view.cmp.skip = () => this.setState({ scSkip: [...st.scSkip, st.scCmp], scCmp: null });
         }
+        const page = this.pageItems(view.rows, "scPage", [st.scF, st.scPhase]);
+        view.rows = page.items;
+        view.paging = page.paging;
         for (const row of view.rows) {
           if (st.pathEdits[row.src]) row.note = `\u5904\u7406\u7B56\u7565\uFF1A${st.pathEdits[row.src]}`;
           row.inspect = () => this.ask({ title: row.code, body: rows.find((item) => item.src === row.src)?.note || row.src, color: DIM, okText: "\u5173\u95ED" });
@@ -6904,6 +6921,7 @@ class Component extends DCLogic {
             this.confirmDispatch([record.movie_id || record.id], resource ? [{ ...resource, movie_id: record.movie_id || record.id }] : void 0);
           }
         }));
+        const page = this.pageItems(history.filter((record) => st.dHf === "0" || (st.dHf === "1" ? record.raw.needs_reselect : record.raw.status === "failed")), "historyPage", [st.dHf]);
         return {
           tool: st.tool,
           src: st.dSrc,
@@ -6954,7 +6972,8 @@ class Component extends DCLogic {
             await this.request("/api/history", "DELETE");
             await this.loadHistory();
           }, "\u4E0B\u8F7D\u5386\u53F2\u5DF2\u6E05\u7A7A") }),
-          history: history.filter((record) => st.dHf === "0" || (st.dHf === "1" ? record.raw.needs_reselect : record.raw.status === "failed"))
+          history: page.items,
+          paging: page.paging
         };
       }
       formField(label, value, update, kind = "text", options = [], hint = "") {
@@ -7238,8 +7257,14 @@ class Component extends DCLogic {
         const st = this.state, connected = st.fsSrc === "local" || (st.fsSrc === "115" ? this.allConnected() : st.connections.webdav_connected);
         const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected);
         const rows = st.fileRows.filter((file) => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === "folder" || (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= this.minFileSize() * 1024 ** 2));
-        const selected = rows.filter((file) => st.fsSel.includes(file.path || file.id)), tasks = st.ariaTasks || [];
+        const selectedKeys = new Set(st.fsSel), selected = rows.filter((file) => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
+        const page = this.pageItems(rows, "fsPage", [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize]);
+        const taskPage = this.pageItems(tasks, "fsTaskPage", []);
+        const directories = this.pageItems([...st.browseParent != null ? [{ name: "..", path: st.browseParent }] : [], ...st.directories], "directoryPage", [st.browsePath]);
         return {
+          paging: page.paging,
+          taskPaging: taskPage.paging,
+          directoryPaging: directories.paging,
           sources: [["local", "\u670D\u52A1\u7AEF\u672C\u5730", true], ["webdav", "WebDAV", st.connections.webdav_connected], ["115", "115 \u7F51\u76D8", this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? "\u53EF\u7528" : "\u672A\u8FDE\u63A5", dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: "", op: 1, cursor: "pointer", needsCfg: key !== "local", bg: key === st.fsSrc ? "rgba(145,132,217,.08)" : "transparent", ring: key === st.fsSrc ? ACC : "var(--t09)", config: () => this.setState({ route: "settings", seTab: name }), pick: () => {
             this.setState({ fsSrc: key, fileRows: [], directory: "", directoryTrail: [] });
             if (up) this.perform(() => this.loadFiles(key, ""));
@@ -7263,7 +7288,7 @@ class Component extends DCLogic {
           dirMeta: `${rows.length} \u9879`,
           allSel: rows.length > 0 && selected.length === rows.length,
           toggleAll: () => this.setState({ fsSel: selected.length === rows.length ? [] : rows.map((file) => file.path || file.id) }),
-          rows: rows.map((file) => {
+          rows: page.items.map((file) => {
             const dir = file.is_directory || file.kind === "folder", key = file.path || file.id;
             return {
               ...file,
@@ -7276,8 +7301,8 @@ class Component extends DCLogic {
               iconFg: dir ? ACC : DIM,
               fg: dir ? ACC : "var(--fg)",
               cursor: dir ? "pointer" : "default",
-              sel: st.fsSel.includes(key),
-              toggle: () => this.setState({ fsSel: st.fsSel.includes(key) ? st.fsSel.filter((value) => value !== key) : [...st.fsSel, key] }),
+              sel: selectedKeys.has(key),
+              toggle: () => this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter((value) => value !== key) : [...st.fsSel, key] }),
               open: () => {
                 if (dir) {
                   this.setState({ directoryTrail: [...st.directoryTrail || [], st.directory] });
@@ -7303,7 +7328,7 @@ class Component extends DCLogic {
           jobs115: null,
           browsePath: () => this.perform(() => this.browseDirectory()),
           closeAdd: () => this.setState({ fsAdd: null }),
-          addForm: st.fsAdd === "browse" ? { title: "\u6D4F\u89C8\u670D\u52A1\u7AEF\u76EE\u5F55", desc: "\u9009\u62E9\u670D\u52A1\u7AEF\u53EF\u8BBF\u95EE\u7684\u76EE\u5F55", path: st.browsePath, entries: [...st.browseParent != null ? [{ name: "..", path: st.browseParent }] : [], ...st.directories].map((entry) => ({ name: entry.name || entry.path, meta: entry.path, open: () => this.perform(() => this.browseDirectory(entry.path, st.browserTarget)) })) } : null,
+          addForm: st.fsAdd === "browse" ? { title: "\u6D4F\u89C8\u670D\u52A1\u7AEF\u76EE\u5F55", desc: "\u9009\u62E9\u670D\u52A1\u7AEF\u53EF\u8BBF\u95EE\u7684\u76EE\u5F55", path: st.browsePath, entries: directories.items.map((entry) => ({ name: entry.name || entry.path, meta: entry.path, open: () => this.perform(() => this.browseDirectory(entry.path, st.browserTarget)) })) } : null,
           pickPath: () => {
             const target = st.browserTarget;
             this.setState({ fsAdd: null });
@@ -7314,7 +7339,7 @@ class Component extends DCLogic {
             for (const task of tasks.filter((task2) => ["active", "waiting"].includes(task2.status))) await this.request(`/api/aria2/pause/${id(task.gid)}`, "POST");
             await this.loadAria();
           }, "\u4E0B\u8F7D\u5DF2\u6682\u505C") }),
-          tasks: tasks.map((task) => ({ name: task.name, dir: task.gid, pct: Number(task.totalLength) ? Math.round(100 * Number(task.completedLength) / Number(task.totalLength)) : 0, speed: `${size(task.downloadSpeed)}/s`, eta: "\u2014", sizeText: `${size(task.completedLength)} / ${size(task.totalLength)}`, status: task.status, stFg: task.status === "error" ? BAD : DIM, fg: "var(--fg)", canPause: ["active", "waiting"].includes(task.status), canResume: task.status === "paused", pause: () => this.ariaAction(task, "pause"), resume: () => this.ariaAction(task, "resume"), del: () => this.ask({ title: "\u5220\u9664 Aria2 \u4EFB\u52A1\uFF1F", body: `\u4ECE Aria2 \u79FB\u9664 ${task.name} \u4E0B\u8F7D\u4EFB\u52A1\uFF0C\u4FDD\u7559\u5DF2\u4E0B\u8F7D\u6587\u4EF6\u3002`, color: BAD, okText: "\u5220\u9664", run: () => this.ariaAction(task, "remove") }) }))
+          tasks: taskPage.items.map((task) => ({ name: task.name, dir: task.gid, pct: Number(task.totalLength) ? Math.round(100 * Number(task.completedLength) / Number(task.totalLength)) : 0, speed: `${size(task.downloadSpeed)}/s`, eta: "\u2014", sizeText: `${size(task.completedLength)} / ${size(task.totalLength)}`, status: task.status, stFg: task.status === "error" ? BAD : DIM, fg: "var(--fg)", canPause: ["active", "waiting"].includes(task.status), canResume: task.status === "paused", pause: () => this.ariaAction(task, "pause"), resume: () => this.ariaAction(task, "resume"), del: () => this.ask({ title: "\u5220\u9664 Aria2 \u4EFB\u52A1\uFF1F", body: `\u4ECE Aria2 \u79FB\u9664 ${task.name} \u4E0B\u8F7D\u4EFB\u52A1\uFF0C\u4FDD\u7559\u5DF2\u4E0B\u8F7D\u6587\u4EF6\u3002`, color: BAD, okText: "\u5220\u9664", run: () => this.ariaAction(task, "remove") }) }))
         };
       }
       vSettings() {
@@ -7409,6 +7434,12 @@ class Component extends DCLogic {
         view.bg.items = data.TC.filter((task) => ["running", "queued"].includes(task.status)).map((task) => ({ kind: "\u8F6C\u7801", name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go("transcode") }));
         for (const key of ["scanTask", "scrapeTask"]) if (st[key] && !["success", "completed", "failed"].includes(st[key].status)) view.bg.items.push({ kind: key === "scanTask" ? "\u626B\u63CF\u5165\u5E93" : "\u522E\u524A", name: st[key].message || "\u540E\u53F0\u8FD0\u884C\u4E2D", pct: st[key].percent || 0, pctText: "", meta: st[key].status, fg: ACC, go: this.go(key === "scanTask" ? "library" : "scrape") });
         view.bg.count = view.bg.items.length;
+        const background = this.pageItems(view.bg.items, "bgPage", [], 6);
+        view.bg.items = background.items;
+        view.bg.paging = background.paging;
+        const confirmation = this.pageItems(view.dlg.list, "dlgPage", []);
+        view.dlg.list = confirmation.items;
+        view.dlg.paging = confirmation.paging;
         const search = view.s, movies = st.route === "search" ? this.visible() : [];
         const movieIndex = new Map(movies.map((movie) => [movie.code, movie]));
         search.paging = this.pageItems(movies, "searchPage", []).paging;
@@ -7590,6 +7621,11 @@ class Component extends DCLogic {
     html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
     html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
     const pager = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+    html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager("bg.paging")}<sc-for list="{{ bg.items }}"`);
+    for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {
+      html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager(key + ".paging")}$2`);
+    }
+    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager("fs.paging")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager("s.paging")}$2`).replace('<sc-if value="{{ cn.showWall }}">', `<sc-if value="{{ cn.showWall }}">${pager("cn.paging")}`).replace('<sc-if value="{{ cn.showActors }}">', `<sc-if value="{{ cn.showActors }}">${pager("cn.actorPaging")}`).replace('<sc-if value="{{ cn.showShelves }}">', `<sc-if value="{{ cn.showShelves }}">${pager("cn.shelfPaging")}`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace("{{ sh.meta }}</span>", '{{ sh.meta }}</span><sc-if value="{{ sh.openAll }}"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">\u67E5\u770B\u5168\u90E8</button></sc-if>').replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">').replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     return html;
   }

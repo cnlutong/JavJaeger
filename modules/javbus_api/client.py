@@ -39,6 +39,7 @@ class JavBusClient:
         self._cache_lock = asyncio.Lock()
         self._last_request_time = 0.0
         self._memory_cache: OrderedDict[str, tuple[str, float]] = OrderedDict()
+        self._pending: dict[str, asyncio.Task[str]] = {}
 
     @property
     def cache_size(self) -> int:
@@ -48,6 +49,11 @@ class JavBusClient:
         await self._get_http_client()
 
     async def shutdown(self) -> None:
+        pending = list(self._pending.values())
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         async with self._client_lock:
             if self._client and not self._client.is_closed:
                 try:
@@ -79,13 +85,27 @@ class JavBusClient:
                 logger.info("JavBus cache hit: %s", url)
                 return cached
 
+            if cache_key not in self._pending:
+                task = asyncio.create_task(self._fetch_text(url, params, headers, cache_key))
+                self._pending[cache_key] = task
+
+                def finished(task):
+                    self._pending.pop(cache_key, None)
+                    if not task.cancelled():
+                        task.exception()
+
+                task.add_done_callback(finished)
+            return await asyncio.shield(self._pending[cache_key])
+        return await self._fetch_text(url, params, headers)
+
+    async def _fetch_text(self, url: str, params: dict[str, Any] | None, headers: dict[str, str] | None, cache_key: str | None = None) -> str:
         await self._wait_for_slot()
         client = await self._get_http_client()
         response = await client.get(url, params=params, headers=headers)
         logger.info("JavBus request: %s status=%s", response.url, response.status_code)
         response.raise_for_status()
         text = response.text
-        if use_cache:
+        if cache_key is not None:
             await self._set_cache(cache_key, text)
         return text
 

@@ -196,6 +196,41 @@ test('performance: delayed magnets and GPU probes never delay opening results or
     assert.equal(await page.getByRole('button', { name: '加入队列', exact: true }).count(), 0);
 });
 
+test('performance: 10000 entries stay paged across history, transcode, scrape and files', async t => {
+    const items = Array.from({ length: 10000 }, (_, i) => ({ movie_id: `QA-${i}`, title: `QA ${i}`, source_path: `/qa/${i}.mp4`, code: `QA-${i}`, scrape_status: 'found', metadata: { id: `QA-${i}` } }));
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.addInitScript(() => sessionStorage.setItem('localScrapeActiveTask', JSON.stringify({ taskId: 'qa-many', type: 'preview', config: { scScanDir: '/qa' } })));
+        await p.route('**/api/history', route => route.fulfill({ json: items }));
+        await p.route('**/api/movies/transcoding/tasks', route => route.fulfill({ json: { tasks: items.map((item, i) => ({ id: `task-${i}`, movie_id: item.movie_id, status: 'completed', input_size: 5e9, output_size: 4e9 })) } }));
+        await p.route('**/api/movies/transcoding/presets', route => route.fulfill({ json: { gpu_available: false, presets: [] } }));
+        await p.route('**/api/movies/local-scrape/jobs/qa-many', route => route.fulfill({ json: { status: 'success', percent: 100, result: { success: true, items, total_files: items.length } } }));
+        await p.route('**/api/system/files**', route => route.fulfill({ json: { success: true, current_path: '/qa', entries: items.map(item => ({ name: item.code + '.mp4', path: item.source_path, size: 5e9 })) } }));
+    });
+    for (const name of ['下载派发', '转码', '本地刮削', '网盘与下载']) {
+        await navigate(page, name);
+        await page.getByText('第 1 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+        const rows = page.locator('tbody tr');
+        assert.equal(await rows.count(), 60, name);
+        const first = await rows.first().innerText();
+        const start = performance.now();
+        await page.getByRole('button', { name: '下一页', exact: true }).click();
+        await page.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+        assert.notEqual(await rows.first().innerText(), first);
+        t.diagnostic(JSON.stringify({ page: name, count: 10000, nextPageMs: Math.round(performance.now() - start), rows: await rows.count() }));
+    }
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-performance-files.png'), fullPage: false });
+    await navigate(page, '本地刮削');
+    await page.getByRole('button', { name: /确认执行 10000 项/ }).click();
+    const dialog = page.locator('.jj-confirm');
+    await dialog.getByText('第 1 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    assert.equal(await dialog.locator('div').filter({ hasText: /^\/qa\/\d+\.mp4$/ }).count(), 60);
+    await dialog.getByRole('button', { name: '下一页', exact: true }).click();
+    await dialog.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-performance-confirmation.png'), fullPage: false });
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+});
+
 test('imported runtime renders all original pages with no demo data or errors', async t => {
     const page = await openApp(t);
     for (const name of ['影片检索', '下载派发', '本地刮削', '影视库', '自动模式', '转码', '网盘与下载', '设置']) {
