@@ -198,6 +198,77 @@ test('library layout: original sidebar, stats and views retain accessible detail
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-library-restored-light.png'), fullPage: false });
 });
 
+test('library columns: spacious defaults, resizing, persistence and reset', async t => {
+    const page = await openApp(t, 1440, async p => {
+        const state = await libraryFixture(p, 65);
+        state.records[0].stars = Array.from({ length: 12 }, (_, i) => `测试演员 ${i + 1}`);
+        state.records[0].title = '可完整查看的长标题 / '.repeat(12);
+        await libraryArtwork(p, state);
+        state.records[0].thumbnail_url = state.records[0].cover_url;
+        state.records[0].poster_url = '/api/qa-landscape';
+        state.records[0].cover_url = '/api/qa-landscape';
+        await p.route('**/api/qa-landscape', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#73596b"/></svg>' }));
+    });
+    const consoleIssues = [];
+    page.on('console', message => { if (['error', 'warning'].includes(message.type())) consoleIssues.push(message.text()); });
+    await navigate(page, '影视库');
+    assert.equal(await page.title(), 'JavJaeger');
+    assert.equal(page.url(), baseURL + '/');
+    const table = page.locator('.jj-library-table table');
+    const headers = table.locator('th');
+    const actor = table.getByRole('separator', { name: '调整演员列宽', exact: true });
+    assert.equal(await table.getByRole('separator').count(), 8, 'every column can be resized');
+    assert.ok((await headers.nth(3).boundingBox()).width >= 220, 'actors have more room by default');
+    assert.ok((await table.locator('tbody tr').first().locator('img').boundingBox()).width >= 120, 'cover is substantially larger');
+    const portrait = table.locator('tbody tr').first().locator('img');
+    assert.equal(await portrait.getAttribute('src'), '/api/qa-posters/0', 'library uses the separate portrait image instead of the landscape cover');
+    const portraitBox = await portrait.boundingBox();
+    assert.ok(Math.abs(portraitBox.height / portraitBox.width - 1.5) < .02, 'list artwork uses a portrait frame');
+    assert.ok((await table.boundingBox()).width <= (await table.locator('..').boundingBox()).width + 1, 'desktop defaults fit the content area');
+    const drag = async (handle, delta) => {
+        await handle.scrollIntoViewIfNeeded();
+        const box = await handle.boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + delta, box.y + box.height / 2, { steps: 8 }); await page.mouse.up();
+    };
+    const actorBefore = (await headers.nth(3).boundingBox()).width;
+    await drag(actor, 100);
+    assert.ok(Math.abs((await headers.nth(3).boundingBox()).width - actorBefore - 100) < 2, 'drag changes the actor column and cells together');
+    assert.equal(await page.locator('.jj-drawer').count(), 0, 'drag does not open details');
+    await actor.focus(); await page.keyboard.press('ArrowRight');
+    const savedActorWidth = (await headers.nth(3).boundingBox()).width;
+    assert.ok(savedActorWidth > actorBefore + 100, 'keyboard also resizes');
+    const cover = table.getByRole('separator', { name: '调整封面列宽', exact: true });
+    const coverBefore = (await table.locator('tbody tr').first().locator('img').boundingBox()).width;
+    await drag(cover, 60);
+    assert.ok((await table.locator('tbody tr').first().locator('img').boundingBox()).width > coverBefore + 50, 'cover grows with its column');
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    assert.ok(Math.abs((await headers.nth(3).boundingBox()).width - savedActorWidth) < 2, 'pagination retains widths');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '影视库');
+    assert.ok(Math.abs((await headers.nth(3).boundingBox()).width - savedActorWidth) < 2, 'reload restores widths');
+    await actor.focus(); await page.keyboard.press('Home');
+    assert.ok((await headers.nth(3).boundingBox()).width >= 120, 'minimum keeps actor content readable');
+    await page.getByRole('button', { name: '恢复默认列宽', exact: true }).click();
+    assert.ok(Math.abs((await headers.nth(3).boundingBox()).width - actorBefore) < 2, 'reset restores responsive defaults');
+    const fileWidth = (await headers.nth(5).boundingBox()).width;
+    for (const width of [1440, 2560, 390]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await table.scrollIntoViewIfNeeded();
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'wide tables scroll inside the viewport');
+        assert.equal(await table.locator('th').count(), 8);
+        if (width === 2560) {
+            assert.ok(Math.abs((await headers.nth(5).boundingBox()).width - fileWidth) < 2, 'wide screens give extra space to content, keeping short data columns compact');
+            assert.ok((await headers.nth(0).boundingBox()).width <= 220, 'default covers stay compact enough for a list on wide screens');
+            assert.ok((await headers.nth(3).boundingBox()).width > actorBefore + 100);
+        }
+        if (width > 850) await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-library-columns-${width}.png`), fullPage: false });
+    }
+    assert.deepEqual(consoleIssues, [], 'column controls have no console errors or accessibility warnings');
+});
+
 test('cinema redesign: shelves, search, detail and playback preserve the browsing context', async t => {
     const page = await openApp(t, 1440, async p => {
         const state = await libraryFixture(p, 125);

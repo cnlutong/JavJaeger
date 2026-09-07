@@ -280,6 +280,24 @@ test('cinema: shelves use recent library data and playback skips missing segment
     assert.equal(instance.vCinema().detail.code, 'QA-NEW', 'stopping playback returns to cinema details');
 });
 
+test('library: portrait thumbnails take priority over landscape covers across local movie views', async () => {
+    const instance = app();
+    const landscape = { poster_url: '/api/landscape-poster', cover_url: '/api/landscape-cover' };
+    const remote = 'https://example.test/portrait.jpg';
+    await loadRecords(instance, [
+        localRecord('QA-001', { ...landscape, thumbnail_url: '/api/local-portrait', metadata: { list_thumbnail_url: remote } }),
+        localRecord('QA-002', { ...landscape, thumbnail_url: remote }),
+        localRecord('QA-003', { ...landscape, metadata: { list_thumbnail_url: remote } }),
+        localRecord('QA-004', landscape),
+    ]);
+    const expected = ['/api/local-portrait', `/api/image-proxy?url=${encodeURIComponent(remote)}`, `/api/image-proxy?url=${encodeURIComponent(remote)}`, '/api/landscape-poster'];
+    assert.deepEqual(instance.vLibrary().rows.map(row => row.cover), expected);
+    assert.deepEqual(instance.vCinema().shelves[0].items.map(row => row.cover), expected);
+    instance.setState({ lbDetail: 'QA-001' });
+    assert.equal(instance.vLibrary().d.cover, expected[0]);
+    instance.componentWillUnmount();
+});
+
 test('library: loading, empty collection and filtered results retain the right recovery action', async () => {
     const instance = app();
     assert.equal(instance.vLibrary().emptyTitle, '正在读取影视库…');

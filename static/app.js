@@ -5849,6 +5849,8 @@ class Component extends DCLogic {
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
   var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch" };
   var scrapeConfigKeys = ["scScanDir", "scOutDir", "scFolderRule", "scFileRule", "scMaxDepth", "scConcurrent", "scOpts", "scOverrides"];
+  var libraryColumns = [["\u5C01\u9762", 152, 104], ["\u756A\u53F7", 104, 88], ["\u6807\u9898", 256, 160], ["\u6F14\u5458", 232, 120], ["\u5A92\u4F53\u53C2\u6570", 140, 100], ["\u6587\u4EF6", 80, 64], ["\u8D44\u6599\u5B8C\u6574\u5EA6", 112, 104], ["\u64CD\u4F5C", 74, 64]];
+  var libraryWidthsKey = "javjaeger.libraryColumnWidths";
   function movieView(record, local = false) {
     const metadata = record.metadata || {}, media = record.media_info || metadata.media_info || {};
     const tags = names(record.genres || metadata.genres);
@@ -5880,7 +5882,7 @@ class Component extends DCLogic {
       gone: local && ((record.file_count ?? files.length) === 0 || files.some((file) => file.exists === false)),
       mag: "",
       magCount: 0,
-      cover: imageSource(record.poster_url || record.cover_url || record.img || metadata.cover_url || metadata.img || "")
+      cover: imageSource(local && (record.thumbnail_url || metadata.list_thumbnail_url) || record.poster_url || record.cover_url || record.img || metadata.cover_url || metadata.img || "")
     };
   }
   function connectDesign(Base) {
@@ -5947,8 +5949,16 @@ class Component extends DCLogic {
           tcOptions: {},
           fsMinSize: "\u4E0D\u9650",
           fsVideoOnly: false,
-          infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"]
+          infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"],
+          lbWidths: []
         };
+        try {
+          const widths = JSON.parse(window.localStorage.getItem(libraryWidthsKey));
+          if (Array.isArray(widths) && widths.length === libraryColumns.length && widths.every(Number.isFinite)) {
+            this.state.lbWidths = widths.map((width, i) => Math.max(libraryColumns[i][2], Math.min(1200, width)));
+          }
+        } catch {
+        }
         this.magnets = /* @__PURE__ */ new Map();
         this.libraryByCode = /* @__PURE__ */ new Map();
         this.latestByActor = /* @__PURE__ */ new Map();
@@ -6116,6 +6126,7 @@ class Component extends DCLogic {
       }
       componentWillUnmount() {
         this._disposed = true;
+        this._cancelLibraryResize?.();
         clearInterval(this._poll);
         if (this._keyboard) document.removeEventListener("keydown", this._keyboard);
         this._dialogObserver?.disconnect();
@@ -6637,8 +6648,76 @@ class Component extends DCLogic {
         for (const actor of view.actors) actor.avatarUrl = avatars.get(actor.name) || "";
         return view;
       }
+      saveLibraryWidths(widths) {
+        this.setState({ lbWidths: widths });
+        try {
+          window.localStorage.setItem(libraryWidthsKey, JSON.stringify(widths));
+        } catch {
+        }
+      }
+      resizeLibraryColumn(event, index) {
+        const handle = event.currentTarget, table = handle.closest("table");
+        const headers = [...table.querySelectorAll("th")];
+        const widths = headers.map((header) => header.getBoundingClientRect().width);
+        const clamp = (width) => Math.max(libraryColumns[index][2], Math.min(1200, width));
+        if (event.type === "keydown") {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          widths[index] = clamp(event.key === "Home" ? 0 : event.key === "End" ? 1200 : widths[index] + (event.key === "ArrowRight" ? 16 : -16));
+          this.saveLibraryWidths(widths);
+          return;
+        }
+        if (event.button !== 0 || !event.isPrimary) return;
+        event.preventDefault();
+        this._cancelLibraryResize?.();
+        handle.focus({ preventScroll: true });
+        const startX = event.clientX, startWidth = widths[index], previousWidth = table.style.width;
+        const previousHeaders = headers.map((header) => header.style.width), previousValue = handle.getAttribute("aria-valuenow");
+        const move = (next) => {
+          widths[index] = clamp(startWidth + next.clientX - startX);
+          headers.forEach((header, i) => {
+            header.style.width = `${widths[i]}px`;
+          });
+          table.style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
+          handle.setAttribute("aria-valuenow", Math.round(widths[index]));
+        };
+        const finish = (commit) => {
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", done);
+          handle.removeEventListener("pointercancel", cancel);
+          handle.removeEventListener("lostpointercapture", cancel);
+          this._cancelLibraryResize = null;
+          if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+          table.classList.remove("jj-resizing");
+          if (commit) this.saveLibraryWidths(widths);
+          else {
+            table.style.width = previousWidth;
+            headers.forEach((header, i) => {
+              header.style.width = previousHeaders[i];
+            });
+            handle.setAttribute("aria-valuenow", previousValue);
+          }
+        };
+        const done = () => finish(true), cancel = () => finish(false);
+        this._cancelLibraryResize = cancel;
+        table.classList.add("jj-resizing");
+        handle.setPointerCapture(event.pointerId);
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", done);
+        handle.addEventListener("pointercancel", cancel);
+        handle.addEventListener("lostpointercapture", cancel);
+      }
       vLibrary() {
         const view = super.vLibrary(), st = this.state;
+        view.tableWidth = st.lbWidths.length ? `${st.lbWidths.reduce((sum, width) => sum + width, 0)}px` : "max(100%, 1150px)";
+        view.columns = libraryColumns.map(([label, width, min], index) => ({
+          label,
+          width: st.lbWidths[index] || width,
+          min,
+          cssWidth: st.lbWidths.length ? `${st.lbWidths[index]}px` : { 2: "auto", 3: "24%" }[index] || `${width}px`,
+          resize: (event) => this.resizeLibraryColumn(event, index)
+        }));
+        view.resetWidths = () => this.saveLibraryWidths([]);
         const totalSize = data.LIB.reduce((sum, movie) => sum + Number(movie.raw.total_size || 0), 0);
         view.stats = [stat("\u5F71\u7247", data.LIB.length), stat("\u6587\u4EF6", data.LIB.reduce((sum, movie) => sum + movie.files, 0)), stat("\u5360\u7528\u5BB9\u91CF", size(totalSize), "", ACC), stat("\u5F85\u8865\u8D44\u6599", st.checkResult?.incomplete_count ?? "\u5F85\u68C0\u67E5", "", WARN)];
         view.paths = st.lbPaths.map((path) => ({ path, status: "\u5DF2\u914D\u7F6E", fg: "var(--fg)", stFg: DIM, scan: () => this.scanLibrary([path]) }));
@@ -7837,7 +7916,7 @@ class Component extends DCLogic {
     }
     html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager2("fs.paging")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">').replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
-    html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, (library) => library.replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">').replace("<aside style=", '<aside class="jj-library-sidebar" aria-label="\u5F71\u89C6\u5E93\u7B5B\u9009" style=').replace("<main style=", '<main class="jj-library-main" aria-label="\u5F71\u89C6\u5E93\u5185\u5BB9" style=').replace('<select class="input" style="width:auto;', '<select aria-label="\u5F71\u89C6\u5E93\u6392\u5E8F" class="input" style="width:auto;').replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">').replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">').replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">').replace('<div style="font-size:13px;max-width:280px;', '<div title="{{ r.title }}" style="font-size:13px;max-width:280px;').replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="\u67E5\u770B {{ r.code }} \u8BE6\u60C5" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>').replace("background:linear-gradient(transparent,var(--scrim9))", "background:linear-gradient(transparent,rgba(12,14,24,.94))").replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}').replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
+    html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, (library) => library.replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">').replace("<aside style=", '<aside class="jj-library-sidebar" aria-label="\u5F71\u89C6\u5E93\u7B5B\u9009" style=').replace("<main style=", '<main class="jj-library-main" aria-label="\u5F71\u89C6\u5E93\u5185\u5BB9" style=').replace('<select class="input" style="width:auto;', '<select aria-label="\u5F71\u89C6\u5E93\u6392\u5E8F" class="input" style="width:auto;').replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">').replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">').replace('<sc-if value="{{ lb.showList }}">', '<sc-if value="{{ lb.showList }}"><div class="jj-library-table-tools"><span>\u62D6\u52A8\u8868\u5934\u5206\u9694\u7EBF\u8C03\u6574\u5217\u5BBD</span><button class="btn btn-ghost" onClick="{{ lb.resetWidths }}">\u6062\u590D\u9ED8\u8BA4\u5217\u5BBD</button></div>').replace('<table class="table">', '<table class="table" style="width:{{ lb.tableWidth }}">').replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><sc-for list="{{ lb.columns }}" as="c"><th scope="col" style="width:{{ c.cssWidth }}">{{ c.label }}<span class="jj-column-resize" role="separator" tabIndex="0" aria-label="\u8C03\u6574{{ c.label }}\u5217\u5BBD" aria-orientation="vertical" aria-valuemin="{{ c.min }}" aria-valuemax="1200" aria-valuenow="{{ c.width }}" title="\u62D6\u52A8\u8C03\u6574\u5217\u5BBD\uFF1B\u65B9\u5411\u952E\u5FAE\u8C03\uFF0CHome \u6700\u7A84\uFF0CEnd \u6700\u5BBD" onPointerDown="{{ c.resize }}" onKeyDown="{{ c.resize }}"></span></th></sc-for></tr></thead>').replace('<div style="width:70px;aspect-ratio:3/2;', '<div class="jj-library-list-cover" style="width:100%;aspect-ratio:2/3;').replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">').replace('<div style="font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">', '<div class="jj-library-list-title" title="{{ r.title }}" style="font-size:13px">').replace('<td style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>', '<td class="jj-library-list-actors" title="{{ r.actorText }}" style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>').replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="\u67E5\u770B {{ r.code }} \u8BE6\u60C5" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>').replace("background:linear-gradient(transparent,var(--scrim9))", "background:linear-gradient(transparent,rgba(12,14,24,.94))").replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}').replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
     html = html.replace('<div style="width:186px;flex:none;aspect-ratio:2/3;', '<div class="jj-library-detail-cover" style="position:relative;overflow:hidden;width:186px;flex:none;aspect-ratio:2/3;').replace('color:var(--t30)">{{ lb.d.code }}</div>', `color:var(--t30)">${poster("lb.d")}{{ lb.d.code }}</div>`);
     html = html.replace(/<sc-if value="{{ lb.d }}">[\s\S]*?<\/aside>/, (detail) => detail.replace('class="jj-drawer"', 'class="jj-drawer jj-library-detail"').replace('<table class="table"', '<table class="table jj-library-files"'));
     const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');

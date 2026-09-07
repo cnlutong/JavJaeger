@@ -47,6 +47,8 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
 const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch' };
 const scrapeConfigKeys = ['scScanDir', 'scOutDir', 'scFolderRule', 'scFileRule', 'scMaxDepth', 'scConcurrent', 'scOpts', 'scOverrides'];
+const libraryColumns = [['封面', 152, 104], ['番号', 104, 88], ['标题', 256, 160], ['演员', 232, 120], ['媒体参数', 140, 100], ['文件', 80, 64], ['资料完整度', 112, 104], ['操作', 74, 64]];
+const libraryWidthsKey = 'javjaeger.libraryColumnWidths';
 
 function movieView(record, local = false) {
     const metadata = record.metadata || {}, media = record.media_info || metadata.media_info || {};
@@ -66,7 +68,7 @@ function movieView(record, local = false) {
         files: record.file_count ?? files.length, size: size(record.total_size || files.reduce((sum, file) => sum + Number(file.size || 0), 0)),
         c: record.information_complete === false ? 0 : 100, added: String(record.updated_at || record.added_at || record.created_at || ''),
         gone: local && ((record.file_count ?? files.length) === 0 || files.some(file => file.exists === false)), mag: '', magCount: 0,
-        cover: imageSource(record.poster_url || record.cover_url || record.img || metadata.cover_url || metadata.img || ''),
+        cover: imageSource((local && (record.thumbnail_url || metadata.list_thumbnail_url)) || record.poster_url || record.cover_url || record.img || metadata.cover_url || metadata.img || ''),
     };
 }
 
@@ -90,8 +92,14 @@ export function connectDesign(Base) {
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, tool: 'PikPak',
                 autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
                 scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '不限', fsVideoOnly: false,
-                infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'],
+                infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
             };
+            try {
+                const widths = JSON.parse(window.localStorage.getItem(libraryWidthsKey));
+                if (Array.isArray(widths) && widths.length === libraryColumns.length && widths.every(Number.isFinite)) {
+                    this.state.lbWidths = widths.map((width, i) => Math.max(libraryColumns[i][2], Math.min(1200, width)));
+                }
+            } catch {}
             this.magnets = new Map();
             this.libraryByCode = new Map();
             this.latestByActor = new Map();
@@ -219,6 +227,7 @@ export function connectDesign(Base) {
 
         componentWillUnmount() {
             this._disposed = true;
+            this._cancelLibraryResize?.();
             clearInterval(this._poll);
             if (this._keyboard) document.removeEventListener('keydown', this._keyboard);
             this._dialogObserver?.disconnect();
@@ -633,8 +642,68 @@ export function connectDesign(Base) {
             return view;
         }
 
+        saveLibraryWidths(widths) {
+            this.setState({ lbWidths: widths });
+            try { window.localStorage.setItem(libraryWidthsKey, JSON.stringify(widths)); } catch {}
+        }
+
+        resizeLibraryColumn(event, index) {
+            const handle = event.currentTarget, table = handle.closest('table');
+            const headers = [...table.querySelectorAll('th')];
+            const widths = headers.map(header => header.getBoundingClientRect().width);
+            const clamp = width => Math.max(libraryColumns[index][2], Math.min(1200, width));
+            if (event.type === 'keydown') {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                widths[index] = clamp(event.key === 'Home' ? 0 : event.key === 'End' ? 1200 : widths[index] + (event.key === 'ArrowRight' ? 16 : -16));
+                this.saveLibraryWidths(widths);
+                return;
+            }
+            if (event.button !== 0 || !event.isPrimary) return;
+            event.preventDefault();
+            this._cancelLibraryResize?.();
+            handle.focus({ preventScroll: true });
+            const startX = event.clientX, startWidth = widths[index], previousWidth = table.style.width;
+            const previousHeaders = headers.map(header => header.style.width), previousValue = handle.getAttribute('aria-valuenow');
+            const move = next => {
+                widths[index] = clamp(startWidth + next.clientX - startX);
+                headers.forEach((header, i) => { header.style.width = `${widths[i]}px`; });
+                table.style.width = `${widths.reduce((sum, width) => sum + width, 0)}px`;
+                handle.setAttribute('aria-valuenow', Math.round(widths[index]));
+            };
+            const finish = commit => {
+                handle.removeEventListener('pointermove', move);
+                handle.removeEventListener('pointerup', done);
+                handle.removeEventListener('pointercancel', cancel);
+                handle.removeEventListener('lostpointercapture', cancel);
+                this._cancelLibraryResize = null;
+                if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+                table.classList.remove('jj-resizing');
+                if (commit) this.saveLibraryWidths(widths);
+                else {
+                    table.style.width = previousWidth;
+                    headers.forEach((header, i) => { header.style.width = previousHeaders[i]; });
+                    handle.setAttribute('aria-valuenow', previousValue);
+                }
+            };
+            const done = () => finish(true), cancel = () => finish(false);
+            this._cancelLibraryResize = cancel;
+            table.classList.add('jj-resizing');
+            handle.setPointerCapture(event.pointerId);
+            handle.addEventListener('pointermove', move);
+            handle.addEventListener('pointerup', done);
+            handle.addEventListener('pointercancel', cancel);
+            handle.addEventListener('lostpointercapture', cancel);
+        }
+
         vLibrary() {
             const view = super.vLibrary(), st = this.state;
+            view.tableWidth = st.lbWidths.length ? `${st.lbWidths.reduce((sum, width) => sum + width, 0)}px` : 'max(100%, 1150px)';
+            view.columns = libraryColumns.map(([label, width, min], index) => ({ label, width: st.lbWidths[index] || width, min,
+                cssWidth: st.lbWidths.length ? `${st.lbWidths[index]}px` : ({ 2: 'auto', 3: '24%' }[index] || `${width}px`),
+                resize: event => this.resizeLibraryColumn(event, index),
+            }));
+            view.resetWidths = () => this.saveLibraryWidths([]);
             const totalSize = data.LIB.reduce((sum, movie) => sum + Number(movie.raw.total_size || 0), 0);
             view.stats = [stat('影片', data.LIB.length), stat('文件', data.LIB.reduce((sum, movie) => sum + movie.files, 0)), stat('占用容量', size(totalSize), '', ACC), stat('待补资料', st.checkResult?.incomplete_count ?? '待检查', '', WARN)];
             view.paths = st.lbPaths.map(path => ({ path, status: '已配置', fg: 'var(--fg)', stFg: DIM, scan: () => this.scanLibrary([path]) }));

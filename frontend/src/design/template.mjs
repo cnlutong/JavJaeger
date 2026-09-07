@@ -123,7 +123,7 @@ export function adaptTemplate(source, logo) {
         .replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">刷新影视库</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">')
         .replace('value="{{ lb.q }}"', 'aria-label="影视库搜索" value="{{ lb.q }}"')
         .replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
-    // Keep the original library layout; add only scoped styling and accessible controls.
+    // Preserve the library views while adapting table space and accessible controls.
     html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, library => library
         .replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">')
         .replace('<aside style=', '<aside class="jj-library-sidebar" aria-label="影视库筛选" style=')
@@ -131,8 +131,13 @@ export function adaptTemplate(source, logo) {
         .replace('<select class="input" style="width:auto;', '<select aria-label="影视库排序" class="input" style="width:auto;')
         .replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">')
         .replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">')
+        .replace('<sc-if value="{{ lb.showList }}">', '<sc-if value="{{ lb.showList }}"><div class="jj-library-table-tools"><span>拖动表头分隔线调整列宽</span><button class="btn btn-ghost" onClick="{{ lb.resetWidths }}">恢复默认列宽</button></div>')
+        .replace('<table class="table">', '<table class="table" style="width:{{ lb.tableWidth }}">')
+        .replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><sc-for list="{{ lb.columns }}" as="c"><th scope="col" style="width:{{ c.cssWidth }}">{{ c.label }}<span class="jj-column-resize" role="separator" tabIndex="0" aria-label="调整{{ c.label }}列宽" aria-orientation="vertical" aria-valuemin="{{ c.min }}" aria-valuemax="1200" aria-valuenow="{{ c.width }}" title="拖动调整列宽；方向键微调，Home 最窄，End 最宽" onPointerDown="{{ c.resize }}" onKeyDown="{{ c.resize }}"></span></th></sc-for></tr></thead>')
+        .replace('<div style="width:70px;aspect-ratio:3/2;', '<div class="jj-library-list-cover" style="width:100%;aspect-ratio:2/3;')
         .replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">')
-        .replace('<div style="font-size:13px;max-width:280px;', '<div title="{{ r.title }}" style="font-size:13px;max-width:280px;')
+        .replace('<div style="font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">', '<div class="jj-library-list-title" title="{{ r.title }}" style="font-size:13px">')
+        .replace('<td style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>', '<td class="jj-library-list-actors" title="{{ r.actorText }}" style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>')
         .replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="查看 {{ r.code }} 详情" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>')
         .replace('background:linear-gradient(transparent,var(--scrim9))', 'background:linear-gradient(transparent,rgba(12,14,24,.94))')
         .replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}')

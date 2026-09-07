@@ -40,6 +40,19 @@ input, select, textarea { min-width: 0; }
 .jj-pager { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 16px; position: relative; }
 /* Preserve the library's original sidebar, statistics and view layout. */
 .jj-library-main > div:first-child > div:last-child { flex-wrap: wrap; max-width: 100%; }
+.jj-library-table-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--dim2); font-size: 12px; }
+.jj-library-table-tools .btn { font-size: 12px; }
+[data-jjtheme] .jj-library-table table { table-layout: fixed; min-width: 100%; }
+.jj-library-table th { position: relative; padding-right: 18px; }
+.jj-library-table td { overflow-wrap: anywhere; }
+.jj-library-list-cover img { object-fit: contain !important; }
+.jj-library-list-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.jj-library-list-actors { line-height: 1.7; }
+.jj-column-resize { position: absolute; right: 0; top: 0; bottom: 0; width: 12px; cursor: col-resize; touch-action: none; user-select: none; }
+.jj-column-resize::after { content: ''; position: absolute; right: 5px; top: 25%; bottom: 25%; width: 2px; background: var(--line); border-radius: 2px; }
+.jj-column-resize:hover::after, .jj-column-resize:focus-visible::after { top: 0; bottom: 0; background: var(--acc); }
+.jj-column-resize:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.jj-library-table .jj-resizing, .jj-library-table .jj-resizing * { cursor: col-resize; user-select: none; }
 .jj-library-card { appearance: none; min-width: 0; padding: 0; border: 0; color: inherit; font: inherit; text-align: left; }
 .jj-library-card > div:last-child { overflow-wrap: anywhere; }
 .jj-library-card:focus-visible { outline-offset: 3px; }
