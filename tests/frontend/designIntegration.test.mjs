@@ -102,8 +102,85 @@ test('performance: library refresh reads compact index and only an explicit chec
     await instance.loadLibrary(); await instance.loadLibrary();
     assert.deepEqual(summaries, ['true', 'true', 'true', 'true']);
     assert.deepEqual(checks, ['false', 'false']);
+    globalThis.fetch = async (url, options) => {
+        assert.equal(options.method, 'POST');
+        assert.match(url, /information\/check\/jobs\?fields=/);
+        return json({ task_id: 'check' });
+    };
+    await instance.vLibrary().openCheck();
+    assert.equal(instance.state.informationTask.id, 'check');
+    assert.deepEqual(checks, ['false', 'false']);
+});
+
+test('information check and completion form a background loop that survives page refresh', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'library', infoFields: ['title', 'nfo'] });
+    const requests = [];
+    const check = { success: true, fields: ['title', 'nfo'], total_movies: 2, incomplete_count: 1,
+        incomplete_records: [{ movie_id: 'QA-001', missing_fields: ['title'], missing_labels: ['标题'] }] };
+    let finished = false;
+    globalThis.fetch = async (url, options) => {
+        requests.push([url, options]);
+        if (options.method === 'POST') return json({ task_id: url.includes('/check/') ? 'check' : 'download' });
+        return json(finished ? { status: 'success', result: check } : { status: 'running', percent: 40 });
+    };
+    await instance.vLibrary().openCheck();
+    assert.equal(instance.state.lbCheckCfg, false);
+    assert.equal(instance.renderVals().bg.items[0].kind, '资料检查');
+    instance.setState({ route: 'settings' });
+    await instance.poll(); assert.equal(instance.state.informationTask.percent, 40);
     await instance.vLibrary().runCheck();
-    assert.equal(checks.filter(value => value === 'true').length, 1);
+    assert.equal(requests.filter(([, o]) => o.method === 'POST').length, 1, 'running jobs cannot be overwritten');
+
+    const restored = new instance.constructor({}); t.after(() => restored.componentWillUnmount());
+    restored.setState({ route: 'settings' }); restored.loadLibrary = async () => {};
+    finished = true; await restored.poll();
+    assert.equal(restored.state.route, 'settings', 'completion must not interrupt navigation');
+    assert.match(restored.state.toast.text, /资料检查完成/);
+    assert.equal(restored.renderVals().bg.count, 1, 'finished result remains actionable');
+    assert.equal(restored.renderVals().bg.animation, 'none');
+    assert.ok(window.sessionStorage.getItem('localLibraryInformationTask'));
+    const completedReload = new instance.constructor({}); t.after(() => completedReload.componentWillUnmount());
+    completedReload.setState({ route: 'settings' }); completedReload.loadLibrary = async () => {};
+    await completedReload.poll();
+    completedReload.renderVals().bg.items[0].go();
+    assert.equal(completedReload.state.dlg.okText, '开始补全', 'finished results also survive a later refresh');
+    restored.setState({ infoFields: ['date'] });
+    restored.renderVals().bg.items[0].go();
+    assert.equal(restored.state.dlg.okText, '开始补全');
+    assert.match(restored.state.dlg.list[0], /QA-001.*标题/);
+    await restored.state.dlg.run();
+    const body = JSON.parse(requests.at(-1)[1].body);
+    assert.deepEqual(body.movie_ids, ['QA-001']);
+    assert.deepEqual(body.fields, ['title', 'nfo'], 'completion uses the finished check snapshot');
+    assert.equal(body.overwrite_existing, false);
+    assert.equal(restored.state.informationTask.operation, 'download');
+
+    globalThis.fetch = async () => json({ status: 'success', result: { success: true, updated_count: 1, failed_count: 0,
+        information_check: { ...check, incomplete_count: 0, incomplete_records: [] } } });
+    await restored.poll();
+    restored.renderVals().bg.items[0].go();
+    assert.match(restored.state.dlg.body, /剩余 0/);
+    assert.equal(restored.state.dlg.okText, '完成');
+    await restored.state.dlg.run();
+    assert.equal(restored.renderVals().bg.count, 0);
+    assert.equal(window.sessionStorage.getItem('localLibraryInformationTask'), null);
+});
+
+test('expired information jobs stay visible and can restart checking', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'settings' });
+    globalThis.fetch = async () => json({ task_id: 'expired' });
+    await instance.vLibrary().runCheck();
+    globalThis.fetch = async () => new Response('{}', { status: 404 });
+    await instance.perform(() => instance.poll());
+    assert.equal(instance.state.informationTask.status, 'failed');
+    instance.renderVals().bg.items[0].go();
+    assert.match(instance.state.dlg.body, /失效/);
+    assert.equal(instance.state.dlg.okText, '重新检查');
+    globalThis.fetch = async () => json({ task_id: 'retry' });
+    await instance.state.dlg.run();
+    assert.equal(instance.state.informationTask.id, 'retry');
 });
 
 test('performance: search shows movies while magnets are still loading', async () => {
@@ -452,10 +529,18 @@ test('audit: cinema resets file index between films and includes every VR resolu
 test('audit: metadata partial failures do not announce complete success', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.loadLibrary = async () => {};
-    globalThis.fetch = async () => json({ success: true, updated_count: 0, failed_count: 1, results: [{ success: false }] });
+    instance.setState({ route: 'settings' });
+    globalThis.fetch = async () => json({ task_id: 'partial' });
     await instance.completeInformation(['QA-001'], true);
+    globalThis.fetch = async () => json({ status: 'success', result: { success: true, updated_count: 0, failed_count: 1,
+        results: [{ movie_id: 'QA-001', success: false }], information_check: { fields: ['title'], incomplete_count: 1,
+            incomplete_records: [{ movie_id: 'QA-001', missing_labels: ['标题'] }] } } });
+    await instance.poll();
     assert.match(instance.state.toast.text, /失败/);
     assert.doesNotMatch(instance.state.toast.text, /^影片资料已更新$/);
+    instance.renderVals().bg.items[0].go();
+    assert.equal(instance.state.dlg.okText, '继续补全');
+    assert.match(instance.state.dlg.list.join(' '), /QA-001.*失败/);
 });
 
 test('audit: preview resets conflict choices and non-organizing apply skips target conflicts', async t => {

@@ -161,6 +161,24 @@ async def download_local_movie_library_information(request: LocalLibraryInformat
         return {"success": False, "error": "information_download_failed", "message": "下载影视库缺失信息失败"}
 
 
+@router.post("/api/movies/local-library/information/check/jobs", status_code=202)
+async def start_local_library_information_check_job(fields: str | None = None):
+    return {"success": True, "task_id": local_scrape_task_manager.start_information_check_task(fields)}
+
+
+@router.post("/api/movies/local-library/information/download/jobs", status_code=202)
+async def start_local_library_information_download_job(request: LocalLibraryInformationDownloadRequest):
+    return {"success": True, "task_id": local_scrape_task_manager.start_information_download_task(request)}
+
+
+@router.get("/api/movies/local-library/information/jobs/{task_id}")
+async def get_local_library_information_job(task_id: str):
+    task = local_scrape_task_manager.get_task(task_id)
+    if task is None or task["type"] not in {"information-check", "information-download"}:
+        raise HTTPException(status_code=404, detail="local_library_information_task_not_found")
+    return task
+
+
 @router.post("/api/movies/local-library/clean-invalid")
 async def clean_invalid_local_movie_library_files():
     try:

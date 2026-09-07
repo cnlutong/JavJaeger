@@ -182,7 +182,7 @@ test('library layout: original sidebar, stats and views retain accessible detail
         await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-library-restored-${width}.png`), fullPage: false });
     }
     await page.setViewportSize({ width: 1440, height: 900 });
-    const check = page.getByRole('button', { name: '资料检查', exact: true });
+    const check = page.getByRole('button', { name: '检查项设置', exact: true });
     await check.click();
     await page.getByRole('button', { name: '开始检查', exact: true }).waitFor();
     await page.keyboard.press('Escape');
@@ -196,6 +196,63 @@ test('library layout: original sidebar, stats and views retain accessible detail
     const scroll = await page.locator('.jj-library-main').evaluate(node => ({ scheme: getComputedStyle(node).colorScheme, width: getComputedStyle(node).scrollbarWidth, color: getComputedStyle(node).scrollbarColor }));
     assert.equal(scroll.scheme, 'light'); assert.equal(scroll.width, 'thin'); assert.notEqual(scroll.color, 'auto');
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-library-restored-light.png'), fullPage: false });
+});
+
+test('information workflow: background check survives reload and leads to background completion', async t => {
+    const missing = { success: true, fields: ['title', 'nfo'], total_movies: 4, incomplete_count: 1,
+        incomplete_records: [{ movie_id: 'QA-001', missing_fields: ['title'], missing_labels: ['标题'] }] };
+    let checkDone = false, downloadDone = false, submitted;
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/movies/local-library/information/**', route => {
+            const url = new URL(route.request().url());
+            if (url.pathname.endsWith('/check/jobs')) return route.fulfill({ status: 202, json: { task_id: 'information-check' } });
+            if (url.pathname.endsWith('/download/jobs')) {
+                submitted = route.request().postDataJSON();
+                return route.fulfill({ status: 202, json: { task_id: 'information-download' } });
+            }
+            if (url.pathname.endsWith('/jobs/information-check')) return route.fulfill({ json: checkDone
+                ? { status: 'success', percent: 100, result: missing } : { status: 'running', percent: 20, message: '正在检查本地资料' } });
+            if (url.pathname.endsWith('/jobs/information-download')) return route.fulfill({ json: downloadDone
+                ? { status: 'success', percent: 100, result: { success: true, updated_count: 1, failed_count: 0,
+                    information_check: { ...missing, incomplete_count: 0, incomplete_records: [] } } }
+                : { status: 'running', percent: 50, message: '正在补全 QA-001' } });
+            return route.fulfill({ json: missing });
+        });
+    });
+    assert.equal(await page.title(), 'JavJaeger');
+    assert.equal(new URL(page.url()).origin, baseURL);
+    await navigate(page, '影视库');
+    await page.getByRole('button', { name: '资料检查', exact: true }).click();
+    await page.getByText('资料检查已在后台启动，可在后台任务中查看进度', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '资料检查', exact: true }).isDisabled(), true);
+    await navigate(page, '设置');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '设置');
+    checkDone = true;
+    await page.getByText(/资料检查完成：4 部已检查，1 部待补全；可在后台任务中查看结果/).waitFor();
+    await page.locator('header').getByRole('button', { name: /后台/ }).click();
+    const background = page.getByRole('dialog', { name: '后台任务', exact: true });
+    await background.getByText('已完成', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-information-completed.png'), fullPage: false, animations: 'disabled' });
+    await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByText('QA-001：标题', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-information-next-step.png'), fullPage: false, animations: 'disabled' });
+    await approve(page, '开始补全');
+    await page.getByText('资料补全已在后台启动，可在后台任务中查看进度', { exact: true }).waitFor();
+    assert.deepEqual(submitted.movie_ids, ['QA-001']);
+    assert.deepEqual(submitted.fields, ['title', 'nfo']);
+    assert.equal(submitted.overwrite_existing, false);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    downloadDone = true;
+    await page.getByText(/资料补全完成：1 成功，0 失败，剩余 0 部待补全；可在后台任务中查看结果/).waitFor();
+    await page.locator('header').getByRole('button', { name: /后台/ }).click();
+    await background.getByRole('button', { name: '查看', exact: true }).click();
+    await approve(page, '完成');
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('localLibraryInformationTask')), null);
+    assert.equal(await page.locator('.sc-logic-error').count(), 0);
 });
 
 test('library columns: spacious defaults, resizing, persistence and reset', async t => {

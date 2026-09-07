@@ -5847,7 +5847,14 @@ class Component extends DCLogic {
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
   };
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
-  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch" };
+  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask" };
+  var jobFinished = (task) => task && ["success", "completed", "failed"].includes(task.status);
+  var informationSummary = (task) => {
+    if (task.status === "failed") return safeText(task.message, "\u8D44\u6599\u4EFB\u52A1\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5");
+    if (!jobFinished(task)) return safeText(task.message, "\u540E\u53F0\u8FD0\u884C\u4E2D\uFF0C\u53EF\u79BB\u5F00\u9875\u9762");
+    const result = task.result || {};
+    return task.operation === "check" ? `\u8D44\u6599\u68C0\u67E5\u5B8C\u6210\uFF1A${result.total_movies || 0} \u90E8\u5DF2\u68C0\u67E5\uFF0C${result.incomplete_count || 0} \u90E8\u5F85\u8865\u5168` : `\u8D44\u6599\u8865\u5168\u5B8C\u6210\uFF1A${result.updated_count || 0} \u6210\u529F\uFF0C${result.failed_count || 0} \u5931\u8D25\uFF0C\u5269\u4F59 ${result.information_check?.incomplete_count || 0} \u90E8\u5F85\u8865\u5168`;
+  };
   var scrapeConfigKeys = ["scScanDir", "scOutDir", "scFolderRule", "scFileRule", "scMaxDepth", "scConcurrent", "scOpts", "scOverrides"];
   var libraryColumns = [["\u5C01\u9762", 152, 104], ["\u756A\u53F7", 104, 88], ["\u6807\u9898", 256, 160], ["\u6F14\u5458", 232, 120], ["\u5A92\u4F53\u53C2\u6570", 140, 100], ["\u6587\u4EF6", 80, 64], ["\u8D44\u6599\u5B8C\u6574\u5EA6", 112, 104], ["\u64CD\u4F5C", 74, 64]];
   var libraryWidthsKey = "javjaeger.libraryColumnWidths";
@@ -5937,6 +5944,8 @@ class Component extends DCLogic {
           scrapeTask: null,
           scrapeResult: null,
           checkResult: null,
+          informationTask: null,
+          infoStarting: false,
           tool: "PikPak",
           autoDraft: null,
           directory: "",
@@ -5975,7 +5984,8 @@ class Component extends DCLogic {
               this.state.scPhase = "scanning";
               this.scrapePreviewConfig = JSON.stringify(this.scrapePayload());
             } else if (key === "scanTask") this.state.lbScanning = true;
-            this.state[key] = { id: saved.taskId, operation: saved.type, status: "running", preflight: saved.preflight || [] };
+            if (key === "informationTask" && saved.config?.fields?.length) this.state.infoFields = saved.config.fields;
+            this.state[key] = { id: saved.taskId, operation: saved.type, status: "running", payload: saved.config, preflight: saved.preflight || [] };
           } catch {
             window.sessionStorage.removeItem(storageKey);
           }
@@ -6203,6 +6213,9 @@ class Component extends DCLogic {
       async checkInformation(refreshFiles = false) {
         const result = await this.request("/api/movies/local-library/information/check?fields=" + id(this.state.infoFields.join(",")) + "&refresh_files=" + refreshFiles);
         if (refreshFiles) this._readGeneration++;
+        this.applyInformationCheck(result);
+      }
+      applyInformationCheck(result) {
         const incomplete = new Map((result.incomplete_records || []).map((record) => [record.movie_id, record]));
         for (const movie of data.LIB) {
           const missing = incomplete.get(movie.code);
@@ -6409,6 +6422,7 @@ class Component extends DCLogic {
           if (["transcode", "library", "cinema"].includes(this.state.route) || data.TC.some((task) => ["running", "queued"].includes(task.status))) await this.perform(() => this.loadTranscodes());
           if (this.state.route === "storage" && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
           if (this.state.route === "auto" || this.state.tasks.some((task) => task.runs?.some((run) => run.status === "running"))) await this.perform(() => this.loadTasks());
+          await this.perform(() => this.pollInformation());
           for (const [key, prefix] of [["scanTask", "/api/movies/local-library/scan/jobs/"], ["scrapeTask", "/api/movies/local-scrape/jobs/"], ["dispatchTask", "/api/115/download-jobs/"]]) {
             const current = this.state[key];
             if (!current || ["success", "completed", "failed"].includes(current.status)) continue;
@@ -6461,11 +6475,75 @@ class Component extends DCLogic {
         }
       }
       async startJob(key, url, payload, operation = "preview") {
-        const config = key === "scrapeTask" ? Object.fromEntries(scrapeConfigKeys.map((field) => [field, this.state[field]])) : void 0;
+        const config = key === "informationTask" ? payload : key === "scrapeTask" ? Object.fromEntries(scrapeConfigKeys.map((field) => [field, this.state[field]])) : void 0;
         const task = await this.request(url, "POST", payload);
         window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
-        this.setState({ [key]: { id: task.task_id, status: "running", operation } });
+        this.setState({ [key]: { id: task.task_id, status: "running", operation, payload: config } });
         return task;
+      }
+      startInformationJob(operation, payload) {
+        return this.perform(async () => {
+          if (this.state.infoStarting || this.state.informationTask && !jobFinished(this.state.informationTask)) {
+            this.toast("\u8D44\u6599\u4EFB\u52A1\u6B63\u5728\u540E\u53F0\u8FD0\u884C\uFF0C\u8BF7\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u8FDB\u5EA6", WARN);
+            return;
+          }
+          if (!payload.fields?.length) throw new Error("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u9879\u68C0\u67E5\u5185\u5BB9");
+          this.setState({ infoStarting: true });
+          try {
+            const url = `/api/movies/local-library/information/${operation}/jobs` + (operation === "check" ? "?fields=" + id(payload.fields.join(",")) : "");
+            await this.startJob("informationTask", url, payload, operation);
+            this.setState({ lbCheckCfg: false });
+            this.toast(`\u8D44\u6599${operation === "check" ? "\u68C0\u67E5" : "\u8865\u5168"}\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u8FDB\u5EA6`, OK);
+          } finally {
+            this.setState({ infoStarting: false });
+          }
+        });
+      }
+      async pollInformation() {
+        const current = this.state.informationTask;
+        if (!current || jobFinished(current)) return;
+        let task;
+        try {
+          task = await this.request("/api/movies/local-library/information/jobs/" + id(current.id));
+        } catch (error) {
+          if (error.status !== 404) throw error;
+          task = { status: "failed", message: "\u8D44\u6599\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\u6216\u7ED3\u679C\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5" };
+        }
+        const next = { ...current, ...task };
+        this.setState({ informationTask: next });
+        if (!jobFinished(next)) return;
+        this.toast(informationSummary(next) + "\uFF1B\u53EF\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u7ED3\u679C", next.status === "failed" || next.result?.failed_count ? WARN : OK);
+        if (next.result) {
+          this._readGeneration++;
+          await this.perform(() => this.loadLibrary());
+          const check = next.operation === "check" ? next.result : next.result.information_check;
+          if (check) this.applyInformationCheck(check);
+        }
+      }
+      showInformationResult() {
+        const task = this.state.informationTask;
+        this.setState({ bgOpen: false });
+        if (!jobFinished(task)) {
+          this.setState({ bgOpen: true });
+          return;
+        }
+        const check = task.operation === "check" ? task.result : task.result?.information_check;
+        const missing = check?.incomplete_records || [];
+        this.ask({
+          title: task.operation === "check" ? "\u8D44\u6599\u68C0\u67E5\u7ED3\u679C" : "\u8D44\u6599\u8865\u5168\u7ED3\u679C",
+          body: informationSummary(task),
+          color: task.status === "failed" || task.result?.failed_count ? WARN : ACC,
+          list: [
+            ...(task.result?.results || []).filter((row) => !row.success).map((row) => `${row.movie_id}\uFF1A\u8865\u5168\u5931\u8D25\uFF0C${safeText(row.asset_error || row.error, "\u8BF7\u68C0\u67E5\u522E\u524A\u6E90\u6216\u6587\u4EF6\u5199\u5165\u6743\u9650")}`),
+            ...missing.map((row) => `${row.movie_id}\uFF1A${row.missing_labels?.join("\u3001") || row.missing_fields?.join("\u3001") || "\u672C\u5730\u6587\u4EF6\u5F85\u6838\u9A8C"}`)
+          ],
+          okText: task.status === "failed" ? "\u91CD\u65B0\u68C0\u67E5" : missing.length ? task.operation === "check" ? "\u5F00\u59CB\u8865\u5168" : "\u7EE7\u7EED\u8865\u5168" : "\u5B8C\u6210",
+          run: () => task.status === "failed" ? this.startInformationJob("check", { fields: task.payload?.fields || this.state.infoFields }) : missing.length ? this.completeInformation(missing.map((row) => row.movie_id), true, check.fields) : this.dismissInformationTask()
+        });
+      }
+      dismissInformationTask() {
+        window.sessionStorage.removeItem(jobStorage.informationTask);
+        this.setState({ informationTask: null });
       }
       cinemaCounts(actor) {
         if (this._cinemaCounts?.actor === actor) return this._cinemaCounts.counts;
@@ -6763,12 +6841,9 @@ class Component extends DCLogic {
         }
         view.actorOptions = ["\u5168\u90E8\u6F14\u5458", ...new Set(data.LIB.flatMap((movie) => movie.actors))].map((t) => ({ t }));
         view.studioOptions = ["\u5168\u90E8\u5236\u4F5C\u5546", ...new Set(data.LIB.map((movie) => movie.studio))].map((t) => ({ t }));
-        view.runCheck = () => this.perform(async () => {
-          if (!st.infoFields.length) throw new Error("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u9879\u68C0\u67E5\u5185\u5BB9");
-          await this.checkInformation(true);
-          await this.loadLibrary();
-          this.setState({ lbCheckCfg: false });
-        }, "\u8D44\u6599\u68C0\u67E5\u5B8C\u6210");
+        view.checkBusy = st.infoStarting || Boolean(st.informationTask && !jobFinished(st.informationTask));
+        view.configureCheck = () => this.setState({ lbCheckCfg: true });
+        view.openCheck = view.runCheck = () => this.startInformationJob("check", { fields: [...st.infoFields] });
         view.clean = () => this.ask({
           title: "\u6E05\u6D17\u65E0\u6548\u5A92\u4F53\u6587\u4EF6\uFF1F",
           body: "\u53EA\u5220\u9664\u786E\u8BA4\u4E3A\u7A7A\u6587\u4EF6\u6216\u4E0D\u542B\u89C6\u9891\u6D41\u7684\u6587\u4EF6\u3002\u8D85\u65F6\u3001\u8BFB\u53D6\u5931\u8D25\u7B49\u65E0\u6CD5\u786E\u8BA4\u7684\u6587\u4EF6\u4F1A\u4FDD\u7559\uFF1B\u5220\u9664\u540E\u540C\u6B65\u66F4\u65B0\u7D22\u5F15\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002",
@@ -6845,12 +6920,8 @@ class Component extends DCLogic {
           }, files ? "\u6587\u4EF6\u5DF2\u5220\u9664" : "\u8BB0\u5F55\u5DF2\u79FB\u9664")
         });
       }
-      completeInformation(codes, onlyMissing) {
-        return this.perform(async () => {
-          const result = await this.request("/api/movies/local-library/information/download", "POST", { movie_ids: codes, only_missing: onlyMissing, write_nfo: true, download_images: true, overwrite_existing: !onlyMissing });
-          await this.loadLibrary();
-          if (result.failed_count) throw new Error(`\u8D44\u6599\u66F4\u65B0\uFF1A${result.updated_count || 0} \u6210\u529F\uFF0C${result.failed_count} \u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u522E\u524A\u6E90\u6216\u6587\u4EF6\u5199\u5165\u6743\u9650`);
-        }, "\u5F71\u7247\u8D44\u6599\u5DF2\u66F4\u65B0");
+      completeInformation(codes, onlyMissing, fields = this.state.infoFields) {
+        return this.startInformationJob("download", { movie_ids: codes, fields, only_missing: onlyMissing, write_nfo: true, download_images: true, overwrite_existing: !onlyMissing });
       }
       scanLibrary(paths) {
         const directories = paths.map((path) => path.trim()).filter(Boolean);
@@ -7678,8 +7749,21 @@ class Component extends DCLogic {
           view.bg.items.push({ kind: "115 \u6D3E\u53D1", name: `\u6279\u6B21 ${job.current_batch || 0}/${job.total_batches || "\u5F85\u8BA1\u7B97"}`, pct, pctText: `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} \u9879\u5DF2\u5904\u7406`, fg: ACC, go: this.go("dispatch") });
         }
         for (const task of st.tasks) for (const run of task.runs || []) if (run.status === "running") view.bg.items.push({ kind: "\u81EA\u52A8\u4EFB\u52A1", name: task.name, pct: 0, pctText: "", meta: run.message || "\u8FD0\u884C\u4E2D", fg: ACC, go: this.go("auto") });
+        const activeCount = view.bg.items.length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
+        if (st.informationTask) {
+          const task = st.informationTask, finished = jobFinished(task);
+          view.bg.items.unshift({
+            kind: task.operation === "check" ? "\u8D44\u6599\u68C0\u67E5" : "\u8D44\u6599\u8865\u5168",
+            name: informationSummary(task),
+            pct: task.percent || 0,
+            pctText: finished ? task.status === "failed" ? "\u5931\u8D25" : task.result?.failed_count ? "\u90E8\u5206\u5B8C\u6210" : "\u5DF2\u5B8C\u6210" : "",
+            meta: finished ? "\u70B9\u51FB\u67E5\u770B\u7ED3\u679C\uFF0C\u7EE7\u7EED\u8865\u5168\u6216\u5904\u7406\u5931\u8D25\u9879" : "\u670D\u52A1\u7AEF\u540E\u53F0\u6267\u884C\uFF0C\u53EF\u79BB\u5F00\u6216\u5237\u65B0\u9875\u9762",
+            fg: task.status === "failed" || task.result?.failed_count ? WARN : finished ? OK : ACC,
+            go: () => this.showInformationResult()
+          });
+        }
         view.bg.count = view.bg.items.length;
-        view.bg.animation = view.bg.count ? "jjspin 900ms linear infinite" : "none";
+        view.bg.animation = activeCount ? "jjspin 900ms linear infinite" : "none";
         const background = this.pageItems(view.bg.items, "bgPage", [], 6);
         view.bg.items = background.items;
         view.bg.paging = background.paging;
@@ -7915,7 +7999,7 @@ class Component extends DCLogic {
       html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager2(key + ".paging")}$2`);
     }
     html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager2("fs.paging")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
-    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">').replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
+    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-ghost" onClick="{{ lb.configureCheck }}">\u68C0\u67E5\u9879\u8BBE\u7F6E</button><button class="btn btn-secondary" disabled="{{ lb.checkBusy }}" onClick="{{ lb.openCheck }}">').replace('onClick="{{ lb.runCheck }}"', 'disabled="{{ lb.checkBusy }}" onClick="{{ lb.runCheck }}"').replace('\u52FE\u9009\u8981\u68C0\u67E5\u7684\u8D44\u6599\uFF0C\u4F5C\u4E3A <code style="font-family:var(--mono);font-size:11.5px;color:var(--accs)">fields</code> \u53C2\u6570\u63D0\u4EA4\uFF1B\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002', "\u9009\u62E9\u68C0\u67E5\u5185\u5BB9\uFF0C\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002\u68C0\u67E5\u5728\u540E\u53F0\u8FD0\u884C\uFF0C\u5B8C\u6210\u540E\u53EF\u4ECE\u540E\u53F0\u4EFB\u52A1\u67E5\u770B\u7ED3\u679C\u5E76\u5F00\u59CB\u8865\u5168\u3002").replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, (library) => library.replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">').replace("<aside style=", '<aside class="jj-library-sidebar" aria-label="\u5F71\u89C6\u5E93\u7B5B\u9009" style=').replace("<main style=", '<main class="jj-library-main" aria-label="\u5F71\u89C6\u5E93\u5185\u5BB9" style=').replace('<select class="input" style="width:auto;', '<select aria-label="\u5F71\u89C6\u5E93\u6392\u5E8F" class="input" style="width:auto;').replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">').replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">').replace('<sc-if value="{{ lb.showList }}">', '<sc-if value="{{ lb.showList }}"><div class="jj-library-table-tools"><span>\u62D6\u52A8\u8868\u5934\u5206\u9694\u7EBF\u8C03\u6574\u5217\u5BBD</span><button class="btn btn-ghost" onClick="{{ lb.resetWidths }}">\u6062\u590D\u9ED8\u8BA4\u5217\u5BBD</button></div>').replace('<table class="table">', '<table class="table" style="width:{{ lb.tableWidth }}">').replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><sc-for list="{{ lb.columns }}" as="c"><th scope="col" style="width:{{ c.cssWidth }}">{{ c.label }}<span class="jj-column-resize" role="separator" tabIndex="0" aria-label="\u8C03\u6574{{ c.label }}\u5217\u5BBD" aria-orientation="vertical" aria-valuemin="{{ c.min }}" aria-valuemax="1200" aria-valuenow="{{ c.width }}" title="\u62D6\u52A8\u8C03\u6574\u5217\u5BBD\uFF1B\u65B9\u5411\u952E\u5FAE\u8C03\uFF0CHome \u6700\u7A84\uFF0CEnd \u6700\u5BBD" onPointerDown="{{ c.resize }}" onKeyDown="{{ c.resize }}"></span></th></sc-for></tr></thead>').replace('<div style="width:70px;aspect-ratio:3/2;', '<div class="jj-library-list-cover" style="width:100%;aspect-ratio:2/3;').replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">').replace('<div style="font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">', '<div class="jj-library-list-title" title="{{ r.title }}" style="font-size:13px">').replace('<td style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>', '<td class="jj-library-list-actors" title="{{ r.actorText }}" style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>').replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="\u67E5\u770B {{ r.code }} \u8BE6\u60C5" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>').replace("background:linear-gradient(transparent,var(--scrim9))", "background:linear-gradient(transparent,rgba(12,14,24,.94))").replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}').replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
     html = html.replace('<div style="width:186px;flex:none;aspect-ratio:2/3;', '<div class="jj-library-detail-cover" style="position:relative;overflow:hidden;width:186px;flex:none;aspect-ratio:2/3;').replace('color:var(--t30)">{{ lb.d.code }}</div>', `color:var(--t30)">${poster("lb.d")}{{ lb.d.code }}</div>`);
     html = html.replace(/<sc-if value="{{ lb.d }}">[\s\S]*?<\/aside>/, (detail) => detail.replace('class="jj-drawer"', 'class="jj-drawer jj-library-detail"').replace('<table class="table"', '<table class="table jj-library-files"'));

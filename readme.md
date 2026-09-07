@@ -353,6 +353,9 @@ DELETE /api/movies/local-library
 DELETE /api/movies/local-library/{movie_id}
 GET    /api/movies/local-library/information/check
 POST   /api/movies/local-library/information/download
+POST   /api/movies/local-library/information/check/jobs
+POST   /api/movies/local-library/information/download/jobs
+GET    /api/movies/local-library/information/jobs/{task_id}
 POST   /api/movies/local-library/clean-invalid
 GET    /api/movies/local-library/actors
 GET    /api/movies/local-library/actors/{actor_key}/movies
@@ -427,7 +430,11 @@ GET    /api/automation/tasks/{task_id}/runs
 
 `/api/{path:path}` 是最后注册的代理 catch-all。新增具体 API 时必须放在代理路由之前。
 
-`/api/movies/local-library/information/check` 默认读取索引中的元数据和最近核验的本地资料状态，不访问媒体硬盘。可通过逗号分隔的 `fields` 指定检查标准：`title`、`date`、`stars`、`genres`、`cover_url`、`nfo`、`poster_file`。传入 `refresh_files=true` 且选择本地资料字段时，才重新核验文件；界面的“资料检查”使用此方式。旧索引尚未核验的文件以 `unchecked_fields` / `unchecked_count` 标记，界面显示“本地文件待核验”。`/api/movies/local-library/information/download` 支持传入同样的 `fields`，并支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
+`/api/movies/local-library/information/check` 默认读取索引中的元数据和最近核验的本地资料状态，不访问媒体硬盘。可通过逗号分隔的 `fields` 指定检查标准：`title`、`date`、`stars`、`genres`、`cover_url`、`nfo`、`poster_file`。传入 `refresh_files=true` 且选择本地资料字段时，才重新核验文件。旧索引尚未核验的文件以 `unchecked_fields` / `unchecked_count` 标记，界面显示“本地文件待核验”。`/api/movies/local-library/information/download` 支持传入同样的 `fields`，并支持与本地刮削执行相同的资料产物开关：`write_nfo`、`download_images`、`download_sample_images`、`download_actor_images`、`download_list_thumbnail` 和 `overwrite_existing`。
+
+点击影视库“资料检查”会立即通过 `POST /api/movies/local-library/information/check/jobs?fields=...` 创建服务端后台任务，主动核验所选资料；“检查项设置”可调整检查范围。接口返回 HTTP 202 和 `task_id`，通过 `GET /api/movies/local-library/information/jobs/{task_id}` 查询进度与结果。完成提示保留在后台任务中，点击“查看”可查看缺失清单，再点击“开始补全”通过 `POST /api/movies/local-library/information/download/jobs` 创建补全任务。补全使用检查结果中的字段和影片清单，完成后重新核验，显示成功数、失败数及剩余缺失项，支持继续补全。详情页的联网补全和重新刮削也走同一后台任务流程。
+
+资料任务独立于当前页面运行；切换页面或刷新不影响服务端执行，同一浏览器标签页通过 sessionStorage 中的任务 ID 和非敏感参数恢复查询，已完成结果会保留到用户点击“完成”或启动下一次资料任务。任务与结果复用扫描／刮削的内存队列，服务重启或旧结果被队列清理后会提示“任务已失效”，可重新检查；不自动恢复中断的写入。补全的媒体探测和 NFO 写入在工作线程执行，避免阻塞后台进度查询。
 
 本地影视库扫描启用 `probe_media` 时，只对新增、大小或修改时间变化、缺少媒体参数的文件运行 `ffprobe`，其余复用已索引的参数。目录遍历及媒体探测在工作线程执行。本地刮削入库和 `/api/movies/local-library/information/download` 补全 API 元数据仍会探测对应的视频，记录分辨率、码率、编码、封装格式和时长。写入 NFO 时会同步写入 `fileinfo/streamdetails/video`，影视库接口也会在每个文件记录和影片级 `media_info` 中返回这些参数。
 

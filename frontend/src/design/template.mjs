@@ -120,7 +120,9 @@ export function adaptTemplate(source, logo) {
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager('lb.paging')}$2`)
         .replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager('s.paging')}$2`)
         .replace('<sc-for list="{{ s.browse.groups }}"', `${pager('s.browse.paging')}<sc-for list="{{ s.browse.groups }}"`)
-        .replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">刷新影视库</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">')
+        .replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">刷新影视库</button><button class="btn btn-ghost" onClick="{{ lb.configureCheck }}">检查项设置</button><button class="btn btn-secondary" disabled="{{ lb.checkBusy }}" onClick="{{ lb.openCheck }}">')
+        .replace('onClick="{{ lb.runCheck }}"', 'disabled="{{ lb.checkBusy }}" onClick="{{ lb.runCheck }}"')
+        .replace('勾选要检查的资料，作为 <code style="font-family:var(--mono);font-size:11.5px;color:var(--accs)">fields</code> 参数提交；未勾选的项不计入完整度。', '选择检查内容，未勾选的项不计入完整度。检查在后台运行，完成后可从后台任务查看结果并开始补全。')
         .replace('value="{{ lb.q }}"', 'aria-label="影视库搜索" value="{{ lb.q }}"')
         .replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     // Preserve the library views while adapting table space and accessible controls.

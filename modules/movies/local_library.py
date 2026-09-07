@@ -17,7 +17,9 @@ from modules.history.service import (
     normalize_local_library_information_fields,
 )
 from .local_scrape import (
+    ProgressCallback,
     _build_metadata,
+    _emit_progress,
     _file_size,
     _metadata_full_text,
     _probe_video_metadata,
@@ -662,8 +664,11 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
     }
 
 
-async def download_missing_local_library_information(request: LocalLibraryInformationDownloadRequest) -> dict[str, Any]:
+async def download_missing_local_library_information(
+    request: LocalLibraryInformationDownloadRequest, progress_callback: ProgressCallback | None = None,
+) -> dict[str, Any]:
     selected_fields = parse_information_check_fields(request.fields)
+    _emit_progress(progress_callback, {"phase": "check", "message": "正在核验待补全影片"})
     await local_movie_library_service.refresh_file_states(request.movie_ids or None)
     check = await local_movie_library_service.get_information_check(selected_fields)
     all_records = check.get("records", [])
@@ -693,14 +698,18 @@ async def download_missing_local_library_information(request: LocalLibraryInform
             or any(field in metadata_field_names for field in (record.get("missing_fields") or []))
         )
     ]
+    _emit_progress(progress_callback, {"phase": "scrape", "total": len(candidate_records),
+                                      "message": f"正在联网获取 {len(refresh_movie_ids)} 部影片的资料"})
     metadata_map = await _scrape_metadata(refresh_movie_ids, request.concurrent) if refresh_movie_ids else {}
     scraped_at = datetime.datetime.now().isoformat()
     results: list[dict[str, Any]] = []
     updated_count = 0
     failed_count = 0
 
-    for candidate in candidate_records:
+    for index, candidate in enumerate(candidate_records):
         movie_id = str(candidate.get("movie_id") or "").strip().upper()
+        _emit_progress(progress_callback, {"phase": "download", "completed": index, "total": len(candidate_records),
+                                          "current": movie_id, "message": f"正在补全 {movie_id}（{index + 1}/{len(candidate_records)}）"})
         status = await local_movie_library_service.get_status(movie_id)
         record = status.get("record") if isinstance(status, dict) else None
         existing_metadata = record.get("metadata") if isinstance(record, dict) and isinstance(record.get("metadata"), dict) else {}
@@ -760,8 +769,12 @@ async def download_missing_local_library_information(request: LocalLibraryInform
 
     await local_movie_library_service.refresh_file_states([candidate["movie_id"] for candidate in candidate_records])
     next_check = await local_movie_library_service.get_information_check(selected_fields)
+    message = f"资料补全完成：{updated_count} 成功，{failed_count} 失败，剩余 {next_check['incomplete_count']} 部待补全"
+    _emit_progress(progress_callback, {"phase": "complete", "completed": len(candidate_records),
+                                      "total": len(candidate_records), "message": message})
     return {
         "success": True,
+        "message": message,
         "candidate_count": len(candidate_records),
         "updated_count": updated_count,
         "failed_count": failed_count,
@@ -799,7 +812,7 @@ async def _write_local_library_information_assets(
         }
 
     primary_video_path = video_paths[0]
-    media_by_path = {str(video_path): _probe_video_metadata(video_path) for video_path in video_paths}
+    media_by_path = {str(video_path): await asyncio.to_thread(_probe_video_metadata, video_path) for video_path in video_paths}
     await local_movie_library_service.update_file_media_info(movie_id, media_by_path)
     poster_name = None
     sample_names: list[str] = []
@@ -829,7 +842,7 @@ async def _write_local_library_information_assets(
         list_thumbnail_name = await _write_list_thumbnail(primary_video_path, metadata, request.overwrite_existing)
 
     if request.write_nfo:
-        nfo_path = _write_nfo(primary_video_path, metadata, poster_name, sample_names)
+        nfo_path = await asyncio.to_thread(_write_nfo, primary_video_path, metadata, poster_name, sample_names)
 
     return {
         "nfo_path": str(nfo_path) if nfo_path else None,

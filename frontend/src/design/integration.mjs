@@ -45,7 +45,15 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
 };
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
-const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch' };
+const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask' };
+const jobFinished = task => task && ['success', 'completed', 'failed'].includes(task.status);
+const informationSummary = task => {
+    if (task.status === 'failed') return safeText(task.message, '资料任务失败，请重新检查');
+    if (!jobFinished(task)) return safeText(task.message, '后台运行中，可离开页面');
+    const result = task.result || {};
+    return task.operation === 'check' ? `资料检查完成：${result.total_movies || 0} 部已检查，${result.incomplete_count || 0} 部待补全`
+        : `资料补全完成：${result.updated_count || 0} 成功，${result.failed_count || 0} 失败，剩余 ${result.information_check?.incomplete_count || 0} 部待补全`;
+};
 const scrapeConfigKeys = ['scScanDir', 'scOutDir', 'scFolderRule', 'scFileRule', 'scMaxDepth', 'scConcurrent', 'scOpts', 'scOverrides'];
 const libraryColumns = [['封面', 152, 104], ['番号', 104, 88], ['标题', 256, 160], ['演员', 232, 120], ['媒体参数', 140, 100], ['文件', 80, 64], ['资料完整度', 112, 104], ['操作', 74, 64]];
 const libraryWidthsKey = 'javjaeger.libraryColumnWidths';
@@ -89,7 +97,7 @@ export function connectDesign(Base) {
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbPaths: [], lbExcludes: [], auTask: '',
                 settings: {}, settingsDraft: {}, connections: {}, clientConfig: {}, tasks: [], fileRows: [],
                 tcCaps: {}, searchError: '', searchDone: false, loading: false, libraryLoaded: false,
-                scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, tool: 'PikPak',
+                scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
                 autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
                 scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '不限', fsVideoOnly: false,
                 infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
@@ -115,7 +123,8 @@ export function connectDesign(Base) {
                         for (const field of scrapeConfigKeys) if (saved.config?.[field] !== undefined) this.state[field] = saved.config[field];
                         this.state.scPhase = 'scanning'; this.scrapePreviewConfig = JSON.stringify(this.scrapePayload());
                     } else if (key === 'scanTask') this.state.lbScanning = true;
-                    this.state[key] = { id: saved.taskId, operation: saved.type, status: 'running', preflight: saved.preflight || [] };
+                    if (key === 'informationTask' && saved.config?.fields?.length) this.state.infoFields = saved.config.fields;
+                    this.state[key] = { id: saved.taskId, operation: saved.type, status: 'running', payload: saved.config, preflight: saved.preflight || [] };
                 } catch { window.sessionStorage.removeItem(storageKey); }
             }
         }
@@ -292,6 +301,9 @@ export function connectDesign(Base) {
         async checkInformation(refreshFiles = false) {
             const result = await this.request('/api/movies/local-library/information/check?fields=' + id(this.state.infoFields.join(',')) + '&refresh_files=' + refreshFiles);
             if (refreshFiles) this._readGeneration++;
+            this.applyInformationCheck(result);
+        }
+        applyInformationCheck(result) {
             const incomplete = new Map((result.incomplete_records || []).map(record => [record.movie_id, record]));
             for (const movie of data.LIB) {
                 const missing = incomplete.get(movie.code);
@@ -451,6 +463,7 @@ export function connectDesign(Base) {
                 if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) await this.perform(() => this.loadTranscodes());
                 if (this.state.route === 'storage' && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
                 if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) await this.perform(() => this.loadTasks());
+                await this.perform(() => this.pollInformation());
                 for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/'], ['dispatchTask', '/api/115/download-jobs/']]) {
                     const current = this.state[key];
                     if (!current || ['success', 'completed', 'failed'].includes(current.status)) continue;
@@ -496,11 +509,67 @@ export function connectDesign(Base) {
         }
 
         async startJob(key, url, payload, operation = 'preview') {
-            const config = key === 'scrapeTask' ? Object.fromEntries(scrapeConfigKeys.map(field => [field, this.state[field]])) : undefined;
+            const config = key === 'informationTask' ? payload : key === 'scrapeTask' ? Object.fromEntries(scrapeConfigKeys.map(field => [field, this.state[field]])) : undefined;
             const task = await this.request(url, 'POST', payload);
             window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
-            this.setState({ [key]: { id: task.task_id, status: 'running', operation } });
+            this.setState({ [key]: { id: task.task_id, status: 'running', operation, payload: config } });
             return task;
+        }
+
+        startInformationJob(operation, payload) { return this.perform(async () => {
+            if (this.state.infoStarting || this.state.informationTask && !jobFinished(this.state.informationTask)) {
+                this.toast('资料任务正在后台运行，请在后台任务中查看进度', WARN); return;
+            }
+            if (!payload.fields?.length) throw new Error('请至少选择一项检查内容');
+            this.setState({ infoStarting: true });
+            try {
+                const url = `/api/movies/local-library/information/${operation}/jobs` + (operation === 'check' ? '?fields=' + id(payload.fields.join(',')) : '');
+                await this.startJob('informationTask', url, payload, operation);
+                this.setState({ lbCheckCfg: false });
+                this.toast(`资料${operation === 'check' ? '检查' : '补全'}已在后台启动，可在后台任务中查看进度`, OK);
+            } finally { this.setState({ infoStarting: false }); }
+        }); }
+
+        async pollInformation() {
+            const current = this.state.informationTask;
+            if (!current || jobFinished(current)) return;
+            let task;
+            try { task = await this.request('/api/movies/local-library/information/jobs/' + id(current.id)); }
+            catch (error) {
+                if (error.status !== 404) throw error;
+                task = { status: 'failed', message: '资料任务已失效，服务可能已重启或结果已过期，请重新检查' };
+            }
+            const next = { ...current, ...task };
+            this.setState({ informationTask: next });
+            if (!jobFinished(next)) return;
+            this.toast(informationSummary(next) + '；可在后台任务中查看结果', next.status === 'failed' || next.result?.failed_count ? WARN : OK);
+            if (next.result) {
+                this._readGeneration++;
+                await this.perform(() => this.loadLibrary());
+                const check = next.operation === 'check' ? next.result : next.result.information_check;
+                if (check) this.applyInformationCheck(check);
+            }
+        }
+
+        showInformationResult() {
+            const task = this.state.informationTask;
+            this.setState({ bgOpen: false });
+            if (!jobFinished(task)) { this.setState({ bgOpen: true }); return; }
+            const check = task.operation === 'check' ? task.result : task.result?.information_check;
+            const missing = check?.incomplete_records || [];
+            this.ask({ title: task.operation === 'check' ? '资料检查结果' : '资料补全结果', body: informationSummary(task), color: task.status === 'failed' || task.result?.failed_count ? WARN : ACC,
+                list: [...(task.result?.results || []).filter(row => !row.success).map(row => `${row.movie_id}：补全失败，${safeText(row.asset_error || row.error, '请检查刮削源或文件写入权限')}`),
+                    ...missing.map(row => `${row.movie_id}：${row.missing_labels?.join('、') || row.missing_fields?.join('、') || '本地文件待核验'}`)],
+                okText: task.status === 'failed' ? '重新检查' : missing.length ? task.operation === 'check' ? '开始补全' : '继续补全' : '完成',
+                run: () => task.status === 'failed' ? this.startInformationJob('check', { fields: task.payload?.fields || this.state.infoFields })
+                    : missing.length ? this.completeInformation(missing.map(row => row.movie_id), true, check.fields)
+                    : this.dismissInformationTask(),
+            });
+        }
+
+        dismissInformationTask() {
+            window.sessionStorage.removeItem(jobStorage.informationTask);
+            this.setState({ informationTask: null });
         }
 
         cinemaCounts(actor) {
@@ -728,7 +797,9 @@ export function connectDesign(Base) {
             for (const row of view.rows) { const movie = this.libraryByCode.get(row.code); row.cover = movie?.cover; row.cNote = movie?.unchecked ? '本地文件待核验' : st.checkResult ? row.cNote : '待检查'; row.completeness = st.checkResult && !movie?.unchecked ? row.completeness : '—'; }
             view.actorOptions = ['全部演员', ...new Set(data.LIB.flatMap(movie => movie.actors))].map(t => ({ t }));
             view.studioOptions = ['全部制作商', ...new Set(data.LIB.map(movie => movie.studio))].map(t => ({ t }));
-            view.runCheck = () => this.perform(async () => { if (!st.infoFields.length) throw new Error('请至少选择一项检查内容'); await this.checkInformation(true); await this.loadLibrary(); this.setState({ lbCheckCfg: false }); }, '资料检查完成');
+            view.checkBusy = st.infoStarting || Boolean(st.informationTask && !jobFinished(st.informationTask));
+            view.configureCheck = () => this.setState({ lbCheckCfg: true });
+            view.openCheck = view.runCheck = () => this.startInformationJob('check', { fields: [...st.infoFields] });
             view.clean = () => this.ask({ title: '清洗无效媒体文件？', body: '只删除确认为空文件或不含视频流的文件。超时、读取失败等无法确认的文件会保留；删除后同步更新索引。此操作不可撤销。', ackText: '我确认永久删除无效视频文件', color: BAD, okText: '清洗',
                 run: () => this.perform(async () => { const result = await this.request('/api/movies/local-library/clean-invalid', 'POST'); await this.loadLibrary(); this.toast(result.message, result.failed_files?.length ? WARN : OK); }, null),
             });
@@ -767,11 +838,9 @@ export function connectDesign(Base) {
                 run: () => this.perform(async () => { await this.request(`/api/movies/local-library/${id(movie.code)}${files ? '/files' : ''}`, 'DELETE'); this.setState({ lbDetail: null }); await this.loadLibrary(); }, files ? '文件已删除' : '记录已移除'),
             });
         }
-        completeInformation(codes, onlyMissing) { return this.perform(async () => {
-            const result = await this.request('/api/movies/local-library/information/download', 'POST', { movie_ids: codes, only_missing: onlyMissing, write_nfo: true, download_images: true, overwrite_existing: !onlyMissing });
-            await this.loadLibrary();
-            if (result.failed_count) throw new Error(`资料更新：${result.updated_count || 0} 成功，${result.failed_count} 失败，请检查刮削源或文件写入权限`);
-        }, '影片资料已更新'); }
+        completeInformation(codes, onlyMissing, fields = this.state.infoFields) {
+            return this.startInformationJob('download', { movie_ids: codes, fields, only_missing: onlyMissing, write_nfo: true, download_images: true, overwrite_existing: !onlyMissing });
+        }
         scanLibrary(paths) {
             const directories = paths.map(path => path.trim()).filter(Boolean);
             if (!directories.length) { this.setState({ lbPathCfg: true }); return; }
@@ -1188,8 +1257,16 @@ export function connectDesign(Base) {
                 view.bg.items.push({ kind: '115 派发', name: `批次 ${job.current_batch || 0}/${job.total_batches || '待计算'}`, pct, pctText: `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} 项已处理`, fg: ACC, go: this.go('dispatch') });
             }
             for (const task of st.tasks) for (const run of task.runs || []) if (run.status === 'running') view.bg.items.push({ kind: '自动任务', name: task.name, pct: 0, pctText: '', meta: run.message || '运行中', fg: ACC, go: this.go('auto') });
+            const activeCount = view.bg.items.length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
+            if (st.informationTask) {
+                const task = st.informationTask, finished = jobFinished(task);
+                view.bg.items.unshift({ kind: task.operation === 'check' ? '资料检查' : '资料补全', name: informationSummary(task), pct: task.percent || 0,
+                    pctText: finished ? task.status === 'failed' ? '失败' : task.result?.failed_count ? '部分完成' : '已完成' : '',
+                    meta: finished ? '点击查看结果，继续补全或处理失败项' : '服务端后台执行，可离开或刷新页面', fg: task.status === 'failed' || task.result?.failed_count ? WARN : finished ? OK : ACC,
+                    go: () => this.showInformationResult() });
+            }
             view.bg.count = view.bg.items.length;
-            view.bg.animation = view.bg.count ? 'jjspin 900ms linear infinite' : 'none';
+            view.bg.animation = activeCount ? 'jjspin 900ms linear infinite' : 'none';
             const background = this.pageItems(view.bg.items, 'bgPage', [], 6);
             view.bg.items = background.items; view.bg.paging = background.paging;
             const confirmation = this.pageItems(view.dlg.list, 'dlgPage', []);
