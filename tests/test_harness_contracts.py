@@ -1027,7 +1027,7 @@ def test_system_settings_update_persists_connector_sections_without_echoing_secr
             "scrapers": {
                 "priority": ["r18dev", "javbus", "javstash"],
                 "r18dev": {"enabled": True, "language": "ja", "request_delay": 2000},
-                "javbus": {"enabled": True, "language": "zh", "base_url": "https://www.javbus.com"},
+                "javbus": {"enabled": True},
                 "javstash": {"enabled": True, "api_key": "javstash-api-key", "language": "en"},
             },
             "magnet_health": {
@@ -1941,8 +1941,8 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
     assert result["success"] is True
     assert result["success_count"] == 2
     assert result["skipped_count"] == 1
-    assert result["results"][0]["movie_id"] == "M-SKIP"
-    assert result["results"][0]["skipped"] is True
+    assert result["results"][1]["movie_id"] == "M-SKIP"
+    assert result["results"][1]["skipped"] is True
     assert result["results"][2]["movie_id"] == "M-TRIED"
     assert result["results"][2]["magnet"] == "magnet:fresh"
     assert result["results"][2]["original_magnet"] == "magnet:tried"
@@ -2317,6 +2317,7 @@ def test_pan115_directory_download_resolves_all_child_pages(monkeypatch):
     downloads, skipped = asyncio.run(
         pan115_service_module.resolve_download_entries_from_config(
             [{"name": "folder", "path": "folder", "is_directory": True}],
+            min_file_size_mb=0,
         )
     )
 
@@ -3460,7 +3461,7 @@ def test_local_library_information_download_refreshes_video_media_metadata(tmp_p
     assert "<container>mp4</container>" in nfo_text
 
 
-def test_local_library_clean_invalid_deletes_unprobeable_files_and_updates_index(tmp_path, monkeypatch):
+def test_local_library_clean_invalid_deletes_confirmed_invalid_files_and_updates_index(tmp_path, monkeypatch):
     valid_video = tmp_path / "ABP-123.mp4"
     broken_video = tmp_path / "ABP-123-broken.mp4"
     only_broken_video = tmp_path / "IPX-456.mp4"
@@ -3510,7 +3511,7 @@ def test_local_library_clean_invalid_deletes_unprobeable_files_and_updates_index
             "height": 1080,
             "resolution_pixels": 1920 * 1080,
             "bitrate": 8_000_000,
-        } if Path(path).resolve() == valid_video.resolve() else {}
+        } if Path(path).resolve() == valid_video.resolve() else {"probe_status": "no_video"}
 
     monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
     monkeypatch.setattr(movies_local_library, "_probe_video_metadata", fake_probe_video_metadata)
@@ -5368,7 +5369,7 @@ def test_automation_service_dispatches_best_magnets(tmp_path, monkeypatch):
 
     assert dispatched == ["magnet:?xt=urn:btih:abc"]
     assert dispatched_sources == ["javbus"]
-    assert run.status == "success"
+    assert run.status == "partial"
     assert run.found_count == 2
     assert run.magnet_count == 1
     assert run.dispatched_count == 1

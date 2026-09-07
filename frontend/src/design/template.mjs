@@ -1,11 +1,13 @@
-// Keep the imported file unchanged. Adapt only host integration and controls
-// whose prototype behavior cannot operate the existing backend.
+import { cinemaTemplate } from './cinema.mjs';
+
+// Keep the imported design unchanged; host layout and API controls live here.
 export function adaptTemplate(source, logo) {
     let html = source.replaceAll('<i class=', '<i aria-hidden="true" class=')
         .replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, '')
         .replace(/<script src="_ds\/[^"]*"><\/script>/g, '')
         .replaceAll('src="static/logo.jpg"', `src="${logo}"`)
         .replace('>v2.4.1</span>', '>{{ version }}</span>')
+        .replace('animation:jjspin 900ms linear infinite"></span>后台', 'animation:{{ bg.animation }}"></span>后台')
         .replace('width:1440px;min-height:900px;', 'width:100%;min-height:100vh;')
         .replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="路径"><button class="btn btn-secondary" onClick="{{ r.browse }}">浏览</button>')
         .replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">')
@@ -23,8 +25,8 @@ export function adaptTemplate(source, logo) {
     const end = html.indexOf('  <sc-if value="{{ at.auto }}">', start);
     html = html.slice(0, start) + `
   <sc-if value="{{ cn.player }}">
-    <div class="jj-player" role="dialog" aria-label="本地影片播放">
-      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} · {{ cn.player.title }}</span><select class="input" aria-label="播放文件" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">停止播放</button></div>
+    <div class="jj-player" role="dialog" aria-modal="true" aria-label="本地影片播放">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} · {{ cn.player.title }}</span><select class="input" aria-label="播放文件" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}" disabled="{{ f.missing }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">停止播放</button></div>
       <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
     </div>
   </sc-if>
@@ -48,9 +50,6 @@ export function adaptTemplate(source, logo) {
               </div>`);
     html = html.replaceAll('value="{{ f.value }}"', 'aria-label="{{ f.label }}" value="{{ f.value }}"')
         .replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:var(--mono)"', '<sc-if value="{{ f.isCheck }}"><label><input type="checkbox" checked="{{ f.on }}" onChange="{{ f.set }}">{{ f.label }}</label></sc-if><sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:var(--mono)"');
-    html = html.replace('没有符合条件的影片</h5>', '{{ cn.emptyTitle }}</h5>')
-        .replace('当前组合过滤掉了全部结果。去掉一个条件，或清空后重新选择。', '{{ cn.emptyBody }}')
-        .replace('onClick="{{ cn.clearFilters }}">清空条件', 'onClick="{{ cn.clearFilters }}">{{ cn.clearText }}');
     html = html.replace(/批次 b-20260723-1418[^<]+/, '{{ d.batchSummary }}')
         .replace('全部 128', '全部 {{ d.historyCount }}').replace('未入库 3', '未入库 {{ d.missingCount }}').replace('失败 2</span>', '失败 {{ d.failureCount }}</span>')
         .replace('<div style="background:rgba(201,160,94,.06);', '<sc-if value="{{ d.hasFailed }}"><div style="background:rgba(201,160,94,.06);')
@@ -82,7 +81,6 @@ export function adaptTemplate(source, logo) {
     for (const action of ['au.save', 'au.runNow', 'au.toggleRun', 'au.remove']) html = html.replace(`onClick="{{ ${action} }}"`, `disabled="{{ !au.hasTask }}" onClick="{{ ${action} }}"`);
     html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>')
         .replace('flex:none">{{ a.initial }}</div>', 'flex:none;position:relative;overflow:hidden">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></div>')
-        .replace('<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span>', '<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span><sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>')
         .replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="详情与配置" style="position:fixed;top:0;right:0;bottom:0;')
         .replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=')
         .replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
@@ -90,9 +88,6 @@ export function adaptTemplate(source, logo) {
     html = html.replace(/(<div style="width:70px;aspect-ratio:3\/2;[^"]*)">{{ r.code }}<\/div>/, `$1;position:relative;overflow:hidden">${poster('r')}{{ r.code }}</div>`)
         .replace('position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">', `position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">${poster('r')}`);
     html = html.replace('box-shadow:inset 0 -1px 0 var(--line2)">\n                <span', `box-shadow:inset 0 -1px 0 var(--line2)">${poster('m')}\n                <span`)
-        .replaceAll('display:grid;place-items:center;overflow:hidden">\n                  <span', `display:grid;place-items:center;overflow:hidden">${poster('it')}\n                  <span`)
-        .replaceAll('display:grid;place-items:center;overflow:hidden">\n                <span', `display:grid;place-items:center;overflow:hidden">${poster('it')}\n                <span`)
-        .replace('<div style="position:absolute;top:0;right:0;width:62%;height:66%;', '<sc-if value="{{ cn.hero.cover }}"><img src="{{ cn.hero.cover }}" alt="" style="position:absolute;top:0;right:0;width:65%;height:75%;object-fit:cover;opacity:.5"></sc-if><div style="position:absolute;top:0;right:0;width:62%;height:66%;')
         .replace('右侧实时预览一条真实文件名', '右侧使用示例元数据预览命名规则');
     html = html.replace('  <sc-if value="{{ at.auto }}">', `
   <sc-if value="{{ sc.repair }}">
@@ -108,12 +103,6 @@ export function adaptTemplate(source, logo) {
     html = html.replace('<div style="position:absolute;left:50%;top:64px;', '<div class="jj-catalog" role="dialog" aria-modal="true" aria-label="筛选目录" style="position:fixed;left:50%;top:64px;')
         .replace('<aside style="position:absolute;top:52px;right:16px;', '<aside class="jj-popover" role="dialog" aria-label="后台任务" style="position:fixed;top:52px;right:16px;')
         .replace('<div style="position:absolute;top:64px;left:50%;', '<div class="jj-toast" role="status" aria-live="polite" style="position:fixed;top:64px;left:50%;');
-    html = html.replace('<div style="position:relative;flex:none;height:56px;', '<div class="jj-cinema-bar" style="position:relative;flex:none;height:56px;')
-        .replace('<div style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;', '<div class="jj-cinema-shelves" style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;')
-        .replace('<div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">', '<div class="jj-filter-options" style="display:flex;gap:6px;flex-wrap:wrap;flex:1">')
-        .replace('<div style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;', '<div class="jj-cinema-hero" style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;')
-        .replaceAll('display:flex;gap:11px;overflow:hidden', 'display:flex;gap:11px;overflow-x:auto')
-        .replace('style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default"', 'style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default;max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"');
     html = html.replace(/<(div|span)([^>]*onClick="{{ (?:n.pick|a.open|f.open|c.go|t.pick|it.pick|t.go)[^>]*?)>/g, '<$1 role="button" tabIndex="0"$2>');
     html = html.replace('<div style="display:flex;align-items:stretch;gap:0">', '<div class="jj-auto-flow" style="display:flex;align-items:stretch;gap:0">')
         .replace('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">', '<div class="jj-auto-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">');
@@ -130,13 +119,31 @@ export function adaptTemplate(source, logo) {
         .replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager('fs.directoryPaging')}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager('lb.paging')}$2`)
         .replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager('s.paging')}$2`)
-        .replace('<sc-if value="{{ cn.showWall }}">', `<sc-if value="{{ cn.showWall }}">${pager('cn.paging')}`)
-        .replace('<sc-if value="{{ cn.showActors }}">', `<sc-if value="{{ cn.showActors }}">${pager('cn.actorPaging')}`)
-        .replace('<sc-if value="{{ cn.showShelves }}">', `<sc-if value="{{ cn.showShelves }}">${pager('cn.shelfPaging')}`)
         .replace('<sc-for list="{{ s.browse.groups }}"', `${pager('s.browse.paging')}<sc-for list="{{ s.browse.groups }}"`)
-        .replace('{{ sh.meta }}</span>', '{{ sh.meta }}</span><sc-if value="{{ sh.openAll }}"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">查看全部</button></sc-if>')
         .replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">刷新影视库</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">')
         .replace('value="{{ lb.q }}"', 'aria-label="影视库搜索" value="{{ lb.q }}"')
         .replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
+    // Keep the original library layout; add only scoped styling and accessible controls.
+    html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, library => library
+        .replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">')
+        .replace('<aside style=', '<aside class="jj-library-sidebar" aria-label="影视库筛选" style=')
+        .replace('<main style=', '<main class="jj-library-main" aria-label="影视库内容" style=')
+        .replace('<select class="input" style="width:auto;', '<select aria-label="影视库排序" class="input" style="width:auto;')
+        .replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">')
+        .replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">')
+        .replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">')
+        .replace('<div style="font-size:13px;max-width:280px;', '<div title="{{ r.title }}" style="font-size:13px;max-width:280px;')
+        .replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="查看 {{ r.code }} 详情" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>')
+        .replace('background:linear-gradient(transparent,var(--scrim9))', 'background:linear-gradient(transparent,rgba(12,14,24,.94))')
+        .replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}')
+        .replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
+    html = html.replace('<div style="width:186px;flex:none;aspect-ratio:2/3;', '<div class="jj-library-detail-cover" style="position:relative;overflow:hidden;width:186px;flex:none;aspect-ratio:2/3;')
+        .replace('color:var(--t30)">{{ lb.d.code }}</div>', `color:var(--t30)">${poster('lb.d')}{{ lb.d.code }}</div>`);
+    html = html.replace(/<sc-if value="{{ lb.d }}">[\s\S]*?<\/aside>/, detail => detail
+        .replace('class="jj-drawer"', 'class="jj-drawer jj-library-detail"')
+        .replace('<table class="table"', '<table class="table jj-library-files"'));
+    const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');
+    const cinemaEnd = html.indexOf('  <sc-if value="{{ cn.player }}">', cinemaStart);
+    html = html.slice(0, cinemaStart) + cinemaTemplate + '\n' + html.slice(cinemaEnd);
     return html;
 }

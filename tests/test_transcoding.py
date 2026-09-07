@@ -42,6 +42,13 @@ AMD_GPU_CAPABILITIES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def fake_media_for_fake_executors(monkeypatch):
+    async def probe(self, path):
+        return {"codec": "h264", "width": 1920, "height": 1080, "duration_seconds": 100}
+    monkeypatch.setattr(TranscodingService, "_probe_media", probe)
+
+
 class FakeLibraryService:
     def __init__(self, files_by_movie: dict[str, Path]):
         self.files_by_movie = files_by_movie
@@ -224,6 +231,7 @@ def test_adaptive_h265_preserves_a_10_bit_source_pixel_depth():
     options, _ = build_adaptive_transcoding_options(
         {
             "codec": "h264",
+            "duration_seconds": 100,
             "bitrate": 8_000_000,
             "width": 1920,
             "height": 1080,
@@ -243,6 +251,7 @@ def test_adaptive_task_probes_source_and_persists_the_decision(tmp_path: Path):
     async def fake_probe(_source_path):
         return {
             "codec": "h264",
+            "duration_seconds": 100,
             "bitrate": 8_000_000,
             "width": 1920,
             "height": 1080,

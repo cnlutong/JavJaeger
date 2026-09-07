@@ -1303,7 +1303,7 @@ async def test_metadata_scraper_provider(provider: str, movie_id: str, provider_
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
 
-    if metadata and metadata.get("id"):
+    if metadata and metadata.get("id") and _clean_text(metadata.get("title")):
         return _metadata_test_result(
             provider,
             movie_id,
@@ -1339,7 +1339,7 @@ def apply_metadata_scraper_test_results(results: list[dict[str, Any]]) -> dict[s
     return {
         "success": True,
         "applied": applied,
-        "scrapers": runtime.get_scrapers_config(),
+        "scrapers": runtime.build_scrapers_settings_payload(runtime.get_scrapers_config()),
     }
 
 
@@ -1429,7 +1429,7 @@ class MetadataScraperService:
                 logs.append(_scraper_log(provider, f"{provider} failed: {exc}", "error"))
                 continue
 
-            if metadata and metadata.get("id"):
+            if metadata and metadata.get("id") and _clean_text(metadata.get("title")):
                 logs.append(_scraper_log(provider, f"{provider} matched {movie_id}"))
                 return {
                     "metadata": metadata,

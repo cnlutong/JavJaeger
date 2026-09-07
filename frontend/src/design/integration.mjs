@@ -7,8 +7,8 @@ import { selectHistoryRedispatchResource } from '../utils/historyRedispatch.mjs'
 import { loadLocalScrapeTaskTemplates, saveLocalScrapeTaskTemplate, deleteLocalScrapeTaskTemplate } from '../utils/localScrapeTemplates.mjs';
 import { LOCAL_SCRAPE_NAMING_FIELDS } from '../utils/localScrapeNamingTemplates.mjs';
 
-// Expose the supplied component's data tables to its API adapter; its markup and
-// presentation methods remain the implementation, rather than a visual reference.
+// Reuse the imported component's data and workflows in the API adapter.
+// Management views retain the supplied template; cinema has its own presentation.
 export const designDataExports = '\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };';
 // Keep the imported design intact; adapt its eager view calculations at startup.
 export function adaptDesignScript(script) {
@@ -20,7 +20,7 @@ export function adaptDesignScript(script) {
         .replace('const rows = list.map((m) => {', "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {")
         .replace('actors: CN_ACTORS.map((a) => {', 'actors: (showActors ? CN_ACTORS : []).map((a) => {')
         .replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, 'const latest = this.latestByActor.get(a.name);')
-        .replace('let wallRows = LIB\n', 'let wallRows = (isWall ? LIB : [])\n')
+        .replace('let wallRows = LIB\n', `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();\n    let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))\n`)
         .replace('filterGroups: dims.map((d) => ({', 'filterGroups: (isWall ? dims : []).map((d) => ({')
         .replace('const o = st.scOpts;', 'const o = st.scOpts, skipped = new Set(st.scSkip);')
         .replaceAll('st.scSkip.includes(', 'skipped.has(')
@@ -30,6 +30,8 @@ export function adaptDesignScript(script) {
 const ACC = 'var(--acc)', OK = 'var(--ok)', WARN = 'var(--warn)', BAD = 'var(--bad)', DIM = 'var(--dim)', DIM2 = 'var(--dim2)';
 const id = encodeURIComponent;
 const sourceKey = value => ({ cili: 'cilisousuo', yhg: 'yhg007' }[value] || value);
+const toolName = value => ({ pikpak: 'PikPak', pan115: '115 网盘', aria2: 'Aria2' }[value] || value);
+const runStatus = value => ({ running: '运行中', success: '已完成', partial: '部分完成', failed: '失败', noop: '无新下载' }[value] || value);
 const toolKey = value => ({ PikPak: 'pikpak', '115 网盘': 'pan115', Aria2: 'aria2' }[value] || value);
 const names = values => (Array.isArray(values) ? values : []).map(value => typeof value === 'string' ? value : value.name).filter(Boolean);
 const size = bytes => {
@@ -43,7 +45,7 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
 };
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
-const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask' };
+const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch' };
 const scrapeConfigKeys = ['scScanDir', 'scOutDir', 'scFolderRule', 'scFileRule', 'scMaxDepth', 'scConcurrent', 'scOpts', 'scOverrides'];
 
 function movieView(record, local = false) {
@@ -56,7 +58,7 @@ function movieView(record, local = false) {
         raw: record, code, title: record.title || metadata.title || code,
         actors: names(record.stars || metadata.stars), tags,
         date: String(record.date || metadata.date || ''), dur: `${record.duration || record.videoLength || metadata.duration || metadata.videoLength || Math.round((media.duration_seconds || 0) / 60) || '—'} 分`,
-        studio: record.studio?.name || record.studio || metadata.studio?.name || metadata.studio || '—',
+        studio: record.producer?.name || record.producer || record.studio?.name || record.studio || metadata.producer?.name || metadata.producer || metadata.studio?.name || metadata.studio || '—',
         label: record.publisher?.name || record.publisher || record.label?.name || metadata.publisher?.name || metadata.publisher || metadata.label?.name || '—',
         series: record.series?.name || record.series || metadata.series?.name || metadata.series || '—', director: record.director?.name || record.director || metadata.director?.name || metadata.director || '—',
         local: local || record.in_local_library ? 'in' : 'none', vr: tags.includes('VR'), sub: tags.includes('中文字幕'), k4: Number(media.height) >= 2160,
@@ -79,7 +81,7 @@ export function connectDesign(Base) {
             super(props);
             const session = loadPikPakSession();
             this.auth = session.credentials;
-            this.state = { ...this.state, theme: loadAppTheme(), route: 'cinema', cnHero: '', cnPlaying: null,
+            this.state = { ...this.state, theme: loadAppTheme(), route: 'cinema', cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '',
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbPaths: [], lbExcludes: [], auTask: '',
@@ -104,8 +106,8 @@ export function connectDesign(Base) {
                     if (key === 'scrapeTask') {
                         for (const field of scrapeConfigKeys) if (saved.config?.[field] !== undefined) this.state[field] = saved.config[field];
                         this.state.scPhase = 'scanning'; this.scrapePreviewConfig = JSON.stringify(this.scrapePayload());
-                    } else this.state.lbScanning = true;
-                    this.state[key] = { id: saved.taskId, operation: saved.type, status: 'running' };
+                    } else if (key === 'scanTask') this.state.lbScanning = true;
+                    this.state[key] = { id: saved.taskId, operation: saved.type, status: 'running', preflight: saved.preflight || [] };
                 } catch { window.sessionStorage.removeItem(storageKey); }
             }
         }
@@ -114,7 +116,7 @@ export function connectDesign(Base) {
             const patch = typeof update === 'function' ? update(this.state) : { ...update };
             for (const [page, filters] of [
                 ['lbPage', ['lbQ', 'lbActor', 'lbStudio', 'lbRes', 'lbM', 'lbSubOnly', 'lbMissing', 'lbSort']],
-                ['cnPage', ['cnTab', 'cnActor', 'cnF', 'cnSort']],
+                ['cnPage', ['cnTab', 'cnActor', 'cnF', 'cnSort', 'cnQ']],
                 ['cnShelfPage', ['cnTab']],
                 ['catalogPage', ['browse', 'browseQ']],
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
@@ -124,7 +126,11 @@ export function connectDesign(Base) {
             ]) {
                 if (filters.some(key => key in patch && patch[key] !== this.state[key])) patch[page] = null;
             }
-            super.setState(patch, callback);
+            const cinemaNavigation = this.state.route === 'cinema' && ['cnTab', 'cnActor', 'cnQ', 'cnF', 'cnSort', 'cnPage', 'cnShelfPage', 'cnActorPage'].some(key => key in patch && patch[key] !== this.state[key]);
+            super.setState(patch, cinemaNavigation ? () => {
+                document.querySelector('.jj-cinema-content')?.scrollTo({ top: 0 });
+                callback?.();
+            } : callback);
         }
 
         async request(url, method = 'GET', body) {
@@ -171,7 +177,7 @@ export function connectDesign(Base) {
             this._keyboard = event => {
                 if (event.key === 'Escape') {
                     if (this.state.dlg) this.renderVals().dlg.cancel();
-                    else for (const key of ['fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying']) {
+                    else for (const key of ['fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
                         if (this.state[key]) { this.setState({ [key]: null }); break; }
                     }
                 }
@@ -193,7 +199,11 @@ export function connectDesign(Base) {
                     if (!this._activeDialog) this._focusBeforeDialog = document.activeElement;
                     const target = next.querySelector('input:not(:disabled), select:not(:disabled), button:not(:disabled)');
                     target?.focus({ preventScroll: true });
-                } else if (this._focusBeforeDialog?.isConnected) this._focusBeforeDialog.focus({ preventScroll: true });
+                } else if (this._focusBeforeDialog?.isConnected) {
+                    const previous = this._focusBeforeDialog;
+                    const target = previous.closest('details:not([open])')?.querySelector('summary') || previous;
+                    target?.focus({ preventScroll: true });
+                }
                 this._activeDialog = next;
             });
             this._dialogObserver.observe(document.body, { childList: true, subtree: true });
@@ -217,7 +227,7 @@ export function connectDesign(Base) {
 
         allConnected() { return Boolean(this.state.connections.pan115); }
         go(route) { return () => {
-            this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
+            this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
             this.perform(async () => {
                 if (['cinema', 'library'].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 30000)) await this.loadLibrary();
                 if (route === 'storage') await this.loadFiles(this.state.fsSrc, this.state.directory);
@@ -291,6 +301,8 @@ export function connectDesign(Base) {
             const result = await this.request('/api/automation/tasks');
             const tasks = result.tasks || [];
             if (JSON.stringify(tasks) === JSON.stringify(this.state.tasks)) return;
+            const running = new Set(this.state.tasks.flatMap(task => (task.runs || []).filter(run => run.status === 'running').map(run => run.id)));
+            for (const task of tasks) for (const run of task.runs || []) if (running.has(run.id) && run.status !== 'running') this.toast(`${task.name}：${safeText(run.error || run.message, runStatus(run.status))}`, ['failed', 'partial'].includes(run.status) ? WARN : OK);
             this.setState({ tasks, auTask: tasks.some(task => task.id === this.state.auTask) ? this.state.auTask : tasks[0]?.id || '' });
         }
         async loadTranscodes(capabilities = false) {
@@ -319,7 +331,7 @@ export function connectDesign(Base) {
             }
             const result = await this.request(`/api/magnets/${id(movie.code)}?${query}`);
             const magnets = Array.isArray(result) ? result : result.magnets || [];
-            return magnets.map(magnet => ({ ...magnet, source: magnet.source || sourceKey(source), movie_id: movie.code }));
+            return magnets.map(magnet => ({ ...magnet, name: magnet.title || magnet.name || movie.code, source: magnet.source || sourceKey(source), movie_id: movie.code }));
         }
 
         runSearch = async () => {
@@ -373,33 +385,52 @@ export function connectDesign(Base) {
         visible() { return this.state.sMode === 'magnet' ? [] : data.MOVIES; }
         setSrc(src) { return () => { this.setState({ src }); if (this.state.searchDone || this.state.loading) void this.runSearch(); }; }
         dispatchOne(movie) { return () => this.confirmDispatch([movie.code]); }
-        confirmDispatch(codes, magnets) {
+        async finishDispatch(result, tool, preflight = []) {
+            const results = [...preflight, ...(result.results || [])];
+            this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool });
+            await this.perform(() => this.loadHistory());
+            const failed = results.filter(item => item.success === false && !item.skipped).length;
+            if (failed) throw new Error(`有 ${failed} 项未成功提交，请到下载派发页查看并重试`);
+            if (!results.length || results.every(item => item.skipped)) { this.toast('全部资源已跳过，没有新增下载任务', WARN); return; }
+            this.toast('下载任务已提交', OK);
+        }
+        confirmDispatch(codes, magnets, destination) {
             codes = [...new Set(codes.map(code => String(code).trim().toUpperCase()).filter(Boolean))];
             if (!codes.length) { this.toast('请选择影片或填写番号', WARN); return; }
-            const st = { ...this.state }, chosen = magnets || (st.route === 'search' ? codes.flatMap(code => (this.magnets.get(code) || []).slice(0, 1)) : null);
+            const st = { ...this.state, tool: destination || this.state.tool }, chosen = magnets || (st.route === 'search' ? codes.flatMap(code => (this.magnets.get(code) || []).slice(0, 1)) : null);
             this.ask({ title: `派发 ${codes.length} 部到 ${st.tool}？`, color: ACC, okText: '开始派发',
                 body: '将提交真实下载任务；本地已有影片与已尝试链接由后端检查。', list: codes,
                 run: () => this.perform(async () => {
-                    let entries = chosen;
+                    const tool = toolKey(st.tool);
+                    if (tool === 'pan115' && this.state.dispatchTask && !['completed', 'failed'].includes(this.state.dispatchTask.status)) throw new Error('已有 115 派发任务运行中，请等待完成');
+                    let entries = chosen, preflight = [];
                     if (!entries) {
-                        const payload = await this.request('/api/movies/download-by-codes', 'POST', { movie_codes: codes.join('\n'), auto_download: false,
+                        const payload = await this.request('/api/movies/batch', 'POST', { movie_ids: codes,
                             magnet_source: sourceKey(st.route === 'dispatch' ? st.dSrc : st.src), has_subtitle_filter: st.route === 'dispatch' ? (st.dSubOnly ? 'true' : null) : st.sub === '0' ? null : st.sub, exclude_4k: st.route === 'dispatch' ? st.dNo4k : st.exclude4k });
-                        entries = payload.magnet_results || [];
+                        entries = [];
+                        for (const item of payload.results || []) {
+                            if (item.in_local_library) preflight.push({ movie_id: item.movie_id, success: false, skipped: true, reason: 'already_exists', message: '影片已在本地库中' });
+                            else if (item.best_magnet?.link) entries.push({ ...item.best_magnet, movie_id: item.movie_id });
+                            else preflight.push({ movie_id: item.movie_id, success: false, error: item.error || 'no_magnet', message: safeText(item.error, '没有符合条件的磁力，请调整来源或筛选条件') });
+                        }
                     }
                     const usable = entries.filter(item => item.link || item.magnet_link);
-                    if (!usable.length) throw new Error('没有可派发的磁力；可能已入库或链接均已尝试');
-                    const tool = toolKey(st.tool);
-                    const body = { magnet_links: usable.map(item => item.link || item.magnet_link), movie_ids: usable.map(item => item.movie_id || item.id || codes[0]), magnet_sources: usable.map(item => item.source || sourceKey(st.route === 'dispatch' ? st.dSrc : st.src)) };
+                    if (!usable.length) {
+                        if (!preflight.length) preflight = codes.map(movie_id => ({ movie_id, success: false, error: 'no_magnet', message: '没有符合条件的磁力' }));
+                        await this.finishDispatch({ results: [] }, st.tool, preflight); return;
+                    }
+                    const body = { magnet_links: usable.map(item => item.link || item.magnet_link), movie_ids: usable.map(item => item.movie_id || codes[0]), magnet_sources: usable.map(item => item.source || sourceKey(st.route === 'dispatch' ? st.dSrc : st.src)) };
                     if (tool === 'pikpak' && this.auth && !this.auth.fromConfig) Object.assign(body, { username: this.auth.username, password: this.auth.password });
-                    const endpoint = { pikpak: '/api/pikpak/download', pan115: '/api/115/download', aria2: '/api/aria2/download-magnets' }[tool];
+                    if (tool === 'pan115') {
+                        const job = await this.request('/api/115/download-jobs', 'POST', body);
+                        window.sessionStorage.setItem(jobStorage.dispatchTask, JSON.stringify({ taskId: job.job_id, type: 'dispatch', preflight }));
+                        this.setState({ dispatchTask: { ...job, id: job.job_id, preflight }, dispatchTool: st.tool });
+                        this.toast('115 派发已在后台启动，可在后台任务中查看进度', OK); return;
+                    }
                     let result;
-                    try { result = await this.request(endpoint, 'POST', body); }
+                    try { result = await this.request(tool === 'pikpak' ? '/api/pikpak/download' : '/api/aria2/download-magnets', 'POST', body); }
                     catch (error) { if (!error.result?.results) throw error; result = error.result; }
-                    this.setState({ dispatchResult: result, dispatchTool: st.tool });
-                    await this.perform(() => this.loadHistory());
-                    if (result.results?.some(item => item.success === false && !item.skipped)) throw new Error('部分下载派发失败，请到下载派发页处理失败项');
-                    if (result.results?.length && result.results.every(item => item.skipped)) { this.toast('全部资源已跳过，没有新增下载任务', WARN); return; }
-                    this.toast('下载任务已提交', OK);
+                    await this.finishDispatch(result, st.tool, preflight);
                 }),
             });
         }
@@ -408,10 +439,10 @@ export function connectDesign(Base) {
             if (this._polling || this._disposed) return;
             this._polling = true;
             try {
-                if (['transcode', 'library', 'cinema'].includes(this.state.route)) await this.perform(() => this.loadTranscodes());
+                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) await this.perform(() => this.loadTranscodes());
                 if (this.state.route === 'storage' && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
-                if (this.state.route === 'auto') await this.perform(() => this.loadTasks());
-                for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/']]) {
+                if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) await this.perform(() => this.loadTasks());
+                for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/'], ['dispatchTask', '/api/115/download-jobs/']]) {
                     const current = this.state[key];
                     if (!current || ['success', 'completed', 'failed'].includes(current.status)) continue;
                     let task;
@@ -420,12 +451,27 @@ export function connectDesign(Base) {
                         if (error.status === 404) {
                             window.sessionStorage.removeItem(jobStorage[key]);
                             this.setState({ [key]: { ...current, status: 'failed' }, ...(key === 'scrapeTask' ? { scPhase: 'idle' } : { lbScanning: false }) });
-                            throw new Error('后台任务已失效，服务可能已重启，请重新扫描或生成预览');
+                            throw new Error(key === 'dispatchTask' ? '115 后台任务已失效，请先核对下载历史和网盘任务，再重试未提交项' : '后台任务已失效，服务可能已重启，请重新扫描或生成预览');
                         }
                         throw error;
                     }
-                    this.setState({ [key]: { ...task, id: current.id, operation: current.operation } });
+                    this.setState({ [key]: { ...current, ...task, id: current.id, operation: current.operation } });
                     if (['success', 'completed', 'failed'].includes(task.status)) window.sessionStorage.removeItem(jobStorage[key]);
+                    if (key === 'dispatchTask') {
+                        if (['completed', 'failed'].includes(task.status)) {
+                            if (!task.result) throw new Error('115 派发失败，请检查连接与下载历史');
+                            await this.perform(() => this.finishDispatch(task.result, '115 网盘', current.preflight || []));
+                        }
+                        continue;
+                    }
+                    if (key === 'scanTask' && task.result && ['success', 'completed', 'failed'].includes(task.status)) {
+                        this.setState({ lbScanning: false, scanResult: task.result });
+                        await this.loadLibrary();
+                        const message = safeText(task.message || task.result.message, '扫描已完成');
+                        this.toast(message, task.status === 'failed' ? WARN : OK);
+                        if (task.status === 'failed') this.ask({ title: '扫描结果：部分目录未完成', body: message, list: (task.result.results || []).filter(item => !item.success).map(item => `${item.directory || ''} ${safeText(item.message)}`), okText: '关闭', color: WARN });
+                        continue;
+                    }
                     if (key === 'scrapeTask' && current.operation === 'apply' && task.result && ['success', 'completed', 'failed'].includes(task.status)) {
                         this.setState({ scPhase: 'idle', scrapeResult: task.result }); data.SCRAPE_ROWS.splice(0);
                         await this.loadLibrary();
@@ -475,54 +521,113 @@ export function connectDesign(Base) {
             } };
         }
 
+        playCinema(code, fileIndex) {
+            const files = this.libraryByCode.get(code)?.raw.files || [];
+            const index = fileIndex ?? files.findIndex(file => file.exists !== false);
+            if (!Number.isInteger(index) || !files[index] || files[index].exists === false) { this.toast('本地文件缺失，请重新扫描影视库', WARN); return; }
+            this.setState({ cnPlaying: code, playerIndex: index, cnPaused: false, cnBuffering: false });
+        }
+
         vCinema() {
-            if (!data.LIB.length) return { tabs: [], showHero: false, showShelves: false, showWall: true, showActors: false, wall: [], wallEmpty: true, wallMeta: this.state.libraryLoaded ? '影视库为空，请到管理界面添加路径并扫描入库' : '正在读取影视库…', emptyTitle: '影视库为空', emptyBody: '添加媒体路径并扫描入库后，即可在这里浏览和播放。', clearText: '配置影视库', clearFilters: this.go('library'), libMeta: '0 部', filterGroups: [], sorts: [], filterCount: 0, hasFilters: false, exit: this.go('library'), closePlayer: () => this.setState({ cnPlaying: null }) };
-            const view = super.vCinema();
-            view.libMeta = `${data.LIB.length} 部 · ${size(data.LIB.reduce((sum, movie) => sum + Number(movie.raw.total_size || 0), 0))}`;
-            view.actorsMeta = `${data.CN_ACTORS.length} 位本地演员`;
-            view.hero.playNote = '播放原文件';
-            view.hero.desc = `${data.LIB.find(movie => movie.code === view.hero.code)?.actors.join(' / ') || ''} · 本地影片`;
-            view.transcode = () => this.openTranscode(view.hero.code);
-            view.hero.cover = data.LIB.find(movie => movie.code === view.hero.code)?.cover;
-            view.emptyTitle = '没有符合条件的影片'; view.emptyBody = '当前组合过滤掉了全部结果。去掉一个条件，或清空后重新选择。'; view.clearText = '清空条件';
-            for (const row of view.wall) row.cover = this.libraryByCode.get(row.code)?.cover;
-            const heroFiles = data.LIB.find(movie => movie.code === view.hero.code)?.raw.files || [];
-            view.hero.playText = heroFiles.some(file => file.exists !== false) ? '播放' : '文件缺失';
-            view.play = () => {
-                const index = heroFiles.findIndex(file => file.exists !== false);
-                if (index < 0) { this.toast('本地文件缺失，请重新扫描影视库', WARN); return; }
-                this.setState({ cnPlaying: view.hero.code, playerIndex: index, cnPaused: false, cnBuffering: false });
+            const st = this.state;
+            const clearFacets = () => ({ actor: [], series: [], studio: [], res: [], flag: [] });
+            const browse = filters => this.setState({ cnTab: '全部影片', cnActor: null, cnDetail: null, cnQ: '', cnF: { ...clearFacets(), ...filters } });
+            const controls = {
+                query: st.cnQ, hasQuery: Boolean(st.cnQ), hasLibrary: Boolean(data.LIB.length),
+                setQuery: event => this.setState({ cnQ: event.target.value, cnTab: '全部影片', cnActor: null }),
+                clearQuery: () => this.setState({ cnQ: '' }), browseAll: () => browse(),
+                closeDetail: () => this.setState({ cnDetail: null }), detailOpen: Boolean(st.cnDetail || st.cnPlaying), playing: Boolean(st.cnPlaying),
+                exit: this.go('library'), imageError: event => { event.currentTarget.hidden = true; },
+                closePlayer: () => this.setState({ cnPlaying: null }),
             };
-            if (view.player) {
-                const playing = data.LIB.find(movie => movie.code === this.state.cnPlaying);
-                view.player.url = `/api/movies/local-library/${id(this.state.cnPlaying)}/play?file_index=${this.state.playerIndex || 0}`;
-                view.player.error = () => this.toast('浏览器无法播放此文件，可从影片详情创建硬件转码任务', WARN);
-                view.player.files = (playing.raw.files || []).map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}` }));
-                view.player.fileIndex = String(this.state.playerIndex || 0);
-                view.player.selectFile = event => this.setState({ playerIndex: Number(event.target.value) });
-                view.player.ended = () => { if ((this.state.playerIndex || 0) + 1 < playing.files) this.setState({ playerIndex: (this.state.playerIndex || 0) + 1 }); };
+            if (!data.LIB.length) return { ...controls, tabs: [], showHero: false, showShelves: false, showWall: true, showActors: false, wall: [], wallEmpty: true, wallTitle: '你的影院', wallMeta: '本地影片收藏', emptyTitle: st.libraryLoaded ? '开始建立你的影院' : '正在读取影视库…', emptyBody: '添加媒体路径并扫描入库后，即可在这里浏览和播放。', clearText: '配置影视库', clearFilters: this.go('library'), filterGroups: [], sorts: [], filterCount: 0, hasFilters: false };
+            const view = Object.assign(super.vCinema(), controls);
+            const open = code => this.setState({ cnHero: code, cnDetail: code, cnDetailFile: Math.max(0, this.libraryByCode.get(code)?.raw.files?.findIndex(file => file.exists !== false) ?? 0) });
+            const presentation = movie => ({
+                code: movie.code, title: movie.title, cover: movie.cover,
+                backdrop: imageSource(movie.raw.backdrop_url || movie.raw.metadata?.backdrop_url || movie.raw.cover_url || movie.raw.metadata?.cover_url || '') || movie.cover,
+                meta: [movie.code, movie.date.slice(0, 4), movie.dur.startsWith('—') ? '' : movie.dur, movie.res, movie.codec.toUpperCase()].filter(value => value && value !== '—').join(' · '),
+                desc: movie.raw.plot || movie.raw.description || movie.raw.metadata?.plot || movie.raw.metadata?.description || [movie.actors.join(' / '), movie.studio === '—' ? '' : movie.studio, movie.series === '—' ? '' : movie.series].filter(Boolean).join(' · ') || '暂无影片简介，可在影视库中补全资料。',
+                unavailable: !(movie.raw.files || []).some(file => file.exists !== false),
+            });
+            const card = movie => ({ code: movie.code, title: movie.title, cover: movie.cover, res: movie.res === '—' ? '' : movie.res,
+                caption: [movie.code, movie.date.slice(0, 4)].filter(Boolean).join(' · '),
+                unavailable: !(movie.raw.files || []).some(file => file.exists !== false), open: () => open(movie.code),
+            });
+            view.tabs = view.tabs.map(tab => ({ ...tab, current: tab.name === st.cnTab ? 'page' : undefined, pick: () => this.setState({ cnTab: tab.name, cnActor: null, cnQ: '' }) }));
+            const hero = this.libraryByCode.get(view.hero.code);
+            Object.assign(view.hero, presentation(hero));
+            view.hero.playText = view.hero.unavailable ? '文件缺失' : '播放';
+            view.showHero = st.cnTab === '推荐';
+            view.play = () => this.playCinema(hero.code);
+            view.info = () => open(hero.code);
+            view.transcode = () => this.openTranscode(hero.code);
+            view.libMeta = `${data.LIB.length} 部`;
+            view.sort = st.cnSort;
+            view.setSort = event => this.setState({ cnSort: event.target.value });
+            view.wallTitle = view.actorHeader?.name || (st.cnQ.trim() ? '搜索结果' : '全部影片');
+            view.wallMeta = st.cnQ.trim() ? `命中 ${view.wall.length} 部 · “${st.cnQ.trim()}”` : view.wallMeta;
+            view.emptyTitle = '没有符合条件的影片'; view.emptyBody = '试试其他关键词，或移除筛选条件。'; view.clearText = '清空条件';
+            view.clearFilters = () => this.setState({ cnQ: '', cnF: clearFacets() });
+            view.activeFilters = data.FILTER_DIMS.flatMap(dim => (view.actorHeader && dim.key === 'actor' ? [] : st.cnF[dim.key]).map(value => ({ text: `${dim.name} · ${value}`, remove: () => this.setState({ cnF: { ...st.cnF, [dim.key]: st.cnF[dim.key].filter(item => item !== value) } }) })));
+            for (const group of view.filterGroups) {
+                const dim = data.FILTER_DIMS.find(dim => dim.name === group.name);
+                for (const item of group.items) item.on = st.cnF[dim.key].includes(item.name);
             }
-            if (this.state.cnTab === '推荐') view.shelves = [{ name: '最近入库', meta: `${data.LIB.length} 部`, cardW: '158px', items: data.LIB.slice(0, 12).map(movie => ({ ...movie, sub: movie.actors.join(' / '), ring: 'var(--t08)', ringW: '1px', pick: () => this.setState({ cnHero: movie.code }) })) }];
-            if (['系列', 'VR'].includes(this.state.cnTab)) {
-                const vr = this.state.cnTab === 'VR', groups = new Map();
+            if (st.cnDetail && this.libraryByCode.has(st.cnDetail)) {
+                const movie = this.libraryByCode.get(st.cnDetail), files = movie.raw.files || [];
+                const index = st.cnDetailFile, file = files[index];
+                view.detail = { ...presentation(movie), fileIndex: String(index), playText: file && file.exists !== false ? '播放' : '文件缺失', unavailable: !file || file.exists === false,
+                    fields: [['发行日期', movie.date], ['制作商', movie.studio], ['系列', movie.series], ['导演', movie.director], ['本地文件', `${files.length} 个 · ${movie.size}`]].filter(([, value]) => value && value !== '—').map(([name, value]) => ({ name, value })),
+                    actors: movie.actors.map(name => ({ name, open: () => { this.setState({ cnTab: '演员', cnActor: name, cnDetail: null, cnQ: '', cnF: clearFacets() }); } })),
+                    tags: movie.tags.map(name => ({ name, open: () => browse({ flag: [name] }) })), noTags: !movie.actors.length && !movie.tags.length,
+                    files: files.map((file, i) => ({ value: String(i), label: `${i + 1}. ${file.file_name || file.path.split(/[\\/]/).pop()}${file.exists === false ? '（文件缺失）' : ''}`, missing: file.exists === false })),
+                    fileMeta: file ? [size(file.size), file.media_info?.codec || movie.codec, file.media_info?.height ? `${file.media_info.height}p` : movie.res].join(' · ') : '没有可用文件',
+                    selectFile: event => { const index = Number(event.target.value); if (files[index] && files[index].exists !== false) this.setState({ cnDetailFile: index }); },
+                    play: () => this.playCinema(movie.code, index), manage: () => this.setState({ route: 'library', lbDetail: movie.code, cnDetail: null }),
+                };
+            }
+            if (view.player) {
+                const playing = this.libraryByCode.get(st.cnPlaying), files = playing.raw.files || [];
+                view.player.url = `/api/movies/local-library/${id(st.cnPlaying)}/play?file_index=${st.playerIndex || 0}`;
+                view.player.error = () => this.toast('浏览器无法播放此文件，可从影片详情创建硬件转码任务', WARN);
+                view.player.files = files.map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}`, missing: file.exists === false }));
+                view.player.fileIndex = String(st.playerIndex || 0);
+                view.player.selectFile = event => this.playCinema(playing.code, Number(event.target.value));
+                view.player.ended = () => { const next = files.findIndex((file, index) => index > (this.state.playerIndex || 0) && file.exists !== false); if (next >= 0) this.playCinema(playing.code, next); };
+            }
+            const shelf = (name, movies, filters) => ({ name, meta: `${movies.length} 部`, openAll: () => browse(filters), items: movies.slice(0, 12).map(card),
+                previous: event => scrollShelf(event, -1), next: event => scrollShelf(event, 1),
+            });
+            const scrollShelf = (event, direction) => {
+                const track = event.currentTarget.closest('.jj-cinema-shelf').querySelector('.jj-cinema-shelf-track');
+                track.scrollBy({ left: direction * track.clientWidth * .85, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+            };
+            if (st.cnTab === '推荐') {
+                const recent = [...data.LIB].sort((a, b) => b.added.localeCompare(a.added));
+                view.shelves = [shelf('最近入库', recent), shelf('高清收藏', recent.filter(movie => parseInt(movie.res) >= 1080), { res: [...new Set(recent.filter(movie => parseInt(movie.res) >= 1080).map(movie => movie.res))] }), shelf('VR 影厅', recent.filter(movie => movie.vr), { flag: ['VR'] })].filter(shelf => shelf.items.length);
+            }
+            if (['系列', 'VR'].includes(st.cnTab)) {
+                const vr = st.cnTab === 'VR', groups = new Map();
                 for (const movie of data.LIB) {
                     if (vr ? !movie.vr : movie.series === '—') continue;
                     const key = vr ? movie.res : movie.series;
                     if (!groups.has(key)) groups.set(key, []);
                     groups.get(key).push(movie);
                 }
-                view.shelves = [...groups].map(([key, movies]) => ({ name: vr ? `VR ${key}` : key, meta: `${movies.length} 部`, cardW: '158px',
-                    openAll: () => this.setState({ cnTab: '全部影片', cnActor: null, cnF: { actor: [], series: vr ? [] : [key], studio: [], res: vr ? [key] : [], flag: vr ? ['VR'] : [] } }),
-                    items: movies.slice(0, 12).map(movie => ({ ...movie, sub: movie.actors.join(' / '), ring: 'var(--t08)', ringW: '1px', pick: () => this.setState({ cnHero: movie.code }) })),
-                }));
+                view.shelves = [...groups].map(([key, movies]) => shelf(vr ? `VR ${key}` : key, movies, vr ? { res: [key], flag: ['VR'] } : { series: [key] }));
             }
-            const shelves = this.pageItems(view.shelves, 'cnShelfPage', [this.state.cnTab], 6);
+            view.sectionTitle = st.cnTab === '系列' ? '系列收藏' : st.cnTab === 'VR' ? 'VR 影厅' : '';
+            view.sectionMeta = `${view.shelves.length} 个分区`;
+            view.shelvesEmpty = !view.shelves.length;
+            view.sectionEmpty = st.cnTab === 'VR' ? '暂无 VR 影片' : '暂无系列收藏';
+            const shelves = this.pageItems(view.shelves, 'cnShelfPage', [st.cnTab], 6);
             view.shelves = shelves.items; view.shelfPaging = shelves.paging;
-            for (const shelf of view.shelves) for (const row of shelf.items) row.cover = this.libraryByCode.get(row.code)?.cover;
-            const wall = this.pageItems(view.wall, 'cnPage', [this.state.cnTab, this.state.cnActor, this.state.cnF, this.state.cnSort]);
-            view.wall = wall.items; view.paging = wall.paging;
+            const wall = this.pageItems(view.wall, 'cnPage', [st.cnTab, st.cnActor, st.cnF, st.cnSort, st.cnQ]);
+            view.wall = wall.items.map(row => card(this.libraryByCode.get(row.code))); view.paging = wall.paging;
             const actors = this.pageItems(view.actors, 'cnActorPage', []);
             view.actors = actors.items; view.actorPaging = actors.paging;
+            view.actorsMeta = `${data.CN_ACTORS.length} 位本地演员`; view.actorsEmpty = !data.CN_ACTORS.length;
             const avatars = new Map(data.CN_ACTORS.map(actor => [actor.name, actor.avatar_url]));
             for (const actor of view.actors) actor.avatarUrl = avatars.get(actor.name) || '';
             return view;
@@ -555,16 +660,25 @@ export function connectDesign(Base) {
             view.actorOptions = ['全部演员', ...new Set(data.LIB.flatMap(movie => movie.actors))].map(t => ({ t }));
             view.studioOptions = ['全部制作商', ...new Set(data.LIB.map(movie => movie.studio))].map(t => ({ t }));
             view.runCheck = () => this.perform(async () => { if (!st.infoFields.length) throw new Error('请至少选择一项检查内容'); await this.checkInformation(true); await this.loadLibrary(); this.setState({ lbCheckCfg: false }); }, '资料检查完成');
-            view.clean = () => this.ask({ title: '清洗无效媒体文件？', body: '后端会重新探测文件，并永久删除无法读取媒体参数的现存视频，同时移除索引。此操作不可撤销。', ackText: '我确认永久删除无效视频文件', color: BAD, okText: '清洗',
-                run: () => this.perform(async () => { await this.request('/api/movies/local-library/clean-invalid', 'POST'); await this.loadLibrary(); }, '无效媒体清洗完成'),
+            view.clean = () => this.ask({ title: '清洗无效媒体文件？', body: '只删除确认为空文件或不含视频流的文件。超时、读取失败等无法确认的文件会保留；删除后同步更新索引。此操作不可撤销。', ackText: '我确认永久删除无效视频文件', color: BAD, okText: '清洗',
+                run: () => this.perform(async () => { const result = await this.request('/api/movies/local-library/clean-invalid', 'POST'); await this.loadLibrary(); this.toast(result.message, result.failed_files?.length ? WARN : OK); }, null),
             });
             view.purgeDb = () => this.ask({ title: '清空影视库索引？', body: '只清除影视库索引，保留媒体文件。', ackText: '我确认清空全部索引', color: BAD, okText: '清空',
                 run: () => this.perform(async () => { await this.request('/api/movies/local-library', 'DELETE'); await this.loadLibrary(); }, '影视库索引已清空'),
             });
             view.actors = data.CN_ACTORS.map(actor => ({ ...actor, avatarUrl: actor.avatar_url || '', initial: actor.name.slice(0, 1), meta: `${actor.count} 部`, avatar: actor.noAvatar ? '暂无头像' : '本地头像', avatarFg: DIM2, open: () => this.setState({ lbActor: actor.name, lbView: 'list' }) }));
             if (view.showActor) { const actors = this.pageItems(view.actors, 'lbActorPage', []); view.actors = actors.items; view.paging = actors.paging; }
+            view.empty = !(view.showActor ? view.actors.length : view.rows.length);
+            view.showList = view.showList && !view.empty;
+            view.showPoster = view.showPoster && !view.empty;
+            view.emptyTitle = !st.libraryLoaded ? '正在读取影视库…' : !data.LIB.length ? '开始建立你的影视库' : view.showActor ? '暂无演员信息' : '没有符合条件的影片';
+            view.emptyBody = !st.libraryLoaded ? '正在加载影片与媒体信息。' : !data.LIB.length ? '添加媒体路径，扫描后即可浏览本地收藏。' : view.showActor ? '扫描或补全影片资料后，演员会出现在这里。' : '试试其他关键词，或清除筛选查看全部影片。';
+            view.emptyActionText = data.LIB.length ? '清除筛选' : '添加媒体路径';
+            view.emptyAction = data.LIB.length ? view.reset : view.openPaths;
+            view.showEmptyAction = st.libraryLoaded && (!view.showActor || !data.LIB.length);
             const record = data.LIB.find(movie => movie.code === st.lbDetail);
             if (view.d && record) {
+                view.d.cover = record.cover;
                 view.d.fields = [['发行日期', record.date], ['制作商', record.studio], ['发行商', record.label], ['系列', record.series], ['分辨率 / 编码', `${record.res} · ${record.codec}`], ['体积', record.size]].map(([k, v]) => ({ k, v, fg: 'var(--fg)', mono: 'inherit', fs: '12px' }));
                 view.d.files = (record.raw.files || []).map((file, index) => ({ idx: index, path: file.path, size: size(file.size), codec: file.media_info?.codec || record.codec, status: file.exists === false ? '文件缺失' : '已索引', stFg: file.exists === false ? BAD : OK, fg: 'var(--fg)', gone: file.exists === false,
                     play: () => this.setState({ cnPlaying: record.code, playerIndex: index, route: 'cinema', lbDetail: null }), transcode: () => this.openTranscode(record.code, index),
@@ -620,7 +734,7 @@ export function connectDesign(Base) {
                     this.formField('编码器', st.tcOptions.video_codec ?? preset?.options?.video_codec ?? '', value => this.setState({ tcOptions: { ...st.tcOptions, video_codec: value } }), 'select', caps.available_encoders || []),
                     this.formField('CQ / CRF', st.tcOptions.crf ?? preset?.options?.crf ?? 24, value => this.setState({ tcOptions: { ...st.tcOptions, crf: Number(value) } })),
                     this.formField('最大高度（留空保持原始）', st.tcOptions.max_height ?? '', value => this.setState({ tcOptions: { ...st.tcOptions, max_height: value ? Number(value) : null } })),
-                    ...[['quality_mode', '质量模式', 'select', ['crf', 'bitrate']], ['video_bitrate_kbps', '视频码率 kbps', 'number'], ['speed_preset', '速度预设', 'select', ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow']], ['tune', '调优', 'select', ['', 'film', 'animation', 'grain', 'fastdecode', 'zerolatency']], ['frame_rate', '帧率', 'number'], ['pixel_format', '像素格式', 'select', ['auto', 'yuv420p', 'yuv420p10le']], ['audio_codec', '音频编码', 'select', caps.audio_codecs || ['copy', 'aac']], ['audio_bitrate_kbps', '音频码率 kbps', 'number'], ['audio_channels', '音频声道', 'number'], ['copy_subtitles', '保留字幕', 'check'], ['copy_metadata', '保留元数据', 'check'], ['deinterlace', '去隔行', 'check']].map(([key, label, kind, options]) => this.formField(label, st.tcOptions[key] ?? preset?.options?.[key] ?? '', value => this.setState({ tcOptions: { ...st.tcOptions, [key]: value === '' || kind === 'number' && value === 0 ? null : value } }), kind, options)),
+                    ...[['quality_mode', '质量模式', 'select', ['crf', 'bitrate']], ['video_bitrate_kbps', '视频码率 kbps', 'number'], ['speed_preset', '速度预设', 'select', ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow']], ['frame_rate', '帧率', 'number'], ['pixel_format', '像素格式', 'select', ['auto', 'yuv420p', 'yuv420p10le']], ['audio_codec', '音频编码', 'select', caps.audio_codecs || ['copy', 'aac']], ['audio_bitrate_kbps', '音频码率 kbps', 'number'], ['audio_channels', '音频声道', 'number'], ['copy_subtitles', '保留字幕', 'check'], ['copy_metadata', '保留元数据', 'check'], ['deinterlace', '去隔行', 'check']].map(([key, label, kind, options]) => this.formField(label, st.tcOptions[key] ?? preset?.options?.[key] ?? '', value => this.setState({ tcOptions: { ...st.tcOptions, [key]: value === '' || kind === 'number' && value === 0 ? null : value } }), kind, options)),
                 ], note: st.tcCapsLoading ? '正在检测 GPU 和可用转码预设…' : caps.gpu_available ? '仅对当前选中文件创建硬件转码任务，输出更小时才替换。' : '未检测到可用 GPU，无法创建转码任务。',
                 openPanel: this.go('transcode'), submit: () => this.perform(async () => {
                     if (!caps.gpu_available || !preset || preset.available === false) throw new Error('没有可用的 GPU 转码预设');
@@ -691,7 +805,7 @@ export function connectDesign(Base) {
             if (!rows.length) { this.toast('请先生成预览并选择可执行文件', WARN); return; }
             this.ask({ title: '执行刮削整理？', color: WARN, okText: '开始执行', ackText: organize ? '我已确认目标路径与冲突处理规则' : '', body: organize ? '会按预览移动或替换文件，请确认冲突处理。' : '在原目录写入元数据与图片，不移动视频。', list: rows.map(row => row.src),
                 run: () => this.perform(async () => {
-                    const payload = { ...this.scrapePayload(), organize, items: rows.map(row => ({ source_path: row.src, code: row.raw.code, metadata: row.raw.metadata, conflict_resolution: this.state.pathEdits[row.src] || (row.kind === 'conflict' ? null : undefined) })) };
+                    const payload = { ...this.scrapePayload(), organize, items: rows.map(row => ({ source_path: row.src, target_video_path: organize ? row.raw.target_video_path : undefined, code: row.raw.code, metadata: row.raw.metadata, conflict_resolution: this.state.pathEdits[row.src] || (row.kind === 'conflict' ? null : undefined) })) };
                     if (organize && rows.some(row => row.kind === 'conflict' && !this.state.pathEdits[row.src])) throw new Error('请先为冲突文件选择保留策略');
                     await this.startJob('scrapeTask', '/api/movies/local-scrape/apply/jobs', payload, 'apply'); this.setState({ scPhase: 'scanning' });
                 }, '刮削执行已启动'),
@@ -748,10 +862,22 @@ export function connectDesign(Base) {
 
         vDispatch() {
             const st = this.state, codes = [...new Set((st.dScope === '1' ? data.MOVIES.map(movie => movie.code) : st.dScope === '2' ? st.sel : st.dCodes.split(/[\s,，]+/)).map(code => code.trim().toUpperCase()).filter(Boolean))];
-            const failed = (st.dispatchResult?.results || []).filter(result => result.success === false && !result.skipped).map(result => ({ code: result.movie_id || '', reason: safeText(result.message || result.error), tool: st.dispatchTool, time: '',
-                noRetry: !result.movie_id, retry: () => this.confirmDispatch([result.movie_id]), skip: () => this.setState({ dispatchResult: { ...st.dispatchResult, results: st.dispatchResult.results.filter(item => item !== result) } }) }));
+            const failureMap = new Map();
+            for (const record of data.HISTORY) for (const resource of record.failed_resources || []) {
+                const result = { movie_id: record.movie_id, magnet: resource.link, source: resource.source, tool: toolName(resource.tool), success: false, message: '上次派发未成功提交，可重试此资源' };
+                failureMap.set(`${result.movie_id}:${result.magnet}`, result);
+            }
+            for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) failureMap.set(`${result.movie_id}:${result.magnet || ''}`, { ...result, tool: st.dispatchTool });
+            const failed = [...failureMap.values()].map(result => ({ code: result.movie_id || '', reason: safeText(result.message || result.error), tool: result.tool, time: '', raw: result,
+                noRetry: !result.movie_id, retry: () => this.confirmDispatch([result.movie_id], result.magnet ? [{ link: result.magnet, movie_id: result.movie_id, source: result.source }] : undefined, result.tool),
+                skip: () => this.perform(async () => {
+                    if (result.movie_id && result.magnet) await this.request(`/api/history/${id(result.movie_id)}/dismiss-failure`, 'POST', { link: result.magnet });
+                    this.setState({ dispatchResult: { ...st.dispatchResult, results: (st.dispatchResult?.results || []).filter(item => !(item.movie_id === result.movie_id && item.magnet === result.magnet)) } });
+                    await this.loadHistory();
+                }, '已忽略该失败项'),
+            }));
             const history = data.HISTORY.map(record => ({ raw: record, code: record.movie_id || record.id || '', title: record.title || '', res: selectHistoryRedispatchResource(record)?.link || '', src: selectHistoryRedispatchResource(record)?.source || '', tool: record.download_tool || record.tool || '', time: record.timestamp || record.download_time || record.date || '',
-                status: record.status || '已记录', local: record.in_local_library ? '已入库' : record.needs_reselect ? '未入库' : '待核对', stBg: 'var(--t08)', stFg: DIM, localFg: DIM2, actText: '重新派发', act: () => { const resource = selectHistoryRedispatchResource(record, sourceKey(st.dSrc)); this.confirmDispatch([record.movie_id || record.id], resource ? [{ ...resource, movie_id: record.movie_id || record.id }] : undefined); },
+                status: ({ submitted: '已提交', failed: '派发失败', ignored: '已忽略' }[record.status] || record.status || '已记录'), local: record.in_local_library ? '已入库' : record.needs_reselect ? '未入库' : '待核对', stBg: 'var(--t08)', stFg: DIM, localFg: DIM2, actText: '重新派发', act: () => { const resource = selectHistoryRedispatchResource(record, sourceKey(st.dSrc)); this.confirmDispatch([record.movie_id || record.id], resource ? [{ ...resource, movie_id: record.movie_id || record.id }] : undefined); },
             }));
             const page = this.pageItems(history.filter(record => st.dHf === '0' || (st.dHf === '1' ? record.raw.needs_reselect : record.raw.status === 'failed')), 'historyPage', [st.dHf]);
             return { tool: st.tool, src: st.dSrc, tools: this.toolStates().map(tool => ({ ...tool, key: tool.name, status: tool.hint, meta: '', active: st.tool === tool.name, bg: st.tool === tool.name ? 'var(--t08)' : 'transparent', ring: 'var(--t09)', needsAction: !tool.connected, actionText: '配置', pick: () => this.setState({ tool: tool.name }), action: () => this.setState({ route: 'settings', seTab: tool.name }) })),
@@ -760,7 +886,7 @@ export function connectDesign(Base) {
                 subOnly: st.dSubOnly, toggleSub: () => this.setState({ dSubOnly: !st.dSubOnly }), no4k: st.dNo4k, toggle4k: () => this.setState({ dNo4k: !st.dNo4k }),
                 skipLocal: true, toggleSkipLocal: () => {}, skipTried: true, toggleSkipTried: () => {}, runCount: codes.length, run: () => this.confirmDispatch(codes),
                 stats: [stat('历史记录', history.length), stat('PikPak', st.pikLogged ? '已登录' : '未登录'), stat('Aria2', st.connections.aria2_connected ? '已连接' : '未连接'), stat('115 网盘', this.allConnected() ? '已配置' : '未配置')], failed,
-                hasFailed: failed.length > 0, batchSummary: `失败 ${failed.length} 项`, retryAll: () => this.confirmDispatch(failed.map(item => item.code).filter(Boolean)),
+                hasFailed: failed.length > 0, batchSummary: `失败 ${failed.length} 项`, retryAll: () => this.confirmDispatch(failed.map(item => item.code).filter(Boolean), failed.every(item => item.raw.magnet) ? failed.map(item => ({ link: item.raw.magnet, movie_id: item.code, source: item.raw.source })) : undefined),
                 historyCount: history.length, missingCount: history.filter(item => item.raw.needs_reselect).length, failureCount: history.filter(item => item.raw.status === 'failed').length,
                 hf0: st.dHf === '0', hf1: st.dHf === '1', hf2: st.dHf === '2', setHf0: () => this.setState({ dHf: '0' }), setHf1: () => this.setState({ dHf: '1' }), setHf2: () => this.setState({ dHf: '2' }),
                 checkNote: st.dChecked ? '已核对本地库' : '尚未核对本地库', check: () => this.perform(async () => { const result = await this.request('/api/history/check-local-library', 'POST'); data.HISTORY.splice(0, data.HISTORY.length, ...(result.records || [])); this.setState({ dChecked: true }); }, '本地库核对完成'),
@@ -834,7 +960,7 @@ export function connectDesign(Base) {
                 save: () => this.perform(() => this.saveAuto(), '自动任务已保存'),
                 remove: () => { if (task?.id) this.ask({ title: `删除 ${task.name}？`, body: '删除任务和运行记录，已派发的下载不受影响。', color: BAD, okText: '删除任务', run: () => this.perform(async () => { await this.request(`/api/automation/tasks/${id(task.id)}`, 'DELETE'); this.setState({ autoDraft: null }); await this.loadTasks(); }, '任务已删除') }); else this.setState({ autoDraft: null }); },
                 toggleRun: () => this.perform(async () => { if (!task) throw new Error('请先创建任务'); this.editAuto({ enabled: !task.enabled }); await this.saveAuto(); }, '任务状态已保存'),
-                runNow: () => { if (task) this.ask({ title: `运行 ${task.name}？`, body: '将保存当前配置并执行真实检索和下载派发。', color: ACC, okText: '立即运行', run: () => this.perform(async () => { const saved = await this.saveAuto(); this.toast('自动任务正在运行，可在运行记录中查看进度', ACC); const run = await this.request(`/api/automation/tasks/${id(saved.id)}/run`, 'POST'); await this.loadTasks(); if (['failed', 'partial'].includes(run.status)) throw new Error('运行存在失败项，请展开运行记录查看'); this.toast(run.status === 'success' ? '运行已完成' : '运行已提交', OK); }) }); },
+                runNow: () => { if (task) this.ask({ title: `运行 ${task.name}？`, body: '将保存当前配置并执行真实检索和下载派发。', color: ACC, okText: '立即运行', run: () => this.perform(async () => { const saved = await this.saveAuto(); this.toast('自动任务正在运行，可在运行记录中查看进度', ACC); const run = await this.request(`/api/automation/tasks/${id(saved.id)}/run?background=true`, 'POST'); await this.loadTasks(); if (['failed', 'partial'].includes(run.status)) throw new Error('运行存在失败项，请展开运行记录查看'); this.toast(run.status === 'noop' ? safeText(run.message, '没有新影片需要下载') : run.status === 'success' ? '运行已完成' : '运行已提交', OK); }) }); },
                 pauseAll: st.tasks.length > 0 && st.tasks.every(item => !item.enabled), togglePauseAll: () => this.ask({ title: '停用全部自动任务？', body: '关闭后续自动触发，已运行任务不受影响。恢复时请逐项启用。', color: WARN, okText: '停用全部', run: () => this.perform(async () => { for (const item of st.tasks.filter(item => item.enabled)) await this.request(`/api/automation/tasks/${id(item.id)}`, 'PUT', { enabled: false }); await this.loadTasks(); }, '自动任务已停用') }),
                 nodes: (task?.nodes || []).map((item, index) => ({ title: titles[item.type], step: String(index + 1).padStart(2, '0'), desc: titles[item.type], meta: nodeSummary(item), badge: '', hasArrow: index < task.nodes.length - 1, bg: 'var(--t03)', ring: item.id === st.auNode ? ACC : 'var(--t09)', iconBg: 'var(--t08)', iconFg: ACC, stFg: DIM2,
                     pick: () => this.setState({ auNode: item.id, autoFiltersText: null, nodeBeforeEdit: structuredClone(task) }) })),
@@ -842,8 +968,8 @@ export function connectDesign(Base) {
                 closeNode: () => this.setState({ auNode: null, autoDraft: st.nodeBeforeEdit || st.autoDraft, autoFiltersText: null }),
                 saveNode: () => this.perform(async () => { this.applyAutoFilters(); this.setState({ auNode: null }); }, '节点已更新，保存任务后生效'),
                 refresh: () => this.perform(() => this.loadTasks()),
-                runs: (task?.runs || []).map(run => ({ time: run.started_at, trigger: run.status, found: run.found_count, matched: run.magnet_count, dispatched: run.dispatched_count, skipped: run.skipped_count, errors: errorCount(run), result: safeText(run.error, run.status), dispatchFg: OK, errFg: BAD, resFg: DIM,
-                    open: () => this.ask({ title: `运行 ${run.started_at}`, body: safeText(run.error, run.status), list: (run.items || []).map(item => `${item.movie_id}: ${item.status} ${safeText(item.message, '')}`), color: ACC, okText: '关闭' }) })),
+                runs: (task?.runs || []).map(run => ({ time: run.started_at, trigger: runStatus(run.status), found: run.found_count, matched: run.magnet_count, dispatched: run.dispatched_count, skipped: run.skipped_count, errors: errorCount(run), result: safeText(run.error || run.message, runStatus(run.status)), dispatchFg: OK, errFg: BAD, resFg: DIM,
+                    open: () => this.ask({ title: `运行 ${run.started_at}`, body: safeText(run.error || run.message, runStatus(run.status)), list: (run.items || []).map(item => `${item.movie_id}: ${item.status} ${safeText(item.message, '')}`), color: ACC, okText: '关闭' }) })),
             };
         }
 
@@ -971,8 +1097,8 @@ export function connectDesign(Base) {
                 cur: { title: st.seTab, desc: st.seTab === '外观' ? '管理界面配色主题' : '配置现有服务与连接', canTest: ['webdav', 'aria2', 'pikpak', 'pan115', 'scrapers', 'javbus'].includes(key), banner: status(st.seTab), bannerFg: DIM, bannerBg: 'var(--t03)', bannerRing: 'var(--t09)', bannerMeta: '' },
                 overview: tabs.filter(name => !['配置概览', '外观'].includes(name)).map(name => ({ name, status: status(name) || '查看配置', dot: DIM2, stFg: DIM, ring: 'var(--ring)', meta: '', action: '查看', go: () => this.setState({ seTab: name }) })),
                 themes: [{ key: 'dark', name: '深色', desc: '深色主题', bg: '#161826', surf: '#232532', ring: '#3f424d', fg: '#e9e9ed', dim: '#92939b', acc: '#9184d9' }, { key: 'light', name: '浅色', desc: '浅色主题', bg: '#f1f2f7', surf: '#ffffff', ring: '#d7dae4', fg: '#1a1c28', dim: '#676977', acc: '#5b4fa8' }].map(theme => ({ ...theme, active: st.theme === theme.key, ringOuter: st.theme === theme.key ? ACC : 'var(--ring)', badge: st.theme === theme.key ? '当前使用' : '点击切换', badgeFg: ACC, badgeBg: 'var(--t08)', pick: () => { saveAppTheme(theme.key); this.setState({ theme: theme.key }); } })),
-                sources: providers.map((name, index) => { const source = sources[name] || {}, result = st.sourcesResult.find(item => item.provider === name || item.name === name); return { name, host: source.base_url || '', status: source.implemented === false ? '未实现' : result ? (result.success ? '测试成功' : '测试失败') : '待测试', latency: result?.elapsed_ms ? `${result.elapsed_ms} ms` : '', note: '', on: source.enabled, order: index + 1, op: source.enabled ? 1 : .55, ring: 'var(--t09)', stFg: DIM, dot: DIM2, upDisabled: index === 0, toggleText: source.enabled ? '禁用' : '启用', toggle: () => updateSource(name, { enabled: !source.enabled }), test: () => testSources([name]), up: () => { const next = [...providers]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, priority: next } } }); },
-                    fields: Object.entries(source).filter(([field]) => ['language', 'request_delay', 'base_url', 'api_key'].includes(field)).map(([field, value]) => this.formField(field, value, value => updateSource(name, { [field]: value }), field === 'api_key' ? 'secret' : typeof value === 'number' ? 'number' : 'text')) }; }),
+                sources: providers.map((name, index) => { const source = sources[name] || {}, result = st.sourcesResult.find(item => item.provider === name || item.name === name); return { name, host: name === 'javbus' ? st.settingsDraft.javbus?.base_url || st.settings.javbus?.base_url || '' : source.base_url || '', status: source.implemented === false ? '未实现' : result ? (result.success ? '测试成功' : '测试失败') : '待测试', latency: result?.duration_ms != null ? `${result.duration_ms} ms` : '', note: [name === 'javbus' ? '共用 JavBus 访问设置；修改后先保存再测试' : '测试使用已保存配置', safeText(result?.error_message, '')].filter(Boolean).join(' · '), on: source.enabled, order: index + 1, op: source.enabled ? 1 : .55, ring: 'var(--t09)', stFg: DIM, dot: DIM2, upDisabled: index === 0, toggleText: source.enabled ? '禁用' : '启用', toggle: () => updateSource(name, { enabled: !source.enabled }), test: () => testSources([name]), up: () => { const next = [...providers]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, priority: next } } }); },
+                    fields: Object.entries(name === 'javbus' ? {} : source).filter(([field]) => ['language', 'request_delay', 'base_url', 'api_key'].includes(field)).map(([field, value]) => this.formField(field, value, value => updateSource(name, { [field]: value }), field === 'api_key' ? 'secret' : typeof value === 'number' ? 'number' : 'text')) }; }),
                 test: () => key === 'scrapers' || key === 'javbus' ? testSources(key === 'javbus' ? ['javbus'] : providers) : this.perform(() => this.connect(key, !values.password && !values.secret && !values.cookie && Object.entries(values).every(([field, value]) => ['password', 'secret', 'cookie'].includes(field) || st.settings[key]?.[field] === value)), '连接成功'),
                 applyTestResults: () => this.perform(async () => { if (!st.sourcesResult.length) throw new Error('请先运行测试'); await this.request('/api/movies/metadata-scrapers/apply-test-results', 'POST', { results: st.sourcesResult }); await this.loadSettings(); }, '已按测试结果更新配置'),
                 save: () => this.perform(async () => { if (st.seTab === '外观') { saveAppTheme(st.theme); return; } await this.request('/api/system/settings', 'PUT', buildSettingsPayload(st.settingsDraft)); await this.loadSettings(); await this.loadConnections(); }, '设置已保存'),
@@ -988,7 +1114,13 @@ export function connectDesign(Base) {
             view.tools = this.toolStates();
             view.bg.items = data.TC.filter(task => ['running', 'queued'].includes(task.status)).map(task => ({ kind: '转码', name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go('transcode') }));
             for (const key of ['scanTask', 'scrapeTask']) if (st[key] && !['success', 'completed', 'failed'].includes(st[key].status)) view.bg.items.push({ kind: key === 'scanTask' ? '扫描入库' : '刮削', name: st[key].message || '后台运行中', pct: st[key].percent || 0, pctText: '', meta: st[key].status, fg: ACC, go: this.go(key === 'scanTask' ? 'library' : 'scrape') });
+            if (st.dispatchTask && !['completed', 'failed'].includes(st.dispatchTask.status)) {
+                const job = st.dispatchTask, pct = Math.round(100 * (job.completed_count || 0) / Math.max(1, job.total_count || 1));
+                view.bg.items.push({ kind: '115 派发', name: `批次 ${job.current_batch || 0}/${job.total_batches || '待计算'}`, pct, pctText: `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} 项已处理`, fg: ACC, go: this.go('dispatch') });
+            }
+            for (const task of st.tasks) for (const run of task.runs || []) if (run.status === 'running') view.bg.items.push({ kind: '自动任务', name: task.name, pct: 0, pctText: '', meta: run.message || '运行中', fg: ACC, go: this.go('auto') });
             view.bg.count = view.bg.items.length;
+            view.bg.animation = view.bg.count ? 'jjspin 900ms linear infinite' : 'none';
             const background = this.pageItems(view.bg.items, 'bgPage', [], 6);
             view.bg.items = background.items; view.bg.paging = background.paging;
             const confirmation = this.pageItems(view.dlg.list, 'dlgPage', []);

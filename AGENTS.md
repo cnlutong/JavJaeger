@@ -112,6 +112,7 @@ Use this as the source-of-truth ownership map.
   - original Claude Design HTML, runtime, design system and logo
   - `integration.mjs` connects original view controls to existing APIs
   - `template.mjs` and `host.css` contain necessary host/control adaptations
+  - `cinema.mjs` replaces only the cinema presentation and reuses existing library/player workflows
 - `static/app.js`, `static/app.css`
   - generated frontend bundle
   - never hand-edit

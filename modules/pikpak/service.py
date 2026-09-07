@@ -35,14 +35,18 @@ async def login(credentials: PikPakCredentials | None = None) -> dict[str, Any]:
 
 
 async def download(request: DownloadRequest) -> dict[str, Any]:
-    credentials = resolve_credentials(request.username, request.password)
-    client = PikPakApi(username=credentials.username, password=credentials.password)
-    await client.login()
+    try:
+        credentials = resolve_credentials(request.username, request.password)
+        client = PikPakApi(username=credentials.username, password=credentials.password)
+        await client.login()
+    except Exception:
+        results = [{"movie_id": request.movie_ids[index] if index < len(request.movie_ids) else "", "magnet": link,
+                    "source": request.magnet_sources[index] if index < len(request.magnet_sources) else "", "success": False,
+                    "error": "pikpak_login_failed", "message": "PikPak 登录失败，请检查连接后重试"} for index, link in enumerate(request.magnet_links)]
+        await download_history_service.record_dispatch_results(results, "pikpak")
+        return {"success": False, "success_count": 0, "failed_count": len(results), "results": results, "message": "PikPak 登录失败"}
 
     results: list[dict[str, Any]] = []
-    successful_movie_ids: list[str] = []
-    successful_magnet_links: list[str] = []
-    successful_magnet_sources: list[str] = []
 
     for index, magnet_link in enumerate(request.magnet_links):
         movie_id = request.movie_ids[index] if index < len(request.movie_ids) else None
@@ -67,6 +71,7 @@ async def download(request: DownloadRequest) -> dict[str, Any]:
         try:
             result = await client.offline_download(magnet_link)
             result_item = {
+                "movie_id": movie_id,
                 "magnet": magnet_link,
                 "source": magnet_source,
                 "success": True,
@@ -75,17 +80,12 @@ async def download(request: DownloadRequest) -> dict[str, Any]:
             if original_magnet_link:
                 result_item["original_magnet"] = original_magnet_link
             results.append(result_item)
-            if movie_id:
-                successful_movie_ids.append(movie_id)
-                successful_magnet_links.append(magnet_link)
-                successful_magnet_sources.append(str(magnet_source or "").strip().lower())
-            logger.info("成功添加下载任务: %s...", magnet_link[:50])
-        except Exception as exc:
-            results.append({"magnet": magnet_link, "success": False, "error": "download_dispatch_failed"})
-            logger.error("添加下载任务失败: %s... - %s", magnet_link[:50], exc)
+            logger.info("已提交 PikPak 任务: %s", movie_id)
+        except Exception:
+            results.append({"movie_id": movie_id, "magnet": magnet_link, "source": magnet_source, "success": False, "error": "download_dispatch_failed"})
+            logger.warning("PikPak 派发失败: %s", movie_id)
 
-    if successful_movie_ids:
-        await download_history_service.save_movies(successful_movie_ids, successful_magnet_links, successful_magnet_sources)
+    await download_history_service.record_dispatch_results(results, "pikpak")
 
     success_count = sum(1 for item in results if item["success"])
     skipped_count = sum(1 for item in results if item.get("skipped"))
@@ -94,6 +94,7 @@ async def download(request: DownloadRequest) -> dict[str, Any]:
         "success": success_count > 0 or skipped_count > 0,
         "success_count": success_count,
         "skipped_count": skipped_count,
+        "failed_count": total_count - success_count - skipped_count,
         "message": f"成功添加 {success_count}/{total_count} 个下载任务",
         "results": results,
     }

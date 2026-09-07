@@ -265,6 +265,9 @@ def test_transcode_progress_uses_shared_checkpoints_and_keeps_live_values(tmp_pa
 
     async def check():
         service = TranscodingService(storage_path=tmp_path / 'tasks.json', executor=executor, require_binaries=False)
+        async def probe(path):
+            return {'codec': 'h264', 'width': 1920, 'height': 1080, 'duration_seconds': 100}
+        service._probe_media = probe
 
         async def save():
             if in_progress:
@@ -273,6 +276,8 @@ def test_transcode_progress_uses_shared_checkpoints_and_keeps_live_values(tmp_pa
         monkeypatch.setattr(service, "_save_unlocked", save)
         for i in range(2):
             task = TranscodingTask(id=str(i), movie_id='QA-1', file_index=0, source_path=str(tmp_path / f'{i}.mkv'), file_name=f'{i}.mkv', preset_id='quality_h265', preset_name='QA', options=transcoding.resolve_transcoding_options('quality_h265'), created_at='2026-09-05')
+            Path(task.source_path).write_bytes(b'fixture')
+            task.input_size = 7
             service._tasks[task.id] = task
             await service._run_task(task.id)
             assert task.status == 'failed'

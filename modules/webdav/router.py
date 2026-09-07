@@ -128,7 +128,7 @@ def download_folder_recursive(
     skipped_files: list[dict[str, Any]] = []
 
     for file in all_files:
-        if video_filter and (not is_video_file(file.name) or file.size < min_file_size_mb * 1024 * 1024):
+        if (video_filter and not is_video_file(file.name)) or file.size < min_file_size_mb * 1024 * 1024:
             skipped_files.append(
                 {
                     "filename": file.name,
@@ -309,9 +309,7 @@ async def add_downloads(request: Request, payload: AddDownloadsRequest):
                 results.extend(folder_results)
                 continue
 
-            if payload.video_filter and (
-                not is_video_file(file_info.name) or file_info.size < payload.min_file_size_mb * 1024 * 1024
-            ):
+            if (payload.video_filter and not is_video_file(file_info.name)) or file_info.size < payload.min_file_size_mb * 1024 * 1024:
                 results.append(
                     {
                         "filename": file_info.name,

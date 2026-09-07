@@ -793,7 +793,7 @@ async def _resolve_download_entries(
             skipped.extend(child_skipped)
             continue
 
-        if video_filter and (not _is_video_file(name) or size < min_bytes):
+        if (video_filter and not _is_video_file(name)) or size < min_bytes:
             skipped.append(
                 {
                     "filename": name,
@@ -905,24 +905,25 @@ async def download(request: DownloadRequest, progress_callback=None) -> dict[str
     dispatch_movie_ids: list[str] = []
     dispatch_sources: list[str] = []
     dispatch_original_links: list[str] = []
-    results: list[dict[str, Any]] = []
+    results: list[dict[str, Any] | None] = [None] * len(request.magnet_links)
+    dispatch_indexes: list[int] = []
 
     for index, magnet_link in enumerate(request.magnet_links):
         movie_id = request.movie_ids[index] if index < len(request.movie_ids) else ""
         magnet_source = request.magnet_sources[index] if index < len(request.magnet_sources) else ""
         original_magnet_link = ""
         if not magnet_link:
-            results.append({"magnet": magnet_link, "success": False, "movie_id": movie_id, "error": "empty_magnet", "message": "磁力链接为空"})
+            results[index] = {"magnet": magnet_link, "success": False, "movie_id": movie_id, "error": "empty_magnet", "message": "磁力链接为空"}
             continue
         if movie_id and await local_movie_library_service.is_movie_present(movie_id):
-            results.append({"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "already_exists"})
+            results[index] = {"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "already_exists"}
             logger.info("影片 %s 已存在，跳过 115 网盘下发", movie_id)
             continue
         if movie_id and await download_history_service.is_magnet_downloaded(movie_id, magnet_link):
             replacement = await get_same_source_replacement_magnet_payload(movie_id, magnet_link, magnet_source)
             replacement_link = str((replacement or {}).get("link") or "").strip()
             if not replacement_link or _dedupe_key(replacement_link) == _dedupe_key(magnet_link):
-                results.append({"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "magnet_already_tried"})
+                results[index] = {"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "magnet_already_tried"}
                 logger.info("Download link for movie %s already exists in history and no replacement was found", movie_id)
                 continue
             original_magnet_link = magnet_link
@@ -930,65 +931,52 @@ async def download(request: DownloadRequest, progress_callback=None) -> dict[str
             magnet_source = str((replacement or {}).get("source") or magnet_source or "").strip().lower()
         key = _dedupe_key(magnet_link)
         if any(_dedupe_key(link) == key for link in dispatch_links):
-            results.append({"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "duplicate_magnet"})
+            results[index] = {"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "duplicate_magnet"}
             continue
         dispatch_links.append(magnet_link)
         dispatch_movie_ids.append(movie_id)
         dispatch_sources.append(str(magnet_source or "").strip().lower())
         dispatch_original_links.append(original_magnet_link)
+        dispatch_indexes.append(index)
 
-    successful_movie_ids: list[str] = []
-    successful_magnet_links: list[str] = []
-    successful_magnet_sources: list[str] = []
-    if dispatch_links:
-        chunks = [
-            (
-                dispatch_links[start : start + batch_size],
-                dispatch_movie_ids[start : start + batch_size],
-                dispatch_sources[start : start + batch_size],
-                dispatch_original_links[start : start + batch_size],
-            )
-            for start in range(0, len(dispatch_links), max(1, batch_size))
-        ]
-        for chunk_index, (chunk_links, chunk_movie_ids, chunk_sources, chunk_original_links) in enumerate(chunks):
-            if chunk_index > 0 and batch_interval_seconds > 0:
+    batch_size = max(1, batch_size)
+    total_batches = (len(dispatch_links) + batch_size - 1) // batch_size
+    aborted = False
+    for start in range(0, len(dispatch_links), batch_size):
+        chunk_links = dispatch_links[start:start + batch_size]
+        if not aborted:
+            if start and batch_interval_seconds > 0:
                 await asyncio.sleep(_next_batch_delay(batch_interval_seconds, jitter_seconds))
-            dispatched = await _dispatch_chunk_with_retries(client, chunk_links, save_dir_id, failure_backoff_seconds)
-            for index, item in enumerate(dispatched):
-                movie_id = chunk_movie_ids[index] if index < len(chunk_movie_ids) else ""
-                source = chunk_sources[index] if index < len(chunk_sources) else ""
-                result_item = {**item, "movie_id": movie_id, "source": source}
-                original_magnet_link = chunk_original_links[index] if index < len(chunk_original_links) else ""
-                if original_magnet_link:
-                    result_item["original_magnet"] = original_magnet_link
-                results.append(result_item)
-                if item.get("success") and movie_id:
-                    successful_movie_ids.append(movie_id)
-                    successful_magnet_links.append(chunk_links[index])
-                    successful_magnet_sources.append(source)
-            if progress_callback:
-                await progress_callback(
-                    {
-                        "completed_count": len(results),
-                        "total_count": len(request.magnet_links),
-                        "current_batch": chunk_index + 1,
-                        "total_batches": len(chunks),
-                    }
-                )
+            try:
+                dispatched = await _dispatch_chunk_with_retries(client, chunk_links, save_dir_id, failure_backoff_seconds)
+            except Exception:
+                logger.warning("115 批次派发失败，保留此前成功结果并停止后续提交")
+                dispatched = []
+                aborted = True
+        else:
+            dispatched = []
+        chunk_results = []
+        for index, link in enumerate(chunk_links):
+            offset = start + index
+            item = dispatched[index] if index < len(dispatched) else {"success": False, "error": "download_dispatch_failed", "message": "未确认提交，请检查连接后重试"}
+            result = {**item, "magnet": link, "movie_id": dispatch_movie_ids[offset], "source": dispatch_sources[offset]}
+            if dispatch_original_links[offset]:
+                result["original_magnet"] = dispatch_original_links[offset]
+            results[dispatch_indexes[offset]] = result
+            chunk_results.append(result)
+        await download_history_service.record_dispatch_results(chunk_results, "pan115")
+        if progress_callback:
+            await progress_callback({"completed_count": sum(item is not None for item in results),
+                                     "total_count": len(request.magnet_links), "current_batch": start // batch_size + 1,
+                                     "total_batches": total_batches, "results": [item for item in results if item is not None]})
 
-    if successful_movie_ids:
-        await download_history_service.save_movies(successful_movie_ids, successful_magnet_links, successful_magnet_sources)
-
+    results = [item for item in results if item is not None]
     success_count = sum(1 for item in results if item.get("success"))
     skipped_count = sum(1 for item in results if item.get("skipped"))
-    total_count = len(results)
-    return {
-        "success": success_count > 0 or skipped_count > 0,
-        "success_count": success_count,
-        "skipped_count": skipped_count,
-        "message": f"成功添加 {success_count}/{total_count} 个 115 离线任务",
-        "results": results,
-    }
+    failed_count = len(results) - success_count - skipped_count
+    return {"success": success_count > 0 or skipped_count > 0, "success_count": success_count,
+            "skipped_count": skipped_count, "failed_count": failed_count,
+            "message": f"已提交 {success_count} 个 115 任务，跳过 {skipped_count} 个，失败 {failed_count} 个", "results": results}
 
 
 class Pan115DownloadJobManager:
@@ -1033,9 +1021,19 @@ class Pan115DownloadJobManager:
             snapshot["result"] = result
             snapshot["completed_count"] = len(result.get("results") or [])
             snapshot["status"] = "completed" if result.get("success") else "failed"
-        except Exception as exc:
+        except Exception:
             snapshot["status"] = "failed"
-            snapshot["error"] = getattr(exc, "code", "") or str(exc)
+            snapshot["error"] = "115 派发中断，请检查连接并核对下载历史后重试"
+            previous = {(item.get("movie_id"), item.get("original_magnet") or item.get("magnet")): item for item in snapshot.get("results", [])}
+            results = []
+            for index, link in enumerate(request.magnet_links):
+                movie_id = request.movie_ids[index] if index < len(request.movie_ids) else ""
+                results.append(previous.get((movie_id, link)) or {"movie_id": movie_id, "magnet": link,
+                    "source": request.magnet_sources[index] if index < len(request.magnet_sources) else "",
+                    "success": False, "error": "pan115_dispatch_interrupted"})
+            snapshot["result"] = {"success": False, "results": results}
+            snapshot["completed_count"] = len(results)
+            await download_history_service.record_dispatch_results([item for item in results if not item.get("success")], "pan115")
         finally:
             snapshot["updated_at"] = time.time()
 

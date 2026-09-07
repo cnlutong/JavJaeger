@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from .schemas import AutomationTaskCreate, AutomationTaskList, AutomationTaskUpdate
 from .service import AutomationError, automation_service
@@ -51,9 +51,12 @@ async def delete_task(task_id: str):
 
 
 @router.post("/tasks/{task_id}/run")
-async def run_task(task_id: str):
+async def run_task(task_id: str, response: Response, background: bool = False):
     try:
-        return await automation_service.run_task(task_id, manual=True)
+        run = await automation_service.run_task(task_id, manual=True, background=background)
+        if background:
+            response.status_code = 202
+        return run
     except AutomationError as exc:
         _raise_http_error(exc)
 
@@ -64,4 +67,3 @@ async def list_runs(task_id: str):
         return {"runs": await automation_service.list_runs(task_id)}
     except AutomationError as exc:
         _raise_http_error(exc)
-

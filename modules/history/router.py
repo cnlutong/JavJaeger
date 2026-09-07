@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 from .service import download_history_service
 
@@ -8,6 +8,11 @@ from .service import download_history_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["history"])
+
+
+@router.post("/api/history/{movie_id}/dismiss-failure")
+async def dismiss_failure(movie_id: str, link: str = Body(embed=True, min_length=1)):
+    return await download_history_service.dismiss_failure(movie_id, link)
 
 
 @router.get("/api/history")

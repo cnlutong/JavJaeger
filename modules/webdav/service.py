@@ -19,9 +19,6 @@ async def dispatch_magnet_downloads_to_aria2(
     magnet_sources: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    successful_movie_ids: list[str] = []
-    successful_magnet_links: list[str] = []
-    successful_magnet_sources: list[str] = []
 
     for index, magnet_link in enumerate(magnet_links):
         movie_id = movie_ids[index] if index < len(movie_ids) else ""
@@ -78,10 +75,6 @@ async def dispatch_magnet_downloads_to_aria2(
             if original_magnet_link:
                 result_item["original_magnet"] = original_magnet_link
             results.append(result_item)
-            if movie_id:
-                successful_movie_ids.append(movie_id)
-                successful_magnet_links.append(magnet_link)
-                successful_magnet_sources.append(magnet_source)
         except Exception as exc:
             logger.error("添加 Aria2 磁力链接失败: %s", exc)
             results.append(
@@ -89,12 +82,13 @@ async def dispatch_magnet_downloads_to_aria2(
                     "movie_id": movie_id,
                     "success": False,
                     "error": "aria2_add_failed",
+                    "magnet": magnet_link,
+                    "source": magnet_source,
                     "message": "添加失败",
                 }
             )
 
-    if successful_movie_ids:
-        await download_history_service.save_movies(successful_movie_ids, successful_magnet_links, successful_magnet_sources)
+    await download_history_service.record_dispatch_results(results, "aria2")
 
     return results
 

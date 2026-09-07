@@ -207,8 +207,9 @@ def resolve_transcoding_options(
         raise TranscodingError("未知的转码预设")
     values = _model_dump(preset.options)
     if overrides is not None:
-        override_values = _model_dump(overrides)
-        values.update({key: value for key, value in override_values.items() if value is not None})
+        override_values = overrides.model_dump(exclude_unset=True)
+        nullable = {"tune", "max_height", "frame_rate", "video_bitrate_kbps", "audio_bitrate_kbps", "audio_channels"}
+        values.update({key: value for key, value in override_values.items() if value is not None or key in nullable})
 
     requested_codec = str(values.get("video_codec") or "")
     if requested_codec in LEGACY_CPU_CODEC_INTENTS:
@@ -867,6 +868,12 @@ class TranscodingService:
         try:
             if self.require_binaries and task.options.video_codec not in HARDWARE_VIDEO_CODECS:
                 raise RuntimeError("检测到非 GPU 编码器，任务已拒绝执行；原文件保持不变")
+            before = source_path.stat()
+            if before.st_size != task.input_size:
+                raise RuntimeError("源文件在排队期间已变化，请重新创建任务")
+            original_media = await self._probe_media(source_path)
+            if not all(original_media.get(key) for key in ("codec", "width", "height", "duration_seconds")):
+                raise RuntimeError("无法验证源视频，已保留原文件")
             await self.executor(task, source_path, temporary_path, update_progress, cancel_event)
             if cancel_event.is_set():
                 raise TranscodingCancelledError("任务已取消")
@@ -879,8 +886,20 @@ class TranscodingService:
                     if current:
                         current.output_size = output_size
                 raise TranscodingOutputNotSmallerError("转码结果体积未减小，已丢弃临时文件并保留原文件")
+            media_info = await self._probe_media(temporary_path)
+            if not all(media_info.get(key) for key in ("codec", "width", "height", "duration_seconds")):
+                raise RuntimeError("临时视频无法读取完整媒体信息，已保留原文件")
+            duration = float(original_media["duration_seconds"])
+            if abs(float(media_info["duration_seconds"]) - duration) > max(2.0, duration * 0.01):
+                raise RuntimeError("临时视频时长与原片不符，已保留原文件")
+            if original_media.get("audio_codec") and not media_info.get("audio_codec"):
+                raise RuntimeError("临时视频缺少原有音轨，已保留原文件")
+            after = source_path.stat()
+            if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+                raise RuntimeError("源文件在转码期间已变化，已保留当前文件")
+            if cancel_event.is_set():
+                raise TranscodingCancelledError("任务已取消")
             os.replace(temporary_path, source_path)
-            media_info = await self._probe_media(source_path)
             file_stat = source_path.stat()
             media_info.update(
                 {
@@ -1132,7 +1151,12 @@ class TranscodingService:
                 }.items()
                 if value not in (None, "", 0)
             }
-        except (OSError, ValueError, json.JSONDecodeError, asyncio.TimeoutError):
+        except asyncio.TimeoutError:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+            return {}
+        except (OSError, ValueError, json.JSONDecodeError):
             return {}
 
     @staticmethod

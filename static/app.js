@@ -5639,7 +5639,7 @@ class Component extends DCLogic {
   };
   var normalizeLink = (link) => String(link || "").trim();
   var selectHistoryRedispatchResource = (record, fallbackSource = "") => {
-    const resources = Array.isArray(record?.download_resources) ? record.download_resources : [];
+    const resources = record?.failed_resources?.length ? record.failed_resources : Array.isArray(record?.download_resources) ? record.download_resources : [];
     for (let index = resources.length - 1; index >= 0; index -= 1) {
       const resource = resources[index];
       const link = normalizeLink(resource?.link || resource?.magnet || resource?.download_link || resource?.magnet_link);
@@ -5820,7 +5820,9 @@ class Component extends DCLogic {
     for (const [key, route, method] of [["cn", "cinema", "vCinema"], ["d", "dispatch", "vDispatch"], ["tc", "transcode", "vTranscode"], ["sc", "scrape", "vScrape"], ["lb", "library", "vLibrary"], ["au", "auto", "vAuto"], ["fs", "storage", "vStorage"], ["se", "settings", "vSettings"]]) {
       script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === "fs" ? " || st.fsAdd" : ""}) ? this.${method}() : {}`);
     }
-    return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", "let wallRows = (isWall ? LIB : [])\n").replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("const o = st.scOpts;", "const o = st.scOpts, skipped = new Set(st.scSkip);").replaceAll("st.scSkip.includes(", "skipped.has(").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
+    return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();
+    let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))
+`).replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("const o = st.scOpts;", "const o = st.scOpts, skipped = new Set(st.scSkip);").replaceAll("st.scSkip.includes(", "skipped.has(").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
   }
   var ACC = "var(--acc)";
   var OK = "var(--ok)";
@@ -5830,6 +5832,8 @@ class Component extends DCLogic {
   var DIM2 = "var(--dim2)";
   var id = encodeURIComponent;
   var sourceKey = (value) => ({ cili: "cilisousuo", yhg: "yhg007" })[value] || value;
+  var toolName = (value) => ({ pikpak: "PikPak", pan115: "115 \u7F51\u76D8", aria2: "Aria2" })[value] || value;
+  var runStatus = (value) => ({ running: "\u8FD0\u884C\u4E2D", success: "\u5DF2\u5B8C\u6210", partial: "\u90E8\u5206\u5B8C\u6210", failed: "\u5931\u8D25", noop: "\u65E0\u65B0\u4E0B\u8F7D" })[value] || value;
   var toolKey = (value) => ({ PikPak: "pikpak", "115 \u7F51\u76D8": "pan115", Aria2: "aria2" })[value] || value;
   var names = (values) => (Array.isArray(values) ? values : []).map((value) => typeof value === "string" ? value : value.name).filter(Boolean);
   var size = (bytes) => {
@@ -5843,7 +5847,7 @@ class Component extends DCLogic {
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
   };
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
-  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask" };
+  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch" };
   var scrapeConfigKeys = ["scScanDir", "scOutDir", "scFolderRule", "scFileRule", "scMaxDepth", "scConcurrent", "scOpts", "scOverrides"];
   function movieView(record, local = false) {
     const metadata = record.metadata || {}, media = record.media_info || metadata.media_info || {};
@@ -5859,7 +5863,7 @@ class Component extends DCLogic {
       tags,
       date: String(record.date || metadata.date || ""),
       dur: `${record.duration || record.videoLength || metadata.duration || metadata.videoLength || Math.round((media.duration_seconds || 0) / 60) || "\u2014"} \u5206`,
-      studio: record.studio?.name || record.studio || metadata.studio?.name || metadata.studio || "\u2014",
+      studio: record.producer?.name || record.producer || record.studio?.name || record.studio || metadata.producer?.name || metadata.producer || metadata.studio?.name || metadata.studio || "\u2014",
       label: record.publisher?.name || record.publisher || record.label?.name || metadata.publisher?.name || metadata.publisher || metadata.label?.name || "\u2014",
       series: record.series?.name || record.series || metadata.series?.name || metadata.series || "\u2014",
       director: record.director?.name || record.director || metadata.director?.name || metadata.director || "\u2014",
@@ -5896,6 +5900,9 @@ class Component extends DCLogic {
           route: "cinema",
           cnHero: "",
           cnPlaying: null,
+          cnDetail: null,
+          cnDetailFile: 0,
+          cnQ: "",
           code: "",
           sMode: "code",
           fValue: "",
@@ -5957,8 +5964,8 @@ class Component extends DCLogic {
               for (const field of scrapeConfigKeys) if (saved.config?.[field] !== void 0) this.state[field] = saved.config[field];
               this.state.scPhase = "scanning";
               this.scrapePreviewConfig = JSON.stringify(this.scrapePayload());
-            } else this.state.lbScanning = true;
-            this.state[key] = { id: saved.taskId, operation: saved.type, status: "running" };
+            } else if (key === "scanTask") this.state.lbScanning = true;
+            this.state[key] = { id: saved.taskId, operation: saved.type, status: "running", preflight: saved.preflight || [] };
           } catch {
             window.sessionStorage.removeItem(storageKey);
           }
@@ -5968,7 +5975,7 @@ class Component extends DCLogic {
         const patch = typeof update === "function" ? update(this.state) : { ...update };
         for (const [page, filters] of [
           ["lbPage", ["lbQ", "lbActor", "lbStudio", "lbRes", "lbM", "lbSubOnly", "lbMissing", "lbSort"]],
-          ["cnPage", ["cnTab", "cnActor", "cnF", "cnSort"]],
+          ["cnPage", ["cnTab", "cnActor", "cnF", "cnSort", "cnQ"]],
           ["cnShelfPage", ["cnTab"]],
           ["catalogPage", ["browse", "browseQ"]],
           ["searchPage", ["sMode", "code", "page", "fList"]],
@@ -5981,7 +5988,11 @@ class Component extends DCLogic {
         ]) {
           if (filters.some((key) => key in patch && patch[key] !== this.state[key])) patch[page] = null;
         }
-        super.setState(patch, callback);
+        const cinemaNavigation = this.state.route === "cinema" && ["cnTab", "cnActor", "cnQ", "cnF", "cnSort", "cnPage", "cnShelfPage", "cnActorPage"].some((key) => key in patch && patch[key] !== this.state[key]);
+        super.setState(patch, cinemaNavigation ? () => {
+          document.querySelector(".jj-cinema-content")?.scrollTo({ top: 0 });
+          callback?.();
+        } : callback);
       }
       async request(url, method = "GET", body) {
         const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body, method === "GET" ? this._readGeneration : null]);
@@ -6053,7 +6064,7 @@ class Component extends DCLogic {
         this._keyboard = (event) => {
           if (event.key === "Escape") {
             if (this.state.dlg) this.renderVals().dlg.cancel();
-            else for (const key of ["fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying"]) {
+            else for (const key of ["fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying", "cnDetail"]) {
               if (this.state[key]) {
                 this.setState({ [key]: null });
                 break;
@@ -6086,7 +6097,11 @@ class Component extends DCLogic {
             if (!this._activeDialog) this._focusBeforeDialog = document.activeElement;
             const target = next.querySelector("input:not(:disabled), select:not(:disabled), button:not(:disabled)");
             target?.focus({ preventScroll: true });
-          } else if (this._focusBeforeDialog?.isConnected) this._focusBeforeDialog.focus({ preventScroll: true });
+          } else if (this._focusBeforeDialog?.isConnected) {
+            const previous = this._focusBeforeDialog;
+            const target = previous.closest("details:not([open])")?.querySelector("summary") || previous;
+            target?.focus({ preventScroll: true });
+          }
           this._activeDialog = next;
         });
         this._dialogObserver.observe(document.body, { childList: true, subtree: true });
@@ -6111,7 +6126,7 @@ class Component extends DCLogic {
       }
       go(route) {
         return () => {
-          this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
+          this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
           this.perform(async () => {
             if (["cinema", "library"].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 3e4)) await this.loadLibrary();
             if (route === "storage") await this.loadFiles(this.state.fsSrc, this.state.directory);
@@ -6195,6 +6210,8 @@ class Component extends DCLogic {
         const result = await this.request("/api/automation/tasks");
         const tasks = result.tasks || [];
         if (JSON.stringify(tasks) === JSON.stringify(this.state.tasks)) return;
+        const running = new Set(this.state.tasks.flatMap((task) => (task.runs || []).filter((run) => run.status === "running").map((run) => run.id)));
+        for (const task of tasks) for (const run of task.runs || []) if (running.has(run.id) && run.status !== "running") this.toast(`${task.name}\uFF1A${safeText(run.error || run.message, runStatus(run.status))}`, ["failed", "partial"].includes(run.status) ? WARN : OK);
         this.setState({ tasks, auTask: tasks.some((task) => task.id === this.state.auTask) ? this.state.auTask : tasks[0]?.id || "" });
       }
       async loadTranscodes(capabilities = false) {
@@ -6234,7 +6251,7 @@ class Component extends DCLogic {
         }
         const result = await this.request(`/api/magnets/${id(movie.code)}?${query}`);
         const magnets = Array.isArray(result) ? result : result.magnets || [];
-        return magnets.map((magnet) => ({ ...magnet, source: magnet.source || sourceKey(source), movie_id: movie.code }));
+        return magnets.map((magnet) => ({ ...magnet, name: magnet.title || magnet.name || movie.code, source: magnet.source || sourceKey(source), movie_id: movie.code }));
       }
       runSearch = async () => {
         const version = ++this.requestVersion, st = { ...this.state };
@@ -6305,13 +6322,25 @@ class Component extends DCLogic {
       dispatchOne(movie) {
         return () => this.confirmDispatch([movie.code]);
       }
-      confirmDispatch(codes, magnets) {
+      async finishDispatch(result, tool, preflight = []) {
+        const results = [...preflight, ...result.results || []];
+        this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool });
+        await this.perform(() => this.loadHistory());
+        const failed = results.filter((item) => item.success === false && !item.skipped).length;
+        if (failed) throw new Error(`\u6709 ${failed} \u9879\u672A\u6210\u529F\u63D0\u4EA4\uFF0C\u8BF7\u5230\u4E0B\u8F7D\u6D3E\u53D1\u9875\u67E5\u770B\u5E76\u91CD\u8BD5`);
+        if (!results.length || results.every((item) => item.skipped)) {
+          this.toast("\u5168\u90E8\u8D44\u6E90\u5DF2\u8DF3\u8FC7\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", WARN);
+          return;
+        }
+        this.toast("\u4E0B\u8F7D\u4EFB\u52A1\u5DF2\u63D0\u4EA4", OK);
+      }
+      confirmDispatch(codes, magnets, destination) {
         codes = [...new Set(codes.map((code) => String(code).trim().toUpperCase()).filter(Boolean))];
         if (!codes.length) {
           this.toast("\u8BF7\u9009\u62E9\u5F71\u7247\u6216\u586B\u5199\u756A\u53F7", WARN);
           return;
         }
-        const st = { ...this.state }, chosen = magnets || (st.route === "search" ? codes.flatMap((code) => (this.magnets.get(code) || []).slice(0, 1)) : null);
+        const st = { ...this.state, tool: destination || this.state.tool }, chosen = magnets || (st.route === "search" ? codes.flatMap((code) => (this.magnets.get(code) || []).slice(0, 1)) : null);
         this.ask({
           title: `\u6D3E\u53D1 ${codes.length} \u90E8\u5230 ${st.tool}\uFF1F`,
           color: ACC,
@@ -6319,38 +6348,46 @@ class Component extends DCLogic {
           body: "\u5C06\u63D0\u4EA4\u771F\u5B9E\u4E0B\u8F7D\u4EFB\u52A1\uFF1B\u672C\u5730\u5DF2\u6709\u5F71\u7247\u4E0E\u5DF2\u5C1D\u8BD5\u94FE\u63A5\u7531\u540E\u7AEF\u68C0\u67E5\u3002",
           list: codes,
           run: () => this.perform(async () => {
-            let entries = chosen;
+            const tool = toolKey(st.tool);
+            if (tool === "pan115" && this.state.dispatchTask && !["completed", "failed"].includes(this.state.dispatchTask.status)) throw new Error("\u5DF2\u6709 115 \u6D3E\u53D1\u4EFB\u52A1\u8FD0\u884C\u4E2D\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210");
+            let entries = chosen, preflight = [];
             if (!entries) {
-              const payload = await this.request("/api/movies/download-by-codes", "POST", {
-                movie_codes: codes.join("\n"),
-                auto_download: false,
+              const payload = await this.request("/api/movies/batch", "POST", {
+                movie_ids: codes,
                 magnet_source: sourceKey(st.route === "dispatch" ? st.dSrc : st.src),
                 has_subtitle_filter: st.route === "dispatch" ? st.dSubOnly ? "true" : null : st.sub === "0" ? null : st.sub,
                 exclude_4k: st.route === "dispatch" ? st.dNo4k : st.exclude4k
               });
-              entries = payload.magnet_results || [];
+              entries = [];
+              for (const item of payload.results || []) {
+                if (item.in_local_library) preflight.push({ movie_id: item.movie_id, success: false, skipped: true, reason: "already_exists", message: "\u5F71\u7247\u5DF2\u5728\u672C\u5730\u5E93\u4E2D" });
+                else if (item.best_magnet?.link) entries.push({ ...item.best_magnet, movie_id: item.movie_id });
+                else preflight.push({ movie_id: item.movie_id, success: false, error: item.error || "no_magnet", message: safeText(item.error, "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u78C1\u529B\uFF0C\u8BF7\u8C03\u6574\u6765\u6E90\u6216\u7B5B\u9009\u6761\u4EF6") });
+              }
             }
             const usable = entries.filter((item) => item.link || item.magnet_link);
-            if (!usable.length) throw new Error("\u6CA1\u6709\u53EF\u6D3E\u53D1\u7684\u78C1\u529B\uFF1B\u53EF\u80FD\u5DF2\u5165\u5E93\u6216\u94FE\u63A5\u5747\u5DF2\u5C1D\u8BD5");
-            const tool = toolKey(st.tool);
-            const body = { magnet_links: usable.map((item) => item.link || item.magnet_link), movie_ids: usable.map((item) => item.movie_id || item.id || codes[0]), magnet_sources: usable.map((item) => item.source || sourceKey(st.route === "dispatch" ? st.dSrc : st.src)) };
+            if (!usable.length) {
+              if (!preflight.length) preflight = codes.map((movie_id) => ({ movie_id, success: false, error: "no_magnet", message: "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u78C1\u529B" }));
+              await this.finishDispatch({ results: [] }, st.tool, preflight);
+              return;
+            }
+            const body = { magnet_links: usable.map((item) => item.link || item.magnet_link), movie_ids: usable.map((item) => item.movie_id || codes[0]), magnet_sources: usable.map((item) => item.source || sourceKey(st.route === "dispatch" ? st.dSrc : st.src)) };
             if (tool === "pikpak" && this.auth && !this.auth.fromConfig) Object.assign(body, { username: this.auth.username, password: this.auth.password });
-            const endpoint = { pikpak: "/api/pikpak/download", pan115: "/api/115/download", aria2: "/api/aria2/download-magnets" }[tool];
+            if (tool === "pan115") {
+              const job = await this.request("/api/115/download-jobs", "POST", body);
+              window.sessionStorage.setItem(jobStorage.dispatchTask, JSON.stringify({ taskId: job.job_id, type: "dispatch", preflight }));
+              this.setState({ dispatchTask: { ...job, id: job.job_id, preflight }, dispatchTool: st.tool });
+              this.toast("115 \u6D3E\u53D1\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u8FDB\u5EA6", OK);
+              return;
+            }
             let result;
             try {
-              result = await this.request(endpoint, "POST", body);
+              result = await this.request(tool === "pikpak" ? "/api/pikpak/download" : "/api/aria2/download-magnets", "POST", body);
             } catch (error) {
               if (!error.result?.results) throw error;
               result = error.result;
             }
-            this.setState({ dispatchResult: result, dispatchTool: st.tool });
-            await this.perform(() => this.loadHistory());
-            if (result.results?.some((item) => item.success === false && !item.skipped)) throw new Error("\u90E8\u5206\u4E0B\u8F7D\u6D3E\u53D1\u5931\u8D25\uFF0C\u8BF7\u5230\u4E0B\u8F7D\u6D3E\u53D1\u9875\u5904\u7406\u5931\u8D25\u9879");
-            if (result.results?.length && result.results.every((item) => item.skipped)) {
-              this.toast("\u5168\u90E8\u8D44\u6E90\u5DF2\u8DF3\u8FC7\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", WARN);
-              return;
-            }
-            this.toast("\u4E0B\u8F7D\u4EFB\u52A1\u5DF2\u63D0\u4EA4", OK);
+            await this.finishDispatch(result, st.tool, preflight);
           })
         });
       }
@@ -6358,10 +6395,10 @@ class Component extends DCLogic {
         if (this._polling || this._disposed) return;
         this._polling = true;
         try {
-          if (["transcode", "library", "cinema"].includes(this.state.route)) await this.perform(() => this.loadTranscodes());
+          if (["transcode", "library", "cinema"].includes(this.state.route) || data.TC.some((task) => ["running", "queued"].includes(task.status))) await this.perform(() => this.loadTranscodes());
           if (this.state.route === "storage" && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
-          if (this.state.route === "auto") await this.perform(() => this.loadTasks());
-          for (const [key, prefix] of [["scanTask", "/api/movies/local-library/scan/jobs/"], ["scrapeTask", "/api/movies/local-scrape/jobs/"]]) {
+          if (this.state.route === "auto" || this.state.tasks.some((task) => task.runs?.some((run) => run.status === "running"))) await this.perform(() => this.loadTasks());
+          for (const [key, prefix] of [["scanTask", "/api/movies/local-library/scan/jobs/"], ["scrapeTask", "/api/movies/local-scrape/jobs/"], ["dispatchTask", "/api/115/download-jobs/"]]) {
             const current = this.state[key];
             if (!current || ["success", "completed", "failed"].includes(current.status)) continue;
             let task;
@@ -6371,12 +6408,27 @@ class Component extends DCLogic {
               if (error.status === 404) {
                 window.sessionStorage.removeItem(jobStorage[key]);
                 this.setState({ [key]: { ...current, status: "failed" }, ...key === "scrapeTask" ? { scPhase: "idle" } : { lbScanning: false } });
-                throw new Error("\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u6216\u751F\u6210\u9884\u89C8");
+                throw new Error(key === "dispatchTask" ? "115 \u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u8BF7\u5148\u6838\u5BF9\u4E0B\u8F7D\u5386\u53F2\u548C\u7F51\u76D8\u4EFB\u52A1\uFF0C\u518D\u91CD\u8BD5\u672A\u63D0\u4EA4\u9879" : "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u6216\u751F\u6210\u9884\u89C8");
               }
               throw error;
             }
-            this.setState({ [key]: { ...task, id: current.id, operation: current.operation } });
+            this.setState({ [key]: { ...current, ...task, id: current.id, operation: current.operation } });
             if (["success", "completed", "failed"].includes(task.status)) window.sessionStorage.removeItem(jobStorage[key]);
+            if (key === "dispatchTask") {
+              if (["completed", "failed"].includes(task.status)) {
+                if (!task.result) throw new Error("115 \u6D3E\u53D1\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u8FDE\u63A5\u4E0E\u4E0B\u8F7D\u5386\u53F2");
+                await this.perform(() => this.finishDispatch(task.result, "115 \u7F51\u76D8", current.preflight || []));
+              }
+              continue;
+            }
+            if (key === "scanTask" && task.result && ["success", "completed", "failed"].includes(task.status)) {
+              this.setState({ lbScanning: false, scanResult: task.result });
+              await this.loadLibrary();
+              const message = safeText(task.message || task.result.message, "\u626B\u63CF\u5DF2\u5B8C\u6210");
+              this.toast(message, task.status === "failed" ? WARN : OK);
+              if (task.status === "failed") this.ask({ title: "\u626B\u63CF\u7ED3\u679C\uFF1A\u90E8\u5206\u76EE\u5F55\u672A\u5B8C\u6210", body: message, list: (task.result.results || []).filter((item) => !item.success).map((item) => `${item.directory || ""} ${safeText(item.message)}`), okText: "\u5173\u95ED", color: WARN });
+              continue;
+            }
             if (key === "scrapeTask" && current.operation === "apply" && task.result && ["success", "completed", "failed"].includes(task.status)) {
               this.setState({ scPhase: "idle", scrapeResult: task.result });
               data.SCRAPE_ROWS.splice(0);
@@ -6432,67 +6484,155 @@ class Component extends DCLogic {
           next: () => this.setState({ [key]: { signature, index: Math.min(pages - 1, index + 1) } })
         } };
       }
+      playCinema(code, fileIndex) {
+        const files = this.libraryByCode.get(code)?.raw.files || [];
+        const index = fileIndex ?? files.findIndex((file) => file.exists !== false);
+        if (!Number.isInteger(index) || !files[index] || files[index].exists === false) {
+          this.toast("\u672C\u5730\u6587\u4EF6\u7F3A\u5931\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u5F71\u89C6\u5E93", WARN);
+          return;
+        }
+        this.setState({ cnPlaying: code, playerIndex: index, cnPaused: false, cnBuffering: false });
+      }
       vCinema() {
-        if (!data.LIB.length) return { tabs: [], showHero: false, showShelves: false, showWall: true, showActors: false, wall: [], wallEmpty: true, wallMeta: this.state.libraryLoaded ? "\u5F71\u89C6\u5E93\u4E3A\u7A7A\uFF0C\u8BF7\u5230\u7BA1\u7406\u754C\u9762\u6DFB\u52A0\u8DEF\u5F84\u5E76\u626B\u63CF\u5165\u5E93" : "\u6B63\u5728\u8BFB\u53D6\u5F71\u89C6\u5E93\u2026", emptyTitle: "\u5F71\u89C6\u5E93\u4E3A\u7A7A", emptyBody: "\u6DFB\u52A0\u5A92\u4F53\u8DEF\u5F84\u5E76\u626B\u63CF\u5165\u5E93\u540E\uFF0C\u5373\u53EF\u5728\u8FD9\u91CC\u6D4F\u89C8\u548C\u64AD\u653E\u3002", clearText: "\u914D\u7F6E\u5F71\u89C6\u5E93", clearFilters: this.go("library"), libMeta: "0 \u90E8", filterGroups: [], sorts: [], filterCount: 0, hasFilters: false, exit: this.go("library"), closePlayer: () => this.setState({ cnPlaying: null }) };
-        const view = super.vCinema();
-        view.libMeta = `${data.LIB.length} \u90E8 \xB7 ${size(data.LIB.reduce((sum, movie) => sum + Number(movie.raw.total_size || 0), 0))}`;
-        view.actorsMeta = `${data.CN_ACTORS.length} \u4F4D\u672C\u5730\u6F14\u5458`;
-        view.hero.playNote = "\u64AD\u653E\u539F\u6587\u4EF6";
-        view.hero.desc = `${data.LIB.find((movie) => movie.code === view.hero.code)?.actors.join(" / ") || ""} \xB7 \u672C\u5730\u5F71\u7247`;
-        view.transcode = () => this.openTranscode(view.hero.code);
-        view.hero.cover = data.LIB.find((movie) => movie.code === view.hero.code)?.cover;
-        view.emptyTitle = "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247";
-        view.emptyBody = "\u5F53\u524D\u7EC4\u5408\u8FC7\u6EE4\u6389\u4E86\u5168\u90E8\u7ED3\u679C\u3002\u53BB\u6389\u4E00\u4E2A\u6761\u4EF6\uFF0C\u6216\u6E05\u7A7A\u540E\u91CD\u65B0\u9009\u62E9\u3002";
-        view.clearText = "\u6E05\u7A7A\u6761\u4EF6";
-        for (const row of view.wall) row.cover = this.libraryByCode.get(row.code)?.cover;
-        const heroFiles = data.LIB.find((movie) => movie.code === view.hero.code)?.raw.files || [];
-        view.hero.playText = heroFiles.some((file) => file.exists !== false) ? "\u64AD\u653E" : "\u6587\u4EF6\u7F3A\u5931";
-        view.play = () => {
-          const index = heroFiles.findIndex((file) => file.exists !== false);
-          if (index < 0) {
-            this.toast("\u672C\u5730\u6587\u4EF6\u7F3A\u5931\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u5F71\u89C6\u5E93", WARN);
-            return;
-          }
-          this.setState({ cnPlaying: view.hero.code, playerIndex: index, cnPaused: false, cnBuffering: false });
+        const st = this.state;
+        const clearFacets = () => ({ actor: [], series: [], studio: [], res: [], flag: [] });
+        const browse = (filters) => this.setState({ cnTab: "\u5168\u90E8\u5F71\u7247", cnActor: null, cnDetail: null, cnQ: "", cnF: { ...clearFacets(), ...filters } });
+        const controls = {
+          query: st.cnQ,
+          hasQuery: Boolean(st.cnQ),
+          hasLibrary: Boolean(data.LIB.length),
+          setQuery: (event) => this.setState({ cnQ: event.target.value, cnTab: "\u5168\u90E8\u5F71\u7247", cnActor: null }),
+          clearQuery: () => this.setState({ cnQ: "" }),
+          browseAll: () => browse(),
+          closeDetail: () => this.setState({ cnDetail: null }),
+          detailOpen: Boolean(st.cnDetail || st.cnPlaying),
+          playing: Boolean(st.cnPlaying),
+          exit: this.go("library"),
+          imageError: (event) => {
+            event.currentTarget.hidden = true;
+          },
+          closePlayer: () => this.setState({ cnPlaying: null })
         };
-        if (view.player) {
-          const playing = data.LIB.find((movie) => movie.code === this.state.cnPlaying);
-          view.player.url = `/api/movies/local-library/${id(this.state.cnPlaying)}/play?file_index=${this.state.playerIndex || 0}`;
-          view.player.error = () => this.toast("\u6D4F\u89C8\u5668\u65E0\u6CD5\u64AD\u653E\u6B64\u6587\u4EF6\uFF0C\u53EF\u4ECE\u5F71\u7247\u8BE6\u60C5\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1", WARN);
-          view.player.files = (playing.raw.files || []).map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}` }));
-          view.player.fileIndex = String(this.state.playerIndex || 0);
-          view.player.selectFile = (event) => this.setState({ playerIndex: Number(event.target.value) });
-          view.player.ended = () => {
-            if ((this.state.playerIndex || 0) + 1 < playing.files) this.setState({ playerIndex: (this.state.playerIndex || 0) + 1 });
+        if (!data.LIB.length) return { ...controls, tabs: [], showHero: false, showShelves: false, showWall: true, showActors: false, wall: [], wallEmpty: true, wallTitle: "\u4F60\u7684\u5F71\u9662", wallMeta: "\u672C\u5730\u5F71\u7247\u6536\u85CF", emptyTitle: st.libraryLoaded ? "\u5F00\u59CB\u5EFA\u7ACB\u4F60\u7684\u5F71\u9662" : "\u6B63\u5728\u8BFB\u53D6\u5F71\u89C6\u5E93\u2026", emptyBody: "\u6DFB\u52A0\u5A92\u4F53\u8DEF\u5F84\u5E76\u626B\u63CF\u5165\u5E93\u540E\uFF0C\u5373\u53EF\u5728\u8FD9\u91CC\u6D4F\u89C8\u548C\u64AD\u653E\u3002", clearText: "\u914D\u7F6E\u5F71\u89C6\u5E93", clearFilters: this.go("library"), filterGroups: [], sorts: [], filterCount: 0, hasFilters: false };
+        const view = Object.assign(super.vCinema(), controls);
+        const open = (code) => this.setState({ cnHero: code, cnDetail: code, cnDetailFile: Math.max(0, this.libraryByCode.get(code)?.raw.files?.findIndex((file) => file.exists !== false) ?? 0) });
+        const presentation = (movie) => ({
+          code: movie.code,
+          title: movie.title,
+          cover: movie.cover,
+          backdrop: imageSource(movie.raw.backdrop_url || movie.raw.metadata?.backdrop_url || movie.raw.cover_url || movie.raw.metadata?.cover_url || "") || movie.cover,
+          meta: [movie.code, movie.date.slice(0, 4), movie.dur.startsWith("\u2014") ? "" : movie.dur, movie.res, movie.codec.toUpperCase()].filter((value) => value && value !== "\u2014").join(" \xB7 "),
+          desc: movie.raw.plot || movie.raw.description || movie.raw.metadata?.plot || movie.raw.metadata?.description || [movie.actors.join(" / "), movie.studio === "\u2014" ? "" : movie.studio, movie.series === "\u2014" ? "" : movie.series].filter(Boolean).join(" \xB7 ") || "\u6682\u65E0\u5F71\u7247\u7B80\u4ECB\uFF0C\u53EF\u5728\u5F71\u89C6\u5E93\u4E2D\u8865\u5168\u8D44\u6599\u3002",
+          unavailable: !(movie.raw.files || []).some((file) => file.exists !== false)
+        });
+        const card = (movie) => ({
+          code: movie.code,
+          title: movie.title,
+          cover: movie.cover,
+          res: movie.res === "\u2014" ? "" : movie.res,
+          caption: [movie.code, movie.date.slice(0, 4)].filter(Boolean).join(" \xB7 "),
+          unavailable: !(movie.raw.files || []).some((file) => file.exists !== false),
+          open: () => open(movie.code)
+        });
+        view.tabs = view.tabs.map((tab) => ({ ...tab, current: tab.name === st.cnTab ? "page" : void 0, pick: () => this.setState({ cnTab: tab.name, cnActor: null, cnQ: "" }) }));
+        const hero = this.libraryByCode.get(view.hero.code);
+        Object.assign(view.hero, presentation(hero));
+        view.hero.playText = view.hero.unavailable ? "\u6587\u4EF6\u7F3A\u5931" : "\u64AD\u653E";
+        view.showHero = st.cnTab === "\u63A8\u8350";
+        view.play = () => this.playCinema(hero.code);
+        view.info = () => open(hero.code);
+        view.transcode = () => this.openTranscode(hero.code);
+        view.libMeta = `${data.LIB.length} \u90E8`;
+        view.sort = st.cnSort;
+        view.setSort = (event) => this.setState({ cnSort: event.target.value });
+        view.wallTitle = view.actorHeader?.name || (st.cnQ.trim() ? "\u641C\u7D22\u7ED3\u679C" : "\u5168\u90E8\u5F71\u7247");
+        view.wallMeta = st.cnQ.trim() ? `\u547D\u4E2D ${view.wall.length} \u90E8 \xB7 \u201C${st.cnQ.trim()}\u201D` : view.wallMeta;
+        view.emptyTitle = "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247";
+        view.emptyBody = "\u8BD5\u8BD5\u5176\u4ED6\u5173\u952E\u8BCD\uFF0C\u6216\u79FB\u9664\u7B5B\u9009\u6761\u4EF6\u3002";
+        view.clearText = "\u6E05\u7A7A\u6761\u4EF6";
+        view.clearFilters = () => this.setState({ cnQ: "", cnF: clearFacets() });
+        view.activeFilters = data.FILTER_DIMS.flatMap((dim) => (view.actorHeader && dim.key === "actor" ? [] : st.cnF[dim.key]).map((value) => ({ text: `${dim.name} \xB7 ${value}`, remove: () => this.setState({ cnF: { ...st.cnF, [dim.key]: st.cnF[dim.key].filter((item) => item !== value) } }) })));
+        for (const group of view.filterGroups) {
+          const dim = data.FILTER_DIMS.find((dim2) => dim2.name === group.name);
+          for (const item of group.items) item.on = st.cnF[dim.key].includes(item.name);
+        }
+        if (st.cnDetail && this.libraryByCode.has(st.cnDetail)) {
+          const movie = this.libraryByCode.get(st.cnDetail), files = movie.raw.files || [];
+          const index = st.cnDetailFile, file = files[index];
+          view.detail = {
+            ...presentation(movie),
+            fileIndex: String(index),
+            playText: file && file.exists !== false ? "\u64AD\u653E" : "\u6587\u4EF6\u7F3A\u5931",
+            unavailable: !file || file.exists === false,
+            fields: [["\u53D1\u884C\u65E5\u671F", movie.date], ["\u5236\u4F5C\u5546", movie.studio], ["\u7CFB\u5217", movie.series], ["\u5BFC\u6F14", movie.director], ["\u672C\u5730\u6587\u4EF6", `${files.length} \u4E2A \xB7 ${movie.size}`]].filter(([, value]) => value && value !== "\u2014").map(([name, value]) => ({ name, value })),
+            actors: movie.actors.map((name) => ({ name, open: () => {
+              this.setState({ cnTab: "\u6F14\u5458", cnActor: name, cnDetail: null, cnQ: "", cnF: clearFacets() });
+            } })),
+            tags: movie.tags.map((name) => ({ name, open: () => browse({ flag: [name] }) })),
+            noTags: !movie.actors.length && !movie.tags.length,
+            files: files.map((file2, i) => ({ value: String(i), label: `${i + 1}. ${file2.file_name || file2.path.split(/[\\/]/).pop()}${file2.exists === false ? "\uFF08\u6587\u4EF6\u7F3A\u5931\uFF09" : ""}`, missing: file2.exists === false })),
+            fileMeta: file ? [size(file.size), file.media_info?.codec || movie.codec, file.media_info?.height ? `${file.media_info.height}p` : movie.res].join(" \xB7 ") : "\u6CA1\u6709\u53EF\u7528\u6587\u4EF6",
+            selectFile: (event) => {
+              const index2 = Number(event.target.value);
+              if (files[index2] && files[index2].exists !== false) this.setState({ cnDetailFile: index2 });
+            },
+            play: () => this.playCinema(movie.code, index),
+            manage: () => this.setState({ route: "library", lbDetail: movie.code, cnDetail: null })
           };
         }
-        if (this.state.cnTab === "\u63A8\u8350") view.shelves = [{ name: "\u6700\u8FD1\u5165\u5E93", meta: `${data.LIB.length} \u90E8`, cardW: "158px", items: data.LIB.slice(0, 12).map((movie) => ({ ...movie, sub: movie.actors.join(" / "), ring: "var(--t08)", ringW: "1px", pick: () => this.setState({ cnHero: movie.code }) })) }];
-        if (["\u7CFB\u5217", "VR"].includes(this.state.cnTab)) {
-          const vr = this.state.cnTab === "VR", groups = /* @__PURE__ */ new Map();
+        if (view.player) {
+          const playing = this.libraryByCode.get(st.cnPlaying), files = playing.raw.files || [];
+          view.player.url = `/api/movies/local-library/${id(st.cnPlaying)}/play?file_index=${st.playerIndex || 0}`;
+          view.player.error = () => this.toast("\u6D4F\u89C8\u5668\u65E0\u6CD5\u64AD\u653E\u6B64\u6587\u4EF6\uFF0C\u53EF\u4ECE\u5F71\u7247\u8BE6\u60C5\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1", WARN);
+          view.player.files = files.map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}`, missing: file.exists === false }));
+          view.player.fileIndex = String(st.playerIndex || 0);
+          view.player.selectFile = (event) => this.playCinema(playing.code, Number(event.target.value));
+          view.player.ended = () => {
+            const next = files.findIndex((file, index) => index > (this.state.playerIndex || 0) && file.exists !== false);
+            if (next >= 0) this.playCinema(playing.code, next);
+          };
+        }
+        const shelf = (name, movies, filters) => ({
+          name,
+          meta: `${movies.length} \u90E8`,
+          openAll: () => browse(filters),
+          items: movies.slice(0, 12).map(card),
+          previous: (event) => scrollShelf(event, -1),
+          next: (event) => scrollShelf(event, 1)
+        });
+        const scrollShelf = (event, direction) => {
+          const track = event.currentTarget.closest(".jj-cinema-shelf").querySelector(".jj-cinema-shelf-track");
+          track.scrollBy({ left: direction * track.clientWidth * 0.85, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+        };
+        if (st.cnTab === "\u63A8\u8350") {
+          const recent = [...data.LIB].sort((a, b) => b.added.localeCompare(a.added));
+          view.shelves = [shelf("\u6700\u8FD1\u5165\u5E93", recent), shelf("\u9AD8\u6E05\u6536\u85CF", recent.filter((movie) => parseInt(movie.res) >= 1080), { res: [...new Set(recent.filter((movie) => parseInt(movie.res) >= 1080).map((movie) => movie.res))] }), shelf("VR \u5F71\u5385", recent.filter((movie) => movie.vr), { flag: ["VR"] })].filter((shelf2) => shelf2.items.length);
+        }
+        if (["\u7CFB\u5217", "VR"].includes(st.cnTab)) {
+          const vr = st.cnTab === "VR", groups = /* @__PURE__ */ new Map();
           for (const movie of data.LIB) {
             if (vr ? !movie.vr : movie.series === "\u2014") continue;
             const key = vr ? movie.res : movie.series;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(movie);
           }
-          view.shelves = [...groups].map(([key, movies]) => ({
-            name: vr ? `VR ${key}` : key,
-            meta: `${movies.length} \u90E8`,
-            cardW: "158px",
-            openAll: () => this.setState({ cnTab: "\u5168\u90E8\u5F71\u7247", cnActor: null, cnF: { actor: [], series: vr ? [] : [key], studio: [], res: vr ? [key] : [], flag: vr ? ["VR"] : [] } }),
-            items: movies.slice(0, 12).map((movie) => ({ ...movie, sub: movie.actors.join(" / "), ring: "var(--t08)", ringW: "1px", pick: () => this.setState({ cnHero: movie.code }) }))
-          }));
+          view.shelves = [...groups].map(([key, movies]) => shelf(vr ? `VR ${key}` : key, movies, vr ? { res: [key], flag: ["VR"] } : { series: [key] }));
         }
-        const shelves = this.pageItems(view.shelves, "cnShelfPage", [this.state.cnTab], 6);
+        view.sectionTitle = st.cnTab === "\u7CFB\u5217" ? "\u7CFB\u5217\u6536\u85CF" : st.cnTab === "VR" ? "VR \u5F71\u5385" : "";
+        view.sectionMeta = `${view.shelves.length} \u4E2A\u5206\u533A`;
+        view.shelvesEmpty = !view.shelves.length;
+        view.sectionEmpty = st.cnTab === "VR" ? "\u6682\u65E0 VR \u5F71\u7247" : "\u6682\u65E0\u7CFB\u5217\u6536\u85CF";
+        const shelves = this.pageItems(view.shelves, "cnShelfPage", [st.cnTab], 6);
         view.shelves = shelves.items;
         view.shelfPaging = shelves.paging;
-        for (const shelf of view.shelves) for (const row of shelf.items) row.cover = this.libraryByCode.get(row.code)?.cover;
-        const wall = this.pageItems(view.wall, "cnPage", [this.state.cnTab, this.state.cnActor, this.state.cnF, this.state.cnSort]);
-        view.wall = wall.items;
+        const wall = this.pageItems(view.wall, "cnPage", [st.cnTab, st.cnActor, st.cnF, st.cnSort, st.cnQ]);
+        view.wall = wall.items.map((row) => card(this.libraryByCode.get(row.code)));
         view.paging = wall.paging;
         const actors = this.pageItems(view.actors, "cnActorPage", []);
         view.actors = actors.items;
         view.actorPaging = actors.paging;
+        view.actorsMeta = `${data.CN_ACTORS.length} \u4F4D\u672C\u5730\u6F14\u5458`;
+        view.actorsEmpty = !data.CN_ACTORS.length;
         const avatars = new Map(data.CN_ACTORS.map((actor) => [actor.name, actor.avatar_url]));
         for (const actor of view.actors) actor.avatarUrl = avatars.get(actor.name) || "";
         return view;
@@ -6552,14 +6692,15 @@ class Component extends DCLogic {
         }, "\u8D44\u6599\u68C0\u67E5\u5B8C\u6210");
         view.clean = () => this.ask({
           title: "\u6E05\u6D17\u65E0\u6548\u5A92\u4F53\u6587\u4EF6\uFF1F",
-          body: "\u540E\u7AEF\u4F1A\u91CD\u65B0\u63A2\u6D4B\u6587\u4EF6\uFF0C\u5E76\u6C38\u4E45\u5220\u9664\u65E0\u6CD5\u8BFB\u53D6\u5A92\u4F53\u53C2\u6570\u7684\u73B0\u5B58\u89C6\u9891\uFF0C\u540C\u65F6\u79FB\u9664\u7D22\u5F15\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002",
+          body: "\u53EA\u5220\u9664\u786E\u8BA4\u4E3A\u7A7A\u6587\u4EF6\u6216\u4E0D\u542B\u89C6\u9891\u6D41\u7684\u6587\u4EF6\u3002\u8D85\u65F6\u3001\u8BFB\u53D6\u5931\u8D25\u7B49\u65E0\u6CD5\u786E\u8BA4\u7684\u6587\u4EF6\u4F1A\u4FDD\u7559\uFF1B\u5220\u9664\u540E\u540C\u6B65\u66F4\u65B0\u7D22\u5F15\u3002\u6B64\u64CD\u4F5C\u4E0D\u53EF\u64A4\u9500\u3002",
           ackText: "\u6211\u786E\u8BA4\u6C38\u4E45\u5220\u9664\u65E0\u6548\u89C6\u9891\u6587\u4EF6",
           color: BAD,
           okText: "\u6E05\u6D17",
           run: () => this.perform(async () => {
-            await this.request("/api/movies/local-library/clean-invalid", "POST");
+            const result = await this.request("/api/movies/local-library/clean-invalid", "POST");
             await this.loadLibrary();
-          }, "\u65E0\u6548\u5A92\u4F53\u6E05\u6D17\u5B8C\u6210")
+            this.toast(result.message, result.failed_files?.length ? WARN : OK);
+          }, null)
         });
         view.purgeDb = () => this.ask({
           title: "\u6E05\u7A7A\u5F71\u89C6\u5E93\u7D22\u5F15\uFF1F",
@@ -6578,8 +6719,17 @@ class Component extends DCLogic {
           view.actors = actors.items;
           view.paging = actors.paging;
         }
+        view.empty = !(view.showActor ? view.actors.length : view.rows.length);
+        view.showList = view.showList && !view.empty;
+        view.showPoster = view.showPoster && !view.empty;
+        view.emptyTitle = !st.libraryLoaded ? "\u6B63\u5728\u8BFB\u53D6\u5F71\u89C6\u5E93\u2026" : !data.LIB.length ? "\u5F00\u59CB\u5EFA\u7ACB\u4F60\u7684\u5F71\u89C6\u5E93" : view.showActor ? "\u6682\u65E0\u6F14\u5458\u4FE1\u606F" : "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247";
+        view.emptyBody = !st.libraryLoaded ? "\u6B63\u5728\u52A0\u8F7D\u5F71\u7247\u4E0E\u5A92\u4F53\u4FE1\u606F\u3002" : !data.LIB.length ? "\u6DFB\u52A0\u5A92\u4F53\u8DEF\u5F84\uFF0C\u626B\u63CF\u540E\u5373\u53EF\u6D4F\u89C8\u672C\u5730\u6536\u85CF\u3002" : view.showActor ? "\u626B\u63CF\u6216\u8865\u5168\u5F71\u7247\u8D44\u6599\u540E\uFF0C\u6F14\u5458\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002" : "\u8BD5\u8BD5\u5176\u4ED6\u5173\u952E\u8BCD\uFF0C\u6216\u6E05\u9664\u7B5B\u9009\u67E5\u770B\u5168\u90E8\u5F71\u7247\u3002";
+        view.emptyActionText = data.LIB.length ? "\u6E05\u9664\u7B5B\u9009" : "\u6DFB\u52A0\u5A92\u4F53\u8DEF\u5F84";
+        view.emptyAction = data.LIB.length ? view.reset : view.openPaths;
+        view.showEmptyAction = st.libraryLoaded && (!view.showActor || !data.LIB.length);
         const record = data.LIB.find((movie) => movie.code === st.lbDetail);
         if (view.d && record) {
+          view.d.cover = record.cover;
           view.d.fields = [["\u53D1\u884C\u65E5\u671F", record.date], ["\u5236\u4F5C\u5546", record.studio], ["\u53D1\u884C\u5546", record.label], ["\u7CFB\u5217", record.series], ["\u5206\u8FA8\u7387 / \u7F16\u7801", `${record.res} \xB7 ${record.codec}`], ["\u4F53\u79EF", record.size]].map(([k, v]) => ({ k, v, fg: "var(--fg)", mono: "inherit", fs: "12px" }));
           view.d.files = (record.raw.files || []).map((file, index) => ({
             idx: index,
@@ -6687,7 +6837,7 @@ class Component extends DCLogic {
             this.formField("\u7F16\u7801\u5668", st.tcOptions.video_codec ?? preset?.options?.video_codec ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, video_codec: value } }), "select", caps.available_encoders || []),
             this.formField("CQ / CRF", st.tcOptions.crf ?? preset?.options?.crf ?? 24, (value) => this.setState({ tcOptions: { ...st.tcOptions, crf: Number(value) } })),
             this.formField("\u6700\u5927\u9AD8\u5EA6\uFF08\u7559\u7A7A\u4FDD\u6301\u539F\u59CB\uFF09", st.tcOptions.max_height ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, max_height: value ? Number(value) : null } })),
-            ...[["quality_mode", "\u8D28\u91CF\u6A21\u5F0F", "select", ["crf", "bitrate"]], ["video_bitrate_kbps", "\u89C6\u9891\u7801\u7387 kbps", "number"], ["speed_preset", "\u901F\u5EA6\u9884\u8BBE", "select", ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]], ["tune", "\u8C03\u4F18", "select", ["", "film", "animation", "grain", "fastdecode", "zerolatency"]], ["frame_rate", "\u5E27\u7387", "number"], ["pixel_format", "\u50CF\u7D20\u683C\u5F0F", "select", ["auto", "yuv420p", "yuv420p10le"]], ["audio_codec", "\u97F3\u9891\u7F16\u7801", "select", caps.audio_codecs || ["copy", "aac"]], ["audio_bitrate_kbps", "\u97F3\u9891\u7801\u7387 kbps", "number"], ["audio_channels", "\u97F3\u9891\u58F0\u9053", "number"], ["copy_subtitles", "\u4FDD\u7559\u5B57\u5E55", "check"], ["copy_metadata", "\u4FDD\u7559\u5143\u6570\u636E", "check"], ["deinterlace", "\u53BB\u9694\u884C", "check"]].map(([key, label, kind, options]) => this.formField(label, st.tcOptions[key] ?? preset?.options?.[key] ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, [key]: value === "" || kind === "number" && value === 0 ? null : value } }), kind, options))
+            ...[["quality_mode", "\u8D28\u91CF\u6A21\u5F0F", "select", ["crf", "bitrate"]], ["video_bitrate_kbps", "\u89C6\u9891\u7801\u7387 kbps", "number"], ["speed_preset", "\u901F\u5EA6\u9884\u8BBE", "select", ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"]], ["frame_rate", "\u5E27\u7387", "number"], ["pixel_format", "\u50CF\u7D20\u683C\u5F0F", "select", ["auto", "yuv420p", "yuv420p10le"]], ["audio_codec", "\u97F3\u9891\u7F16\u7801", "select", caps.audio_codecs || ["copy", "aac"]], ["audio_bitrate_kbps", "\u97F3\u9891\u7801\u7387 kbps", "number"], ["audio_channels", "\u97F3\u9891\u58F0\u9053", "number"], ["copy_subtitles", "\u4FDD\u7559\u5B57\u5E55", "check"], ["copy_metadata", "\u4FDD\u7559\u5143\u6570\u636E", "check"], ["deinterlace", "\u53BB\u9694\u884C", "check"]].map(([key, label, kind, options]) => this.formField(label, st.tcOptions[key] ?? preset?.options?.[key] ?? "", (value) => this.setState({ tcOptions: { ...st.tcOptions, [key]: value === "" || kind === "number" && value === 0 ? null : value } }), kind, options))
           ],
           note: st.tcCapsLoading ? "\u6B63\u5728\u68C0\u6D4B GPU \u548C\u53EF\u7528\u8F6C\u7801\u9884\u8BBE\u2026" : caps.gpu_available ? "\u4EC5\u5BF9\u5F53\u524D\u9009\u4E2D\u6587\u4EF6\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1\uFF0C\u8F93\u51FA\u66F4\u5C0F\u65F6\u624D\u66FF\u6362\u3002" : "\u672A\u68C0\u6D4B\u5230\u53EF\u7528 GPU\uFF0C\u65E0\u6CD5\u521B\u5EFA\u8F6C\u7801\u4EFB\u52A1\u3002",
           openPanel: this.go("transcode"),
@@ -6806,7 +6956,7 @@ class Component extends DCLogic {
           body: organize ? "\u4F1A\u6309\u9884\u89C8\u79FB\u52A8\u6216\u66FF\u6362\u6587\u4EF6\uFF0C\u8BF7\u786E\u8BA4\u51B2\u7A81\u5904\u7406\u3002" : "\u5728\u539F\u76EE\u5F55\u5199\u5165\u5143\u6570\u636E\u4E0E\u56FE\u7247\uFF0C\u4E0D\u79FB\u52A8\u89C6\u9891\u3002",
           list: rows.map((row) => row.src),
           run: () => this.perform(async () => {
-            const payload = { ...this.scrapePayload(), organize, items: rows.map((row) => ({ source_path: row.src, code: row.raw.code, metadata: row.raw.metadata, conflict_resolution: this.state.pathEdits[row.src] || (row.kind === "conflict" ? null : void 0) })) };
+            const payload = { ...this.scrapePayload(), organize, items: rows.map((row) => ({ source_path: row.src, target_video_path: organize ? row.raw.target_video_path : void 0, code: row.raw.code, metadata: row.raw.metadata, conflict_resolution: this.state.pathEdits[row.src] || (row.kind === "conflict" ? null : void 0) })) };
             if (organize && rows.some((row) => row.kind === "conflict" && !this.state.pathEdits[row.src])) throw new Error("\u8BF7\u5148\u4E3A\u51B2\u7A81\u6587\u4EF6\u9009\u62E9\u4FDD\u7559\u7B56\u7565");
             await this.startJob("scrapeTask", "/api/movies/local-scrape/apply/jobs", payload, "apply");
             this.setState({ scPhase: "scanning" });
@@ -6893,14 +7043,25 @@ class Component extends DCLogic {
       }
       vDispatch() {
         const st = this.state, codes = [...new Set((st.dScope === "1" ? data.MOVIES.map((movie) => movie.code) : st.dScope === "2" ? st.sel : st.dCodes.split(/[\s,，]+/)).map((code) => code.trim().toUpperCase()).filter(Boolean))];
-        const failed = (st.dispatchResult?.results || []).filter((result) => result.success === false && !result.skipped).map((result) => ({
+        const failureMap = /* @__PURE__ */ new Map();
+        for (const record of data.HISTORY) for (const resource of record.failed_resources || []) {
+          const result = { movie_id: record.movie_id, magnet: resource.link, source: resource.source, tool: toolName(resource.tool), success: false, message: "\u4E0A\u6B21\u6D3E\u53D1\u672A\u6210\u529F\u63D0\u4EA4\uFF0C\u53EF\u91CD\u8BD5\u6B64\u8D44\u6E90" };
+          failureMap.set(`${result.movie_id}:${result.magnet}`, result);
+        }
+        for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) failureMap.set(`${result.movie_id}:${result.magnet || ""}`, { ...result, tool: st.dispatchTool });
+        const failed = [...failureMap.values()].map((result) => ({
           code: result.movie_id || "",
           reason: safeText(result.message || result.error),
-          tool: st.dispatchTool,
+          tool: result.tool,
           time: "",
+          raw: result,
           noRetry: !result.movie_id,
-          retry: () => this.confirmDispatch([result.movie_id]),
-          skip: () => this.setState({ dispatchResult: { ...st.dispatchResult, results: st.dispatchResult.results.filter((item) => item !== result) } })
+          retry: () => this.confirmDispatch([result.movie_id], result.magnet ? [{ link: result.magnet, movie_id: result.movie_id, source: result.source }] : void 0, result.tool),
+          skip: () => this.perform(async () => {
+            if (result.movie_id && result.magnet) await this.request(`/api/history/${id(result.movie_id)}/dismiss-failure`, "POST", { link: result.magnet });
+            this.setState({ dispatchResult: { ...st.dispatchResult, results: (st.dispatchResult?.results || []).filter((item) => !(item.movie_id === result.movie_id && item.magnet === result.magnet)) } });
+            await this.loadHistory();
+          }, "\u5DF2\u5FFD\u7565\u8BE5\u5931\u8D25\u9879")
         }));
         const history = data.HISTORY.map((record) => ({
           raw: record,
@@ -6910,7 +7071,7 @@ class Component extends DCLogic {
           src: selectHistoryRedispatchResource(record)?.source || "",
           tool: record.download_tool || record.tool || "",
           time: record.timestamp || record.download_time || record.date || "",
-          status: record.status || "\u5DF2\u8BB0\u5F55",
+          status: { submitted: "\u5DF2\u63D0\u4EA4", failed: "\u6D3E\u53D1\u5931\u8D25", ignored: "\u5DF2\u5FFD\u7565" }[record.status] || record.status || "\u5DF2\u8BB0\u5F55",
           local: record.in_local_library ? "\u5DF2\u5165\u5E93" : record.needs_reselect ? "\u672A\u5165\u5E93" : "\u5F85\u6838\u5BF9",
           stBg: "var(--t08)",
           stFg: DIM,
@@ -6951,7 +7112,7 @@ class Component extends DCLogic {
           failed,
           hasFailed: failed.length > 0,
           batchSummary: `\u5931\u8D25 ${failed.length} \u9879`,
-          retryAll: () => this.confirmDispatch(failed.map((item) => item.code).filter(Boolean)),
+          retryAll: () => this.confirmDispatch(failed.map((item) => item.code).filter(Boolean), failed.every((item) => item.raw.magnet) ? failed.map((item) => ({ link: item.raw.magnet, movie_id: item.code, source: item.raw.source })) : void 0),
           historyCount: history.length,
           missingCount: history.filter((item) => item.raw.needs_reselect).length,
           failureCount: history.filter((item) => item.raw.status === "failed").length,
@@ -7097,10 +7258,10 @@ class Component extends DCLogic {
             if (task) this.ask({ title: `\u8FD0\u884C ${task.name}\uFF1F`, body: "\u5C06\u4FDD\u5B58\u5F53\u524D\u914D\u7F6E\u5E76\u6267\u884C\u771F\u5B9E\u68C0\u7D22\u548C\u4E0B\u8F7D\u6D3E\u53D1\u3002", color: ACC, okText: "\u7ACB\u5373\u8FD0\u884C", run: () => this.perform(async () => {
               const saved = await this.saveAuto();
               this.toast("\u81EA\u52A8\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u53EF\u5728\u8FD0\u884C\u8BB0\u5F55\u4E2D\u67E5\u770B\u8FDB\u5EA6", ACC);
-              const run = await this.request(`/api/automation/tasks/${id(saved.id)}/run`, "POST");
+              const run = await this.request(`/api/automation/tasks/${id(saved.id)}/run?background=true`, "POST");
               await this.loadTasks();
               if (["failed", "partial"].includes(run.status)) throw new Error("\u8FD0\u884C\u5B58\u5728\u5931\u8D25\u9879\uFF0C\u8BF7\u5C55\u5F00\u8FD0\u884C\u8BB0\u5F55\u67E5\u770B");
-              this.toast(run.status === "success" ? "\u8FD0\u884C\u5DF2\u5B8C\u6210" : "\u8FD0\u884C\u5DF2\u63D0\u4EA4", OK);
+              this.toast(run.status === "noop" ? safeText(run.message, "\u6CA1\u6709\u65B0\u5F71\u7247\u9700\u8981\u4E0B\u8F7D") : run.status === "success" ? "\u8FD0\u884C\u5DF2\u5B8C\u6210" : "\u8FD0\u884C\u5DF2\u63D0\u4EA4", OK);
             }) });
           },
           pauseAll: st.tasks.length > 0 && st.tasks.every((item) => !item.enabled),
@@ -7131,17 +7292,17 @@ class Component extends DCLogic {
           refresh: () => this.perform(() => this.loadTasks()),
           runs: (task?.runs || []).map((run) => ({
             time: run.started_at,
-            trigger: run.status,
+            trigger: runStatus(run.status),
             found: run.found_count,
             matched: run.magnet_count,
             dispatched: run.dispatched_count,
             skipped: run.skipped_count,
             errors: errorCount(run),
-            result: safeText(run.error, run.status),
+            result: safeText(run.error || run.message, runStatus(run.status)),
             dispatchFg: OK,
             errFg: BAD,
             resFg: DIM,
-            open: () => this.ask({ title: `\u8FD0\u884C ${run.started_at}`, body: safeText(run.error, run.status), list: (run.items || []).map((item) => `${item.movie_id}: ${item.status} ${safeText(item.message, "")}`), color: ACC, okText: "\u5173\u95ED" })
+            open: () => this.ask({ title: `\u8FD0\u884C ${run.started_at}`, body: safeText(run.error || run.message, runStatus(run.status)), list: (run.items || []).map((item) => `${item.movie_id}: ${item.status} ${safeText(item.message, "")}`), color: ACC, okText: "\u5173\u95ED" })
           }))
         };
       }
@@ -7377,10 +7538,10 @@ class Component extends DCLogic {
             const source = sources[name] || {}, result = st.sourcesResult.find((item) => item.provider === name || item.name === name);
             return {
               name,
-              host: source.base_url || "",
+              host: name === "javbus" ? st.settingsDraft.javbus?.base_url || st.settings.javbus?.base_url || "" : source.base_url || "",
               status: source.implemented === false ? "\u672A\u5B9E\u73B0" : result ? result.success ? "\u6D4B\u8BD5\u6210\u529F" : "\u6D4B\u8BD5\u5931\u8D25" : "\u5F85\u6D4B\u8BD5",
-              latency: result?.elapsed_ms ? `${result.elapsed_ms} ms` : "",
-              note: "",
+              latency: result?.duration_ms != null ? `${result.duration_ms} ms` : "",
+              note: [name === "javbus" ? "\u5171\u7528 JavBus \u8BBF\u95EE\u8BBE\u7F6E\uFF1B\u4FEE\u6539\u540E\u5148\u4FDD\u5B58\u518D\u6D4B\u8BD5" : "\u6D4B\u8BD5\u4F7F\u7528\u5DF2\u4FDD\u5B58\u914D\u7F6E", safeText(result?.error_message, "")].filter(Boolean).join(" \xB7 "),
               on: source.enabled,
               order: index + 1,
               op: source.enabled ? 1 : 0.55,
@@ -7396,7 +7557,7 @@ class Component extends DCLogic {
                 [next[index - 1], next[index]] = [next[index], next[index - 1]];
                 this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, priority: next } } });
               },
-              fields: Object.entries(source).filter(([field]) => ["language", "request_delay", "base_url", "api_key"].includes(field)).map(([field, value]) => this.formField(field, value, (value2) => updateSource(name, { [field]: value2 }), field === "api_key" ? "secret" : typeof value === "number" ? "number" : "text"))
+              fields: Object.entries(name === "javbus" ? {} : source).filter(([field]) => ["language", "request_delay", "base_url", "api_key"].includes(field)).map(([field, value]) => this.formField(field, value, (value2) => updateSource(name, { [field]: value2 }), field === "api_key" ? "secret" : typeof value === "number" ? "number" : "text"))
             };
           }),
           test: () => key === "scrapers" || key === "javbus" ? testSources(key === "javbus" ? ["javbus"] : providers) : this.perform(() => this.connect(key, !values.password && !values.secret && !values.cookie && Object.entries(values).every(([field, value]) => ["password", "secret", "cookie"].includes(field) || st.settings[key]?.[field] === value)), "\u8FDE\u63A5\u6210\u529F"),
@@ -7433,7 +7594,13 @@ class Component extends DCLogic {
         view.tools = this.toolStates();
         view.bg.items = data.TC.filter((task) => ["running", "queued"].includes(task.status)).map((task) => ({ kind: "\u8F6C\u7801", name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go("transcode") }));
         for (const key of ["scanTask", "scrapeTask"]) if (st[key] && !["success", "completed", "failed"].includes(st[key].status)) view.bg.items.push({ kind: key === "scanTask" ? "\u626B\u63CF\u5165\u5E93" : "\u522E\u524A", name: st[key].message || "\u540E\u53F0\u8FD0\u884C\u4E2D", pct: st[key].percent || 0, pctText: "", meta: st[key].status, fg: ACC, go: this.go(key === "scanTask" ? "library" : "scrape") });
+        if (st.dispatchTask && !["completed", "failed"].includes(st.dispatchTask.status)) {
+          const job = st.dispatchTask, pct = Math.round(100 * (job.completed_count || 0) / Math.max(1, job.total_count || 1));
+          view.bg.items.push({ kind: "115 \u6D3E\u53D1", name: `\u6279\u6B21 ${job.current_batch || 0}/${job.total_batches || "\u5F85\u8BA1\u7B97"}`, pct, pctText: `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} \u9879\u5DF2\u5904\u7406`, fg: ACC, go: this.go("dispatch") });
+        }
+        for (const task of st.tasks) for (const run of task.runs || []) if (run.status === "running") view.bg.items.push({ kind: "\u81EA\u52A8\u4EFB\u52A1", name: task.name, pct: 0, pctText: "", meta: run.message || "\u8FD0\u884C\u4E2D", fg: ACC, go: this.go("auto") });
         view.bg.count = view.bg.items.length;
+        view.bg.animation = view.bg.count ? "jjspin 900ms linear infinite" : "none";
         const background = this.pageItems(view.bg.items, "bgPage", [], 6);
         view.bg.items = background.items;
         view.bg.paging = background.paging;
@@ -7570,15 +7737,62 @@ class Component extends DCLogic {
     };
   }
 
+  // frontend/src/design/cinema.mjs
+  var icon = (name) => `<i aria-hidden="true" class="ph ph-${name}"></i>`;
+  var artwork = (key, className, loading = "lazy") => `<div class="${className}"><span>${icon("film-strip")}<small>{{ ${key}.code }}</small></span><sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="${loading}" onError="{{ cn.imageError }}"></sc-if></div>`;
+  var cards = (list) => `<sc-for list="{{ ${list} }}" as="it"><button class="jj-cinema-card" onClick="{{ it.open }}" aria-label="\u67E5\u770B {{ it.code }} \u8BE6\u60C5" title="{{ it.title }}">
+  <div class="jj-cinema-card-art">${artwork("it", "jj-cinema-poster")}<span class="jj-cinema-card-overlay">${icon("info")}</span><sc-if value="{{ it.unavailable }}"><span class="jj-cinema-badge">\u6587\u4EF6\u7F3A\u5931</span></sc-if><span class="jj-cinema-card-quality">{{ it.res }}</span></div>
+  <span class="jj-cinema-card-title">{{ it.title }}</span><span class="jj-cinema-card-meta">{{ it.caption }}</span>
+</button></sc-for>`;
+  var pager = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+  var backdrop = (key) => `<sc-if value="{{ ${key}.backdrop }}"><img class="jj-cinema-backdrop" src="{{ ${key}.backdrop }}" alt="" onError="{{ cn.imageError }}"></sc-if>`;
+  var cinemaTemplate = `<sc-if value="{{ at.cinema }}"><div class="jj-cinema">
+  <header class="jj-cinema-bar" aria-hidden="{{ cn.detailOpen }}">
+    <span class="jj-cinema-brand">JavJaeger</span>
+    <nav aria-label="\u5F71\u9662\u5BFC\u822A"><sc-for list="{{ cn.tabs }}" as="t"><button aria-current="{{ t.current }}" onClick="{{ t.pick }}">{{ t.name }}</button></sc-for></nav>
+    <div class="jj-cinema-search">${icon("magnifying-glass")}<input type="search" aria-label="\u5F71\u9662\u641C\u7D22" placeholder="\u641C\u7D22\u5F71\u7247\u3001\u756A\u53F7\u3001\u6F14\u5458" value="{{ cn.query }}" onChange="{{ cn.setQuery }}"><sc-if value="{{ cn.hasQuery }}"><button aria-label="\u6E05\u7A7A\u5F71\u9662\u641C\u7D22" onClick="{{ cn.clearQuery }}">${icon("x")}</button></sc-if></div>
+    <button class="btn btn-secondary jj-cinema-exit" onClick="{{ cn.exit }}">\u7BA1\u7406\u754C\u9762</button>
+  </header>
+  <main class="jj-cinema-content" aria-label="\u5F71\u9662\u5185\u5BB9" aria-hidden="{{ cn.detailOpen }}">
+    <sc-if value="{{ cn.showHero }}"><section class="jj-cinema-hero" aria-label="\u7CBE\u9009\u5F71\u7247">
+      ${backdrop("cn.hero")}
+      <div class="jj-cinema-hero-copy"><h1 title="{{ cn.hero.title }}">{{ cn.hero.title }}</h1><p class="jj-cinema-meta">{{ cn.hero.meta }}</p><p class="jj-cinema-synopsis">{{ cn.hero.desc }}</p>
+        <div class="jj-cinema-actions"><button class="btn btn-primary" disabled="{{ cn.hero.unavailable }}" onClick="{{ cn.play }}">${icon("play")} {{ cn.hero.playText }}</button><button class="btn btn-secondary" onClick="{{ cn.info }}">\u5F71\u7247\u8BE6\u60C5</button></div>
+      </div>${artwork("cn.hero", "jj-cinema-feature-poster", "eager")}
+    </section></sc-if>
+    <sc-if value="{{ cn.showShelves }}"><div class="jj-cinema-shelves">
+      <sc-if value="{{ cn.sectionTitle }}"><div class="jj-cinema-section-heading"><div><h1>{{ cn.sectionTitle }}</h1><p>{{ cn.sectionMeta }}</p></div></div></sc-if>
+      <sc-for list="{{ cn.shelves }}" as="sh"><section class="jj-cinema-shelf"><div class="jj-cinema-section-heading"><h2>{{ sh.name }} <small>{{ sh.meta }}</small></h2><div class="jj-cinema-shelf-controls"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">\u67E5\u770B\u5168\u90E8</button><button class="btn btn-secondary jj-cinema-arrow" aria-label="\u4E0A\u4E00\u7EC4 {{ sh.name }}" onClick="{{ sh.previous }}">${icon("caret-left")}</button><button class="btn btn-secondary jj-cinema-arrow" aria-label="\u4E0B\u4E00\u7EC4 {{ sh.name }}" onClick="{{ sh.next }}">${icon("caret-right")}</button></div></div><div class="jj-cinema-shelf-track" tabIndex="0" aria-label="{{ sh.name }}\u6D77\u62A5">${cards("sh.items")}</div></section></sc-for>
+      ${pager("cn.shelfPaging")}
+      <sc-if value="{{ cn.shelvesEmpty }}"><div class="jj-cinema-empty">${icon("film-strip")}<h2>{{ cn.sectionEmpty }}</h2><p>\u626B\u63CF\u6216\u8865\u5168\u5F71\u7247\u8D44\u6599\u540E\uFF0C\u5728\u8FD9\u91CC\u6D4F\u89C8\u4F60\u7684\u6536\u85CF\u3002</p><button class="btn btn-secondary" onClick="{{ cn.browseAll }}">\u6D4F\u89C8\u5168\u90E8\u5F71\u7247</button></div></sc-if>
+    </div></sc-if>
+    <sc-if value="{{ cn.showActors }}"><section class="jj-cinema-browse"><div class="jj-cinema-section-heading"><div><h1>\u6F14\u5458</h1><p>{{ cn.actorsMeta }}</p></div></div><div class="jj-cinema-actors"><sc-for list="{{ cn.actors }}" as="a"><button class="jj-cinema-actor" onClick="{{ a.open }}"><span class="jj-cinema-avatar">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" loading="lazy" onError="{{ cn.imageError }}"></sc-if></span><strong>{{ a.name }}</strong><span>{{ a.count }}</span></button></sc-for></div>${pager("cn.actorPaging")}<sc-if value="{{ cn.actorsEmpty }}"><div class="jj-cinema-empty"><h2>\u6682\u65E0\u6F14\u5458\u4FE1\u606F</h2><p>\u8865\u5168\u5F71\u7247\u8D44\u6599\u540E\uFF0C\u6F14\u5458\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002</p></div></sc-if></section></sc-if>
+    <sc-if value="{{ cn.showWall }}"><section class="jj-cinema-browse">
+      <sc-if value="{{ cn.actorHeader }}"><button class="btn btn-ghost jj-cinema-back" onClick="{{ cn.backToActors }}">${icon("arrow-left")} \u5168\u90E8\u6F14\u5458</button></sc-if>
+      <div class="jj-cinema-section-heading"><div><h1>{{ cn.wallTitle }}</h1><p role="status">{{ cn.wallMeta }}</p></div><sc-if value="{{ cn.hasLibrary }}"><label class="jj-cinema-sort">\u6392\u5E8F<select class="input" aria-label="\u5F71\u9662\u6392\u5E8F" value="{{ cn.sort }}" onChange="{{ cn.setSort }}"><sc-for list="{{ cn.sorts }}" as="o"><option>{{ o.name }}</option></sc-for></select></label></sc-if></div>
+      <sc-if value="{{ cn.hasLibrary }}"><details class="jj-cinema-filters"><summary>${icon("sliders-horizontal")} \u7B5B\u9009\u5F71\u7247 <span>{{ cn.filterCount }}</span></summary><div><sc-for list="{{ cn.filterGroups }}" as="g"><div class="jj-cinema-filter-group"><strong>{{ g.name }}</strong><div><sc-for list="{{ g.items }}" as="o"><button aria-pressed="{{ o.on }}" onClick="{{ o.toggle }}">{{ o.name }} <small>{{ o.count }}</small></button></sc-for></div></div></sc-for></div></details></sc-if>
+      <sc-if value="{{ cn.hasFilters }}"><div class="jj-cinema-active-filters"><sc-for list="{{ cn.activeFilters }}" as="f"><button class="btn btn-secondary" aria-label="\u79FB\u9664 {{ f.text }}" onClick="{{ f.remove }}">{{ f.text }} ${icon("x")}</button></sc-for><button class="btn btn-ghost" onClick="{{ cn.clearFilters }}">\u6E05\u7A7A {{ cn.filterCount }} \u4E2A\u6761\u4EF6</button></div></sc-if>
+      <sc-if value="{{ cn.wallEmpty }}"><div class="jj-cinema-empty">${icon("film-strip")}<h2>{{ cn.emptyTitle }}</h2><p>{{ cn.emptyBody }}</p><button class="btn btn-secondary" onClick="{{ cn.clearFilters }}">{{ cn.clearText }}</button></div></sc-if>
+      <div class="jj-cinema-wall">${cards("cn.wall")}</div>${pager("cn.paging")}
+    </section></sc-if>
+  </main>
+  <sc-if value="{{ cn.detail }}"><section class="jj-cinema-detail" aria-hidden="{{ cn.playing }}" role="dialog" aria-modal="true" aria-label="\u5F71\u7247\u8BE6\u60C5">
+    <div class="jj-cinema-detail-nav"><button class="btn btn-secondary" onClick="{{ cn.closeDetail }}">${icon("arrow-left")} \u8FD4\u56DE\u6D4F\u89C8</button><span>{{ cn.detail.code }}</span><button class="btn btn-ghost" aria-label="\u5173\u95ED\u5F71\u7247\u8BE6\u60C5" onClick="{{ cn.closeDetail }}">${icon("x")}</button></div>
+    <div class="jj-cinema-detail-body">${backdrop("cn.detail")}<div class="jj-cinema-detail-intro">${artwork("cn.detail", "jj-cinema-detail-poster", "eager")}<div class="jj-cinema-detail-copy"><h1>{{ cn.detail.title }}</h1><p class="jj-cinema-meta">{{ cn.detail.meta }}</p><div class="jj-cinema-actions"><button class="btn btn-primary" disabled="{{ cn.detail.unavailable }}" onClick="{{ cn.detail.play }}">${icon("play")} {{ cn.detail.playText }}</button><button class="btn btn-secondary" onClick="{{ cn.detail.manage }}">\u5728\u5F71\u89C6\u5E93\u4E2D\u7BA1\u7406</button></div><p class="jj-cinema-detail-synopsis">{{ cn.detail.desc }}</p><dl class="jj-cinema-facts"><sc-for list="{{ cn.detail.fields }}" as="f"><div><dt>{{ f.name }}</dt><dd>{{ f.value }}</dd></div></sc-for></dl></div></div>
+    <div class="jj-cinema-detail-sections"><section><h2>\u6F14\u5458\u4E0E\u6807\u7B7E</h2><div class="jj-cinema-tags"><sc-for list="{{ cn.detail.actors }}" as="a"><button class="btn btn-secondary" onClick="{{ a.open }}">${icon("user")} {{ a.name }}</button></sc-for><sc-for list="{{ cn.detail.tags }}" as="g"><button class="btn btn-secondary" onClick="{{ g.open }}">{{ g.name }}</button></sc-for><sc-if value="{{ cn.detail.noTags }}"><span>\u6682\u65E0\u6F14\u5458\u4E0E\u6807\u7B7E\u8D44\u6599</span></sc-if></div></section>
+    <section class="jj-cinema-files"><h2>\u64AD\u653E\u6587\u4EF6</h2><label>\u9009\u62E9\u7248\u672C\u6216\u5206\u6BB5<select class="input" aria-label="\u8BE6\u60C5\u64AD\u653E\u6587\u4EF6" value="{{ cn.detail.fileIndex }}" onChange="{{ cn.detail.selectFile }}"><sc-for list="{{ cn.detail.files }}" as="f"><option value="{{ f.value }}" disabled="{{ f.missing }}">{{ f.label }}</option></sc-for></select></label><p>{{ cn.detail.fileMeta }}</p><button class="btn btn-primary" disabled="{{ cn.detail.unavailable }}" onClick="{{ cn.detail.play }}">${icon("play")} \u64AD\u653E\u6240\u9009\u6587\u4EF6</button><span>\u4F7F\u7528\u6D4F\u89C8\u5668\u64AD\u653E\u539F\u6587\u4EF6\uFF1B\u591A\u6BB5\u5F71\u7247\u4F1A\u6309\u987A\u5E8F\u64AD\u653E\u53EF\u7528\u6587\u4EF6\u3002</span></section></div></div>
+  </section></sc-if>
+</div></sc-if>`;
+
   // frontend/src/design/template.mjs
   function adaptTemplate(source, logo) {
-    let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(">v2.4.1</span>", ">{{ version }}</span>").replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
+    let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(">v2.4.1</span>", ">{{ version }}</span>").replace('animation:jjspin 900ms linear infinite"></span>\u540E\u53F0', 'animation:{{ bg.animation }}"></span>\u540E\u53F0').replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
     const start = html.indexOf('  <sc-if value="{{ cn.player }}">');
     const end = html.indexOf('  <sc-if value="{{ at.auto }}">', start);
     html = html.slice(0, start) + `
   <sc-if value="{{ cn.player }}">
-    <div class="jj-player" role="dialog" aria-label="\u672C\u5730\u5F71\u7247\u64AD\u653E">
-      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} \xB7 {{ cn.player.title }}</span><select class="input" aria-label="\u64AD\u653E\u6587\u4EF6" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">\u505C\u6B62\u64AD\u653E</button></div>
+    <div class="jj-player" role="dialog" aria-modal="true" aria-label="\u672C\u5730\u5F71\u7247\u64AD\u653E">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} \xB7 {{ cn.player.title }}</span><select class="input" aria-label="\u64AD\u653E\u6587\u4EF6" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}" disabled="{{ f.missing }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">\u505C\u6B62\u64AD\u653E</button></div>
       <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
     </div>
   </sc-if>
@@ -7591,18 +7805,15 @@ class Component extends DCLogic {
                 <div class="jj-provider-fields"><sc-for list="{{ s.fields }}" as="f"><div class="field"><label>{{ f.label }}</label><input class="input" aria-label="{{ f.label }}" type="{{ f.inputType }}" value="{{ f.value }}" onChange="{{ f.set }}"></div></sc-for></div>
               </div>`);
     html = html.replaceAll('value="{{ f.value }}"', 'aria-label="{{ f.label }}" value="{{ f.value }}"').replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:var(--mono)"', '<sc-if value="{{ f.isCheck }}"><label><input type="checkbox" checked="{{ f.on }}" onChange="{{ f.set }}">{{ f.label }}</label></sc-if><sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:var(--mono)"');
-    html = html.replace("\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247</h5>", "{{ cn.emptyTitle }}</h5>").replace("\u5F53\u524D\u7EC4\u5408\u8FC7\u6EE4\u6389\u4E86\u5168\u90E8\u7ED3\u679C\u3002\u53BB\u6389\u4E00\u4E2A\u6761\u4EF6\uFF0C\u6216\u6E05\u7A7A\u540E\u91CD\u65B0\u9009\u62E9\u3002", "{{ cn.emptyBody }}").replace('onClick="{{ cn.clearFilters }}">\u6E05\u7A7A\u6761\u4EF6', 'onClick="{{ cn.clearFilters }}">{{ cn.clearText }}');
     html = html.replace(/批次 b-20260723-1418[^<]+/, "{{ d.batchSummary }}").replace("\u5168\u90E8 128", "\u5168\u90E8 {{ d.historyCount }}").replace("\u672A\u5165\u5E93 3", "\u672A\u5165\u5E93 {{ d.missingCount }}").replace("\u5931\u8D25 2</span>", "\u5931\u8D25 {{ d.failureCount }}</span>").replace('<div style="background:rgba(201,160,94,.06);', '<sc-if value="{{ d.hasFailed }}"><div style="background:rgba(201,160,94,.06);').replace('      <div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">\u4E0B\u8F7D\u5386\u53F2', '      </sc-if><div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">\u4E0B\u8F7D\u5386\u53F2').replace("\u6807\u8BB0\u8DF3\u8FC7</button>", "\u5FFD\u7565\u6B64\u9879</button>").replace("\u590D\u5236 ffmpeg \u547D\u4EE4", "\u590D\u5236\u8F6C\u7801\u53C2\u6570").replace('<button class="btn btn-ghost" onClick="{{ au.autoLayout }}">\u81EA\u52A8\u6392\u7248</button>', "").replace("\u8FD0\u884C\u4E2D\u4EFB\u52A1 2 / 4", "\u5DF2\u542F\u7528\u4EFB\u52A1 {{ au.enabledCount }} / {{ au.taskCount }}").replace("\u4ECA\u65E5\u81EA\u52A8\u6D3E\u53D1 18 \u90E8", "\u4ECA\u65E5\u81EA\u52A8\u6D3E\u53D1 {{ au.dispatchedToday }} \u90E8").replace("\u4ECA\u65E5\u8DF3\u8FC7 41 \xB7 \u9519\u8BEF 2", "\u4ECA\u65E5\u8DF3\u8FC7 {{ au.skippedToday }} \xB7 \u9519\u8BEF {{ au.errorsToday }}").replace('<b style="color:var(--bad);font-weight:500">AV1 \u4E0D\u53EF\u7528</b><br>av1_nvenc \u786C\u4EF6\u63A2\u9488\u5931\u8D25\uFF1A\u5F53\u524D\u9A71\u52A8 535.161 \u4E0D\u652F\u6301\u3002\u76F8\u5173\u9884\u8BBE\u5DF2\u7981\u7528\uFF0C\u4E0D\u4F1A\u56DE\u9000 CPU\u3002', "{{ tc.hardwareMessage }}").replace("\u5E76\u53D1\u4E0A\u9650 2", "\u5E76\u53D1\u4E0A\u9650 {{ tc.maxConcurrent }}").replaceAll(/每 [125]s 轮询/g, "\u6BCF 3s \u66F4\u65B0").replace(" \xB7 \u5168\u5C40\u5E76\u53D1 5", "").replace("\u53EF\u7528\u53D8\u91CF {code} {title} {actors} {studio} {label} {series} {year} {date}", "\u53EF\u7528\u53D8\u91CF {{ sc.namingFields }}").replace('onClick="{{ s.run }}">{{ s.runText }}', 'disabled="{{ s.loading }}" onClick="{{ s.run }}">{{ s.runText }}').replace('onClick="{{ sc.preview }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.preview }}"').replace('onClick="{{ sc.reset }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.reset }}"').replace('onClick="{{ d.run }}"', 'disabled="{{ !d.runCount }}" onClick="{{ d.run }}"');
     html = html.replace("YHG007 \u6765\u6E90\u4E0D\u53EF\u8FBE", "\u67E5\u8BE2\u5931\u8D25").replace(/HTTPConnectionPool\(host='yhg007.com'[\s\S]*?已保留上一次 JavBus 结果缓存。/, "{{ s.error }}\u3002\u53EF\u91CD\u8BD5\u6216\u68C0\u67E5\u6765\u6E90\u8BBE\u7F6E\u3002").replace("3 \u4E2A\u6587\u4EF6\u51B2\u7A81\u9700\u8981\u5904\u7406", "{{ sc.nConf }} \u4E2A\u6587\u4EF6\u51B2\u7A81\u9700\u8981\u5904\u7406").replace("115 \u7F51\u76D8\u672A\u914D\u7F6E", "\u5F53\u524D\u7F51\u76D8\u672A\u8FDE\u63A5").replace(/缺少 Cookie，无法列目录或提交离线任务。[\s\S]*?后重新连接。/, "\u8BF7\u5230\u8BBE\u7F6E\u4E2D\u8FDE\u63A5\u5F53\u524D\u7F51\u76D8\uFF0C\u518D\u6D4F\u89C8\u76EE\u5F55\u3002").replace('onClick="{{ sc.applyStrategy }}"', 'disabled="{{ !sc.nConf }}" onClick="{{ sc.applyStrategy }}"').replace('onChange="{{ au.togglePauseAll }}"', 'disabled="{{ au.pauseAll }}" onChange="{{ au.togglePauseAll }}"').replace('onClick="{{ se.save }}"', 'disabled="{{ se.isOverview }}" onClick="{{ se.save }}"');
     html = html.replace('      <sc-if value="{{ sc.hasPreview }}">\n', `<sc-if value="{{ sc.outcome }}"><div style="background:var(--surf);border-radius:8px;padding:16px"><h5>\u6267\u884C\u7ED3\u679C \xB7 {{ sc.outcome.summary }}</h5><p>\u5931\u8D25\u9879\u53EF\u4FEE\u6B63\u914D\u7F6E\u540E\u91CD\u65B0\u751F\u6210\u9884\u89C8\uFF1B\u5DF2\u5B8C\u6210\u7684\u6587\u4EF6\u65E0\u9700\u91CD\u590D\u5904\u7406\u3002</p><sc-for list="{{ sc.outcome.rows }}" as="r"><div style="padding:8px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere"><span style="color:{{ r.fg }}">{{ r.status }}</span> \xB7 {{ r.path }}<div style="color:var(--dim)">{{ r.note }}</div></div></sc-for></div></sc-if><sc-if value="{{ sc.hasPreview }}">`);
     for (const action of ["au.save", "au.runNow", "au.toggleRun", "au.remove"]) html = html.replace(`onClick="{{ ${action} }}"`, `disabled="{{ !au.hasTask }}" onClick="{{ ${action} }}"`);
-    html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>').replace('flex:none">{{ a.initial }}</div>', 'flex:none;position:relative;overflow:hidden">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></div>').replace('<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span>', '<span style="font:400 30px/1 Inter,sans-serif;color:rgba(233,233,237,.5)">{{ a.initial }}</span><sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>').replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="\u8BE6\u60C5\u4E0E\u914D\u7F6E" style="position:fixed;top:0;right:0;bottom:0;').replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=').replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
+    html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>').replace('flex:none">{{ a.initial }}</div>', 'flex:none;position:relative;overflow:hidden">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></div>').replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="\u8BE6\u60C5\u4E0E\u914D\u7F6E" style="position:fixed;top:0;right:0;bottom:0;').replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=').replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
     const poster = (key) => `<sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>`;
     html = html.replace(/(<div style="width:70px;aspect-ratio:3\/2;[^"]*)">{{ r.code }}<\/div>/, `$1;position:relative;overflow:hidden">${poster("r")}{{ r.code }}</div>`).replace('position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">', `position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">${poster("r")}`);
     html = html.replace('box-shadow:inset 0 -1px 0 var(--line2)">\n                <span', `box-shadow:inset 0 -1px 0 var(--line2)">${poster("m")}
-                <span`).replaceAll('display:grid;place-items:center;overflow:hidden">\n                  <span', `display:grid;place-items:center;overflow:hidden">${poster("it")}
-                  <span`).replaceAll('display:grid;place-items:center;overflow:hidden">\n                <span', `display:grid;place-items:center;overflow:hidden">${poster("it")}
-                <span`).replace('<div style="position:absolute;top:0;right:0;width:62%;height:66%;', '<sc-if value="{{ cn.hero.cover }}"><img src="{{ cn.hero.cover }}" alt="" style="position:absolute;top:0;right:0;width:65%;height:75%;object-fit:cover;opacity:.5"></sc-if><div style="position:absolute;top:0;right:0;width:62%;height:66%;').replace("\u53F3\u4FA7\u5B9E\u65F6\u9884\u89C8\u4E00\u6761\u771F\u5B9E\u6587\u4EF6\u540D", "\u53F3\u4FA7\u4F7F\u7528\u793A\u4F8B\u5143\u6570\u636E\u9884\u89C8\u547D\u540D\u89C4\u5219");
+                <span`).replace("\u53F3\u4FA7\u5B9E\u65F6\u9884\u89C8\u4E00\u6761\u771F\u5B9E\u6587\u4EF6\u540D", "\u53F3\u4FA7\u4F7F\u7528\u793A\u4F8B\u5143\u6570\u636E\u9884\u89C8\u547D\u540D\u89C4\u5219");
     html = html.replace('  <sc-if value="{{ at.auto }}">', `
   <sc-if value="{{ sc.repair }}">
     <div class="dialog-backdrop" style="background:var(--ovl)"><div class="dialog elev-lg" role="dialog" aria-modal="true" aria-label="\u624B\u52A8\u6307\u5B9A\u756A\u53F7" style="width:480px">
@@ -7615,18 +7826,23 @@ class Component extends DCLogic {
   <sc-if value="{{ at.auto }}">`);
     html = html.replace('onClick="{{ s.openBrowse }}"', 'aria-label="\u6D4F\u89C8\u7B5B\u9009\u76EE\u5F55" onClick="{{ s.openBrowse }}"');
     html = html.replace('<div style="position:absolute;left:50%;top:64px;', '<div class="jj-catalog" role="dialog" aria-modal="true" aria-label="\u7B5B\u9009\u76EE\u5F55" style="position:fixed;left:50%;top:64px;').replace('<aside style="position:absolute;top:52px;right:16px;', '<aside class="jj-popover" role="dialog" aria-label="\u540E\u53F0\u4EFB\u52A1" style="position:fixed;top:52px;right:16px;').replace('<div style="position:absolute;top:64px;left:50%;', '<div class="jj-toast" role="status" aria-live="polite" style="position:fixed;top:64px;left:50%;');
-    html = html.replace('<div style="position:relative;flex:none;height:56px;', '<div class="jj-cinema-bar" style="position:relative;flex:none;height:56px;').replace('<div style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;', '<div class="jj-cinema-shelves" style="position:relative;flex:1 1 auto;min-height:0;overflow:hidden;padding:20px 34px 26px;').replace('<div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">', '<div class="jj-filter-options" style="display:flex;gap:6px;flex-wrap:wrap;flex:1">').replace('<div style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;', '<div class="jj-cinema-hero" style="position:relative;flex:0 0 auto;margin:34px 34px 0;width:560px;').replaceAll("display:flex;gap:11px;overflow:hidden", "display:flex;gap:11px;overflow-x:auto").replace('style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default"', 'style="font:400 10px/1 var(--mono);color:var(--dim2);padding-top:2px;cursor:default;max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"');
     html = html.replace(/<(div|span)([^>]*onClick="{{ (?:n.pick|a.open|f.open|c.go|t.pick|it.pick|t.go)[^>]*?)>/g, '<$1 role="button" tabIndex="0"$2>');
     html = html.replace('<div style="display:flex;align-items:stretch;gap:0">', '<div class="jj-auto-flow" style="display:flex;align-items:stretch;gap:0">').replace('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">', '<div class="jj-auto-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">');
     html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
     html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
-    const pager = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
-    html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager("bg.paging")}<sc-for list="{{ bg.items }}"`);
+    const pager2 = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+    html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager2("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager2("bg.paging")}<sc-for list="{{ bg.items }}"`);
     for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {
-      html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager(key + ".paging")}$2`);
+      html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager2(key + ".paging")}$2`);
     }
-    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager("fs.paging")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
-    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager("s.paging")}$2`).replace('<sc-if value="{{ cn.showWall }}">', `<sc-if value="{{ cn.showWall }}">${pager("cn.paging")}`).replace('<sc-if value="{{ cn.showActors }}">', `<sc-if value="{{ cn.showActors }}">${pager("cn.actorPaging")}`).replace('<sc-if value="{{ cn.showShelves }}">', `<sc-if value="{{ cn.showShelves }}">${pager("cn.shelfPaging")}`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace("{{ sh.meta }}</span>", '{{ sh.meta }}</span><sc-if value="{{ sh.openAll }}"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">\u67E5\u770B\u5168\u90E8</button></sc-if>').replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">').replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
+    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager2("fs.paging")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
+    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-secondary" onClick="{{ lb.openCheck }}">').replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
+    html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, (library) => library.replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">').replace("<aside style=", '<aside class="jj-library-sidebar" aria-label="\u5F71\u89C6\u5E93\u7B5B\u9009" style=').replace("<main style=", '<main class="jj-library-main" aria-label="\u5F71\u89C6\u5E93\u5185\u5BB9" style=').replace('<select class="input" style="width:auto;', '<select aria-label="\u5F71\u89C6\u5E93\u6392\u5E8F" class="input" style="width:auto;').replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">').replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">').replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">').replace('<div style="font-size:13px;max-width:280px;', '<div title="{{ r.title }}" style="font-size:13px;max-width:280px;').replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="\u67E5\u770B {{ r.code }} \u8BE6\u60C5" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>').replace("background:linear-gradient(transparent,var(--scrim9))", "background:linear-gradient(transparent,rgba(12,14,24,.94))").replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}').replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
+    html = html.replace('<div style="width:186px;flex:none;aspect-ratio:2/3;', '<div class="jj-library-detail-cover" style="position:relative;overflow:hidden;width:186px;flex:none;aspect-ratio:2/3;').replace('color:var(--t30)">{{ lb.d.code }}</div>', `color:var(--t30)">${poster("lb.d")}{{ lb.d.code }}</div>`);
+    html = html.replace(/<sc-if value="{{ lb.d }}">[\s\S]*?<\/aside>/, (detail) => detail.replace('class="jj-drawer"', 'class="jj-drawer jj-library-detail"').replace('<table class="table"', '<table class="table jj-library-files"'));
+    const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');
+    const cinemaEnd = html.indexOf('  <sc-if value="{{ cn.player }}">', cinemaStart);
+    html = html.slice(0, cinemaStart) + cinemaTemplate + "\n" + html.slice(cinemaEnd);
     return html;
   }
 

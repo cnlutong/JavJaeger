@@ -27,12 +27,7 @@
       "fc2",
       "javstash"
     ],
-    "javbus": {
-      "enabled": true,
-      "language": "zh",
-      "request_delay": 500,
-      "base_url": "https://www.javbus.com"
-    },
+    "javbus": { "enabled": true },
     "r18dev": { "enabled": false, "language": "en", "request_delay": 1500 },
     "dmm": { "enabled": false, "language": "ja", "request_delay": 1500 },
     "libredmm": { "enabled": false, "language": "ja", "request_delay": 1500 },

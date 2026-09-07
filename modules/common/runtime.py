@@ -47,9 +47,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "priority": SCRAPER_PROVIDER_NAMES,
         "javbus": {
             "enabled": True,
-            "language": "zh",
-            "request_delay": 500,
-            "base_url": "https://www.javbus.com",
         },
         "r18dev": {"enabled": False, "language": "en", "request_delay": 1500},
         "dmm": {"enabled": False, "language": "ja", "request_delay": 1500},
@@ -315,6 +312,23 @@ def get_javbus_config() -> dict[str, Any]:
 
 def get_scrapers_config() -> dict[str, Any]:
     return copy.deepcopy(config.get("scrapers", DEFAULT_CONFIG["scrapers"]))
+
+
+def build_scrapers_settings_payload(scrapers_config: dict[str, Any]) -> dict[str, Any]:
+    """Public scraper configuration shared by settings and test responses."""
+    payload: dict[str, Any] = {"priority": [name for name in scrapers_config.get("priority", SCRAPER_PROVIDER_NAMES) if name in SCRAPER_PROVIDER_NAMES]}
+    for provider in SCRAPER_PROVIDER_NAMES:
+        values = scrapers_config.get(provider)
+        values = values if isinstance(values, dict) else {}
+        item = {"enabled": bool(values.get("enabled")), "implemented": provider in IMPLEMENTED_SCRAPER_PROVIDER_NAMES}
+        if provider == "javbus":
+            item["uses_shared_config"] = True
+        else:
+            item.update(language=values.get("language") or "", request_delay=values.get("request_delay"), base_url=values.get("base_url") or "")
+        if provider == "javstash":
+            item["has_api_key"] = bool(values.get("api_key"))
+        payload[provider] = item
+    return payload
 
 
 def build_client_config() -> dict[str, Any]:

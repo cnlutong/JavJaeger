@@ -54,11 +54,27 @@ class AutomationService:
         self._lock = asyncio.Lock()
         self._scheduler_task: asyncio.Task | None = None
         self._running_task_ids: set[str] = set()
+        self._active_runs: dict[str, AutomationRun] = {}
+        self._executions: set[asyncio.Task] = set()
         self._cache_signature = None
         self._cached_tasks: list[AutomationTask] = []
 
     async def startup(self) -> None:
-        await self._load_tasks()
+        tasks = await self._load_tasks()
+        interrupted = False
+        for task in tasks:
+            for run in task.runs:
+                if run.status == "running":
+                    run.status = "failed"
+                    run.error = "服务重启导致运行中断，请核对下载历史后重新启用任务"
+                    run.finished_at = self._now()
+                    task.enabled = False
+                    task.next_run_at = None
+                    task.last_status = "failed"
+                    interrupted = True
+        if interrupted:
+            async with self._lock:
+                await self._save_tasks_unlocked(tasks)
         if self.scheduler_enabled and self._scheduler_task is None:
             self._scheduler_task = asyncio.create_task(self._scheduler_loop())
 
@@ -70,6 +86,10 @@ class AutomationService:
             except asyncio.CancelledError:
                 pass
             self._scheduler_task = None
+        pending = list(self._executions)
+        for execution in pending:
+            execution.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
     async def list_tasks(self) -> list[AutomationTask]:
         tasks = await self._load_tasks()
@@ -123,28 +143,46 @@ class AutomationService:
                 raise AutomationError("task_not_found", "自动任务不存在")
             await self._save_tasks_unlocked(next_tasks)
 
-    async def run_task(self, task_id: str, manual: bool = False) -> AutomationRun:
-        if task_id in self._running_task_ids:
-            raise AutomationError("task_already_running", "任务正在运行")
+    async def run_task(self, task_id: str, manual: bool = False, background: bool = False) -> AutomationRun:
         task = await self.get_task(task_id)
-        self._running_task_ids.add(task_id)
-        run = AutomationRun(
-            id=uuid4().hex,
-            task_id=task_id,
-            status="running",
-            started_at=self._now(),
-        )
+        async with self._lock:
+            if task_id in self._running_task_ids:
+                raise AutomationError("task_already_running", "任务正在运行")
+            self._running_task_ids.add(task_id)
+        run = AutomationRun(id=uuid4().hex, task_id=task_id, status="running", started_at=self._now(), message="正在检索影片")
+        self._active_runs[task_id] = run
         try:
-            run = await self._execute_task(task, run, manual=manual)
-        except Exception as exc:
-            logger.exception("自动任务运行失败: %s", task_id)
-            run.status = "failed"
-            run.error = str(exc)
-            run.finished_at = self._now()
-        finally:
+            await self._record_run(task_id, run)
+        except BaseException:
             self._running_task_ids.discard(task_id)
-        await self._record_run(task_id, run)
-        return run
+            self._active_runs.pop(task_id, None)
+            raise
+        if background:
+            snapshot = run.model_copy(deep=True)
+            execution = asyncio.create_task(self._run_and_record(task, run, manual))
+            self._executions.add(execution)
+            execution.add_done_callback(self._executions.discard)
+            return snapshot
+        return await self._run_and_record(task, run, manual)
+
+    async def _run_and_record(self, task: AutomationTask, run: AutomationRun, manual: bool) -> AutomationRun:
+        try:
+            try:
+                run = await self._execute_task(task, run, manual=manual)
+            except asyncio.CancelledError:
+                run.status = "failed"
+                run.error = "运行已中断，请核对下载历史后重试"
+                run.finished_at = self._now()
+            except Exception as exc:
+                logger.error("自动任务运行失败: %s (%s)", task.id, type(exc).__name__)
+                run.status = "failed"
+                run.error = exc.message if isinstance(exc, AutomationError) else "自动任务运行失败，请核对下载历史及连接设置"
+                run.finished_at = self._now()
+            await self._record_run(task.id, run)
+            return run
+        finally:
+            self._running_task_ids.discard(task.id)
+            self._active_runs.pop(task.id, None)
 
     async def list_runs(self, task_id: str) -> list[AutomationRun]:
         task = await self.get_task(task_id)
@@ -158,7 +196,8 @@ class AutomationService:
         movies = await self._search_movies(search_node.config)
         run.found_count = len(movies)
         prepared = []
-        for movie in movies:
+        for index, movie in enumerate(movies):
+            run.message = f"正在匹配磁力 {index + 1}/{len(movies)}"
             movie_id = str(movie.get("id") or movie.get("movie_id") or "").strip()
             if not movie_id:
                 continue
@@ -185,28 +224,36 @@ class AutomationService:
             prepared.append({"movie_id": movie_id, "title": title, "magnet": magnet})
 
         if prepared:
+            run.message = f"正在提交 {len(prepared)} 个下载任务"
             results = await self._dispatch_downloads(download_node.config, prepared)
             run.dispatched_count = sum(1 for item in results if item.get("success"))
             for index, item in enumerate(prepared):
                 result = results[index] if index < len(results) else {}
+                if result.get("skipped"):
+                    run.skipped_count += 1
                 run.items.append(
                     AutomationRunItem(
                         movie_id=item["movie_id"],
                         title=item["title"],
-                        status="dispatched" if result.get("success") else "dispatch_failed",
+                        status="skipped" if result.get("skipped") else "dispatched" if result.get("success") else "dispatch_failed",
                         magnet_link=item["magnet"].get("link"),
                         message=result.get("error") or result.get("message") or result.get("reason"),
                     )
                 )
 
         run.finished_at = self._now()
-        if run.dispatched_count == run.magnet_count and run.error is None:
+        if not any(item.status in {"dispatched", "dispatch_failed"} for item in run.items) and run.error is None:
+            run.status = "noop"
+            run.message = "未找到符合条件的新磁力，没有提交下载" if any(item.status == "no_magnet" for item in run.items) else "没有新影片需要下载"
+        elif run.dispatched_count > 0 and run.error is None and not any(item.status in {"no_magnet", "dispatch_failed"} for item in run.items):
             run.status = "success"
         elif run.dispatched_count > 0 or run.skipped_count > 0:
             run.status = "partial"
         else:
             run.status = "failed"
             run.error = run.error or "没有可派发的下载任务"
+        if run.status != "noop":
+            run.message = f"发现 {run.found_count}，匹配 {run.magnet_count}，提交 {run.dispatched_count}，跳过 {run.skipped_count}"
         return run
 
     async def _search_movies(self, config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -376,8 +423,7 @@ class AutomationService:
             index, task = self._find_task_with_index(tasks, task_id)
             if task is None:
                 return
-            task.runs.insert(0, run)
-            task.runs = task.runs[:RUN_HISTORY_LIMIT]
+            task.runs = [run] + [item for item in task.runs if item.id != run.id][:RUN_HISTORY_LIMIT - 1]
             task.last_run_at = run.finished_at or run.started_at
             task.last_status = run.status
             task.updated_at = self._now()
@@ -404,7 +450,7 @@ class AutomationService:
             except ValueError:
                 continue
             if due_at <= now and task.id not in self._running_task_ids:
-                asyncio.create_task(self.run_task(task.id, manual=False))
+                await self.run_task(task.id, manual=False, background=True)
 
     def _calculate_next_run(self, task: AutomationTask, now: datetime) -> str | None:
         if not task.enabled:
@@ -450,7 +496,11 @@ class AutomationService:
 
     async def _load_tasks(self) -> list[AutomationTask]:
         async with self._lock:
-            return await self._load_tasks_unlocked()
+            tasks = await self._load_tasks_unlocked()
+        for task in tasks:
+            if run := self._active_runs.get(task.id):
+                task.runs = [run.model_copy(deep=True)] + [item for item in task.runs if item.id != run.id]
+        return tasks
 
     async def _load_tasks_unlocked(self) -> list[AutomationTask]:
         return await asyncio.to_thread(self._read_tasks)
@@ -477,7 +527,9 @@ class AutomationService:
         self._cache_signature = None
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"tasks": [task.model_dump() for task in tasks]}
-        self.storage_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(self.storage_path)
 
     def _find_task(self, tasks: list[AutomationTask], task_id: str) -> AutomationTask | None:
         return next((task for task in tasks if task.id == task_id), None)

@@ -192,7 +192,8 @@ class DownloadHistoryService:
 
     async def is_movie_downloaded(self, movie_id: str) -> bool:
         await self._ensure_loaded()
-        return _normalize_movie_id(movie_id) in self._cache
+        record = self._cache.get(_normalize_movie_id(movie_id))
+        return bool(record and (_extract_download_resources(record) or "failed_resources" not in record))
 
     async def is_magnet_downloaded(self, movie_id: str, magnet_link: str) -> bool:
         if not movie_id or not magnet_link:
@@ -259,7 +260,7 @@ class DownloadHistoryService:
                 if not movie_id:
                     continue
 
-                movie_data = metadata[movie_id]
+                movie_data = metadata[movie_id] or {}
 
                 record = self._cache.get(
                     movie_id,
@@ -315,12 +316,52 @@ class DownloadHistoryService:
 
             logger.info("保存下载记录: %s", movie_ids)
 
+    async def record_dispatch_results(self, results: list[dict[str, Any]], tool: str) -> None:
+        """Keep submission failures retryable; only accepted resources block redispatch."""
+        attempted = [item for item in results if item.get("movie_id") and item.get("magnet") and not item.get("skipped")]
+        if not attempted:
+            return
+        submitted = [item for item in attempted if item.get("success")]
+        if submitted:
+            await self.save_movies([item["movie_id"] for item in submitted], [item["magnet"] for item in submitted], [item.get("source") or "" for item in submitted])
+        await self._ensure_loaded()
+        async with self._lock:
+            now = datetime.datetime.now().isoformat()
+            for item in attempted:
+                movie_id = _normalize_movie_id(item["movie_id"])
+                record = self._cache.setdefault(movie_id, {"movie_id": movie_id, "download_time": now, "download_resources": [], "download_links": []})
+                key = _normalize_download_link_key(item["magnet"])
+                failed = [resource for resource in record.get("failed_resources", []) if _normalize_download_link_key(resource.get("link")) != key]
+                if not item.get("success"):
+                    failed.append({"link": item["magnet"], "source": _normalize_magnet_source(item.get("source")), "tool": tool, "error": "dispatch_failed", "updated_at": now})
+                record.update(failed_resources=failed, status="failed" if failed else "submitted", download_tool=tool, updated_at=now)
+            self._save_unlocked()
+
+    def _save_unlocked(self) -> None:
+        path = Path(self.file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(list(self._cache.values()), ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
+
+    async def dismiss_failure(self, movie_id: str, link: str) -> dict[str, Any]:
+        await self._ensure_loaded()
+        async with self._lock:
+            record = self._cache.get(_normalize_movie_id(movie_id))
+            key = _normalize_download_link_key(link)
+            if record and any(_normalize_download_link_key(item.get("link")) == key for item in record.get("failed_resources", [])):
+                record["failed_resources"] = [item for item in record.get("failed_resources", []) if _normalize_download_link_key(item.get("link")) != key]
+                record["status"] = "failed" if record["failed_resources"] else "submitted" if _extract_download_resources(record) else "ignored"
+                record["updated_at"] = datetime.datetime.now().isoformat()
+                self._save_unlocked()
+        return {"success": True}
+
     async def get_downloaded_movie_ids(self) -> dict[str, Any]:
         downloaded_movies = await self.load_records()
         return {
             "success": True,
-            "downloaded_movies": [record["movie_id"] for record in downloaded_movies],
-            "total_count": len(downloaded_movies),
+            "downloaded_movies": [record["movie_id"] for record in downloaded_movies if _extract_download_resources(record) or "failed_resources" not in record],
+            "total_count": sum(bool(_extract_download_resources(record) or "failed_resources" not in record) for record in downloaded_movies),
         }
 
     async def get_downloaded_movie_status(self, movie_id: str) -> dict[str, Any]:

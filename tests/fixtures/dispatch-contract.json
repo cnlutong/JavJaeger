@@ -1,0 +1,4 @@
+{
+  "magnets": [{"id":"ABC123","link":"magnet:?xt=urn:btih:ABC123","isHD":false,"title":"QA-001 fixture","size":"1 GB","numberSize":1073741824,"shareDate":"2026-01-01","hasSubtitle":false}],
+  "batch": {"success":true,"results":[{"movie_id":"QA-001","success":true,"title":"Fixture movie","date":"未知","is_downloaded":false,"has_download_history":false,"in_local_library":false,"best_magnet":{"id":"ABC123","link":"magnet:?xt=urn:btih:ABC123","isHD":false,"title":"QA-001 fixture","size":"1 GB","numberSize":1073741824,"shareDate":"2026-01-01","hasSubtitle":false,"source":"javbus"}}],"total_count":1}
+}

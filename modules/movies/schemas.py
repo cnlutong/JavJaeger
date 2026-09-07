@@ -54,6 +54,7 @@ class LocalScrapePreviewRequest(BaseModel):
 
 class LocalScrapeApplyItem(BaseModel):
     source_path: str
+    target_video_path: Optional[str] = None
     code: Optional[str] = None
     metadata: Optional[dict] = None
     conflict_resolution: Optional[str] = None

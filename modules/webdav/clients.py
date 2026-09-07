@@ -45,7 +45,7 @@ class WebDavClient:
         self.session.close()
 
     def _build_download_url(self, href: str) -> str:
-        return urljoin(self.base_url, href)
+        return urljoin(self.base_url + "/", "" if href == "/" else href)
 
     def build_aria2_options(self, options: Dict[str, str] | None = None) -> Dict[str, str]:
         aria2_options: Dict[str, str] = {}
@@ -62,7 +62,7 @@ class WebDavClient:
         return aria2_options
 
     def _make_request(self, method: str, path: str, **kwargs) -> requests.Response:
-        url = urljoin(self.base_url, path.lstrip("/"))
+        url = self._build_download_url(path)
         kwargs.setdefault("timeout", self.timeout_seconds)
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
@@ -234,9 +234,18 @@ class Aria2Client:
 
     def _connect(self) -> None:
         parsed = urlparse(self.rpc_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("Aria2 RPC 地址必须是无凭据的 HTTP(S) 地址，密钥请单独填写")
+        endpoint = parsed._replace(path=parsed.path if parsed.path not in {"", "/"} else "/jsonrpc").geturl()
+        # aria2p fixes /jsonrpc in its default property; retain the user's complete RPC URL.
+        class RpcClient(aria2p.Client):
+            @property
+            def server(self):
+                return endpoint
+
         host_with_protocol = f"{parsed.scheme}://{parsed.hostname}"
-        port = parsed.port or 6800
-        client = aria2p.Client(host=host_with_protocol, port=port, secret=self.secret)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        client = RpcClient(host=host_with_protocol, port=port, secret=self.secret)
         self.aria2 = aria2p.API(client)
 
     def test_connection(self) -> bool:

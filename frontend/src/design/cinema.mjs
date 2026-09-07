@@ -1,0 +1,47 @@
+// Cinema presentation reuses the existing library, filtering and player services.
+const icon = name => `<i aria-hidden="true" class="ph ph-${name}"></i>`;
+const artwork = (key, className, loading = 'lazy') => `<div class="${className}"><span>${icon('film-strip')}<small>{{ ${key}.code }}</small></span><sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="${loading}" onError="{{ cn.imageError }}"></sc-if></div>`;
+const cards = list => `<sc-for list="{{ ${list} }}" as="it"><button class="jj-cinema-card" onClick="{{ it.open }}" aria-label="查看 {{ it.code }} 详情" title="{{ it.title }}">
+  <div class="jj-cinema-card-art">${artwork('it', 'jj-cinema-poster')}<span class="jj-cinema-card-overlay">${icon('info')}</span><sc-if value="{{ it.unavailable }}"><span class="jj-cinema-badge">文件缺失</span></sc-if><span class="jj-cinema-card-quality">{{ it.res }}</span></div>
+  <span class="jj-cinema-card-title">{{ it.title }}</span><span class="jj-cinema-card-meta">{{ it.caption }}</span>
+</button></sc-for>`;
+const pager = key => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="分页"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">上一页</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">下一页</button></nav></sc-if>`;
+const backdrop = key => `<sc-if value="{{ ${key}.backdrop }}"><img class="jj-cinema-backdrop" src="{{ ${key}.backdrop }}" alt="" onError="{{ cn.imageError }}"></sc-if>`;
+
+export const cinemaTemplate = `<sc-if value="{{ at.cinema }}"><div class="jj-cinema">
+  <header class="jj-cinema-bar" aria-hidden="{{ cn.detailOpen }}">
+    <span class="jj-cinema-brand">JavJaeger</span>
+    <nav aria-label="影院导航"><sc-for list="{{ cn.tabs }}" as="t"><button aria-current="{{ t.current }}" onClick="{{ t.pick }}">{{ t.name }}</button></sc-for></nav>
+    <div class="jj-cinema-search">${icon('magnifying-glass')}<input type="search" aria-label="影院搜索" placeholder="搜索影片、番号、演员" value="{{ cn.query }}" onChange="{{ cn.setQuery }}"><sc-if value="{{ cn.hasQuery }}"><button aria-label="清空影院搜索" onClick="{{ cn.clearQuery }}">${icon('x')}</button></sc-if></div>
+    <button class="btn btn-secondary jj-cinema-exit" onClick="{{ cn.exit }}">管理界面</button>
+  </header>
+  <main class="jj-cinema-content" aria-label="影院内容" aria-hidden="{{ cn.detailOpen }}">
+    <sc-if value="{{ cn.showHero }}"><section class="jj-cinema-hero" aria-label="精选影片">
+      ${backdrop('cn.hero')}
+      <div class="jj-cinema-hero-copy"><h1 title="{{ cn.hero.title }}">{{ cn.hero.title }}</h1><p class="jj-cinema-meta">{{ cn.hero.meta }}</p><p class="jj-cinema-synopsis">{{ cn.hero.desc }}</p>
+        <div class="jj-cinema-actions"><button class="btn btn-primary" disabled="{{ cn.hero.unavailable }}" onClick="{{ cn.play }}">${icon('play')} {{ cn.hero.playText }}</button><button class="btn btn-secondary" onClick="{{ cn.info }}">影片详情</button></div>
+      </div>${artwork('cn.hero', 'jj-cinema-feature-poster', 'eager')}
+    </section></sc-if>
+    <sc-if value="{{ cn.showShelves }}"><div class="jj-cinema-shelves">
+      <sc-if value="{{ cn.sectionTitle }}"><div class="jj-cinema-section-heading"><div><h1>{{ cn.sectionTitle }}</h1><p>{{ cn.sectionMeta }}</p></div></div></sc-if>
+      <sc-for list="{{ cn.shelves }}" as="sh"><section class="jj-cinema-shelf"><div class="jj-cinema-section-heading"><h2>{{ sh.name }} <small>{{ sh.meta }}</small></h2><div class="jj-cinema-shelf-controls"><button class="btn btn-ghost" onClick="{{ sh.openAll }}">查看全部</button><button class="btn btn-secondary jj-cinema-arrow" aria-label="上一组 {{ sh.name }}" onClick="{{ sh.previous }}">${icon('caret-left')}</button><button class="btn btn-secondary jj-cinema-arrow" aria-label="下一组 {{ sh.name }}" onClick="{{ sh.next }}">${icon('caret-right')}</button></div></div><div class="jj-cinema-shelf-track" tabIndex="0" aria-label="{{ sh.name }}海报">${cards('sh.items')}</div></section></sc-for>
+      ${pager('cn.shelfPaging')}
+      <sc-if value="{{ cn.shelvesEmpty }}"><div class="jj-cinema-empty">${icon('film-strip')}<h2>{{ cn.sectionEmpty }}</h2><p>扫描或补全影片资料后，在这里浏览你的收藏。</p><button class="btn btn-secondary" onClick="{{ cn.browseAll }}">浏览全部影片</button></div></sc-if>
+    </div></sc-if>
+    <sc-if value="{{ cn.showActors }}"><section class="jj-cinema-browse"><div class="jj-cinema-section-heading"><div><h1>演员</h1><p>{{ cn.actorsMeta }}</p></div></div><div class="jj-cinema-actors"><sc-for list="{{ cn.actors }}" as="a"><button class="jj-cinema-actor" onClick="{{ a.open }}"><span class="jj-cinema-avatar">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" loading="lazy" onError="{{ cn.imageError }}"></sc-if></span><strong>{{ a.name }}</strong><span>{{ a.count }}</span></button></sc-for></div>${pager('cn.actorPaging')}<sc-if value="{{ cn.actorsEmpty }}"><div class="jj-cinema-empty"><h2>暂无演员信息</h2><p>补全影片资料后，演员会出现在这里。</p></div></sc-if></section></sc-if>
+    <sc-if value="{{ cn.showWall }}"><section class="jj-cinema-browse">
+      <sc-if value="{{ cn.actorHeader }}"><button class="btn btn-ghost jj-cinema-back" onClick="{{ cn.backToActors }}">${icon('arrow-left')} 全部演员</button></sc-if>
+      <div class="jj-cinema-section-heading"><div><h1>{{ cn.wallTitle }}</h1><p role="status">{{ cn.wallMeta }}</p></div><sc-if value="{{ cn.hasLibrary }}"><label class="jj-cinema-sort">排序<select class="input" aria-label="影院排序" value="{{ cn.sort }}" onChange="{{ cn.setSort }}"><sc-for list="{{ cn.sorts }}" as="o"><option>{{ o.name }}</option></sc-for></select></label></sc-if></div>
+      <sc-if value="{{ cn.hasLibrary }}"><details class="jj-cinema-filters"><summary>${icon('sliders-horizontal')} 筛选影片 <span>{{ cn.filterCount }}</span></summary><div><sc-for list="{{ cn.filterGroups }}" as="g"><div class="jj-cinema-filter-group"><strong>{{ g.name }}</strong><div><sc-for list="{{ g.items }}" as="o"><button aria-pressed="{{ o.on }}" onClick="{{ o.toggle }}">{{ o.name }} <small>{{ o.count }}</small></button></sc-for></div></div></sc-for></div></details></sc-if>
+      <sc-if value="{{ cn.hasFilters }}"><div class="jj-cinema-active-filters"><sc-for list="{{ cn.activeFilters }}" as="f"><button class="btn btn-secondary" aria-label="移除 {{ f.text }}" onClick="{{ f.remove }}">{{ f.text }} ${icon('x')}</button></sc-for><button class="btn btn-ghost" onClick="{{ cn.clearFilters }}">清空 {{ cn.filterCount }} 个条件</button></div></sc-if>
+      <sc-if value="{{ cn.wallEmpty }}"><div class="jj-cinema-empty">${icon('film-strip')}<h2>{{ cn.emptyTitle }}</h2><p>{{ cn.emptyBody }}</p><button class="btn btn-secondary" onClick="{{ cn.clearFilters }}">{{ cn.clearText }}</button></div></sc-if>
+      <div class="jj-cinema-wall">${cards('cn.wall')}</div>${pager('cn.paging')}
+    </section></sc-if>
+  </main>
+  <sc-if value="{{ cn.detail }}"><section class="jj-cinema-detail" aria-hidden="{{ cn.playing }}" role="dialog" aria-modal="true" aria-label="影片详情">
+    <div class="jj-cinema-detail-nav"><button class="btn btn-secondary" onClick="{{ cn.closeDetail }}">${icon('arrow-left')} 返回浏览</button><span>{{ cn.detail.code }}</span><button class="btn btn-ghost" aria-label="关闭影片详情" onClick="{{ cn.closeDetail }}">${icon('x')}</button></div>
+    <div class="jj-cinema-detail-body">${backdrop('cn.detail')}<div class="jj-cinema-detail-intro">${artwork('cn.detail', 'jj-cinema-detail-poster', 'eager')}<div class="jj-cinema-detail-copy"><h1>{{ cn.detail.title }}</h1><p class="jj-cinema-meta">{{ cn.detail.meta }}</p><div class="jj-cinema-actions"><button class="btn btn-primary" disabled="{{ cn.detail.unavailable }}" onClick="{{ cn.detail.play }}">${icon('play')} {{ cn.detail.playText }}</button><button class="btn btn-secondary" onClick="{{ cn.detail.manage }}">在影视库中管理</button></div><p class="jj-cinema-detail-synopsis">{{ cn.detail.desc }}</p><dl class="jj-cinema-facts"><sc-for list="{{ cn.detail.fields }}" as="f"><div><dt>{{ f.name }}</dt><dd>{{ f.value }}</dd></div></sc-for></dl></div></div>
+    <div class="jj-cinema-detail-sections"><section><h2>演员与标签</h2><div class="jj-cinema-tags"><sc-for list="{{ cn.detail.actors }}" as="a"><button class="btn btn-secondary" onClick="{{ a.open }}">${icon('user')} {{ a.name }}</button></sc-for><sc-for list="{{ cn.detail.tags }}" as="g"><button class="btn btn-secondary" onClick="{{ g.open }}">{{ g.name }}</button></sc-for><sc-if value="{{ cn.detail.noTags }}"><span>暂无演员与标签资料</span></sc-if></div></section>
+    <section class="jj-cinema-files"><h2>播放文件</h2><label>选择版本或分段<select class="input" aria-label="详情播放文件" value="{{ cn.detail.fileIndex }}" onChange="{{ cn.detail.selectFile }}"><sc-for list="{{ cn.detail.files }}" as="f"><option value="{{ f.value }}" disabled="{{ f.missing }}">{{ f.label }}</option></sc-for></select></label><p>{{ cn.detail.fileMeta }}</p><button class="btn btn-primary" disabled="{{ cn.detail.unavailable }}" onClick="{{ cn.detail.play }}">${icon('play')} 播放所选文件</button><span>使用浏览器播放原文件；多段影片会按顺序播放可用文件。</span></section></div></div>
+  </section></sc-if>
+</div></sc-if>`;

@@ -6,7 +6,7 @@ const normalizeSource = (source, fallbackSource = "") => {
 const normalizeLink = (link) => String(link || "").trim();
 
 export const selectHistoryRedispatchResource = (record, fallbackSource = "") => {
-    const resources = Array.isArray(record?.download_resources) ? record.download_resources : [];
+    const resources = record?.failed_resources?.length ? record.failed_resources : Array.isArray(record?.download_resources) ? record.download_resources : [];
     for (let index = resources.length - 1; index >= 0; index -= 1) {
         const resource = resources[index];
         const link = normalizeLink(resource?.link || resource?.magnet || resource?.download_link || resource?.magnet_link);

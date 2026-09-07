@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 TriggerType = Literal["auto", "scheduled", "interval"]
 NodeType = Literal["trigger", "search", "magnet", "download"]
-RunStatus = Literal["running", "success", "partial", "failed"]
+RunStatus = Literal["running", "success", "partial", "failed", "noop"]
 
 
 class AutomationTrigger(BaseModel):
@@ -66,6 +66,7 @@ class AutomationRun(BaseModel):
     dispatched_count: int = 0
     skipped_count: int = 0
     error: str | None = None
+    message: str = ""
     items: list[AutomationRunItem] = Field(default_factory=list)
 
 

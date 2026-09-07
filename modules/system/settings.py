@@ -4,6 +4,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from modules.common import runtime
+from modules.common.runtime import build_scrapers_settings_payload
 from modules.javbus_api import javbus_api_service
 
 
@@ -31,31 +32,6 @@ MAGNET_HEALTH_SETTING_LIMITS = {
     "min_score": (0.0, 100000.0),
     "probe_timeout_seconds": (3.0, 120.0),
 }
-
-
-def build_scrapers_settings_payload(scrapers_config: dict[str, Any]) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "priority": [
-            provider
-            for provider in scrapers_config.get("priority", runtime.SCRAPER_PROVIDER_NAMES)
-            if provider in runtime.SCRAPER_PROVIDER_NAMES
-        ],
-    }
-    for provider in runtime.SCRAPER_PROVIDER_NAMES:
-        provider_config = scrapers_config.get(provider)
-        if not isinstance(provider_config, dict):
-            provider_config = {}
-        item = {
-            "enabled": bool(provider_config.get("enabled")),
-            "language": provider_config.get("language") or "",
-            "request_delay": provider_config.get("request_delay"),
-            "base_url": provider_config.get("base_url") or "",
-            "implemented": provider in runtime.IMPLEMENTED_SCRAPER_PROVIDER_NAMES,
-        }
-        if provider == "javstash":
-            item["has_api_key"] = bool(provider_config.get("api_key"))
-        payload[provider] = item
-    return payload
 
 
 def build_settings_payload() -> dict[str, Any]:
@@ -238,6 +214,12 @@ def validate_scrapers_settings(payload: dict[str, Any]) -> dict[str, Any]:
         enabled = _normalize_bool(values, "enabled")
         if enabled is not None:
             provider_updates["enabled"] = enabled
+
+        if provider == "javbus":
+            if any(key in values for key in ("base_url", "language", "request_delay")):
+                raise HTTPException(status_code=400, detail="JavBus 与影片检索共用访问设置，请在 JavBus 设置中修改地址和请求间隔")
+            normalized[provider] = provider_updates
+            continue
 
         language = _normalize_string(values, "language")
         if language is not None:

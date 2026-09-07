@@ -6,6 +6,7 @@ import { adaptTemplate } from '../../frontend/src/design/template.mjs';
 import { saveWebDavSettings, saveAria2Settings } from '../../frontend/src/utils/storage.js';
 
 const original = readFileSync(new URL('../../frontend/src/design/JavJaeger.dc.html', import.meta.url), 'utf8');
+const dispatchContract = JSON.parse(readFileSync(new URL('../fixtures/dispatch-contract.json', import.meta.url), 'utf8'));
 const script = adaptDesignScript(original.match(/<script[^>]*data-dc-script[^>]*>([\s\S]*?)<\/script>/)[1]);
 class DCLogic {
     constructor(props) { this.props = props; }
@@ -153,7 +154,7 @@ test('original search controls load real movie and magnet endpoints', async () =
     globalThis.fetch = async (url, options = {}) => {
         requests.push([String(url), options]);
         return new Response(JSON.stringify(String(url).startsWith('/api/magnets/')
-            ? [{ name: 'QA-001.mkv', link: 'magnet:?xt=urn:btih:0123456789012345678901234567890123456789', size: '1 GB' }]
+            ? [{ title: 'QA-001.mkv', link: 'magnet:?xt=urn:btih:0123456789012345678901234567890123456789', size: '1 GB' }]
             : { id: 'QA-001', title: 'Real API result', gid: '12', uc: 0, stars: [{ name: 'QA Actor' }] }), { status: 200 });
     };
     instance.setState({ route: 'search', sMode: 'code', code: 'QA-001' });
@@ -231,6 +232,74 @@ test('performance: 10000 history, transcode, scrape and storage entries render o
     instance.componentWillUnmount();
 });
 const localRecord = (code, overrides = {}) => ({ movie_id: code, title: code, files: [{ path: `/${code}.mp4`, size: 100 }], stars: [], genres: [], total_size: 100, ...overrides });
+test('cinema: search, removable filters and details preserve the browsing context', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    await loadRecords(instance, Array.from({ length: 125 }, (_, i) => localRecord(`QA-${i}`, { title: `影片 ${i}`, stars: ['测试演员'], series: '测试系列', media_info: { height: 1080 } })));
+    instance.setState({ route: 'cinema', cnTab: '全部影片' });
+    instance.vCinema().paging.next();
+    instance.vCinema().setQuery({ target: { value: ' QA-124 ' } });
+    let view = instance.vCinema();
+    assert.deepEqual(view.wall.map(row => row.code), ['QA-124']);
+    view.wall[0].open();
+    assert.equal(instance.state.route, 'cinema');
+    view = instance.vCinema();
+    assert.equal(view.detail.code, 'QA-124');
+    view.closeDetail();
+    assert.equal(instance.state.cnTab, '全部影片');
+    assert.equal(instance.state.cnQ, ' QA-124 ');
+    view.clearQuery();
+    view = instance.vCinema();
+    assert.equal(view.wall.length, 60);
+    view.filterGroups.find(group => group.name === '分辨率').items[0].toggle();
+    view = instance.vCinema();
+    assert.equal(view.activeFilters.length, 1);
+    view.activeFilters[0].remove();
+    assert.equal(instance.vCinema().activeFilters.length, 0);
+    instance.vCinema().setQuery({ target: { value: '不存在的影片' } });
+    assert.equal(instance.vCinema().wallEmpty, true);
+    instance.vCinema().clearFilters();
+    assert.equal(instance.vCinema().wall.length, 60);
+});
+
+test('cinema: shelves use recent library data and playback skips missing segments', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    await loadRecords(instance, [localRecord('QA-OLD', { updated_at: '2026-01-01' }), localRecord('QA-NEW', {
+        updated_at: '2026-09-01', file_count: 3, files: [{ path: '/missing.mp4', exists: false }, { path: '/available.mp4' }, { path: '/missing-last.mp4', exists: false }],
+    })]);
+    let view = instance.vCinema();
+    assert.equal(view.shelves[0].items[0].code, 'QA-NEW');
+    view.shelves[0].items[0].open();
+    view = instance.vCinema();
+    assert.equal(view.detail.fileIndex, '1');
+    view.detail.play();
+    view = instance.vCinema();
+    assert.match(view.player.url, /QA-NEW\/play\?file_index=1$/);
+    view.player.ended();
+    assert.equal(instance.state.playerIndex, 1, 'never auto-play a missing segment');
+    view.closePlayer();
+    assert.equal(instance.vCinema().detail.code, 'QA-NEW', 'stopping playback returns to cinema details');
+});
+
+test('library: loading, empty collection and filtered results retain the right recovery action', async () => {
+    const instance = app();
+    assert.equal(instance.vLibrary().emptyTitle, '正在读取影视库…');
+    assert.equal(instance.vLibrary().showEmptyAction, false);
+    await loadRecords(instance, []);
+    const empty = instance.vLibrary();
+    assert.equal(empty.emptyTitle, '开始建立你的影视库');
+    empty.emptyAction(); assert.equal(instance.state.lbPathCfg, true);
+    await loadRecords(instance, [localRecord('QA-001', { cover_url: '/api/test-cover' })]);
+    instance.setState({ lbQ: 'missing', lbView: 'poster' });
+    const filtered = instance.vLibrary();
+    assert.equal(filtered.empty, true);
+    filtered.emptyAction();
+    assert.equal(instance.vLibrary().rows.length, 1);
+    assert.equal(instance.state.lbQ, '');
+    assert.equal(instance.vLibrary().showPoster, true);
+    instance.setState({ lbDetail: 'QA-001' });
+    assert.equal(instance.vLibrary().d.cover, '/api/test-cover');
+    instance.componentWillUnmount();
+});
 test('performance: batch confirmation and background menu stay bounded without losing actions', () => {
     const instance = app(), data = instance.constructor.data;
     const list = Array.from({ length: 10000 }, (_, i) => `QA-${i}`);
@@ -481,7 +550,7 @@ test('audit: automation filter mode and multiline codes match backend contracts'
 test('audit: opening movie details preserves its loaded best magnet', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'search', code: 'QA-1' });
-    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [{ link: 'magnet:test', name: 'QA', size: '1 GB' }] : { id: 'QA-1', gid: '1', uc: 0 });
+    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [{ link: 'magnet:test', title: 'QA', size: '1 GB' }] : { id: 'QA-1', gid: '1', uc: 0 });
     await instance.runSearch(); await instance.renderVals().s.rows[0].open();
     assert.equal(instance.renderVals().s.rows[0].noMag, false);
 });
@@ -574,4 +643,114 @@ test('audit: unrelated polling errors do not hide a completed scrape and expired
     globalThis.fetch = async () => new Response('{}', { status: 404 });
     await instance.perform(() => instance.poll()); assert.equal(instance.state.scrapeTask.status, 'failed');
     assert.match(instance.state.toast.text, /任务已失效/);
+});
+
+
+test('workflow: batch dispatch consumes the backend-verified query contract', async t => {
+    const instance = app(), calls = []; t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'dispatch', tool: 'Aria2', dCodes: 'QA-001', dNo4k: true });
+    globalThis.fetch = async (url, options) => {
+        calls.push([url, options.body && JSON.parse(options.body)]);
+        return new Response(JSON.stringify(url === '/api/movies/batch' ? dispatchContract.batch : url === '/api/history' ? [] : { success: true, results: [{ movie_id: 'QA-001', success: true }] }));
+    };
+    instance.vDispatch().run(); await instance.state.dlg.run();
+    assert.equal(calls[0][0], '/api/movies/batch');
+    assert.equal(calls[0][1].exclude_4k, true);
+    const body = calls.find(([url]) => url === '/api/aria2/download-magnets')?.[1];
+    assert.deepEqual(body?.movie_ids, ['QA-001']);
+    assert.deepEqual(body?.magnet_links, [dispatchContract.magnets[0].link]);
+});
+
+test('workflow: backend title and producer fields render in the actual design', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', code: 'QA-001' });
+    globalThis.fetch = async url => new Response(JSON.stringify(url.startsWith('/api/magnets/') ? dispatchContract.magnets : { id: 'QA-001', title: 'Fixture', gid: '1', uc: '0', producer: { name: 'Fixture Studio' } }));
+    await instance.runSearch(); instance.setState({ detail: 'QA-001' });
+    assert.equal(instance.magnetRows('QA-001')[0].name, 'QA-001 fixture');
+    assert.equal(instance.renderVals().s.d.studio, 'Fixture Studio');
+    assert.doesNotMatch(instance.renderVals().s.rows[0].magText, /undefined/);
+});
+
+test('workflow: failed scan still refreshes successful imports', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let refreshed = 0; instance.loadLibrary = async () => { refreshed++; };
+    instance.setState({ route: 'scrape', scanTask: { id: 'scan', status: 'running' }, lbScanning: true });
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 'failed', result: { success: false, scan_count: 1, failed_count: 1 }, message: '1 个目录成功、1 个目录失败' }));
+    await instance.perform(() => instance.poll());
+    assert.equal(refreshed, 1);
+    assert.equal(instance.state.lbScanning, false);
+    assert.match(instance.state.toast.text, /失败/);
+});
+
+test('workflow: scrape subset sends the confirmed preview destination', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'scrape' });
+    instance.scrapePreviewConfig = JSON.stringify(instance.scrapePayload());
+    instance.constructor.data.SCRAPE_ROWS.push({ src: '/incoming/ABP-123-b.mp4', kind: 'ok', raw: { code: 'ABP-123', target_video_path: '/out/ABP-123-2.mp4', metadata: {} } });
+    let body; instance.startJob = async (_key, _url, payload) => { body = payload; };
+    instance.executeScrape(); await instance.state.dlg.run();
+    assert.equal(body.items[0].target_video_path, '/out/ABP-123-2.mp4');
+});
+
+test('workflow: persisted failures retry the same resource and original tool', async t => {
+    const instance = app(), calls = []; t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'dispatch', tool: 'PikPak' });
+    instance.constructor.data.HISTORY.push({ movie_id: 'QA-001', status: 'failed', failed_resources: [{ link: 'magnet:retry', source: 'javbus', tool: 'aria2' }] });
+    globalThis.fetch = async (url, options) => { calls.push([url, options.body && JSON.parse(options.body)]); return new Response(JSON.stringify(url === '/api/history' ? [] : { success: true, results: [] })); };
+    const failed = instance.vDispatch().failed;
+    assert.equal(failed.length, 1); failed[0].retry(); await instance.state.dlg.run();
+    assert.equal(calls[0][0], '/api/aria2/download-magnets');
+    assert.deepEqual(calls[0][1].magnet_links, ['magnet:retry']);
+});
+
+test('workflow: 115 jobs remain visible until their partial result is consumed', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'dispatch', tool: '115 网盘' });
+    const calls = [];
+    globalThis.fetch = async url => {
+        calls.push(url);
+        return new Response(JSON.stringify(url === '/api/115/download-jobs' ? { job_id: 'job115', status: 'queued' } : url.includes('/download-jobs/') ? { status: 'completed', result: { success: true, results: [{ movie_id: 'QA-001', magnet: 'magnet:fixture', success: false }] } } : []));
+    };
+    instance.confirmDispatch(['QA-001'], [{ link: 'magnet:fixture', movie_id: 'QA-001' }]); await instance.state.dlg.run();
+    assert.ok(calls.includes('/api/115/download-jobs'));
+    assert.equal(instance.state.dispatchTask.id, 'job115');
+    assert.ok(window.sessionStorage.getItem('pan115ActiveDispatch'));
+    await instance.perform(() => instance.poll());
+    assert.equal(instance.vDispatch().failed.length, 1);
+    assert.equal(window.sessionStorage.getItem('pan115ActiveDispatch'), undefined ?? null);
+});
+
+test('workflow: scraper diagnostics use duration and error fields and shared JavBus settings', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'settings', seTab: '刮削源', settingsDraft: { javbus: { base_url: 'https://fixture.test' }, scrapers: { priority: ['javbus'], javbus: { enabled: true, uses_shared_config: true } } }, sourcesResult: [{ provider: 'javbus', success: false, duration_ms: 125, error_message: 'metadata unavailable' }] });
+    const source = instance.vSettings().sources[0];
+    assert.equal(source.latency, '125 ms');
+    assert.match(source.note, /metadata unavailable/);
+    assert.equal(source.fields.length, 0);
+});
+
+test('workflow: automation starts in background and progress remains available off-route', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let requested = '', polls = 0;
+    const task = { id: 'auto-fixture', name: 'fixture', nodes: [], runs: [{ id: 'run', status: 'running', message: '正在匹配 1/2' }] };
+    instance.setState({ route: 'auto', tasks: [task], auTask: task.id });
+    instance.saveAuto = async () => task;
+    instance.loadTasks = async () => { polls++; };
+    globalThis.fetch = async url => { requested = url; return json(task.runs[0]); };
+    instance.vAuto().runNow(); await instance.state.dlg.run();
+    assert.equal(requested, '/api/automation/tasks/auto-fixture/run?background=true');
+    instance.setState({ route: 'settings' }); polls = 0;
+    await instance.poll(); assert.equal(polls, 1);
+    assert.match(instance.renderVals().bg.items[0].meta, /正在匹配/);
+});
+
+test('workflow: ignoring a persisted failure removes that exact resource and refreshes history', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'dispatch' });
+    instance.constructor.data.HISTORY.push({ movie_id: 'QA-001', failed_resources: [{ link: 'magnet:ignore', tool: 'pikpak' }] });
+    const calls = [];
+    globalThis.fetch = async (url, options) => { calls.push([url, options.body && JSON.parse(options.body)]); return json(url === '/api/history' ? [] : { success: true }); };
+    await instance.vDispatch().failed[0].skip();
+    assert.deepEqual(calls[0], ['/api/history/QA-001/dismiss-failure', { link: 'magnet:ignore' }]);
+    assert.equal(instance.vDispatch().failed.length, 0);
 });

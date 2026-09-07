@@ -497,6 +497,35 @@ body,
 *::after {
   box-sizing: border-box;
 }
+html {
+  color-scheme: dark;
+  scrollbar-color: #55586b transparent;
+}
+html:has([data-jjtheme=light]) {
+  color-scheme: light;
+  scrollbar-color: #a2a5b5 transparent;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: inherit;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--t30, #55586b);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--dim, #797d91);
+}
 [data-jjtheme] > header {
   gap: 12px !important;
 }
@@ -611,7 +640,8 @@ div:has(> .jj-provider-fields) {
 }
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--acc);
   outline-offset: 2px;
 }
@@ -632,17 +662,64 @@ textarea {
   padding: 16px;
   position: relative;
 }
-.jj-cinema-shelves {
-  overflow-y: auto !important;
-  justify-content: flex-start !important;
+.jj-library-main > div:first-child > div:last-child {
+  flex-wrap: wrap;
+  max-width: 100%;
 }
-.jj-cinema-shelves > div {
+.jj-library-card {
+  appearance: none;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.jj-library-card > div:last-child {
+  overflow-wrap: anywhere;
+}
+.jj-library-card:focus-visible {
+  outline-offset: 3px;
+}
+.jj-library-empty {
+  text-align: center;
+  padding: clamp(30px, 9vh, 100px) 16px;
+  color: var(--dim);
+}
+.jj-library-empty > i {
+  font-size: 40px;
+  color: var(--dim2);
+}
+.jj-library-empty h2 {
+  margin: 12px 0 8px;
+  color: var(--fg);
+  font-size: 19px;
+  font-weight: 500;
+}
+.jj-library-empty p {
+  margin: 0 0 20px;
+}
+.jj-library-detail-cover {
+  align-self: flex-start;
+}
+.jj-library-detail > div:first-child > span:first-child {
   flex-shrink: 0;
 }
-.jj-filter-options {
-  max-height: 84px;
-  overflow-y: auto;
-  padding: 1px;
+.jj-library-detail > div:first-child > span:nth-child(2) {
+  min-width: 0;
+}
+[data-jjtheme] .jj-library-files {
+  min-width: 0;
+}
+.jj-drawer table {
+  width: 100%;
+  table-layout: fixed;
+}
+.jj-drawer td {
+  overflow-wrap: anywhere;
+}
+.jj-drawer div:has(> table) {
+  overflow-x: auto !important;
 }
 @media (max-width: 850px) {
   .jj-auto-flow {
@@ -675,44 +752,6 @@ textarea {
     margin-left: auto;
     gap: 8px !important;
     flex-wrap: wrap;
-  }
-  .jj-cinema-bar {
-    height: auto !important;
-    padding: 12px 14px !important;
-    gap: 10px !important;
-    flex-wrap: wrap;
-  }
-  .jj-cinema-bar > span,
-  .jj-cinema-bar > button {
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .jj-cinema-bar > span:last-of-type {
-    display: none;
-  }
-  .jj-cinema-bar > button {
-    margin-left: auto;
-  }
-  .jj-cinema-bar > div {
-    order: 3;
-    width: 100%;
-    margin-left: 0 !important;
-    overflow-x: auto;
-    flex-shrink: 0;
-  }
-  .jj-cinema-bar > div > button {
-    white-space: nowrap;
-    flex: none;
-  }
-  .jj-cinema-hero {
-    width: calc(100% - 28px) !important;
-    margin: 24px 14px 0 !important;
-  }
-  .jj-cinema-hero > div {
-    flex-wrap: wrap;
-  }
-  .jj-cinema-hero h1 {
-    font-size: 30px !important;
   }
   [data-jjtheme] > div:has(> aside):has(> main) {
     flex-direction: column !important;
@@ -761,5 +800,937 @@ textarea {
   }
   [data-jjtheme] > aside {
     max-width: 100vw;
+  }
+  .jj-drawer:has(.jj-library-detail-cover) > div:nth-child(2) > div:first-child {
+    flex-wrap: wrap;
+  }
+  .jj-library-detail-cover {
+    width: 112px !important;
+  }
+  .jj-library-files thead {
+    display: none;
+  }
+  .jj-library-files tbody {
+    display: block;
+  }
+  .jj-library-files tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 12px;
+    border-bottom: 1px solid var(--line2);
+  }
+  .jj-library-files td {
+    padding: 4px 0;
+    border: 0;
+  }
+  .jj-library-files td:first-child,
+  .jj-library-files td:last-child {
+    grid-column: 1 / -1;
+  }
+  .jj-library-files td:first-child > div {
+    max-width: none !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  .jj-library-files td:last-child .btn {
+    flex: 1;
+    min-height: 36px;
+    font-size: 12px !important;
+  }
+}
+[data-jjtheme]:has(.jj-cinema) {
+  height: 100dvh;
+  min-height: 0 !important;
+}
+.jj-cinema {
+  --bg: #101114;
+  --fg: #f4f5f7;
+  --surf: #1b1d22;
+  --surf2: #20232a;
+  --dim: #a4abb7;
+  --dim2: #9ca3af;
+  --ring: #383d47;
+  --line2: #292d35;
+  --acc: #59cbe8;
+  --acc2: #8edff3;
+  --t30: #555d6b;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  color-scheme: dark;
+  scrollbar-color: #505762 transparent;
+  font:
+    400 14px/1.55 Inter,
+    system-ui,
+    sans-serif;
+}
+.jj-cinema button {
+  font: inherit;
+  cursor: pointer;
+}
+.jj-cinema .btn {
+  min-height: 36px;
+  gap: 7px;
+  border-radius: 7px;
+  box-shadow: none;
+}
+.jj-cinema .btn-secondary {
+  background: #ffffff05;
+  border: 1px solid var(--ring);
+  color: var(--fg);
+}
+.jj-cinema .btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--acc);
+}
+.jj-cinema .btn-primary {
+  color: #07232b;
+  background: var(--acc);
+  border: 1px solid var(--acc);
+  font-weight: 600;
+}
+.jj-cinema .input {
+  background: var(--surf);
+  color: var(--fg);
+  border: 1px solid var(--ring);
+  box-shadow: none;
+  border-radius: 6px;
+}
+.jj-cinema-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-height: 68px;
+  padding: 0 40px;
+  border-bottom: 1px solid #ffffff09;
+  background: #101114f5;
+  z-index: 15;
+}
+.jj-cinema-brand {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -.04em;
+  flex: none;
+}
+.jj-cinema-bar nav {
+  display: flex;
+  align-self: stretch;
+  gap: 4px;
+  white-space: nowrap;
+}
+.jj-cinema-bar nav button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--dim);
+  padding: 0 14px;
+}
+.jj-cinema-bar nav button[aria-current=page] {
+  border-bottom-color: var(--acc);
+  color: var(--fg);
+}
+.jj-cinema-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-left: auto;
+  padding: 0 12px;
+  width: clamp(200px, 23vw, 360px);
+  min-width: 160px;
+  height: 38px;
+  border: 1px solid var(--ring);
+  border-radius: 22px;
+  background: #ffffff05;
+  color: var(--dim);
+}
+.jj-cinema-search:focus-within {
+  border-color: var(--acc);
+}
+.jj-cinema-search input {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  outline: none;
+  font: inherit;
+}
+.jj-cinema-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.jj-cinema-search input::placeholder {
+  color: var(--dim2);
+}
+.jj-cinema-search button {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  background: none;
+  border: 0;
+  color: var(--dim);
+}
+.jj-cinema-exit {
+  flex: none;
+}
+.jj-cinema > .jj-cinema-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 0 !important;
+}
+.jj-cinema h1,
+.jj-cinema h2,
+.jj-cinema p {
+  margin: 0;
+  color: inherit;
+}
+.jj-cinema h1 {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -.03em;
+}
+.jj-cinema h2 {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.jj-cinema-hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 48px;
+  min-height: 360px;
+  padding: 36px 7% 44px 40px;
+}
+.jj-cinema-backdrop {
+  position: absolute;
+  z-index: -2;
+  top: 0;
+  right: 0;
+  width: 85%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+}
+.jj-cinema-hero::before,
+.jj-cinema-detail-body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      0deg,
+      var(--bg),
+      transparent 50%),
+    linear-gradient(
+      90deg,
+      var(--bg) 8%,
+      #101114d9 38%,
+      #10111430 78%,
+      #10111485);
+}
+.jj-cinema-hero-copy {
+  max-width: min(680px, 64%);
+  min-width: 0;
+}
+.jj-cinema-hero h1 {
+  font-size: clamp(28px, 3.2vw, 48px);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-wrap: pretty;
+}
+.jj-cinema-meta {
+  color: #c0c7d1 !important;
+  font-size: 13px;
+  margin-top: 14px !important;
+  overflow-wrap: anywhere;
+}
+.jj-cinema-synopsis {
+  color: #c0c7d1 !important;
+  font-size: 15px;
+  line-height: 1.8;
+  margin-top: 18px !important;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.jj-cinema-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+.jj-cinema-actions .btn {
+  min-height: 44px;
+  padding: 9px 22px;
+}
+.jj-cinema-feature-poster,
+.jj-cinema-detail-poster,
+.jj-cinema-poster {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  background:
+    linear-gradient(
+      150deg,
+      #303745,
+      #181c25);
+  overflow: hidden;
+  border-radius: 7px;
+}
+.jj-cinema-feature-poster {
+  width: 182px;
+  flex: none;
+  box-shadow: 0 12px 40px #0008, 0 0 0 1px #ffffff26;
+}
+.jj-cinema-feature-poster > span,
+.jj-cinema-detail-poster > span,
+.jj-cinema-poster > span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  color: #9da7b8;
+}
+.jj-cinema-poster > span i {
+  font-size: 30px;
+  opacity: .5;
+}
+.jj-cinema-feature-poster img,
+.jj-cinema-detail-poster img,
+.jj-cinema-poster img,
+.jj-cinema-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.jj-cinema-shelves,
+.jj-cinema-browse {
+  padding: 24px 40px 40px;
+}
+.jj-cinema-shelves {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  padding-top: 4px;
+}
+.jj-cinema-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.jj-cinema-section-heading h2 small {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--dim);
+  margin-left: 12px;
+  white-space: nowrap;
+}
+.jj-cinema-section-heading p {
+  margin-top: 7px;
+  color: var(--dim);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.jj-cinema-shelf-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.jj-cinema-arrow {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.jj-cinema-shelf-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 6 * 18px) / 7);
+  gap: 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  padding: 4px;
+  margin: -4px;
+}
+.jj-cinema-shelf-track::-webkit-scrollbar {
+  display: none;
+}
+.jj-cinema-shelf-track > * {
+  scroll-snap-align: start;
+}
+.jj-cinema-card {
+  appearance: none;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border-radius: 7px;
+}
+.jj-cinema-card-art {
+  position: relative;
+  width: 100%;
+  border-radius: 7px;
+}
+.jj-cinema-card-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0005;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  border-radius: inherit;
+  font-size: 32px;
+}
+.jj-cinema-card-quality,
+.jj-cinema-badge {
+  position: absolute;
+  border-radius: 4px;
+  color: #fff;
+  background: #080d16cc;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+.jj-cinema-card-quality {
+  right: 7px;
+  bottom: 7px;
+}
+.jj-cinema-card-quality:empty {
+  display: none;
+}
+.jj-cinema-badge {
+  left: 7px;
+  top: 7px;
+  background: #762d3cdd;
+}
+.jj-cinema-card-title {
+  font-size: 14px;
+  line-height: 1.5;
+  margin-top: 9px;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jj-cinema-card-meta {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 2px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jj-cinema-card:focus-visible {
+  outline-offset: 3px;
+}
+.jj-cinema-card:focus-visible .jj-cinema-card-overlay {
+  opacity: 1;
+}
+.jj-cinema-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 26px 18px;
+}
+.jj-cinema-sort {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.jj-cinema-sort select {
+  width: auto;
+  min-height: 36px;
+  font: inherit;
+}
+.jj-cinema-filters {
+  margin: 0 0 22px;
+  border-bottom: 1px solid var(--line2);
+}
+.jj-cinema-filters summary {
+  padding: 10px 0 14px;
+  width: fit-content;
+  color: var(--dim);
+  cursor: pointer;
+}
+.jj-cinema-filters summary i {
+  margin-right: 5px;
+}
+.jj-cinema-filters summary span {
+  margin-left: 8px;
+  color: var(--acc);
+}
+.jj-cinema-filters > div {
+  max-height: 38dvh;
+  overflow: auto;
+  padding: 0 2px 18px;
+}
+.jj-cinema-filter-group {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0;
+  align-items: baseline;
+}
+.jj-cinema-filter-group > strong {
+  flex: 0 0 65px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+}
+.jj-cinema-filter-group > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.jj-cinema-filter-group button {
+  background: var(--surf);
+  color: #c0c7d1;
+  border: 1px solid var(--ring);
+  border-radius: 5px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.jj-cinema-filter-group button[aria-pressed=true] {
+  background: #59cbe81a;
+  border-color: var(--acc);
+  color: var(--acc);
+}
+.jj-cinema-filter-group small {
+  margin-left: 4px;
+  opacity: .65;
+}
+.jj-cinema-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 22px;
+}
+.jj-cinema-active-filters .btn {
+  min-height: 30px;
+  font-size: 12px;
+}
+.jj-cinema-actors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+  gap: 28px;
+}
+.jj-cinema-actor {
+  border: 0;
+  background: none;
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+.jj-cinema-avatar {
+  display: grid;
+  place-items: center;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--surf2);
+  font-size: 36px;
+  color: var(--dim);
+}
+.jj-cinema-actor strong {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
+}
+.jj-cinema-actor > span:last-child {
+  font-size: 12px;
+  color: var(--dim);
+}
+.jj-cinema-empty {
+  text-align: center;
+  padding: clamp(40px, 12vh, 110px) 16px;
+}
+.jj-cinema-empty > i {
+  font-size: 40px;
+  color: var(--dim2);
+}
+.jj-cinema-empty h2 {
+  margin: 16px 0 8px;
+}
+.jj-cinema-empty p {
+  color: var(--dim);
+  margin-bottom: 20px;
+}
+.jj-cinema-back {
+  margin-bottom: 12px;
+}
+.jj-cinema-detail {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: var(--bg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.jj-cinema:has(.jj-cinema-detail) .jj-cinema-content {
+  overflow: hidden;
+}
+.jj-cinema-detail-nav {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 68px;
+  padding: 12px 40px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: #101114ef;
+  border-bottom: 1px solid #ffffff0c;
+}
+.jj-cinema-detail-nav > span {
+  color: var(--dim);
+  font-family: var(--mono);
+}
+.jj-cinema-detail-nav > button:last-child {
+  margin-left: auto;
+}
+.jj-cinema-detail-body {
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100% - 68px);
+  padding: 44px 6% 60px;
+}
+.jj-cinema-detail-body > .jj-cinema-backdrop {
+  height: 560px;
+}
+.jj-cinema-detail-body::before {
+  height: 600px;
+}
+.jj-cinema-detail-intro {
+  display: flex;
+  gap: 42px;
+  align-items: flex-start;
+}
+.jj-cinema-detail-poster {
+  width: clamp(185px, 20vw, 285px);
+  flex: none;
+  box-shadow: 0 20px 50px #0006;
+}
+.jj-cinema-detail-copy {
+  min-width: 0;
+  max-width: 860px;
+  padding-top: 12px;
+}
+.jj-cinema-detail h1 {
+  font-size: clamp(25px, 2.6vw, 38px);
+  overflow-wrap: anywhere;
+}
+.jj-cinema-detail-synopsis {
+  margin-top: 22px !important;
+  color: #c0c7d1 !important;
+  font-size: 14px;
+  line-height: 1.9;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.jj-cinema-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 32px;
+  margin: 26px 0 0;
+}
+.jj-cinema-facts dt {
+  color: var(--dim);
+  font-size: 12px;
+}
+.jj-cinema-facts dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.jj-cinema-detail-sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  margin-top: 42px;
+}
+.jj-cinema-detail-sections h2 {
+  font-size: 19px;
+  margin-bottom: 16px;
+}
+.jj-cinema-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.jj-cinema-tags .btn {
+  white-space: normal;
+}
+.jj-cinema-files {
+  min-width: 0;
+}
+.jj-cinema-files label,
+.jj-cinema-files p,
+.jj-cinema-files > span {
+  color: var(--dim);
+  font-size: 12px;
+}
+.jj-cinema-files select {
+  width: 100%;
+  margin: 8px 0;
+  font: inherit;
+  min-height: 40px;
+  text-overflow: ellipsis;
+}
+.jj-cinema-files p {
+  color: var(--fg);
+  margin-bottom: 12px;
+}
+.jj-cinema-files > .btn {
+  min-height: 40px;
+  margin-bottom: 10px;
+}
+.jj-cinema-files > span {
+  display: block;
+}
+@media (hover: hover) {
+  .jj-cinema button:hover {
+    filter: brightness(1.15);
+  }
+  .jj-cinema-card:hover .jj-cinema-card-overlay {
+    opacity: 1;
+  }
+  .jj-cinema-card:hover .jj-cinema-card-art {
+    outline: 2px solid #59cbe899;
+    outline-offset: 2px;
+  }
+}
+@media (min-width: 1900px) {
+  .jj-cinema-shelf-track {
+    grid-auto-columns: calc((100% - 9 * 18px) / 10);
+  }
+}
+@media (max-width: 1200px) {
+  .jj-cinema-bar {
+    padding: 0 24px;
+    gap: 16px;
+  }
+  .jj-cinema-bar nav button {
+    padding: 0 10px;
+  }
+  .jj-cinema-brand {
+    font-size: 16px;
+  }
+  .jj-cinema-search {
+    width: 220px;
+  }
+  .jj-cinema-shelf-track {
+    grid-auto-columns: calc((100% - 4 * 16px) / 5);
+    gap: 16px;
+  }
+}
+@media (max-width: 850px) {
+  .jj-cinema-bar {
+    padding: 12px 18px 0;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .jj-cinema-brand {
+    margin-right: auto;
+  }
+  .jj-cinema-exit {
+    order: 1;
+    margin-left: auto;
+  }
+  .jj-cinema-search {
+    order: 3;
+    flex: 1 1 100%;
+    width: 100%;
+    margin: 0;
+  }
+  .jj-cinema-bar nav {
+    order: 4;
+    flex-basis: 100%;
+    height: 44px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 4px;
+  }
+  .jj-cinema-bar nav button {
+    flex: 1 0 auto;
+    padding: 0 10px;
+  }
+  .jj-cinema-hero {
+    min-height: 320px;
+    padding: 28px 18px 34px;
+    gap: 16px;
+  }
+  .jj-cinema-hero-copy {
+    max-width: 75%;
+  }
+  .jj-cinema-hero h1 {
+    font-size: 29px;
+  }
+  .jj-cinema-feature-poster {
+    width: 110px;
+  }
+  .jj-cinema-hero .jj-cinema-meta {
+    font-size: 12px;
+  }
+  .jj-cinema-synopsis {
+    font-size: 13px;
+  }
+  .jj-cinema-shelves,
+  .jj-cinema-browse {
+    padding: 20px 18px 30px;
+  }
+  .jj-cinema-shelves {
+    padding-top: 0;
+    gap: 26px;
+  }
+  .jj-cinema-shelf-track {
+    grid-auto-columns: clamp(142px, 39vw, 200px);
+    gap: 12px;
+  }
+  .jj-cinema-section-heading {
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+  }
+  .jj-cinema-section-heading h2 {
+    font-size: 20px;
+  }
+  .jj-cinema-section-heading h2 small {
+    font-size: 11px;
+    margin-left: 7px;
+  }
+  .jj-cinema-shelf-controls {
+    margin-left: auto;
+    gap: 2px;
+  }
+  .jj-cinema-shelf-controls .btn {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+  .jj-cinema-shelf-controls .jj-cinema-arrow {
+    display: none;
+  }
+  .jj-cinema-wall {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 22px 12px;
+  }
+  .jj-cinema-sort {
+    font-size: 12px;
+  }
+  .jj-cinema-sort select {
+    max-width: 118px;
+  }
+  .jj-cinema-filter-group {
+    flex-direction: column;
+    gap: 7px;
+  }
+  .jj-cinema-filter-group > strong {
+    flex-basis: auto;
+  }
+  .jj-cinema-actors {
+    grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+    gap: 24px;
+  }
+  .jj-cinema-detail-nav {
+    padding: 10px 18px;
+    min-height: 60px;
+  }
+  .jj-cinema-detail-body {
+    padding: 28px 18px 40px;
+  }
+  .jj-cinema-detail-intro {
+    gap: 22px;
+  }
+  .jj-cinema-detail-poster {
+    width: 150px;
+  }
+  .jj-cinema-detail-copy {
+    padding: 0;
+  }
+  .jj-cinema-detail-sections {
+    grid-template-columns: 1fr;
+    gap: 26px;
+    margin-top: 30px;
+  }
+  .jj-cinema-facts {
+    gap: 14px 22px;
+  }
+}
+@media (max-width: 520px) {
+  .jj-cinema-feature-poster {
+    display: none;
+  }
+  .jj-cinema-hero-copy {
+    max-width: 100%;
+  }
+  .jj-cinema-hero::before {
+    background:
+      linear-gradient(
+        0deg,
+        var(--bg),
+        #10111430),
+      linear-gradient(
+        90deg,
+        #101114ef,
+        #10111485);
+  }
+  .jj-cinema-hero .jj-cinema-backdrop {
+    width: 100%;
+  }
+  .jj-cinema-detail-intro {
+    flex-direction: column;
+  }
+  .jj-cinema-detail-poster {
+    width: 126px;
+  }
+  .jj-cinema-detail h1 {
+    font-size: 25px;
+  }
+  .jj-cinema-actions .btn {
+    padding: 8px 16px;
+    min-height: 42px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jj-cinema-card-overlay {
+    transition: none;
   }
 }

@@ -407,9 +407,7 @@ async def get_cilisousuo_best_magnet_payload(
     results = await search_cilisousuo(movie_id, resolve_detail=True, allow_chinese_subtitles=has_subtitle_filter != "false")
     results = cilisousuo_filter_results_by_subtitle(results, has_subtitle_filter)
     if exclude_4k:
-        filtered_results = cilisousuo_filter_4k_results(results)
-        if filtered_results:
-            results = filtered_results
+        results = cilisousuo_filter_4k_results(results)
     if not results:
         return None
 
@@ -665,7 +663,7 @@ async def get_best_magnet_payload(
             excluded_links=blocked_links,
         )
 
-    if movie_data is None:
+    if not has_valid_javbus_movie_params(movie_data):
         movie_data = await get_movie_detail(movie_id)
     if not has_valid_javbus_movie_params(movie_data):
         return None

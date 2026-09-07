@@ -115,6 +115,8 @@ def parse_movie_detail(page_html: str, base_url: str, movie_id: str) -> dict[str
     title = _text(doc.select_one(".container h3"))
     image_node = doc.select_one(".container .movie .bigImage img")
     info_nodes = doc.select(".container .movie .info p")
+    if not title or not doc.select_one(".container .movie"):
+        raise ValueError("JavBus did not return a movie detail page")
 
     gid_match = re.search(r"var gid = (\d+);", page_html)
     uc_match = re.search(r"var uc = (\d+);", page_html)

@@ -567,6 +567,7 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
     records = await local_movie_library_service.get_all()
     checked_file_count = 0
     invalid_file_count = 0
+    probe_failed_count = 0
     deleted_files: list[dict[str, Any]] = []
     failed_files: list[dict[str, Any]] = []
     invalid_paths_by_movie: dict[str, list[str]] = {}
@@ -594,11 +595,31 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
                 continue
 
             checked_file_count += 1
-            media_info = _probe_video_metadata(resolved)
+            try:
+                before = resolved.stat()
+                media_info = await asyncio.to_thread(_probe_video_metadata, resolved)
+                after = resolved.stat()
+                scan_root = Path(str(file_record.get("scan_root") or ""))
+                within_root = scan_root.is_absolute() and _path_is_within(resolved, scan_root.resolve())
+            except OSError:
+                probe_failed_count += 1
+                failed_files.append({"movie_id": movie_id, "path": str(resolved), "error": "file_unavailable", "message": "文件状态无法读取，已保留"})
+                continue
+            if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+                probe_failed_count += 1
+                failed_files.append({"movie_id": movie_id, "path": str(resolved), "error": "file_changed", "message": "探测期间文件发生变化，已保留"})
+                continue
             if _has_readable_video_media(media_info):
                 media_by_movie.setdefault(movie_id, {})[os.path.abspath(str(resolved))] = media_info
                 continue
 
+            if media_info.get("probe_status") != "no_video" and after.st_size != 0:
+                probe_failed_count += 1
+                failed_files.append({"movie_id": movie_id, "path": str(resolved), "error": "probe_inconclusive", "message": "无法确认媒体无效，已保留文件"})
+                continue
+            if not within_root:
+                failed_files.append({"movie_id": movie_id, "path": str(resolved), "error": "unsafe_path", "message": "文件不在索引扫描范围内，已保留"})
+                continue
             invalid_file_count += 1
             try:
                 resolved.unlink()
@@ -627,8 +648,9 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
         "success": True,
         "checked_file_count": checked_file_count,
         "invalid_file_count": invalid_file_count,
+        "probe_failed_count": probe_failed_count,
         "deleted_file_count": len(deleted_files),
-        "deletion_failed_count": len(failed_files),
+        "deletion_failed_count": sum(item["error"] == "delete_failed" for item in failed_files),
         "removed_file_count": prune_result.get("removed_file_count", 0),
         "removed_movie_count": prune_result.get("removed_movie_count", 0),
         "updated_media_file_count": prune_result.get("updated_media_file_count", 0),
@@ -636,7 +658,7 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
         "total_files": prune_result.get("total_files", 0),
         "deleted_files": deleted_files[:100],
         "failed_files": failed_files[:100],
-        "message": f"已清洗 {len(deleted_files)} 个无效文件",
+        "message": f"已清洗 {len(deleted_files)} 个无效文件；{len(failed_files)} 个文件无法安全处理，已保留",
     }
 
 

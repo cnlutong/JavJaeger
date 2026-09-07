@@ -11,11 +11,11 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 - 在 JavBus、Cilisiusou 和 YHG007 磁力来源之间切换，并支持字幕、4K 排除和批量选择。
 - 将磁力任务派发到 PikPak、115 网盘或 Aria2。
 - 在网盘管理中浏览 WebDAV、115 网盘目录和服务端本地文件夹，并把 WebDAV 文件或目录批量发送给 Aria2。
-- 维护本地影片库和下载历史；本地影片库用于判断本机已有影片，下载历史记录已尝试的资源链接及来源，以避免反复派发失效链接。
+- 维护本地影片库和下载历史；本地影片库用于判断本机已有影片，下载历史区分成功提交与提交失败的资源及来源，避免重复提交，并保留失败重试入口。
 - 从影视库按文件启动后台 FFmpeg GPU 转码，自动识别 NVIDIA、Intel、AMD 或 Apple 硬件编码能力；可使用按源编码、实际码率、分辨率和帧率动态决策的 H.265 自适应模式，也可使用常用预设或专业参数，并管理多个并发任务。
 - 通过自动模式保存发现、筛选、磁力选择和下载派发流程，并按计划执行。
 - 在设置页热更新 JavBus 访问参数。
-- 在「设置 → 外观」切换管理界面的浅色或深色主题，选择立即生效并保存在当前浏览器，刷新后保留。影院模式沿用原设计的暗色影厅。播放器直接播放本地原文件；浏览器不支持的编码可在影片详情中创建硬件转码任务。
+- 在「设置 → 外观」切换管理界面的浅色或深色主题，选择立即生效并保存在当前浏览器，刷新后保留。影院模式使用独立暗色观影界面。播放器直接播放本地原文件；浏览器不支持的编码可在影片详情中创建硬件转码任务。
 
 ## 技术栈
 
@@ -117,12 +117,7 @@ Copy-Item config.example.json config.json
   },
   "scrapers": {
     "priority": ["javbus", "r18dev", "dmm", "libredmm", "javlibrary", "javdb", "jav321", "mgstage", "tokyohot", "aventertainment", "dlgetchu", "caribbeancom", "fc2", "javstash"],
-    "javbus": {
-      "enabled": true,
-      "language": "zh",
-      "request_delay": 500,
-      "base_url": "https://www.javbus.com"
-    },
+    "javbus": { "enabled": true },
     "r18dev": { "enabled": false, "language": "en", "request_delay": 1500 },
     "dmm": { "enabled": false, "language": "ja", "request_delay": 1500 },
     "libredmm": { "enabled": true, "language": "ja", "request_delay": 1500 },
@@ -195,6 +190,8 @@ Copy-Item config.example.json config.json
 
 配置要点：
 
+- `scrapers.javbus` 仅保存 `enabled`；JavBus 地址、代理、限速与超时统一使用顶层 `javbus` 配置及对应环境变量。旧的独立 `base_url` / `language` / `request_delay` 不生效，设置接口会拒绝继续写入这些字段。刮削源测试按已保存配置执行，响应中的 `duration_ms` 与 `error_message` 用于查看耗时及失败原因。
+
 - `session_secret` 用于 FastAPI session 签名，生产环境必须替换。
 - `webdav.enabled`、`aria2.enabled`、`pikpak.enabled` 控制前端是否显示“使用配置连接/登录”能力。
 - `pan115.enabled` 和 `pan115.cookie` 允许网盘管理浏览 115 目录，并在服务端解析 115 下载地址后派发给 Aria2。
@@ -252,7 +249,7 @@ volumes:
 
 | 文件 | 说明 |
 | --- | --- |
-| `data/downloaded_movies.json` | 下载历史和已尝试资源链接，包含资源来源 |
+| `data/downloaded_movies.json` | 下载历史、成功提交和待重试资源，包含来源与下载工具 |
 | `data/local_movie_library.json` | 本地影片库索引 |
 | `data/local_actor_library.json` | 本地演员信息库索引 |
 | `data/actor_images/` 或 Docker 默认 `/app/actor_images/` | 本地演员头像文件，独立于影视库扫描路径 |
@@ -291,7 +288,11 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 
 ### 本地影片库
 
-本地影片库用于记录本机已有影片，是判断影片是否已拥有的来源；下载历史只记录已尝试派发的资源链接及来源，用于跳过旧链接并在同一磁力来源中选择次优资源。路径必须是服务端进程能访问的路径：
+影视库保留左侧筛选、右侧统计卡片与列表、海报、演员视图。滚动条跟随主题，海报支持键盘打开详情；手机端详情中的本地文件与播放、转码操作按纵向排列。
+
+影院模式参考 Jellyfin 的浏览方式，提供最近入库、高清收藏、系列、演员与 VR 分区，支持搜索、组合筛选、排序及分页。影片详情在影院内打开，关闭后保留原浏览位置；可选择本地文件或分段播放，并自动跳过已标记缺失的分段。封面、简介及分区均来自本地索引，未配置的媒体和观看进度不会用示例数据填充。
+
+本地影片库用于记录本机已有影片，是判断影片是否已拥有的来源；下载历史区分已提交与派发失败的资源：已提交链接用于去重与同源替换，失败链接可按原资源重试。路径必须是服务端进程能访问的路径：
 
 - Windows 直接运行：`D:\Media\JAV`
 - Linux/macOS 直接运行：`/media/JAV`
@@ -311,13 +312,13 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 2. 系统会自动检测 GPU 型号，并对 FFmpeg 硬件编码器执行短时真实探针。选择“H.265 自适应转码”时，后端会用 ffprobe 读取源编码、实际视频码率、分辨率、帧率和音频流，保持原分辨率、原帧率、原音频、字幕、元数据和 8/10-bit 像素深度，并结合源编码效率和像素负载计算保守的 H.265 目标码率；如果源码率过低，或源文件已经是 H.265/VP9/AV1 等同级或更高效率编码，任务会直接拒绝，避免没有可靠体积收益的重复有损编码。也可以选择“画质基本保持”或“降低画质”预设，或展开专业参数自行调整。
 3. 启动后任务进入后台队列。顶栏“转码”面板会显示进度、速度、预计剩余时间和输出大小，并支持取消、失败重试、详情查看与清理历史记录。
 
-转码只允许选择影视库已经索引的本地文件，接口不接受任意服务器路径。同一个源文件同时只能有一个活动任务，不同文件可以并发处理。视频编码强制使用已通过硬件探针的 GPU 编码器；GPU 不可用或所选格式不受支持时任务会被拒绝，不会静默使用 CPU。自适应模式忽略客户端提交的手工编码参数，参数决策和重试时的重新探测都由后端完成，并在任务的 `adaptive_analysis` 字段保存源参数与目标码率。FFmpeg 始终先在源文件同目录写入临时文件；只有进程成功退出、输出有效且实际体积严格小于原文件时才通过原子替换覆盖。输出相等或更大、失败或取消都会删除临时输出并保留原片。任务完成后会用 ffprobe 刷新影视库中的大小、分辨率、码率、编码、封装格式和时长。
+转码只允许选择影视库已经索引的本地文件，接口不接受任意服务器路径。同一个源文件同时只能有一个活动任务，不同文件可以并发处理。视频编码强制使用已通过硬件探针的 GPU 编码器；GPU 不可用或所选格式不受支持时任务会被拒绝，不会静默使用 CPU。自适应模式忽略客户端提交的手工编码参数，参数决策和重试时的重新探测都由后端完成，并在任务的 `adaptive_analysis` 字段保存源参数与目标码率。FFmpeg 始终先在源文件同目录写入临时文件；只有进程成功退出、临时输出具有可读的视频流、时长与原片相差不超过 2 秒或 1%（取较大者）、保留原有音轨且实际体积严格小于原文件时，才通过原子替换覆盖。所有预设都需要 ffprobe；排队期间大小变化或转码期间源文件发生变化会拒绝覆盖。输出相等或更大、失败或取消都会删除临时输出并保留原片。任务完成后会用 ffprobe 刷新影视库中的大小、分辨率、码率、编码、封装格式和时长。
 
 ### 自动模式
 
 自动模式保存发现、磁力选择和下载派发流程。任务支持手动运行、定时运行和间隔运行。任务状态与运行记录保存在 `data/automation_tasks.json`。
 
-自动派发前会先检查本地影片库；如果影片不在本地库中，则会跳过下载历史里已经尝试过的资源链接，并按该链接原本的磁力来源继续选择次优磁力。
+自动派发前会先检查本地影片库；如果影片不在本地库中，则会跳过下载历史里已经成功提交的资源链接，并按该链接原本的磁力来源继续选择次优磁力。
 
 ## API 速览
 
@@ -376,6 +377,7 @@ GET    /api/magnets/{movie_id}
 GET    /api/stars/{star_id}
 
 GET    /api/history
+POST   /api/history/{movie_id}/dismiss-failure
 DELETE /api/history
 POST   /api/history/check-local-library
 GET    /api/downloaded-movies
@@ -390,6 +392,8 @@ GET    /api/115/qrcode/{session_id}/status
 GET    /api/115/status
 POST   /api/115/cookie
 POST   /api/115/download
+POST   /api/115/download-jobs
+GET    /api/115/download-jobs/{job_id}
 GET    /api/115/files
 
 POST   /api/webdav/connect
@@ -413,8 +417,13 @@ GET    /api/automation/tasks/{task_id}
 PUT    /api/automation/tasks/{task_id}
 DELETE /api/automation/tasks/{task_id}
 POST   /api/automation/tasks/{task_id}/run
+POST   /api/automation/tasks/{task_id}/run?background=true
 GET    /api/automation/tasks/{task_id}/runs
 ```
+
+派发历史的 `download_resources` 保存成功提交的资源，`failed_resources` 保存提交失败的原链接、磁力来源和下载工具。只有成功提交的链接参与去重；失败项可按原资源重试，或通过 `dismiss-failure`（JSON：`{"link":"原资源链接"}`）逐项忽略。成功提交只代表下载服务接收请求，不代表远端文件已经下载完成。
+
+115 页面使用后台 `download-jobs`，每批保存结果和历史，保留原输入顺序；刷新页面后从 sessionStorage 恢复任务 ID。服务重启导致任务失效时先核对下载历史，避免盲目重复提交。自动任务的 `run?background=true` 返回 HTTP 202 与 `running` 记录，通过任务列表或 `/runs` 读取阶段进度；省略参数仍保持同步 API。最终状态区分 `success`、`partial`、`failed`、`noop`（无新下载）。服务启动发现中断的 `running` 记录时标记失败并停用该任务，用户核对历史后可重新启用。
 
 `/api/{path:path}` 是最后注册的代理 catch-all。新增具体 API 时必须放在代理路由之前。
 
@@ -424,11 +433,13 @@ GET    /api/automation/tasks/{task_id}/runs
 
 影视库列表的 `files[].exists` 来自扫描或主动核验时保存的 `files[].filesystem` 快照，未核验时为 `null`。核验按目录合并读取，每个父目录枚举一次，不读取视频内容；浏览、分页、轮询、“刷新影视库”及服务重启不会自动重新扫描媒体硬盘。播放、转码和永久删除仍在执行时验证实际文件。外部手动增删文件后，可运行扫描更新索引，或通过“资料检查”更新已有文件的状态。补全资料后只更新涉及影片的文件快照。
 
-`/api/movies/local-library/clean-invalid` 会重新探测影视库索引中的本地视频文件；如果一个现存视频文件仍读取不到分辨率、码率等媒体信息，则删除该物理文件并同步移除影视库文件记录。若 `ffprobe` 不可用，接口会失败返回且不会删除文件。
+`/api/movies/local-library/clean-invalid` 只删除索引扫描根目录内、确认零字节或 ffprobe 成功确认没有视频流的文件，并同步索引。探测超时、返回错误、媒体信息不明、文件变化或磁盘不可读时保留文件，在 `failed_files` 和 `probe_failed_count` 中报告原因；若 ffprobe 不可用则不执行清理。
 
 `DELETE /api/movies/local-library/{movie_id}` 只移除索引；`DELETE /api/movies/local-library/{movie_id}/files` 执行上述受 `scan_root` 限制的永久文件删除。永久删除不会清理独立的下载历史，也不会删除仍可能被其他影片复用的共享演员头像。
 
 本地影视库在刮削或补全影片元数据时会同步维护 `data/local_actor_library.json`。演员以独立索引保存关联影片，头像保存在单独的演员头像目录；如果演员已有本地头像，后续刮削会复用并跳过下载。
+
+`/api/movies/local-scrape/apply` 的 item 可带预览返回的 `target_video_path`，执行部分文件时保留确认过的分片编号；服务端限定目标必须符合本次目录与命名模板。资料的 `overwrite_existing` 仅决定是否更新已存在的 NFO 和图片，不能覆盖视频冲突选择。跨盘移动先复制至目标目录的临时文件，校验大小与源状态后再替换目标，复制失败保留源文件与原目标。
 
 `/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情，包含大小、修改时间以及通过 `ffprobe` 可探测到的分辨率和码率；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `auto_best`、`skip`、`keep_newer`、`keep_older`、`keep_larger`、`keep_higher_resolution`、`keep_higher_bitrate`，旧的 `keep_source` 和 `keep_target` 仍兼容。`auto_best` 会按分辨率、码率、文件大小、修改时间依次选择保留文件；源文件更优时移动源文件覆盖目标，目标文件更优时保留目标并删除源文件，仍无法判断时保留目标且不删除源文件。分辨率或码率无法探测、两边相同或缺少冲突策略时，后端不会自动覆盖文件。
 启用整理时，元数据标记为 VR 的影片会统一存入目标根目录下的 `VR/` 文件夹，再应用原有文件夹和命名模板。影视库扫描会同时依据元数据和路径中的 `VR/` 目录写入 `is_vr` 分类；列表、海报墙和详情会显示 VR 标记，并可在“影片类型”中筛选 VR 或普通影片。
@@ -469,7 +480,7 @@ JavJaeger/
 
 影视库与演员列表使用 `GET /api/movies/local-library?compact=true` 和 `GET /api/movies/local-library/actors?compact=true`，省略列表不使用的 `full_text`、`metadata.raw`、`metadata.samples` 以及演员的重复影片关联。原始索引保留完整数据，不带 `compact=true` 时 API 仍返回原有完整响应。
 
-只编辑 `frontend/src/**`。当前入口直接加载 `frontend/src/design/JavJaeger.dc.html`，使用从 [Claude Design 项目](https://claude.ai/design/p/dd9314b9-ac26-4ea3-8746-99ec32b2de8c?file=JavJaeger.dc.html) 导入的原 HTML、`support.js`、`_ds` 样式和 logo。五个原文件保留导入内容，校验和测试用于防止无意改版；`integration.mjs` 将原页面控件接入现有 API，`template.mjs` 和 `host.css` 处理播放器、字段绑定、弹窗与窄屏适配。原来的 Ant Design 页面及 `nocturne.css` 不再由入口加载。
+只编辑 `frontend/src/**`。当前入口直接加载 `frontend/src/design/JavJaeger.dc.html`，使用从 [Claude Design 项目](https://claude.ai/design/p/dd9314b9-ac26-4ea3-8746-99ec32b2de8c?file=JavJaeger.dc.html) 导入的原 HTML、`support.js`、`_ds` 样式和 logo。五个原文件保留导入内容，校验和测试用于防止无意改版；`integration.mjs` 将原页面控件接入现有 API，`template.mjs` 和 `host.css` 处理播放器、字段绑定、弹窗与窄屏适配；`cinema.mjs` 提供独立影院视图，复用现有影片数据、筛选和播放流程。原来的 Ant Design 页面及 `nocturne.css` 不再由入口加载。
 
 构建会将 HTML 作为文本、logo 作为 data URL 打包，生成 `static/app.js` 和 `static/app.css`。不要手改这两个产物。运行时无需连接 Claude Design 或登录设计服务。
 

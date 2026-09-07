@@ -1,11 +1,13 @@
 import asyncio
 import base64
 import datetime
+import errno
 import json
 import logging
 import re
 import shutil
 import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -636,6 +638,10 @@ def _probe_video_metadata(path: Path) -> dict[str, Any]:
         return {}
 
     streams = payload.get("streams") if isinstance(payload, dict) else None
+    if not isinstance(streams, list):
+        return {}
+    if not streams:
+        return {"probe_status": "no_video"}
     stream = streams[0] if isinstance(streams, list) and streams and isinstance(streams[0], dict) else {}
     file_format = payload.get("format") if isinstance(payload.get("format"), dict) else {}
     width = _int_or_none(stream.get("width"))
@@ -777,10 +783,20 @@ def _build_apply_target_plan(
                 "code": item.code,
                 "target_dir": target_dir,
                 "target_video": target_video,
+                "base_target": target_video,
                 "target_stem": target_stem,
             }
         )
     _number_same_movie_duplicate_target_records(records)
+    for record in records:
+        selected = request.items[record["index"]].target_video_path
+        if selected and request.organize:
+            base = record["base_target"]
+            target = resolve_user_path(selected)
+            numbered = re.fullmatch(re.escape(base.stem) + r"-[1-9]\d*" + re.escape(base.suffix), target.name)
+            if target.parent != base.parent.resolve() or (target.name != base.name and not numbered):
+                raise UserPathError("preview_target_invalid", "预览目标与当前整理规则不符，请重新预览")
+            record.update(target_video=target, target_dir=target.parent, target_stem=target.stem)
     target_counts: Counter[str] = Counter(_target_key(record["target_video"]) for record in records)
     target_plan = {
         int(record["index"]): (record["target_dir"], record["target_video"], record["target_stem"])
@@ -1181,15 +1197,29 @@ def _move_file(source: Path, target: Path, overwrite: bool) -> None:
     if target.exists():
         if not overwrite:
             raise FileExistsError(f"目标文件已存在: {target}")
-        if target.is_file():
-            target.unlink()
-        else:
+        if not target.is_file():
             raise FileExistsError(f"目标路径不是文件: {target}")
     try:
-        source.rename(target)
-    except OSError:
-        shutil.copy2(source, target)
+        (source.replace if overwrite else source.rename)(target)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+    # Cross-volume copies must finish before replacing any existing destination.
+    with tempfile.NamedTemporaryFile(dir=target.parent, prefix=".javjaeger-", suffix=".tmp", delete=False) as handle:
+        temporary = Path(handle.name)
+    try:
+        before = source.stat()
+        shutil.copy2(source, temporary)
+        after = source.stat()
+        if temporary.stat().st_size != before.st_size or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise OSError("源文件在复制期间发生变化，已保留原文件")
+        if target.exists() and not overwrite:
+            raise FileExistsError(str(target))
+        (temporary.replace if overwrite else temporary.rename)(target)
         source.unlink()
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | None, sample_names: list[str]) -> Path:
@@ -1431,7 +1461,11 @@ async def apply_local_scrape(
                 "results": [],
             }
 
-    target_counts, target_plan = _build_apply_target_plan(request)
+    try:
+        target_counts, target_plan = _build_apply_target_plan(request)
+    except UserPathError as exc:
+        return {"success": False, "error": exc.code, "message": exc.message, "success_count": 0,
+                "failed_count": len(request.items), "results": []}
 
     for index, item in enumerate(request.items, start=1):
         _emit_progress(
@@ -1511,7 +1545,7 @@ async def apply_local_scrape(
             conflict_resolution = str(item.conflict_resolution or "").strip()
             keep_side = await asyncio.to_thread(_choose_conflict_keep_side, source_path, target_video, conflict_resolution) if conflict else None
             unresolved_auto_best = bool(conflict and conflict_resolution == "auto_best" and keep_side is None)
-            if conflict and not request.overwrite_existing and not conflict_resolution:
+            if conflict and not conflict_resolution:
                 results.append(
                     {
                         "source_path": item.source_path,
@@ -1532,7 +1566,7 @@ async def apply_local_scrape(
                     },
                 )
                 continue
-            if conflict and not request.overwrite_existing and keep_side is None and not unresolved_auto_best:
+            if conflict and keep_side is None and not unresolved_auto_best:
                 results.append(
                     {
                         "source_path": item.source_path,
@@ -1553,8 +1587,8 @@ async def apply_local_scrape(
                     },
                 )
                 continue
-            overwrite_target = request.overwrite_existing or keep_side == "source"
-            if conflict and not request.overwrite_existing and keep_side != "source":
+            overwrite_target = keep_side == "source"
+            if conflict and keep_side != "source":
                 deleted_source = False
                 if conflict_resolution == "auto_best" and keep_side == "target":
                     source_path.unlink()
@@ -1611,7 +1645,9 @@ async def apply_local_scrape(
 
             nfo_path = None
             if request.write_nfo and metadata.get("id"):
-                nfo_path = await asyncio.to_thread(_write_nfo, current_video, metadata, poster_name, sample_names)
+                nfo_path = current_video.with_suffix(".nfo")
+                if request.overwrite_existing or not nfo_path.exists():
+                    nfo_path = await asyncio.to_thread(_write_nfo, current_video, metadata, poster_name, sample_names)
 
             library_recorded = False
             library_root = _library_root_for_applied_video(request, source_path, current_video)
