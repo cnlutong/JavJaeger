@@ -137,6 +137,8 @@ class AutomationService:
 
     async def delete_task(self, task_id: str) -> None:
         async with self._lock:
+            if task_id in self._running_task_ids:
+                raise AutomationError("task_already_running", "任务正在运行，请等待结束后删除；可先停用后续触发")
             tasks = await self._load_tasks_unlocked()
             next_tasks = [task for task in tasks if task.id != task_id]
             if len(next_tasks) == len(tasks):
@@ -144,8 +146,10 @@ class AutomationService:
             await self._save_tasks_unlocked(next_tasks)
 
     async def run_task(self, task_id: str, manual: bool = False, background: bool = False) -> AutomationRun:
-        task = await self.get_task(task_id)
         async with self._lock:
+            task = self._find_task(await self._load_tasks_unlocked(), task_id)
+            if task is None:
+                raise AutomationError("task_not_found", "自动任务不存在")
             if task_id in self._running_task_ids:
                 raise AutomationError("task_already_running", "任务正在运行")
             self._running_task_ids.add(task_id)

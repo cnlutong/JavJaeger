@@ -325,5 +325,4 @@ class Aria2Client:
     def remove_download(self, gid: str) -> bool:
         if not self.aria2:
             raise RuntimeError("Aria2未连接")
-        self.aria2.get_download(gid).remove()
-        return True
+        return self.aria2.remove([self.aria2.get_download(gid)], clean=False)[0] is True

@@ -82,7 +82,7 @@ Use this as the source-of-truth ownership map.
   - scraped local movie metadata and full-text persistence
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
-  - background local library information checks and completion workflows
+  - background local library scans, information checks, completion and invalid-file cleanup workflows
   - GPU capability detection and hardware-only transcoding task orchestration
   - persisted background FFmpeg transcoding tasks
   - size-reducing-only safe replacement of indexed local movie files

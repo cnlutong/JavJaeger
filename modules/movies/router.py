@@ -179,6 +179,19 @@ async def get_local_library_information_job(task_id: str):
     return task
 
 
+@router.post("/api/movies/local-library/clean-invalid/jobs", status_code=202)
+async def start_local_library_cleanup_job():
+    return {"success": True, "task_id": local_scrape_task_manager.start_cleanup_task()}
+
+
+@router.get("/api/movies/local-library/clean-invalid/jobs/{task_id}")
+async def get_local_library_cleanup_job(task_id: str):
+    task = local_scrape_task_manager.get_task(task_id)
+    if task is None or task["type"] != "local-library-cleanup":
+        raise HTTPException(status_code=404, detail="local_library_cleanup_task_not_found")
+    return task
+
+
 @router.post("/api/movies/local-library/clean-invalid")
 async def clean_invalid_local_movie_library_files():
     try:

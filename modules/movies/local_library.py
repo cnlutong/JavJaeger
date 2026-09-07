@@ -553,7 +553,7 @@ async def get_local_library_information_check(fields: str | list[str] | tuple[st
     return await local_movie_library_service.get_information_check(parse_information_check_fields(fields), refresh_files=refresh_files)
 
 
-async def clean_invalid_local_library_files() -> dict[str, Any]:
+async def clean_invalid_local_library_files(progress_callback: ProgressCallback | None = None) -> dict[str, Any]:
     if shutil.which("ffprobe") is None:
         return {
             "success": False,
@@ -567,6 +567,8 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
         }
 
     records = await local_movie_library_service.get_all()
+    total = sum(len(record.get("files", [])) for record in records)
+    processed = 0
     checked_file_count = 0
     invalid_file_count = 0
     probe_failed_count = 0
@@ -580,6 +582,9 @@ async def clean_invalid_local_library_files() -> dict[str, Any]:
         if not movie_id:
             continue
         for file_record in record.get("files", []):
+            _emit_progress(progress_callback, {"phase": "cleanup", "completed": processed, "total": total,
+                "current": movie_id, "message": f"正在核验 {movie_id}（{processed + 1}/{total}），已清洗 {len(deleted_files)} 个文件"})
+            processed += 1
             video_path = Path(str(file_record.get("path") or ""))
             if not video_path.name:
                 continue

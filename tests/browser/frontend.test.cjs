@@ -255,6 +255,73 @@ test('information workflow: background check survives reload and leads to backgr
     assert.equal(await page.locator('.sc-logic-error').count(), 0);
 });
 
+test('startup: delayed fallback React loading still mounts the application', async t => {
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/static/app.js*', async route => {
+            const script = fs.readFileSync(path.resolve(__dirname, '../../static/app.js'), 'utf8');
+            await route.fulfill({ contentType: 'text/javascript', body: 'window.qaReact = window.React; window.qaReactDOM = window.ReactDOM; delete window.React; delete window.ReactDOM;\n' + script });
+        });
+        await p.route('https://unpkg.com/**', async route => {
+            await delay(250);
+            await route.fulfill({ contentType: 'text/javascript', body: route.request().url().includes('react-dom@') ? 'window.ReactDOM = window.qaReactDOM;' : 'window.React = window.qaReact;' });
+        });
+        // Test the fallback timing with the already-loaded React objects, not CDN availability or SRI validation.
+        await p.addInitScript(() => {
+            const original = Element.prototype.appendChild;
+            Element.prototype.appendChild = function (node) {
+                if (node.tagName === 'SCRIPT' && node.src.startsWith('https://unpkg.com/')) node.removeAttribute('integrity');
+                return original.call(this, node);
+            };
+        });
+    });
+    await navigate(page, '影视库');
+    await page.getByRole('button', { name: '资料检查', exact: true }).waitFor();
+});
+
+test('background results: scan failures and cleanup remain reviewable after reload', async t => {
+    let cleanupDone = false;
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/movies/local-library/scan/jobs/qa-scan', route => route.fulfill({ json: {
+            status: 'failed', message: '部分目录无法访问', result: { success: false, scans: [
+                { directory: '/offline', success: false, message: '目录无法访问' }, { directory: '/qa', success: true }],
+            },
+        } }));
+        await p.route('**/api/movies/local-library/clean-invalid/jobs**', route => route.fulfill({ json:
+            route.request().method() === 'POST' ? { task_id: 'cleanup' } : cleanupDone ? {
+                status: 'success', percent: 100, result: { success: true, message: '已清洗 1 个无效文件，1 个文件已保留',
+                    deleted_files: [{ path: '/qa/empty.mp4' }], failed_files: [{ path: '/qa/kept.mp4', message: '探测失败，已保留文件' }],
+                },
+            } : { status: 'running', percent: 50, message: '正在核验媒体文件' },
+        }));
+    });
+    await navigate(page, '影视库');
+    await page.getByRole('button', { name: '扫描入库', exact: true }).click(); await approve(page, '开始扫描');
+    await page.getByText('部分目录无法访问', { exact: true }).waitFor();
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await page.locator('header').getByRole('button', { name: /后台/ }).click();
+    const background = page.getByRole('dialog', { name: '后台任务', exact: true });
+    await background.getByText('失败', { exact: true }).waitFor();
+    await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByText('/offline 目录无法访问', { exact: true }).waitFor();
+    await approve(page, '查看对应页面');
+    await page.getByRole('button', { name: '清洗无效文件', exact: true }).click(); await approve(page, '清洗');
+    await page.getByText('清洗已在后台启动，可在后台任务中查看进度', { exact: true }).waitFor();
+    await navigate(page, '设置');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    cleanupDone = true;
+    await page.getByText('已清洗 1 个无效文件，1 个文件已保留', { exact: true }).waitFor();
+    await page.locator('header').getByRole('button', { name: /后台/ }).click();
+    await background.getByText('已完成', { exact: true }).waitFor();
+    await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByText('/qa/kept.mp4 探测失败，已保留文件', { exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-cleanup-result.png'), animations: 'disabled' });
+    await approve(page, '查看对应页面');
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('localLibraryCleanupTask')), null);
+});
+
 test('library columns: spacious defaults, resizing, persistence and reset', async t => {
     const page = await openApp(t, 1440, async p => {
         const state = await libraryFixture(p, 65);
@@ -723,6 +790,11 @@ test('scrape preview handles real conflicts, persists templates and submits chos
     await page.getByRole('button', { name: '另存为', exact: true }).click();
     assert.match(await page.evaluate(() => localStorage.getItem('localScrapeTaskTemplates')), /\/qa/);
     await page.getByRole('button', { name: '生成预览', exact: true }).click();
+    await page.getByText('/target/QA-001.mkv', { exact: true }).waitFor();
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await page.locator('header').getByRole('button', { name: /后台/ }).click();
+    await page.getByRole('dialog', { name: '后台任务', exact: true }).getByRole('button', { name: '查看', exact: true }).click();
     await page.getByText('/target/QA-001.mkv', { exact: true }).waitFor();
     await page.getByRole('button', { name: '对比源文件', exact: true }).click();
     await page.getByRole('button', { name: '保留此文件', exact: true }).first().click();

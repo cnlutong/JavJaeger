@@ -4,6 +4,7 @@ import test from 'node:test';
 import { connectDesign, designDataExports, adaptDesignScript } from '../../frontend/src/design/integration.mjs';
 import { adaptTemplate } from '../../frontend/src/design/template.mjs';
 import { saveWebDavSettings, saveAria2Settings } from '../../frontend/src/utils/storage.js';
+import { withSecretPlaceholders } from '../../frontend/src/utils/systemSettings.mjs';
 
 const original = readFileSync(new URL('../../frontend/src/design/JavJaeger.dc.html', import.meta.url), 'utf8');
 const dispatchContract = JSON.parse(readFileSync(new URL('../fixtures/dispatch-contract.json', import.meta.url), 'utf8'));
@@ -733,7 +734,88 @@ test('audit: background scrape resumes after refresh with the exact preview conf
     restored.setState({ route: 'scrape' });
     globalThis.fetch = async () => json({ status: 'success', result: { success: true, items: [] } });
     await restored.poll(); assert.equal(restored.state.scPhase, 'preview');
+    assert.ok(window.sessionStorage.getItem('localScrapeActiveTask'), 'completed preview remains recoverable until reset');
+    const finished = new instance.constructor({}); t.after(() => finished.componentWillUnmount());
+    finished.setState({ route: 'settings' }); await finished.poll();
+    assert.equal(finished.state.scPhase, 'preview');
+    assert.equal(finished.renderVals().bg.items[0].kind, '刮削');
+    assert.equal(finished.renderVals().bg.animation, 'none');
+    finished.vScrape().reset();
     assert.equal(window.sessionStorage.getItem('localScrapeActiveTask'), null);
+});
+
+test('audit closure: scan failures preserve the actual per-directory results and do not block other jobs', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.loadLibrary = async () => {};
+    instance.setState({ route: 'settings', scanTask: { id: 'scan', status: 'running' }, scrapeTask: { id: 'scrape', status: 'running', operation: 'preview' } });
+    globalThis.fetch = async url => url.includes('/scan/') ? new Response('{}', { status: 503 }) : json({ status: 'success', result: { success: true, items: [] } });
+    await instance.poll();
+    assert.equal(instance.state.scrapeTask.status, 'success', 'one unavailable job must not starve others');
+    globalThis.fetch = async () => json({ status: 'failed', result: { success: false, message: '一个目录失败', scans: [{ directory: '/offline', success: false, message: '无法访问' }] } });
+    await instance.poll();
+    const scan = instance.renderVals().bg.items.find(item => item.kind === '扫描入库');
+    assert.ok(scan, 'finished failures remain in the task center');
+    scan.go();
+    assert.match(instance.state.dlg.list.join(' '), /offline.*无法访问/);
+});
+
+test('audit closure: cleanup runs in the background and retains its reviewable result', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'settings' }); instance.loadLibrary = async () => {};
+    globalThis.fetch = async url => { assert.match(url, /clean-invalid\/jobs$/); return json({ task_id: 'clean' }); };
+    instance.vLibrary().clean(); await instance.state.dlg.run();
+    assert.equal(instance.state.cleanupTask.id, 'clean');
+    globalThis.fetch = async () => json({ status: 'success', result: { success: true, message: '已清洗 1 个无效文件',
+        deleted_file_count: 1, failed_files: [{ path: '/qa/kept.mp4', message: '无法确认媒体无效，已保留文件' }] } });
+    await instance.poll();
+    instance.renderVals().bg.items.find(item => item.kind === '清洗无效文件').go();
+    assert.match(instance.state.dlg.list.join(' '), /kept.mp4.*保留/);
+});
+
+test('audit closure: switching to a disconnected source discards an old directory response', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ fsSrc: 'local' });
+    let release;
+    globalThis.fetch = () => new Promise(resolve => { release = resolve; });
+    const pending = instance.loadFiles('local', '/qa');
+    instance.vStorage().sources.find(item => item.key === '115').pick();
+    release(json({ entries: [{ name: 'old', path: '/qa/old' }] })); await pending;
+    assert.equal(instance.state.fsSrc, '115'); assert.deepEqual(instance.state.fileRows, []);
+});
+
+test('audit closure: partial file dispatch exposes each outcome and refreshes successful downloads', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let refreshed = false; instance.loadAria = async () => { refreshed = true; };
+    instance.setState({ route: 'storage', fsSrc: 'webdav', connections: { aria2_connected: true }, fsSel: ['/qa'] });
+    globalThis.fetch = async () => json({ success: true, results: [
+        { filename: 'sent.mp4', success: true }, { filename: 'failed.mp4', success: false, message: '添加失败' },
+    ] });
+    instance.sendFiles([{ name: 'folder', path: '/qa', is_directory: true }]); await instance.state.dlg.run();
+    assert.equal(refreshed, true);
+    assert.match(instance.state.dlg.list.join(' '), /sent.mp4.*成功.*failed.mp4.*失败/);
+    assert.equal(instance.state.dlg.okText, '查看下载任务');
+});
+
+test('audit closure: backend validation messages are readable but secrets stay hidden', async () => {
+    const instance = app();
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: { message: '配置文件写入失败，请检查目录权限' } }), { status: 500 });
+    await assert.rejects(instance.request('/api/system/settings', 'PUT', {}), /目录权限/);
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: { message: 'password=private' } }), { status: 500 });
+    await assert.rejects(instance.request('/api/system/settings', 'PUT', {}), error => !error.message.includes('private'));
+});
+
+test('audit closure: filtered or empty folders do not silently claim a complete dispatch', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ fsSrc: 'webdav', connections: { aria2_connected: true } });
+    instance.loadAria = async () => {};
+    let results = [{ filename: 'movie.mp4', success: true }, { filename: 'sample.txt', success: false, skipped: true, message: '非视频文件' }];
+    globalThis.fetch = async () => json({ success: Boolean(results.length), results });
+    instance.sendFiles([{ path: '/qa', name: 'qa', is_directory: true }]); await instance.state.dlg.run();
+    assert.match(instance.state.dlg.body, /1 成功，0 失败，1 跳过/);
+    assert.match(instance.state.dlg.list.join(' '), /sample.txt.*已跳过/);
+    results = [];
+    instance.sendFiles([{ path: '/qa', name: 'qa', is_directory: true }]); await instance.state.dlg.run();
+    assert.match(instance.state.toast.text, /没有新增下载任务/);
 });
 
 test('audit: unrelated polling errors do not hide a completed scrape and expired jobs stop retrying', async t => {
@@ -820,7 +902,56 @@ test('workflow: 115 jobs remain visible until their partial result is consumed',
     assert.ok(window.sessionStorage.getItem('pan115ActiveDispatch'));
     await instance.perform(() => instance.poll());
     assert.equal(instance.vDispatch().failed.length, 1);
-    assert.equal(window.sessionStorage.getItem('pan115ActiveDispatch'), undefined ?? null);
+    assert.ok(window.sessionStorage.getItem('pan115ActiveDispatch'));
+    instance.renderVals().bg.items.find(item => item.kind === '115 派发').go();
+    assert.match(instance.state.dlg.list[0], /QA-001.*失败/);
+    await instance.state.dlg.run();
+    assert.equal(window.sessionStorage.getItem('pan115ActiveDispatch'), null);
+});
+
+test('audit closure: repeated job starts are rejected while submission is pending', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let release, calls = 0;
+    globalThis.fetch = async () => { calls++; return new Promise(resolve => { release = resolve; }); };
+    const first = instance.startJob('scrapeTask', '/api/movies/local-scrape/preview/jobs', {});
+    await assert.rejects(instance.startJob('scrapeTask', '/api/movies/local-scrape/preview/jobs', {}), /正在运行/);
+    release(json({ task_id: 'preview' })); await first;
+    assert.equal(calls, 1);
+    instance.showBackgroundResult('scrapeTask');
+    assert.equal(instance.state.route, 'scrape');
+});
+
+test('audit closure: concurrent source diagnostics preserve both results', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const settings = { scrapers: { priority: ['javbus', 'jav321'], javbus: {}, jav321: {} } };
+    instance.setState({ seTab: '刮削源', settings, settingsDraft: withSecretPlaceholders(settings) });
+    const pending = [];
+    globalThis.fetch = async () => new Promise(resolve => pending.push(resolve));
+    const sources = instance.vSettings().sources;
+    const first = sources[0].test(), second = sources[1].test();
+    pending[0](json({ results: [{ provider: 'javbus', success: true }] })); await first;
+    pending[1](json({ results: [{ provider: 'jav321', success: false }] })); await second;
+    assert.deepEqual(instance.state.sourcesResult.map(item => item.provider), ['javbus', 'jav321']);
+});
+
+test('audit closure: source results cannot overwrite unsaved settings or survive a configuration reload', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const settings = { javbus: { base_url: 'https://old.test' }, scrapers: {} };
+    instance.setState({ seTab: '刮削源', settings, settingsDraft: withSecretPlaceholders(settings), sourcesResult: [{ provider: 'javbus', success: false }] });
+    instance.setState({ settingsDraft: { ...instance.state.settingsDraft, javbus: { base_url: 'https://new.test' } } });
+    let writes = 0;
+    globalThis.fetch = async (_, options) => { if (options.method !== 'GET') writes++; return json(settings); };
+    await instance.vSettings().applyTestResults();
+    assert.equal(writes, 0);
+    assert.match(instance.state.toast.text, /先保存/);
+    await instance.loadSettings();
+    assert.deepEqual(instance.state.sourcesResult, []);
+    let release;
+    globalThis.fetch = async (_, options) => options.method === 'POST' ? new Promise(resolve => { release = resolve; }) : json(settings);
+    const pending = instance.vSettings().test();
+    await instance.loadSettings();
+    release(json({ results: [{ provider: 'javbus', success: true }] })); await pending;
+    assert.deepEqual(instance.state.sourcesResult, [], 'an old in-flight test cannot restore stale results');
 });
 
 test('workflow: scraper diagnostics use duration and error fields and shared JavBus settings', t => {

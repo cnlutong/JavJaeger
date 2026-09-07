@@ -75,6 +75,8 @@ def test_every_frontend_api_family_has_a_registered_concrete_route():
         ("POST", "/information/${operation}/jobs", "/api/movies/local-library/information/download/jobs"),
         ("GET", "/information/jobs/", "/api/movies/local-library/information/jobs/{task_id}"),
         ("POST", "/clean-invalid", "/api/movies/local-library/clean-invalid"),
+        ("POST", "/clean-invalid/jobs", "/api/movies/local-library/clean-invalid/jobs"),
+        ("GET", "/clean-invalid/jobs/", "/api/movies/local-library/clean-invalid/jobs/{task_id}"),
         ("GET", "/api/movies/local-library/actors", "/api/movies/local-library/actors"),
         ("GET", "/actors/${", "/api/movies/local-library/actors/{actor_key}/avatar"),
         ("GET", "/actor-avatar/${", "/api/movies/local-library/actor-avatar/{movie_id}/{actor_name}"),

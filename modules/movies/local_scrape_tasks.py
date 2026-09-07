@@ -40,6 +40,10 @@ class LocalScrapeTaskManager:
         return self._start_task("information-download", lambda progress:
             local_library.download_missing_local_library_information(request, progress_callback=progress))
 
+    def start_cleanup_task(self) -> str:
+        return self._start_task("local-library-cleanup", lambda progress:
+            local_library.clean_invalid_local_library_files(progress_callback=progress))
+
     def start_task(self, task_type: str, runner: TaskRunner) -> str:
         return self._start_task(task_type, runner)
 

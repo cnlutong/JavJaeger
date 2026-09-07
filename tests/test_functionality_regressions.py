@@ -15,7 +15,7 @@ from modules.common import runtime
 from modules.movies import metadata_scrapers
 from modules.javbus_api.parser import parse_movie_detail
 from modules.magnets import service as magnets
-from modules.automation.service import AutomationService
+from modules.automation.service import AutomationError, AutomationService
 from modules.automation.schemas import AutomationTask, AutomationRun, AutomationTaskCreate
 from modules.system import settings
 from cilisousuo_cli import SearchResult
@@ -31,6 +31,50 @@ from modules.movies.transcoding_schemas import TranscodingTaskCreate
 from modules.movies import workflows
 from modules.movies.schemas import BatchMoviesRequest
 from modules.javbus_api.parser import convert_magnets_html
+
+
+def test_running_automation_cannot_be_deleted_and_lose_its_result(tmp_path):
+    async def exercise():
+        service = AutomationService(str(tmp_path / "tasks.json"), scheduler_enabled=False)
+        task = await service.create_task(AutomationTaskCreate(name="QA", nodes=[
+            {"id": kind, "type": kind} for kind in ("trigger", "search", "magnet", "download")]))
+        service._running_task_ids.add(task.id)
+        with pytest.raises(AutomationError, match="正在运行"):
+            await service.delete_task(task.id)
+        assert (await service.get_task(task.id)).id == task.id
+        service._running_task_ids.clear()
+        await service.delete_task(task.id)
+        assert await service.list_tasks() == []
+    asyncio.run(exercise())
+
+
+def test_automation_errors_include_an_actionable_message():
+    from fastapi import HTTPException
+    from modules.automation.router import _raise_http_error
+
+    with pytest.raises(HTTPException) as raised:
+        _raise_http_error(AutomationError("task_already_running", "任务正在运行，请等待结束后删除"))
+    assert raised.value.status_code == 400
+    assert raised.value.detail == {"error": "task_already_running", "message": "任务正在运行，请等待结束后删除"}
+
+
+def test_webdav_folder_dispatch_preserves_successes_and_continues_after_one_failure():
+    files = [WebDavFile(name=f"{i}.mp4", path=f"/folder/{i}.mp4", is_directory=False, size=1) for i in range(3)]
+    dav = SimpleNamespace(list_directory=lambda path: files, _build_download_url=lambda path: "https://example.test" + path,
+                          build_aria2_options=lambda options: options)
+    aria = SimpleNamespace(add_download=Mock(side_effect=["first", OSError("offline"), "last"]))
+    result = download_folder_recursive(dav, aria, "/folder", "folder", False, 0)
+    assert [item["success"] for item in result] == [True, False, True]
+    assert result[1]["filename"] == "1.mp4"
+    assert aria.add_download.call_count == 3
+
+
+def test_remote_aria2_removal_never_attempts_local_control_file_deletion():
+    client = Aria2Client("http://localhost:6800/jsonrpc")
+    download = Mock()
+    client.aria2 = SimpleNamespace(get_download=lambda gid: download, remove=Mock(return_value=[True]))
+    assert client.remove_download("qa")
+    client.aria2.remove.assert_called_once_with([download], clean=False)
 
 
 @pytest.mark.parametrize("probe", [subprocess.TimeoutExpired("ffprobe", 5), OSError("offline volume"), SimpleNamespace(returncode=1, stdout=""), SimpleNamespace(returncode=0, stdout="not json")])

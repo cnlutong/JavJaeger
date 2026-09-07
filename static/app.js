@@ -5847,7 +5847,7 @@ class Component extends DCLogic {
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
   };
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
-  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask" };
+  var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask", cleanupTask: "localLibraryCleanupTask" };
   var jobFinished = (task) => task && ["success", "completed", "failed"].includes(task.status);
   var informationSummary = (task) => {
     if (task.status === "failed") return safeText(task.message, "\u8D44\u6599\u4EFB\u52A1\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5");
@@ -6038,8 +6038,10 @@ class Component extends DCLogic {
         }
         const response = await fetch(url, options);
         if (!response.ok) {
-          const error = new Error(`\u8BF7\u6C42\u5931\u8D25\uFF08HTTP ${response.status}\uFF09`);
+          const result2 = await response.json().catch(() => null), detail = result2?.detail;
+          const error = new Error(safeText(detail?.message || (typeof detail === "string" ? detail : "") || result2?.message, `\u8BF7\u6C42\u5931\u8D25\uFF08HTTP ${response.status}\uFF09`));
           error.status = response.status;
+          error.result = result2;
           throw error;
         }
         const result = await response.json();
@@ -6167,7 +6169,7 @@ class Component extends DCLogic {
       }
       async loadSettings() {
         const payload = await this.request("/api/system/settings");
-        this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload) });
+        this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: [] });
       }
       async loadCatalogs() {
         for (const [url, table] of [["/static/actors.json", data.ACTOR_CATALOG], ["/static/categories.json", data.GENRE_CATALOG]]) {
@@ -6423,51 +6425,58 @@ class Component extends DCLogic {
           if (this.state.route === "storage" && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
           if (this.state.route === "auto" || this.state.tasks.some((task) => task.runs?.some((run) => run.status === "running"))) await this.perform(() => this.loadTasks());
           await this.perform(() => this.pollInformation());
-          for (const [key, prefix] of [["scanTask", "/api/movies/local-library/scan/jobs/"], ["scrapeTask", "/api/movies/local-scrape/jobs/"], ["dispatchTask", "/api/115/download-jobs/"]]) {
+          for (const [key, prefix] of [["scanTask", "/api/movies/local-library/scan/jobs/"], ["scrapeTask", "/api/movies/local-scrape/jobs/"], ["dispatchTask", "/api/115/download-jobs/"], ["cleanupTask", "/api/movies/local-library/clean-invalid/jobs/"]]) {
             const current = this.state[key];
             if (!current || ["success", "completed", "failed"].includes(current.status)) continue;
-            let task;
-            try {
-              task = await this.request(prefix + id(current.id));
-            } catch (error) {
-              if (error.status === 404) {
-                window.sessionStorage.removeItem(jobStorage[key]);
-                this.setState({ [key]: { ...current, status: "failed" }, ...key === "scrapeTask" ? { scPhase: "idle" } : { lbScanning: false } });
-                throw new Error(key === "dispatchTask" ? "115 \u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u8BF7\u5148\u6838\u5BF9\u4E0B\u8F7D\u5386\u53F2\u548C\u7F51\u76D8\u4EFB\u52A1\uFF0C\u518D\u91CD\u8BD5\u672A\u63D0\u4EA4\u9879" : "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u6216\u751F\u6210\u9884\u89C8");
+            await this.perform(async () => {
+              let task;
+              try {
+                task = await this.request(prefix + id(current.id));
+              } catch (error) {
+                if (error.status === 404) {
+                  window.sessionStorage.removeItem(jobStorage[key]);
+                  this.setState({ [key]: { ...current, status: "failed", message: "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u6838\u5BF9\u7ED3\u679C\u540E\u91CD\u65B0\u64CD\u4F5C" }, ...key === "scrapeTask" ? { scPhase: "idle" } : key === "scanTask" ? { lbScanning: false } : {} });
+                  throw new Error(key === "dispatchTask" ? "115 \u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u8BF7\u5148\u6838\u5BF9\u4E0B\u8F7D\u5386\u53F2\u548C\u7F51\u76D8\u4EFB\u52A1\uFF0C\u518D\u91CD\u8BD5\u672A\u63D0\u4EA4\u9879" : "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u6216\u751F\u6210\u9884\u89C8");
+                }
+                throw error;
               }
-              throw error;
-            }
-            this.setState({ [key]: { ...current, ...task, id: current.id, operation: current.operation } });
-            if (["success", "completed", "failed"].includes(task.status)) window.sessionStorage.removeItem(jobStorage[key]);
-            if (key === "dispatchTask") {
-              if (["completed", "failed"].includes(task.status)) {
-                if (!task.result) throw new Error("115 \u6D3E\u53D1\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u8FDE\u63A5\u4E0E\u4E0B\u8F7D\u5386\u53F2");
-                await this.perform(() => this.finishDispatch(task.result, "115 \u7F51\u76D8", current.preflight || []));
+              this.setState({ [key]: { ...current, ...task, id: current.id, operation: current.operation } });
+              if (key === "cleanupTask") {
+                if (jobFinished(task)) {
+                  await this.perform(() => this.loadLibrary());
+                  this.toast(safeText(task.result?.message || task.message, "\u6E05\u6D17\u4EFB\u52A1\u7ED3\u675F\uFF0C\u53EF\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u7ED3\u679C"), task.status === "failed" || task.result?.failed_files?.length ? WARN : OK);
+                }
+                return;
               }
-              continue;
-            }
-            if (key === "scanTask" && task.result && ["success", "completed", "failed"].includes(task.status)) {
-              this.setState({ lbScanning: false, scanResult: task.result });
-              await this.loadLibrary();
-              const message = safeText(task.message || task.result.message, "\u626B\u63CF\u5DF2\u5B8C\u6210");
-              this.toast(message, task.status === "failed" ? WARN : OK);
-              if (task.status === "failed") this.ask({ title: "\u626B\u63CF\u7ED3\u679C\uFF1A\u90E8\u5206\u76EE\u5F55\u672A\u5B8C\u6210", body: message, list: (task.result.results || []).filter((item) => !item.success).map((item) => `${item.directory || ""} ${safeText(item.message)}`), okText: "\u5173\u95ED", color: WARN });
-              continue;
-            }
-            if (key === "scrapeTask" && current.operation === "apply" && task.result && ["success", "completed", "failed"].includes(task.status)) {
-              this.setState({ scPhase: "idle", scrapeResult: task.result });
-              data.SCRAPE_ROWS.splice(0);
-              await this.loadLibrary();
-              this.toast(`\u522E\u524A\u6267\u884C\u5B8C\u6210\uFF1A${task.result.success_count || 0} \u6210\u529F\uFF0C${task.result.failed_count || 0} \u5931\u8D25`, task.status === "failed" ? WARN : OK);
-            } else if (["success", "completed"].includes(task.status)) {
-              if (key === "scanTask") {
-                this.setState({ lbScanning: false });
-                await this.loadLibrary();
-              } else this.applyScrapeResult(task.result);
-            } else if (task.status === "failed") {
-              this.setState({ lbScanning: false, scPhase: "idle" });
-              throw new Error(safeText(task.error || task.message));
-            } else if (key === "scrapeTask") this.setState({ scPct: task.percent || 0 });
+              if (key === "dispatchTask") {
+                if (["completed", "failed"].includes(task.status)) {
+                  if (!task.result) throw new Error("115 \u6D3E\u53D1\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u8FDE\u63A5\u4E0E\u4E0B\u8F7D\u5386\u53F2");
+                  await this.perform(() => this.finishDispatch(task.result, "115 \u7F51\u76D8", current.preflight || []));
+                }
+                return;
+              }
+              if (key === "scanTask" && task.result && ["success", "completed", "failed"].includes(task.status)) {
+                this.setState({ lbScanning: false, scanResult: task.result });
+                await this.perform(() => this.loadLibrary());
+                const message = safeText(task.message || task.result.message, "\u626B\u63CF\u5DF2\u5B8C\u6210");
+                this.toast(message, task.status === "failed" ? WARN : OK);
+                return;
+              }
+              if (key === "scrapeTask" && current.operation === "apply" && task.result && ["success", "completed", "failed"].includes(task.status)) {
+                this.setState({ scPhase: "idle", scrapeResult: task.result });
+                data.SCRAPE_ROWS.splice(0);
+                await this.perform(() => this.loadLibrary());
+                this.toast(`\u522E\u524A\u6267\u884C\u5B8C\u6210\uFF1A${task.result.success_count || 0} \u6210\u529F\uFF0C${task.result.failed_count || 0} \u5931\u8D25`, task.status === "failed" ? WARN : OK);
+              } else if (["success", "completed"].includes(task.status)) {
+                if (key === "scanTask") {
+                  this.setState({ lbScanning: false });
+                  await this.loadLibrary();
+                } else this.applyScrapeResult(task.result);
+              } else if (task.status === "failed") {
+                this.setState(key === "scrapeTask" ? { scPhase: "idle" } : { lbScanning: false });
+                throw new Error(safeText(task.message || task.error));
+              } else if (key === "scrapeTask") this.setState({ scPct: task.percent || 0 });
+            });
           }
           if (this.state.qr?.session_id) await this.pollQr();
         } finally {
@@ -6475,11 +6484,48 @@ class Component extends DCLogic {
         }
       }
       async startJob(key, url, payload, operation = "preview") {
-        const config = key === "informationTask" ? payload : key === "scrapeTask" ? Object.fromEntries(scrapeConfigKeys.map((field) => [field, this.state[field]])) : void 0;
-        const task = await this.request(url, "POST", payload);
-        window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
-        this.setState({ [key]: { id: task.task_id, status: "running", operation, payload: config } });
-        return task;
+        this._startingJobs ||= /* @__PURE__ */ new Set();
+        if (this._startingJobs.has(key) || this.state[key] && !jobFinished(this.state[key])) throw new Error("\u540C\u7C7B\u540E\u53F0\u4EFB\u52A1\u6B63\u5728\u8FD0\u884C\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210");
+        this._startingJobs.add(key);
+        try {
+          const config = key === "scrapeTask" ? Object.fromEntries(scrapeConfigKeys.map((field) => [field, this.state[field]])) : payload;
+          const task = await this.request(url, "POST", payload);
+          window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
+          this.setState({ [key]: { id: task.task_id, status: "running", operation, payload: config } });
+          return task;
+        } finally {
+          this._startingJobs.delete(key);
+        }
+      }
+      showBackgroundResult(key) {
+        const task = this.state[key];
+        if (!task) return;
+        if (key === "scrapeTask" && task.result && (task.operation === "apply" || task.status !== "failed")) {
+          this.go("scrape")();
+          return;
+        }
+        if (!jobFinished(task)) {
+          this.go(key === "dispatchTask" ? "dispatch" : key === "scrapeTask" ? "scrape" : "library")();
+          return;
+        }
+        this.setState({ bgOpen: false });
+        const result = task.result || {}, failed = task.status === "failed";
+        const rows = key === "scanTask" ? result.scans || [result] : key === "cleanupTask" ? [...(result.deleted_files || []).map((row) => ({ ...row, message: "\u5DF2\u6E05\u6D17" })), ...result.failed_files || []] : result.results || [];
+        this.ask({
+          title: key === "scanTask" ? "\u626B\u63CF\u5165\u5E93\u7ED3\u679C" : key === "cleanupTask" ? "\u6E05\u6D17\u7ED3\u679C" : key === "dispatchTask" ? "115 \u6D3E\u53D1\u7ED3\u679C" : "\u522E\u524A\u4EFB\u52A1\u5931\u8D25",
+          body: safeText(result.message || task.message, failed ? "\u4EFB\u52A1\u5931\u8D25\uFF0C\u8BF7\u4FEE\u6B63\u914D\u7F6E\u540E\u91CD\u8BD5" : "\u4EFB\u52A1\u5DF2\u5B8C\u6210"),
+          color: failed ? WARN : ACC,
+          list: rows.map((row) => `${row.path || row.directory || row.movie_id || ""} ${safeText(row.message || row.error, row.success === false ? "\u5931\u8D25" : "\u5DF2\u5B8C\u6210")}`),
+          okText: "\u67E5\u770B\u5BF9\u5E94\u9875\u9762",
+          run: () => {
+            this.dismissBackgroundTask(key);
+            this.go(key === "dispatchTask" ? "dispatch" : key === "scrapeTask" ? "scrape" : "library")();
+          }
+        });
+      }
+      dismissBackgroundTask(key) {
+        window.sessionStorage.removeItem(jobStorage[key]);
+        this.setState({ [key]: null });
       }
       startInformationJob(operation, payload) {
         return this.perform(async () => {
@@ -6850,11 +6896,7 @@ class Component extends DCLogic {
           ackText: "\u6211\u786E\u8BA4\u6C38\u4E45\u5220\u9664\u65E0\u6548\u89C6\u9891\u6587\u4EF6",
           color: BAD,
           okText: "\u6E05\u6D17",
-          run: () => this.perform(async () => {
-            const result = await this.request("/api/movies/local-library/clean-invalid", "POST");
-            await this.loadLibrary();
-            this.toast(result.message, result.failed_files?.length ? WARN : OK);
-          }, null)
+          run: () => this.perform(() => this.startJob("cleanupTask", "/api/movies/local-library/clean-invalid/jobs", void 0, "cleanup"), "\u6E05\u6D17\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u8FDB\u5EA6")
         });
         view.purgeDb = () => this.ask({
           title: "\u6E05\u7A7A\u5F71\u89C6\u5E93\u7D22\u5F15\uFF1F",
@@ -7161,9 +7203,10 @@ class Component extends DCLogic {
             this.toast("\u540E\u53F0\u4EFB\u52A1\u8FD0\u884C\u4E2D\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210", WARN);
             return;
           }
+          this.dismissBackgroundTask("scrapeTask");
           data.SCRAPE_ROWS.splice(0);
           this.scrapePreviewConfig = null;
-          this.setState({ scPhase: "idle", scrapeTask: null, scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} });
+          this.setState({ scPhase: "idle", scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} });
         };
         view.applyStrategy = () => {
           const strategy = st.scStrategy.split(" ")[0];
@@ -7553,15 +7596,28 @@ class Component extends DCLogic {
         }
         const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
         this.ask({ title: `\u53D1\u9001 ${files.length} \u4E2A\u6587\u4EF6\u5230 Aria2\uFF1F`, body: "\u4ECE\u5F53\u524D\u7F51\u76D8\u4E0B\u8F7D\u5230\u5DF2\u8FDE\u63A5\u7684 Aria2\u3002", list: files.map((file) => file.name), color: ACC, okText: "\u53D1\u9001", run: () => this.perform(async () => {
-          const result = await this.request("/api/webdav/download", "POST", { files: files.map((file) => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === "folder", source_type: source === "115" ? "pan115" : "webdav" })), video_filter: videoFilter, min_file_size_mb: minSize });
-          if (result.results?.some((item) => item.success === false && !item.skipped)) throw new Error("\u90E8\u5206\u6587\u4EF6\u53D1\u9001\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u4E0B\u8F7D\u4EFB\u52A1");
-          this.setState({ fsSel: [] });
-          await this.loadAria();
-          if (result.results?.length && result.results.every((item) => item.skipped)) {
-            this.toast("\u5168\u90E8\u6587\u4EF6\u4E0D\u7B26\u5408\u7B5B\u9009\u6761\u4EF6\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", WARN);
+          let result;
+          try {
+            result = await this.request("/api/webdav/download", "POST", { files: files.map((file) => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === "folder", source_type: source === "115" ? "pan115" : "webdav" })), video_filter: videoFilter, min_file_size_mb: minSize });
+          } catch (error) {
+            if (!error.result?.results) throw error;
+            result = error.result;
+          }
+          const rows = result.results || [], failed = rows.filter((item) => item.success === false && !item.skipped), successful = rows.filter((item) => item.success), skipped = rows.filter((item) => item.skipped);
+          if (!failed.length) this.setState({ fsSel: [] });
+          await this.perform(() => this.loadAria());
+          if (failed.length || skipped.length) {
+            this.ask({
+              title: "\u7F51\u76D8\u53D1\u9001\u7ED3\u679C",
+              body: `${successful.length} \u6210\u529F\uFF0C${failed.length} \u5931\u8D25\uFF0C${skipped.length} \u8DF3\u8FC7\u3002` + (failed.length ? "\u8BF7\u6309\u660E\u7EC6\u91CD\u8BD5\u5931\u8D25\u6587\u4EF6\uFF0C\u907F\u514D\u91CD\u590D\u53D1\u9001\u6574\u4E2A\u76EE\u5F55\u3002" : "\u90E8\u5206\u6587\u4EF6\u4E0D\u7B26\u5408\u7B5B\u9009\u6761\u4EF6\uFF0C\u8BF7\u67E5\u770B\u660E\u7EC6\u3002"),
+              color: WARN,
+              list: rows.map((item) => `${item.filename}\uFF1A${item.skipped ? "\u5DF2\u8DF3\u8FC7" : item.success ? "\u6210\u529F" : "\u5931\u8D25"} ${safeText(item.message, "")}`),
+              okText: "\u67E5\u770B\u4E0B\u8F7D\u4EFB\u52A1",
+              run: () => this.go("storage")()
+            });
             return;
           }
-          this.toast("\u5DF2\u53D1\u9001\u5230 Aria2", OK);
+          this.toast(successful.length ? "\u5DF2\u53D1\u9001\u5230 Aria2" : "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u6587\u4EF6\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", successful.length ? OK : WARN);
         }) });
       }
       vStorage() {
@@ -7577,6 +7633,7 @@ class Component extends DCLogic {
           taskPaging: taskPage.paging,
           directoryPaging: directories.paging,
           sources: [["local", "\u670D\u52A1\u7AEF\u672C\u5730", true], ["webdav", "WebDAV", st.connections.webdav_connected], ["115", "115 \u7F51\u76D8", this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? "\u53EF\u7528" : "\u672A\u8FDE\u63A5", dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: "", op: 1, cursor: "pointer", needsCfg: key !== "local", bg: key === st.fsSrc ? "rgba(145,132,217,.08)" : "transparent", ring: key === st.fsSrc ? ACC : "var(--t09)", config: () => this.setState({ route: "settings", seTab: name }), pick: () => {
+            this.fileRequestVersion = (this.fileRequestVersion || 0) + 1;
             this.setState({ fsSrc: key, fileRows: [], directory: "", directoryTrail: [] });
             if (up) this.perform(() => this.loadFiles(key, ""));
           } })),
@@ -7665,11 +7722,15 @@ class Component extends DCLogic {
         }, "status")];
         const sources = st.settingsDraft.scrapers || {}, priority = sources.priority || [], providers = [.../* @__PURE__ */ new Set([...priority, ...Object.keys(sources).filter((name) => name !== "priority")])];
         const updateSource = (name, updates) => this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, [name]: { ...sources[name], ...updates } } } });
-        const testSources = (providers2) => this.perform(async () => {
+        const requireSavedSources = () => {
           const stored = withSecretPlaceholders(st.settings);
           if (JSON.stringify(st.settingsDraft.scrapers) !== JSON.stringify(stored.scrapers) || JSON.stringify(st.settingsDraft.javbus) !== JSON.stringify(stored.javbus)) throw new Error("\u522E\u524A\u6E90\u914D\u7F6E\u5DF2\u4FEE\u6539\uFF0C\u8BF7\u5148\u4FDD\u5B58\uFF0C\u518D\u6D4B\u8BD5\u8FDE\u63A5");
+        };
+        const testSources = (providers2) => this.perform(async () => {
+          requireSavedSources();
           const result = await this.request("/api/movies/metadata-scrapers/test", "POST", { providers: providers2, concurrent: 3, apply_results: false });
-          this.setState({ sourcesResult: [...st.sourcesResult.filter((item) => !providers2.includes(item.provider || item.name)), ...result.results || []] });
+          if (st.settings !== this.state.settings) throw new Error("\u914D\u7F6E\u5DF2\u91CD\u65B0\u8F7D\u5165\uFF0C\u8BF7\u91CD\u65B0\u6D4B\u8BD5\u522E\u524A\u6E90");
+          this.setState((current) => ({ sourcesResult: [...current.sourcesResult.filter((item) => !providers2.includes(item.provider || item.name)), ...result.results || []] }));
         }, "\u522E\u524A\u6E90\u6D4B\u8BD5\u5DF2\u5B8C\u6210");
         return {
           tabs: tabs.map((name) => ({ name, status: status(name), dot: status(name) === "\u5DF2\u8FDE\u63A5" ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? "rgba(145,132,217,.12)" : "transparent", fg: name === st.seTab ? "var(--fg)" : DIM, fw: name === st.seTab ? 500 : 400, pick: () => this.setState({ seTab: name }) })),
@@ -7712,6 +7773,7 @@ class Component extends DCLogic {
           }),
           test: () => key === "scrapers" || key === "javbus" ? testSources(key === "javbus" ? ["javbus"] : providers) : this.perform(() => this.connect(key, !values.password && !values.secret && !values.cookie && Object.entries(values).every(([field, value]) => ["password", "secret", "cookie"].includes(field) || st.settings[key]?.[field] === value)), "\u8FDE\u63A5\u6210\u529F"),
           applyTestResults: () => this.perform(async () => {
+            requireSavedSources();
             if (!st.sourcesResult.length) throw new Error("\u8BF7\u5148\u8FD0\u884C\u6D4B\u8BD5");
             await this.request("/api/movies/metadata-scrapers/apply-test-results", "POST", { results: st.sourcesResult });
             await this.loadSettings();
@@ -7743,13 +7805,25 @@ class Component extends DCLogic {
         for (const nav of view.nav) nav.badge = nav.label === "\u8F6C\u7801" ? String(data.TC.filter((task) => ["running", "queued"].includes(task.status)).length || "") : nav.label === "\u81EA\u52A8\u6A21\u5F0F" ? String(st.tasks.filter((task) => task.enabled).length || "") : "";
         view.tools = this.toolStates();
         view.bg.items = data.TC.filter((task) => ["running", "queued"].includes(task.status)).map((task) => ({ kind: "\u8F6C\u7801", name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go("transcode") }));
-        for (const key of ["scanTask", "scrapeTask"]) if (st[key] && !["success", "completed", "failed"].includes(st[key].status)) view.bg.items.push({ kind: key === "scanTask" ? "\u626B\u63CF\u5165\u5E93" : "\u522E\u524A", name: st[key].message || "\u540E\u53F0\u8FD0\u884C\u4E2D", pct: st[key].percent || 0, pctText: "", meta: st[key].status, fg: ACC, go: this.go(key === "scanTask" ? "library" : "scrape") });
-        if (st.dispatchTask && !["completed", "failed"].includes(st.dispatchTask.status)) {
+        for (const [key, kind] of [["scanTask", "\u626B\u63CF\u5165\u5E93"], ["scrapeTask", "\u522E\u524A"], ["cleanupTask", "\u6E05\u6D17\u65E0\u6548\u6587\u4EF6"]]) if (st[key]) {
+          const task = st[key], finished = jobFinished(task);
+          view.bg.items.push({
+            kind,
+            name: safeText(task.message, finished ? "\u4EFB\u52A1\u5DF2\u7ED3\u675F\uFF0C\u70B9\u51FB\u67E5\u770B\u7ED3\u679C" : "\u540E\u53F0\u8FD0\u884C\u4E2D"),
+            pct: task.percent || 0,
+            pctText: finished ? task.status === "failed" ? "\u5931\u8D25" : "\u5DF2\u5B8C\u6210" : "",
+            meta: finished ? "\u7ED3\u679C\u4FDD\u7559\uFF0C\u70B9\u51FB\u67E5\u770B\u4E0B\u4E00\u6B65" : "\u670D\u52A1\u7AEF\u540E\u53F0\u6267\u884C",
+            fg: task.status === "failed" ? WARN : finished ? OK : ACC,
+            finished,
+            go: () => this.showBackgroundResult(key)
+          });
+        }
+        if (st.dispatchTask) {
           const job = st.dispatchTask, pct = Math.round(100 * (job.completed_count || 0) / Math.max(1, job.total_count || 1));
-          view.bg.items.push({ kind: "115 \u6D3E\u53D1", name: `\u6279\u6B21 ${job.current_batch || 0}/${job.total_batches || "\u5F85\u8BA1\u7B97"}`, pct, pctText: `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} \u9879\u5DF2\u5904\u7406`, fg: ACC, go: this.go("dispatch") });
+          view.bg.items.push({ kind: "115 \u6D3E\u53D1", name: `\u6279\u6B21 ${job.current_batch || 0}/${job.total_batches || "\u5F85\u8BA1\u7B97"}`, pct, pctText: jobFinished(job) ? "\u67E5\u770B\u7ED3\u679C" : `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} \u9879\u5DF2\u5904\u7406`, fg: job.status === "failed" ? WARN : ACC, finished: jobFinished(job), go: () => this.showBackgroundResult("dispatchTask") });
         }
         for (const task of st.tasks) for (const run of task.runs || []) if (run.status === "running") view.bg.items.push({ kind: "\u81EA\u52A8\u4EFB\u52A1", name: task.name, pct: 0, pctText: "", meta: run.message || "\u8FD0\u884C\u4E2D", fg: ACC, go: this.go("auto") });
-        const activeCount = view.bg.items.length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
+        const activeCount = view.bg.items.filter((item) => !item.finished).length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
         if (st.informationTask) {
           const task = st.informationTask, finished = jobFinished(task);
           view.bg.items.unshift({
@@ -8010,7 +8084,11 @@ class Component extends DCLogic {
   }
 
   // frontend/src/main.jsx
-  Promise.resolve().then(() => {
+  function mountApp() {
+    if (!window.__dcUpdate) {
+      document.getElementById("root").textContent = "\u754C\u9762\u4F9D\u8D56\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u540E\u5237\u65B0\u9875\u9762\u3002";
+      return;
+    }
     const name = "JavJaeger";
     window.__dcUpdate(name, "html", adaptTemplate(JavJaeger_dc_default.match(/<x-dc>([\s\S]*?)<\/x-dc>/)[1], logo_default), false);
     window.__dcUpdate(name, "js", adaptDesignScript(JavJaeger_dc_default.match(/<script[^>]*data-dc-script[^>]*>([\s\S]*?)<\/script>/)[1]) + designDataExports, false);
@@ -8018,6 +8096,10 @@ class Component extends DCLogic {
     entry.Logic = connectDesign(entry.Logic);
     entry.fetched = true;
     window.ReactDOM.createRoot(document.getElementById("root")).render(window.React.createElement(window.getDC(name)));
+  }
+  Promise.resolve().then(() => {
+    if (window.__dcUpdate || document.readyState === "complete") mountApp();
+    else window.addEventListener("load", mountApp, { once: true });
   });
 })();
 //! nosemgrep: direct-inner-html-assignment

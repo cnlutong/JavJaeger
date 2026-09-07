@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/automation", tags=["automation"])
 
 def _raise_http_error(error: AutomationError) -> None:
     status_code = 404 if error.code == "task_not_found" else 400
-    raise HTTPException(status_code=status_code, detail=error.code)
+    raise HTTPException(status_code=status_code, detail={"error": error.code, "message": error.message})
 
 
 @router.get("/tasks", response_model=AutomationTaskList)

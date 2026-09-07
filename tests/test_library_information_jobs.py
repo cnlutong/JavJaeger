@@ -10,6 +10,32 @@ from modules.movies.local_scrape_tasks import LocalScrapeTaskManager
 from modules.movies.schemas import LocalLibraryInformationDownloadRequest
 
 
+def test_cleanup_job_returns_immediately_and_reports_its_result(monkeypatch):
+    manager = LocalScrapeTaskManager()
+    monkeypatch.setattr(router, "local_scrape_task_manager", manager)
+
+    async def exercise():
+        release = asyncio.Event()
+
+        async def clean(progress_callback=None):
+            progress_callback({"total": 2, "completed": 1, "message": "核验中"})
+            await release.wait()
+            return {"success": True, "deleted_file_count": 1, "failed_files": []}
+
+        monkeypatch.setattr(local_library, "clean_invalid_local_library_files", clean)
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            response = await asyncio.wait_for(client.post("/api/movies/local-library/clean-invalid/jobs"), 1)
+            assert response.status_code == 202
+            task_id = response.json()["task_id"]
+            url = f"/api/movies/local-library/clean-invalid/jobs/{task_id}"
+            assert (await client.get(url)).json()["status"] == "running"
+            release.set()
+            await asyncio.sleep(0)
+            task = (await client.get(url)).json()
+            assert task["status"] == "success" and task["result"]["deleted_file_count"] == 1
+    asyncio.run(exercise())
+
+
 def test_information_jobs_return_before_work_finishes_and_keep_results(monkeypatch):
     manager = LocalScrapeTaskManager()
     monkeypatch.setattr(router, "local_scrape_task_manager", manager)

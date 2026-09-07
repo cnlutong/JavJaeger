@@ -45,7 +45,7 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
     return !text || /password|secret|token|cookie|authorization|https?:\/\/[^\s]*@/i.test(text) ? fallback : text.slice(0, 240);
 };
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
-const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask' };
+const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask', cleanupTask: 'localLibraryCleanupTask' };
 const jobFinished = task => task && ['success', 'completed', 'failed'].includes(task.status);
 const informationSummary = task => {
     if (task.status === 'failed') return safeText(task.message, '资料任务失败，请重新检查');
@@ -166,7 +166,11 @@ export function connectDesign(Base) {
                 else { options.headers = { 'Content-Type': 'application/json' }; options.body = JSON.stringify(body); }
             }
             const response = await fetch(url, options);
-            if (!response.ok) { const error = new Error(`请求失败（HTTP ${response.status}）`); error.status = response.status; throw error; }
+            if (!response.ok) {
+                const result = await response.json().catch(() => null), detail = result?.detail;
+                const error = new Error(safeText(detail?.message || (typeof detail === 'string' ? detail : '') || result?.message, `请求失败（HTTP ${response.status}）`));
+                error.status = response.status; error.result = result; throw error;
+            }
             const result = await response.json();
             if (result?.success === false || result?.error && !result.status) {
                 const error = new Error(safeText(result.message || result.error));
@@ -263,7 +267,7 @@ export function connectDesign(Base) {
         }
         async loadSettings() {
             const payload = await this.request('/api/system/settings');
-            this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload) });
+            this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: [] });
         }
         async loadCatalogs() {
             for (const [url, table] of [['/static/actors.json', data.ACTOR_CATALOG], ['/static/categories.json', data.GENRE_CATALOG]]) {
@@ -464,56 +468,88 @@ export function connectDesign(Base) {
                 if (this.state.route === 'storage' && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
                 if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) await this.perform(() => this.loadTasks());
                 await this.perform(() => this.pollInformation());
-                for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/'], ['dispatchTask', '/api/115/download-jobs/']]) {
+                for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/'], ['dispatchTask', '/api/115/download-jobs/'], ['cleanupTask', '/api/movies/local-library/clean-invalid/jobs/']]) {
                     const current = this.state[key];
                     if (!current || ['success', 'completed', 'failed'].includes(current.status)) continue;
-                    let task;
-                    try { task = await this.request(prefix + id(current.id)); }
-                    catch (error) {
-                        if (error.status === 404) {
-                            window.sessionStorage.removeItem(jobStorage[key]);
-                            this.setState({ [key]: { ...current, status: 'failed' }, ...(key === 'scrapeTask' ? { scPhase: 'idle' } : { lbScanning: false }) });
-                            throw new Error(key === 'dispatchTask' ? '115 后台任务已失效，请先核对下载历史和网盘任务，再重试未提交项' : '后台任务已失效，服务可能已重启，请重新扫描或生成预览');
+                    await this.perform(async () => {
+                        let task;
+                        try { task = await this.request(prefix + id(current.id)); }
+                        catch (error) {
+                            if (error.status === 404) {
+                                window.sessionStorage.removeItem(jobStorage[key]);
+                                this.setState({ [key]: { ...current, status: 'failed', message: '后台任务已失效，服务可能已重启，请核对结果后重新操作' }, ...(key === 'scrapeTask' ? { scPhase: 'idle' } : key === 'scanTask' ? { lbScanning: false } : {}) });
+                                throw new Error(key === 'dispatchTask' ? '115 后台任务已失效，请先核对下载历史和网盘任务，再重试未提交项' : '后台任务已失效，服务可能已重启，请重新扫描或生成预览');
+                            }
+                            throw error;
                         }
-                        throw error;
-                    }
-                    this.setState({ [key]: { ...current, ...task, id: current.id, operation: current.operation } });
-                    if (['success', 'completed', 'failed'].includes(task.status)) window.sessionStorage.removeItem(jobStorage[key]);
-                    if (key === 'dispatchTask') {
-                        if (['completed', 'failed'].includes(task.status)) {
-                            if (!task.result) throw new Error('115 派发失败，请检查连接与下载历史');
-                            await this.perform(() => this.finishDispatch(task.result, '115 网盘', current.preflight || []));
+                        this.setState({ [key]: { ...current, ...task, id: current.id, operation: current.operation } });
+                        if (key === 'cleanupTask') {
+                            if (jobFinished(task)) {
+                                await this.perform(() => this.loadLibrary());
+                                this.toast(safeText(task.result?.message || task.message, '清洗任务结束，可在后台任务中查看结果'), task.status === 'failed' || task.result?.failed_files?.length ? WARN : OK);
+                            }
+                            return;
                         }
-                        continue;
-                    }
-                    if (key === 'scanTask' && task.result && ['success', 'completed', 'failed'].includes(task.status)) {
-                        this.setState({ lbScanning: false, scanResult: task.result });
-                        await this.loadLibrary();
-                        const message = safeText(task.message || task.result.message, '扫描已完成');
-                        this.toast(message, task.status === 'failed' ? WARN : OK);
-                        if (task.status === 'failed') this.ask({ title: '扫描结果：部分目录未完成', body: message, list: (task.result.results || []).filter(item => !item.success).map(item => `${item.directory || ''} ${safeText(item.message)}`), okText: '关闭', color: WARN });
-                        continue;
-                    }
-                    if (key === 'scrapeTask' && current.operation === 'apply' && task.result && ['success', 'completed', 'failed'].includes(task.status)) {
-                        this.setState({ scPhase: 'idle', scrapeResult: task.result }); data.SCRAPE_ROWS.splice(0);
-                        await this.loadLibrary();
-                        this.toast(`刮削执行完成：${task.result.success_count || 0} 成功，${task.result.failed_count || 0} 失败`, task.status === 'failed' ? WARN : OK);
-                    } else if (['success', 'completed'].includes(task.status)) {
-                        if (key === 'scanTask') { this.setState({ lbScanning: false }); await this.loadLibrary(); }
-                        else this.applyScrapeResult(task.result);
-                    } else if (task.status === 'failed') { this.setState({ lbScanning: false, scPhase: 'idle' }); throw new Error(safeText(task.error || task.message)); }
-                    else if (key === 'scrapeTask') this.setState({ scPct: task.percent || 0 });
+                        if (key === 'dispatchTask') {
+                            if (['completed', 'failed'].includes(task.status)) {
+                                if (!task.result) throw new Error('115 派发失败，请检查连接与下载历史');
+                                await this.perform(() => this.finishDispatch(task.result, '115 网盘', current.preflight || []));
+                            }
+                            return;
+                        }
+                        if (key === 'scanTask' && task.result && ['success', 'completed', 'failed'].includes(task.status)) {
+                            this.setState({ lbScanning: false, scanResult: task.result });
+                            await this.perform(() => this.loadLibrary());
+                            const message = safeText(task.message || task.result.message, '扫描已完成');
+                            this.toast(message, task.status === 'failed' ? WARN : OK);
+                            return;
+                        }
+                        if (key === 'scrapeTask' && current.operation === 'apply' && task.result && ['success', 'completed', 'failed'].includes(task.status)) {
+                            this.setState({ scPhase: 'idle', scrapeResult: task.result }); data.SCRAPE_ROWS.splice(0);
+                            await this.perform(() => this.loadLibrary());
+                            this.toast(`刮削执行完成：${task.result.success_count || 0} 成功，${task.result.failed_count || 0} 失败`, task.status === 'failed' ? WARN : OK);
+                        } else if (['success', 'completed'].includes(task.status)) {
+                            if (key === 'scanTask') { this.setState({ lbScanning: false }); await this.loadLibrary(); }
+                            else this.applyScrapeResult(task.result);
+                        } else if (task.status === 'failed') { this.setState(key === 'scrapeTask' ? { scPhase: 'idle' } : { lbScanning: false }); throw new Error(safeText(task.message || task.error)); }
+                        else if (key === 'scrapeTask') this.setState({ scPct: task.percent || 0 });
+                    });
                 }
                 if (this.state.qr?.session_id) await this.pollQr();
             } finally { this._polling = false; }
         }
 
         async startJob(key, url, payload, operation = 'preview') {
-            const config = key === 'informationTask' ? payload : key === 'scrapeTask' ? Object.fromEntries(scrapeConfigKeys.map(field => [field, this.state[field]])) : undefined;
-            const task = await this.request(url, 'POST', payload);
-            window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
-            this.setState({ [key]: { id: task.task_id, status: 'running', operation, payload: config } });
-            return task;
+            this._startingJobs ||= new Set();
+            if (this._startingJobs.has(key) || this.state[key] && !jobFinished(this.state[key])) throw new Error('同类后台任务正在运行，请等待完成');
+            this._startingJobs.add(key);
+            try {
+                const config = key === 'scrapeTask' ? Object.fromEntries(scrapeConfigKeys.map(field => [field, this.state[field]])) : payload;
+                const task = await this.request(url, 'POST', payload);
+                window.sessionStorage.setItem(jobStorage[key], JSON.stringify({ taskId: task.task_id, type: operation, config }));
+                this.setState({ [key]: { id: task.task_id, status: 'running', operation, payload: config } });
+                return task;
+            } finally { this._startingJobs.delete(key); }
+        }
+
+        showBackgroundResult(key) {
+            const task = this.state[key];
+            if (!task) return;
+            if (key === 'scrapeTask' && task.result && (task.operation === 'apply' || task.status !== 'failed')) { this.go('scrape')(); return; }
+            if (!jobFinished(task)) { this.go(key === 'dispatchTask' ? 'dispatch' : key === 'scrapeTask' ? 'scrape' : 'library')(); return; }
+            this.setState({ bgOpen: false });
+            const result = task.result || {}, failed = task.status === 'failed';
+            const rows = key === 'scanTask' ? result.scans || [result] : key === 'cleanupTask' ? [...(result.deleted_files || []).map(row => ({ ...row, message: '已清洗' })), ...(result.failed_files || [])] : result.results || [];
+            this.ask({ title: key === 'scanTask' ? '扫描入库结果' : key === 'cleanupTask' ? '清洗结果' : key === 'dispatchTask' ? '115 派发结果' : '刮削任务失败',
+                body: safeText(result.message || task.message, failed ? '任务失败，请修正配置后重试' : '任务已完成'), color: failed ? WARN : ACC,
+                list: rows.map(row => `${row.path || row.directory || row.movie_id || ''} ${safeText(row.message || row.error, row.success === false ? '失败' : '已完成')}`),
+                okText: '查看对应页面', run: () => { this.dismissBackgroundTask(key); this.go(key === 'dispatchTask' ? 'dispatch' : key === 'scrapeTask' ? 'scrape' : 'library')(); },
+            });
+        }
+
+        dismissBackgroundTask(key) {
+            window.sessionStorage.removeItem(jobStorage[key]);
+            this.setState({ [key]: null });
         }
 
         startInformationJob(operation, payload) { return this.perform(async () => {
@@ -801,7 +837,7 @@ export function connectDesign(Base) {
             view.configureCheck = () => this.setState({ lbCheckCfg: true });
             view.openCheck = view.runCheck = () => this.startInformationJob('check', { fields: [...st.infoFields] });
             view.clean = () => this.ask({ title: '清洗无效媒体文件？', body: '只删除确认为空文件或不含视频流的文件。超时、读取失败等无法确认的文件会保留；删除后同步更新索引。此操作不可撤销。', ackText: '我确认永久删除无效视频文件', color: BAD, okText: '清洗',
-                run: () => this.perform(async () => { const result = await this.request('/api/movies/local-library/clean-invalid', 'POST'); await this.loadLibrary(); this.toast(result.message, result.failed_files?.length ? WARN : OK); }, null),
+                run: () => this.perform(() => this.startJob('cleanupTask', '/api/movies/local-library/clean-invalid/jobs', undefined, 'cleanup'), '清洗已在后台启动，可在后台任务中查看进度'),
             });
             view.purgeDb = () => this.ask({ title: '清空影视库索引？', body: '只清除影视库索引，保留媒体文件。', ackText: '我确认清空全部索引', color: BAD, okText: '清空',
                 run: () => this.perform(async () => { await this.request('/api/movies/local-library', 'DELETE'); await this.loadLibrary(); }, '影视库索引已清空'),
@@ -979,7 +1015,7 @@ export function connectDesign(Base) {
             }));
             view.saveTpl = () => this.perform(async () => { saveLocalScrapeTaskTemplate(window.localStorage, `刮削模板 ${st.scrapeTemplates.length + 1}`, { directory: st.scScanDir, targetDirectory: st.scOutDir, folderTemplate: st.scFolderRule, namingTemplate: st.scFileRule, maxDepth: st.scMaxDepth, concurrent: st.scConcurrent, ...Object.fromEntries(Object.entries(optionNames).map(([key, name]) => [key, st.scOpts[name]])) }); this.setState({ scrapeTemplates: loadLocalScrapeTaskTemplates() }); }, '模板已保存');
             view.preview = () => this.previewScrape();
-            view.reset = () => { if (st.scPhase === 'scanning') { this.toast('后台任务运行中，请等待完成', WARN); return; } data.SCRAPE_ROWS.splice(0); this.scrapePreviewConfig = null; this.setState({ scPhase: 'idle', scrapeTask: null, scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} }); };
+            view.reset = () => { if (st.scPhase === 'scanning') { this.toast('后台任务运行中，请等待完成', WARN); return; } this.dismissBackgroundTask('scrapeTask'); data.SCRAPE_ROWS.splice(0); this.scrapePreviewConfig = null; this.setState({ scPhase: 'idle', scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} }); };
             view.applyStrategy = () => { const strategy = st.scStrategy.split(' ')[0]; this.setState({ pathEdits: { ...st.pathEdits, ...Object.fromEntries(rows.filter(row => row.kind === 'conflict').map(row => [row.src, strategy])) } }); this.toast('已为冲突项设置处理策略'); };
             view.execute = () => this.executeScrape(); view.dryRun = () => this.executeScrape(false);
             const skipped = new Set(st.scSkip);
@@ -1179,11 +1215,19 @@ export function connectDesign(Base) {
             if (!files.length || !this.state.connections.aria2_connected) { this.toast('请连接 Aria2 并选择文件或目录', WARN); return; }
             const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
             this.ask({ title: `发送 ${files.length} 个文件到 Aria2？`, body: '从当前网盘下载到已连接的 Aria2。', list: files.map(file => file.name), color: ACC, okText: '发送', run: () => this.perform(async () => {
-                const result = await this.request('/api/webdav/download', 'POST', { files: files.map(file => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === 'folder', source_type: source === '115' ? 'pan115' : 'webdav' })), video_filter: videoFilter, min_file_size_mb: minSize });
-                if (result.results?.some(item => item.success === false && !item.skipped)) throw new Error('部分文件发送失败，请检查下载任务');
-                this.setState({ fsSel: [] }); await this.loadAria();
-                if (result.results?.length && result.results.every(item => item.skipped)) { this.toast('全部文件不符合筛选条件，没有新增下载任务', WARN); return; }
-                this.toast('已发送到 Aria2', OK);
+                let result;
+                try { result = await this.request('/api/webdav/download', 'POST', { files: files.map(file => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === 'folder', source_type: source === '115' ? 'pan115' : 'webdav' })), video_filter: videoFilter, min_file_size_mb: minSize }); }
+                catch (error) { if (!error.result?.results) throw error; result = error.result; }
+                const rows = result.results || [], failed = rows.filter(item => item.success === false && !item.skipped), successful = rows.filter(item => item.success), skipped = rows.filter(item => item.skipped);
+                if (!failed.length) this.setState({ fsSel: [] });
+                await this.perform(() => this.loadAria());
+                if (failed.length || skipped.length) {
+                    this.ask({ title: '网盘发送结果', body: `${successful.length} 成功，${failed.length} 失败，${skipped.length} 跳过。` + (failed.length ? '请按明细重试失败文件，避免重复发送整个目录。' : '部分文件不符合筛选条件，请查看明细。'), color: WARN,
+                        list: rows.map(item => `${item.filename}：${item.skipped ? '已跳过' : item.success ? '成功' : '失败'} ${safeText(item.message, '')}`),
+                        okText: '查看下载任务', run: () => this.go('storage')() });
+                    return;
+                }
+                this.toast(successful.length ? '已发送到 Aria2' : '没有符合条件的文件，没有新增下载任务', successful.length ? OK : WARN);
             }) });
         }
         vStorage() {
@@ -1196,7 +1240,7 @@ export function connectDesign(Base) {
             const directories = this.pageItems([...(st.browseParent != null ? [{ name: '..', path: st.browseParent }] : []), ...st.directories], 'directoryPage', [st.browsePath]);
             return {
                 paging: page.paging, taskPaging: taskPage.paging, directoryPaging: directories.paging,
-                sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.setState({ fsSrc: key, fileRows: [], directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
+                sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.fileRequestVersion = (this.fileRequestVersion || 0) + 1; this.setState({ fsSrc: key, fileRows: [], directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
                 subtitle: st.fsSrc === 'local' ? '服务端本地目录' : '远程目录 · 可发送到 Aria2', offline: !connected, showFiles: connected, goSettings: () => this.setState({ route: 'settings', seTab: st.fsSrc === '115' ? '115 网盘' : 'WebDAV' }),
                 q: st.fsQ, setQ: event => this.setState({ fsQ: event.target.value }), videoOnly: st.fsVideoOnly, toggleVideo: () => this.setState({ fsVideoOnly: !st.fsVideoOnly }), minSize: st.fsMinSize, setMinSize: event => this.setState({ fsMinSize: event.target.value }),
                 crumbs: [{ name: '根目录 / ', fg: ACC, go: () => this.perform(() => this.loadFiles(st.fsSrc, '')) }, { name: st.directory || '/', fg: DIM, go: () => this.perform(() => this.loadFiles()) }, { name: '上一级', fg: ACC, go: () => this.perform(() => { const trail = st.directoryTrail || []; const parent = st.fsSrc === '115' ? trail.at(-1) || '' : st.directoryParent ?? (st.directory.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/'); this.setState({ directoryTrail: trail.slice(0, -1) }); return this.loadFiles(st.fsSrc, parent); }) }],
@@ -1223,11 +1267,15 @@ export function connectDesign(Base) {
             if (st.seTab === '运行安全') fields = [this.formField('会话密钥', st.settings.security?.session_secret_configured ? '已配置' : '未配置', () => {}, 'status'), this.formField('环境变量覆盖', Object.entries(st.settings.environment_overrides?.javbus || {}).filter(([, value]) => value).map(([name]) => name).join(' · ') || '无', () => {}, 'status')];
             const sources = st.settingsDraft.scrapers || {}, priority = sources.priority || [], providers = [...new Set([...priority, ...Object.keys(sources).filter(name => name !== 'priority')])];
             const updateSource = (name, updates) => this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, [name]: { ...sources[name], ...updates } } } });
-            const testSources = providers => this.perform(async () => {
+            const requireSavedSources = () => {
                 const stored = withSecretPlaceholders(st.settings);
                 if (JSON.stringify(st.settingsDraft.scrapers) !== JSON.stringify(stored.scrapers) || JSON.stringify(st.settingsDraft.javbus) !== JSON.stringify(stored.javbus)) throw new Error('刮削源配置已修改，请先保存，再测试连接');
+            };
+            const testSources = providers => this.perform(async () => {
+                requireSavedSources();
                 const result = await this.request('/api/movies/metadata-scrapers/test', 'POST', { providers, concurrent: 3, apply_results: false });
-                this.setState({ sourcesResult: [...st.sourcesResult.filter(item => !providers.includes(item.provider || item.name)), ...(result.results || [])] });
+                if (st.settings !== this.state.settings) throw new Error('配置已重新载入，请重新测试刮削源');
+                this.setState(current => ({ sourcesResult: [...current.sourcesResult.filter(item => !providers.includes(item.provider || item.name)), ...(result.results || [])] }));
             }, '刮削源测试已完成');
             return {
                 tabs: tabs.map(name => ({ name, status: status(name), dot: status(name) === '已连接' ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? 'rgba(145,132,217,.12)' : 'transparent', fg: name === st.seTab ? 'var(--fg)' : DIM, fw: name === st.seTab ? 500 : 400, pick: () => this.setState({ seTab: name }) })),
@@ -1238,7 +1286,7 @@ export function connectDesign(Base) {
                 sources: providers.map((name, index) => { const source = sources[name] || {}, result = st.sourcesResult.find(item => item.provider === name || item.name === name); return { name, host: name === 'javbus' ? st.settingsDraft.javbus?.base_url || st.settings.javbus?.base_url || '' : source.base_url || '', status: source.implemented === false ? '未实现' : result ? (result.success ? '测试成功' : '测试失败') : '待测试', latency: result?.duration_ms != null ? `${result.duration_ms} ms` : '', note: [name === 'javbus' ? '共用 JavBus 访问设置；修改后先保存再测试' : '测试使用已保存配置', safeText(result?.error_message, '')].filter(Boolean).join(' · '), on: source.enabled, order: index + 1, op: source.enabled ? 1 : .55, ring: 'var(--t09)', stFg: DIM, dot: DIM2, upDisabled: index === 0, toggleText: source.enabled ? '禁用' : '启用', toggle: () => updateSource(name, { enabled: !source.enabled }), test: () => testSources([name]), up: () => { const next = [...providers]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, priority: next } } }); },
                     fields: Object.entries(name === 'javbus' ? {} : source).filter(([field]) => ['language', 'request_delay', 'base_url', 'api_key'].includes(field)).map(([field, value]) => this.formField(field, value, value => updateSource(name, { [field]: value }), field === 'api_key' ? 'secret' : typeof value === 'number' ? 'number' : 'text')) }; }),
                 test: () => key === 'scrapers' || key === 'javbus' ? testSources(key === 'javbus' ? ['javbus'] : providers) : this.perform(() => this.connect(key, !values.password && !values.secret && !values.cookie && Object.entries(values).every(([field, value]) => ['password', 'secret', 'cookie'].includes(field) || st.settings[key]?.[field] === value)), '连接成功'),
-                applyTestResults: () => this.perform(async () => { if (!st.sourcesResult.length) throw new Error('请先运行测试'); await this.request('/api/movies/metadata-scrapers/apply-test-results', 'POST', { results: st.sourcesResult }); await this.loadSettings(); }, '已按测试结果更新配置'),
+                applyTestResults: () => this.perform(async () => { requireSavedSources(); if (!st.sourcesResult.length) throw new Error('请先运行测试'); await this.request('/api/movies/metadata-scrapers/apply-test-results', 'POST', { results: st.sourcesResult }); await this.loadSettings(); }, '已按测试结果更新配置'),
                 save: () => this.perform(async () => { if (st.seTab === '外观') { saveAppTheme(st.theme); return; } await this.request('/api/system/settings', 'PUT', buildSettingsPayload(st.settingsDraft)); await this.loadSettings(); await this.loadConnections(); }, '设置已保存'),
                 reload: () => this.perform(() => this.loadSettings(), '配置已重新载入'), reset: () => this.setState({ settingsDraft: withSecretPlaceholders(st.settings), sourcesResult: [] }),
                 startQr: () => this.perform(() => this.startQr()), showQrLogin: key === 'pan115', logout: () => { clearPikPakSession(); this.auth = null; this.setState({ pikLogged: false }); }, showLogout: key === 'pikpak' && st.pikLogged,
@@ -1251,13 +1299,18 @@ export function connectDesign(Base) {
             for (const nav of view.nav) nav.badge = nav.label === '转码' ? String(data.TC.filter(task => ['running', 'queued'].includes(task.status)).length || '') : nav.label === '自动模式' ? String(st.tasks.filter(task => task.enabled).length || '') : '';
             view.tools = this.toolStates();
             view.bg.items = data.TC.filter(task => ['running', 'queued'].includes(task.status)).map(task => ({ kind: '转码', name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go('transcode') }));
-            for (const key of ['scanTask', 'scrapeTask']) if (st[key] && !['success', 'completed', 'failed'].includes(st[key].status)) view.bg.items.push({ kind: key === 'scanTask' ? '扫描入库' : '刮削', name: st[key].message || '后台运行中', pct: st[key].percent || 0, pctText: '', meta: st[key].status, fg: ACC, go: this.go(key === 'scanTask' ? 'library' : 'scrape') });
-            if (st.dispatchTask && !['completed', 'failed'].includes(st.dispatchTask.status)) {
+            for (const [key, kind] of [['scanTask', '扫描入库'], ['scrapeTask', '刮削'], ['cleanupTask', '清洗无效文件']]) if (st[key]) {
+                const task = st[key], finished = jobFinished(task);
+                view.bg.items.push({ kind, name: safeText(task.message, finished ? '任务已结束，点击查看结果' : '后台运行中'), pct: task.percent || 0,
+                    pctText: finished ? task.status === 'failed' ? '失败' : '已完成' : '', meta: finished ? '结果保留，点击查看下一步' : '服务端后台执行', fg: task.status === 'failed' ? WARN : finished ? OK : ACC, finished,
+                    go: () => this.showBackgroundResult(key) });
+            }
+            if (st.dispatchTask) {
                 const job = st.dispatchTask, pct = Math.round(100 * (job.completed_count || 0) / Math.max(1, job.total_count || 1));
-                view.bg.items.push({ kind: '115 派发', name: `批次 ${job.current_batch || 0}/${job.total_batches || '待计算'}`, pct, pctText: `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} 项已处理`, fg: ACC, go: this.go('dispatch') });
+                view.bg.items.push({ kind: '115 派发', name: `批次 ${job.current_batch || 0}/${job.total_batches || '待计算'}`, pct, pctText: jobFinished(job) ? '查看结果' : `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} 项已处理`, fg: job.status === 'failed' ? WARN : ACC, finished: jobFinished(job), go: () => this.showBackgroundResult('dispatchTask') });
             }
             for (const task of st.tasks) for (const run of task.runs || []) if (run.status === 'running') view.bg.items.push({ kind: '自动任务', name: task.name, pct: 0, pctText: '', meta: run.message || '运行中', fg: ACC, go: this.go('auto') });
-            const activeCount = view.bg.items.length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
+            const activeCount = view.bg.items.filter(item => !item.finished).length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
             if (st.informationTask) {
                 const task = st.informationTask, finished = jobFinished(task);
                 view.bg.items.unshift({ kind: task.operation === 'check' ? '资料检查' : '资料补全', name: informationSummary(task), pct: task.percent || 0,

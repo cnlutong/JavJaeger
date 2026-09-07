@@ -357,6 +357,8 @@ POST   /api/movies/local-library/information/check/jobs
 POST   /api/movies/local-library/information/download/jobs
 GET    /api/movies/local-library/information/jobs/{task_id}
 POST   /api/movies/local-library/clean-invalid
+POST   /api/movies/local-library/clean-invalid/jobs
+GET    /api/movies/local-library/clean-invalid/jobs/{task_id}
 GET    /api/movies/local-library/actors
 GET    /api/movies/local-library/actors/{actor_key}/movies
 GET    /api/movies/local-library/actors/{actor_key}/avatar
@@ -440,7 +442,7 @@ GET    /api/automation/tasks/{task_id}/runs
 
 影视库列表的 `files[].exists` 来自扫描或主动核验时保存的 `files[].filesystem` 快照，未核验时为 `null`。核验按目录合并读取，每个父目录枚举一次，不读取视频内容；浏览、分页、轮询、“刷新影视库”及服务重启不会自动重新扫描媒体硬盘。播放、转码和永久删除仍在执行时验证实际文件。外部手动增删文件后，可运行扫描更新索引，或通过“资料检查”更新已有文件的状态。补全资料后只更新涉及影片的文件快照。
 
-`/api/movies/local-library/clean-invalid` 只删除索引扫描根目录内、确认零字节或 ffprobe 成功确认没有视频流的文件，并同步索引。探测超时、返回错误、媒体信息不明、文件变化或磁盘不可读时保留文件，在 `failed_files` 和 `probe_failed_count` 中报告原因；若 ffprobe 不可用则不执行清理。
+影视库“清洗无效文件”经确认后通过 `POST /api/movies/local-library/clean-invalid/jobs` 启动后台清洗（HTTP 202），通过 `GET /api/movies/local-library/clean-invalid/jobs/{task_id}` 查询进度；完成后在后台任务中查看已删除和无法处理的文件，刷新页面可恢复结果入口。旧的同步 `/api/movies/local-library/clean-invalid` 保留兼容。清洗只删除索引扫描根目录内、确认零字节或 ffprobe 成功确认没有视频流的文件，并同步索引。探测超时、返回错误、媒体信息不明、文件变化或磁盘不可读时保留文件，在 `failed_files` 和 `probe_failed_count` 中报告原因；若 ffprobe 不可用则不执行清理。
 
 `DELETE /api/movies/local-library/{movie_id}` 只移除索引；`DELETE /api/movies/local-library/{movie_id}/files` 执行上述受 `scan_root` 限制的永久文件删除。永久删除不会清理独立的下载历史，也不会删除仍可能被其他影片复用的共享演员头像。
 
@@ -452,9 +454,15 @@ GET    /api/automation/tasks/{task_id}/runs
 启用整理时，元数据标记为 VR 的影片会统一存入目标根目录下的 `VR/` 文件夹，再应用原有文件夹和命名模板。影视库扫描会同时依据元数据和路径中的 `VR/` 目录写入 `is_vr` 分类；列表、海报墙和详情会显示 VR 标记，并可在“影片类型”中筛选 VR 或普通影片。
 如果同一次预览中多个源文件生成相同目标路径，预览项会标记 `target_duplicate`；这类批次内重复目标不会被一键冲突策略自动处理，需要先调整命名模板或移除重复项。后端 apply 会重新检查同一请求内的重复目标并返回 `target_duplicate`，不会移动这些源文件。
 
-预览及预览后台任务支持 `code_overrides`（源文件绝对路径到番号的映射），用于手动修正识别失败的文件。后端只接受本次扫描范围内的视频文件及完整有效的番号；修正后重新生成预览，执行前不会修改源文件。浏览器通过 session storage 保存扫描／刮削任务标识与非敏感预览配置，刷新后继续查询进度；后端重启导致任务失效时会提示重新扫描。执行结果保留逐文件的成功、失败及入库异常信息。
+预览及预览后台任务支持 `code_overrides`（源文件绝对路径到番号的映射），用于手动修正识别失败的文件。后端只接受本次扫描范围内的视频文件及完整有效的番号；修正后重新生成预览，执行前不会修改源文件。浏览器通过 session storage 保存扫描／刮削／清洗任务标识与非敏感配置，完成后仍保留后台入口，刷新后可查看扫描目录失败原因、继续确认刮削预览或查看执行明细；查看并确认结果、重置刮削或启动下一任务后清除或替换入口。115 派发也保留结果入口到用户查看。后端重启或内存队列清理导致任务失效时会提示核对结果后重新操作。执行结果保留逐文件的成功、失败及入库异常信息。
+
+WebDAV 文件夹发送到 Aria2 时，单个文件添加失败不会中断后续文件；界面汇总成功、失败和跳过项，并刷新已提交的下载任务。重试时只选择失败文件，避免整目录重复提交。远程 Aria2 的任务删除只操作 RPC 任务，不删除 JavJaeger 本机的 `.aria2` 文件。
+
+运行中的自动任务不能删除，需等待本次执行结束；可先停用后续触发。自动任务错误响应的 `detail` 包含机器可读的 `error` 和供界面显示的 `message`。刮削源测试结果按来源合并，应用前需先保存修改；重新加载或保存配置会清除旧测试结果，避免使用过期诊断覆盖配置。
 
 ## 开发约定
+
+前端入口等待设计运行时与 React 初始化完成后挂载。CDN 备用源异步加载时会等待页面 `load` 事件；依赖仍不可用时显示检查网络并刷新页面的提示。
 
 ### 目录结构
 
