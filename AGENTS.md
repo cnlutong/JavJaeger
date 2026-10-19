@@ -65,6 +65,7 @@ Use this as the source-of-truth ownership map.
   - startup and shutdown hooks
 - `modules/common/`
   - shared runtime utilities
+  - batch-scoped HTTP transport reuse with independent request sessions
   - config
   - version info
 - `modules/javbus_api/`

@@ -15,6 +15,7 @@ from typing import Any
 
 from modules.common.runtime import get_local_library_config
 from modules.common.image_download import download_image as _download_image
+from modules.common.http_client import http_client_scope
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
 from modules.history.service import local_actor_library_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
@@ -914,7 +915,10 @@ async def scrape_movie_metadata_map(movie_ids: list[str], concurrent: int) -> di
         async with semaphore:
             results[normalized_id] = await scrape_movie_metadata(normalized_id, normalized_id)
 
-    await asyncio.gather(*[fetch(movie_id) for movie_id in movie_ids])
+    async with http_client_scope():
+        async with asyncio.TaskGroup() as group:
+            for movie_id in movie_ids:
+                group.create_task(fetch(movie_id))
     return results
 
 
@@ -1112,7 +1116,10 @@ async def preview_local_scrape(
         )
         return item
 
-    items = await asyncio.gather(*[enrich(candidate) for candidate in candidates])
+    async with http_client_scope():
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(enrich(candidate)) for candidate in candidates]
+        items = [task.result() for task in tasks]
     target_records: list[dict[str, Any]] = []
     for item in items:
         source_path = Path(str(item.get("source_path") or ""))

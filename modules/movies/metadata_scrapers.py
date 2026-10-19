@@ -12,6 +12,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from modules.common import runtime
+from modules.common.http_client import create_http_client, http_client_scope
 from modules.javbus_api import javbus_api_service
 
 
@@ -412,7 +413,7 @@ async def _fetch_text(
     merged_headers = _scraper_headers("text/html,application/json,*/*")
     if headers:
         merged_headers.update(headers)
-    async with httpx.AsyncClient(
+    async with create_http_client(
         timeout=_scraper_timeout(provider_config),
         follow_redirects=True,
         headers=merged_headers,
@@ -596,7 +597,7 @@ async def fetch_libredmm_movie_detail(movie_id: str, provider_config: dict[str, 
     base_url = base_url.rstrip("/")
     await _sleep_for_provider_delay(provider_config)
     search_url = f"{base_url}/search?q={quote(movie_id)}&format=json"
-    async with httpx.AsyncClient(
+    async with create_http_client(
         timeout=_scraper_timeout(provider_config),
         follow_redirects=True,
         headers=_scraper_headers(),
@@ -631,7 +632,7 @@ async def fetch_r18dev_movie_detail(movie_id: str, provider_config: dict[str, An
             normalized_values.append(value)
 
     await _sleep_for_provider_delay(provider_config)
-    async with httpx.AsyncClient(
+    async with create_http_client(
         timeout=_scraper_timeout(provider_config),
         follow_redirects=True,
         headers=_scraper_headers(),
@@ -1090,7 +1091,7 @@ async def fetch_dmm_movie_detail(movie_id: str, provider_config: dict[str, Any])
 
     base_url = (_clean_text(provider_config.get("base_url")) or DMM_BASE_URL).rstrip("/")
     variants = _dmm_content_id_variants(movie_id)
-    async with httpx.AsyncClient(
+    async with create_http_client(
         timeout=_scraper_timeout(provider_config),
         follow_redirects=True,
         headers=_scraper_headers("text/html,*/*"),
@@ -1147,7 +1148,7 @@ async def fetch_javstash_movie_detail(movie_id: str, provider_config: dict[str, 
         }
     }"""
     await _sleep_for_provider_delay(provider_config)
-    async with httpx.AsyncClient(
+    async with create_http_client(
         timeout=_scraper_timeout(provider_config),
         follow_redirects=True,
         headers=_scraper_headers("application/json,*/*"),
@@ -1284,6 +1285,7 @@ def _selected_test_providers(values: Any) -> list[str]:
     return selected
 
 
+@http_client_scope()
 async def test_metadata_scraper_provider(provider: str, movie_id: str, provider_config: dict[str, Any]) -> dict[str, Any]:
     started = time.perf_counter()
     try:
@@ -1363,7 +1365,10 @@ async def test_metadata_scraper_providers(payload: dict[str, Any] | None = None)
         async with semaphore:
             return await test_metadata_scraper_provider(provider, movie_id, provider_config)
 
-    results = await asyncio.gather(*(run(provider) for provider in providers))
+    async with http_client_scope():
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(run(provider)) for provider in providers]
+        results = [task.result() for task in tasks]
     summary = {
         "total": len(results),
         "success": sum(1 for item in results if item.get("success")),
@@ -1383,6 +1388,7 @@ async def test_metadata_scraper_providers(payload: dict[str, Any] | None = None)
 
 
 class MetadataScraperService:
+    @http_client_scope()
     async def get_movie_detail(self, movie_id: str) -> dict[str, Any]:
         config = runtime.get_scrapers_config()
         priority = config.get("priority")
