@@ -73,6 +73,7 @@ Use this as the source-of-truth ownership map.
   - JavBus HTML parsing
   - JavBus response schema aligned with `ovnrain/javbus-api`
   - JavBus cache and request throttling
+  - shared persistent movie-detail cache and its retention settings
 - `modules/ui/`
   - HTML shell routes
 - `modules/system/`
@@ -107,6 +108,8 @@ Use this as the source-of-truth ownership map.
   - magnet selection orchestration
   - PikPak or Aria2 download dispatch orchestration
 - `modules/proxy/`
+  - trusted image proxy routing and retrieval
+  - shared persistent image cache with an independent MB limit
   - final catch-all API route
   - explicit 404 for unknown API paths
 - `frontend/src/`

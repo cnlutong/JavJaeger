@@ -13,8 +13,7 @@ class DCLogic {
     constructor(props) { this.props = props; }
     setState(patch) { this.state = { ...this.state, ...patch }; }
 }
-function app() {
-    const storage = new Map();
+function app(storage = new Map()) {
     globalThis.window = {
         localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
         sessionStorage: { getItem: k => storage.get('session:' + k) ?? null, setItem: (k, v) => storage.set('session:' + k, v), removeItem: k => storage.delete('session:' + k) },
@@ -23,6 +22,120 @@ function app() {
     const Base = new Function('DCLogic', script + designDataExports + '\nreturn Component;')(DCLogic);
     return new (connectDesign(Base))({});
 }
+
+test('library path settings supply scrape input/output and preserve an existing preview', async () => {
+    const instance = app();
+    const settings = { source_directory: '/incoming', directories: ['/library', '/library-2'], ignored_paths: [] };
+    globalThis.fetch = async url => json(url.endsWith('/settings') ? settings : { records: [], actors: [], incomplete_records: [] });
+    await instance.loadLibrary();
+    assert.equal(instance.state.scScanDir, '/incoming');
+    assert.equal(instance.scrapePayload().target_directory, '/library');
+    assert.equal(instance.state.lbSource, '/incoming');
+    instance.setState({ scScanDir: '/one-off-input', scOutDir: '/one-off-output' });
+    instance.vLibrary().openPaths();
+    instance.vLibrary().closePaths();
+    assert.equal(instance.state.scScanDir, '/one-off-input');
+    assert.equal(instance.state.scOutDir, '/one-off-output');
+
+    instance.setState({ scPhase: 'preview', scScanDir: '/active-input', scOutDir: '/active-output' });
+    await instance.loadLibrary();
+    assert.equal(instance.state.scScanDir, '/active-input');
+    assert.equal(instance.state.scOutDir, '/active-output');
+    instance.vScrape().reset();
+    assert.equal(instance.state.scScanDir, '/incoming');
+    assert.equal(instance.state.scOutDir, '/library');
+});
+
+test('saving the two library paths updates scrape defaults and scans only the library', async () => {
+    const instance = app(), requests = [];
+    globalThis.fetch = async (url, options) => {
+        const body = JSON.parse(options.body); requests.push({ url, body });
+        return json(url.endsWith('/settings') ? { success: true, ...body } : { task_id: 'scan' });
+    };
+    instance.setState({ lbSource: ' /incoming ', lbPaths: [' /library '], lbExcludes: [' /library/skip '], lbPathCfg: true });
+    await instance.vLibrary().savePaths();
+    assert.deepEqual(requests[0].body, { source_directory: '/incoming', directories: ['/library'], ignored_paths: ['/library/skip'] });
+    assert.equal(instance.state.librarySettings.source_directory, '/incoming');
+    assert.equal(instance.state.scScanDir, '/incoming');
+    assert.equal(instance.state.scOutDir, '/library');
+    instance.ask = dialog => dialog.run();
+    await instance.vLibrary().scanAll();
+    assert.deepEqual(requests[1].body.directories, ['/library']);
+    assert.ok(!requests[1].body.directories.includes('/incoming'));
+
+    instance.setState({ fsAdd: 'browse', browserTarget: { key: 'lbSource' }, browsePath: '/picked-input' });
+    instance.vStorage().pickPath();
+    assert.equal(instance.state.lbSource, '/picked-input');
+});
+
+test('scrape organization requires an output directory before starting a job', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ scScanDir: '/incoming', scOutDir: '', scOpts: { organize: true } });
+    globalThis.fetch = () => { throw new Error('must not submit an incomplete path pair'); };
+    assert.equal(await instance.previewScrape(), null);
+    assert.match(instance.state.toast.text, /请选择影视库目录/);
+});
+
+test('closing path configuration discards drafts with batched React updates', () => {
+    const instance = app(), updates = [];
+    instance.setState({ lbPathCfg: true, lbSource: '/discarded', lbPaths: ['/discarded'],
+        librarySettings: { source_directory: '/incoming', directories: ['/library'], ignored_paths: [] } });
+    instance.setState = patch => updates.push(patch);
+    instance.vLibrary().closePaths();
+    const next = Object.assign({}, instance.state, ...updates);
+    assert.equal(next.lbPathCfg, false);
+    assert.equal(next.lbSource, '/incoming');
+    assert.deepEqual(next.lbPaths, ['/library']);
+});
+
+test('saving defaults after a finished scrape prepares the next task', () => {
+    const instance = app();
+    instance.setState({ scPhase: 'idle', scrapeTask: { status: 'success' }, scScanDir: '/old', scOutDir: '/old-library' });
+    instance.applyLibrarySettings({ source_directory: '/incoming', directories: ['/library'] }, true);
+    assert.equal(instance.state.scScanDir, '/incoming');
+    assert.equal(instance.state.scOutDir, '/library');
+});
+
+test('settings edits both media directories through the shared library configuration', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.applyLibrarySettings({ source_directory: '/incoming', directories: ['/library', '/archive'], ignored_paths: ['skip'] }, true);
+    instance.setState({ route: 'settings', seTab: '媒体目录' });
+    const view = instance.vSettings();
+    assert.ok(view.tabs.some(tab => tab.name === '媒体目录'));
+    assert.equal(view.isForm, true);
+    assert.deepEqual(view.fields.map(field => field.label), ['待刮削目录', '影视库目录']);
+    view.fields[0].set({ target: { value: ' /new-incoming ' } });
+    instance.vSettings().fields[1].set({ target: { value: ' /new-library ' } });
+    assert.equal(instance.state.librarySettings.source_directory, '/incoming', 'drafts do not change saved paths');
+    let sent;
+    globalThis.fetch = async (url, options) => {
+        assert.equal(url, '/api/movies/local-library/settings'); assert.equal(options.method, 'PUT');
+        sent = JSON.parse(options.body); return json({ success: true, ...sent });
+    };
+    await instance.vSettings().save();
+    assert.deepEqual(sent, { source_directory: '/new-incoming', directories: ['/new-library', '/archive'], ignored_paths: ['skip'] });
+    assert.equal(instance.state.lbSource, '/new-incoming');
+    assert.equal(instance.state.scScanDir, '/new-incoming');
+    assert.equal(instance.state.scOutDir, '/new-library');
+});
+
+test('media settings support directory browsing, reset and a fresh server reload', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.applyLibrarySettings({ source_directory: '/incoming', directories: ['/library'], ignored_paths: [] }, true);
+    instance.setState({ seTab: '媒体目录' });
+    instance.browseDirectory = async (path, target) => instance.setState({ browsePath: '/picked', browserTarget: target });
+    await instance.vSettings().fields[0].browse();
+    instance.vStorage().pickPath();
+    assert.equal(instance.vSettings().fields[0].value, '/picked');
+    instance.vSettings().reset();
+    assert.equal(instance.vSettings().fields[0].value, '/incoming');
+    globalThis.fetch = async url => {
+        assert.equal(url, '/api/movies/local-library/settings');
+        return json({ source_directory: '/server-incoming', directories: ['/server-library'], ignored_paths: [] });
+    };
+    await instance.vSettings().reload();
+    assert.deepEqual(instance.vSettings().fields.map(field => field.value), ['/server-incoming', '/server-library']);
+});
 
 test('the imported UI renders empty real state without fictional movies, jobs or credentials', () => {
     const instance = app();
@@ -199,9 +312,220 @@ test('performance: search shows movies while magnets are still loading', async (
     assert.equal(view.rows[0].code, 'QA-001');
 });
 
+test('search enriches every summary in the background and reuses details across all magnet sources', async t => {
+    for (const src of ['javbus', 'cili', 'yhg']) await t.test(src, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ route: 'search', sMode: 'filter', src });
+        const releases = new Map(), summaries = ['QA-001', 'QA-002'].map(id => ({ id, title: id, img: '/api/test-cover', gid: '1', uc: 0 }));
+        t.after(() => { for (const release of releases.values()) release(); });
+        let detailCalls = 0, renders = 0;
+        instance.forceUpdate = () => { renders++; };
+        globalThis.fetch = async url => {
+            if (url.startsWith('/api/movies?')) return json({ movies: summaries });
+            if (url.startsWith('/api/magnets/')) return json([]);
+            detailCalls++;
+            const code = url.split('/').at(-1);
+            await new Promise(resolve => releases.set(code, resolve));
+            return json({ id: code, stars: [{ name: 'Actor ' + code }], producer: { name: 'Background Studio' }, img: null });
+        };
+        const pending = instance.runSearch();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(instance.state.loading, false, 'summaries appear before slow details');
+        assert.equal(instance.renderVals().s.rows.length, 2);
+        assert.equal(detailCalls, 2, 'even summaries with magnet identifiers load full metadata automatically');
+        const before = renders;
+        releases.get('QA-001')();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(instance.renderVals().s.rows[0].actorText, 'Actor QA-001');
+        assert.ok(renders > before, 'each movie updates while other metadata is still pending');
+        assert.equal(instance.state.detail, null, 'no detail click is needed');
+        releases.get('QA-002')(); await pending;
+        await instance.renderVals().s.rows[0].open();
+        assert.equal(instance.renderVals().s.d.studio, 'Background Studio');
+        assert.equal(instance.renderVals().s.d.cover, '/api/test-cover');
+        assert.equal(detailCalls, 2, 'opening enriched details reuses the saved metadata');
+    });
+});
+
+test('search metadata always uses the shared backend and never persists in the browser', async t => {
+    const storage = new Map([['javjaeger.movieMetadata.v1', JSON.stringify([['QA-001', { data: { id: 'QA-001', stars: ['Browser-only Actor'] } }]])]]);
+    const instance = app(storage); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'filter', src: 'cili' });
+    let calls = 0;
+    globalThis.fetch = async url => {
+        if (url.startsWith('/api/movies?')) return json({ movies: [{ id: 'QA-001', title: 'Summary title', img: '/api/test-cover' }] });
+        if (url.startsWith('/api/magnets/')) return json([]);
+        calls++;
+        return json({ id: 'QA-001', stars: [{ name: 'Shared Actor' }], producer: { name: 'Shared Studio' } });
+    };
+    await instance.runSearch();
+    await instance.renderVals().s.rows[0].open();
+    assert.equal(calls, 1, 'a drawer reuses the result already loaded for this search');
+    assert.equal(instance.renderVals().s.d.studio, 'Shared Studio');
+    await instance.runSearch();
+    assert.equal(calls, 2, 'a new search checks the backend shared cache');
+    const reloaded = app(new Map()); t.after(() => reloaded.componentWillUnmount());
+    reloaded.setState({ route: 'search', code: 'QA-001' });
+    await reloaded.runSearch();
+    assert.equal(reloaded.renderVals().s.rows[0].actorText, 'Shared Actor');
+    assert.equal(calls, 3);
+    assert.equal(storage.has('javjaeger.movieMetadata.v1'), false, 'obsolete browser caches are removed');
+    assert.doesNotMatch([...storage.values()].join(''), /Shared Actor|Shared Studio/);
+});
+
+test('sparse backend details never replace known data in a fresh summary', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'code', code: 'QA-001', src: 'cili' });
+    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [] : { id: 'QA-001', title: 'Known title' });
+    await instance.runSearch();
+    instance.setState({ sMode: 'filter' });
+    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [] : { movies: [{ id: 'QA-001', stars: ['Fresh Actor'], producer: 'Fresh Studio' }] });
+    await instance.runSearch();
+    assert.equal(instance.renderVals().s.rows[0].actorText, 'Fresh Actor');
+    await instance.renderVals().s.rows[0].open();
+    assert.equal(instance.renderVals().s.d.studio, 'Fresh Studio');
+});
+
+test('cache settings are loaded and saved on the server for every browser', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ seTab: '缓存' });
+    assert.equal(instance.vSettings().saveDisabled, true, 'unloaded settings cannot overwrite server defaults');
+    let saved = { settings: { mode: 'days', days: 30, mb: 5 }, count: 2, size_bytes: 2048 }, writes = [];
+    globalThis.fetch = async (url, options) => {
+        assert.equal(url, '/api/metadata-cache');
+        if (options.method === 'PUT') {
+            writes.push(JSON.parse(options.body)); saved = { ...saved, settings: writes.at(-1) };
+        }
+        return json(saved);
+    };
+    await instance.vSettings().tabs.find(tab => tab.name === '缓存').pick();
+    assert.equal(instance.vSettings().saveDisabled, false);
+    assert.equal(instance.vSettings().fields[1].value, 30);
+    assert.match(instance.vSettings().fields[2].value, /2 部.*2 KB/);
+    instance.vSettings().fields[1].set({ target: { value: '7' } });
+    await instance.vSettings().save();
+    assert.deepEqual(writes[0], { mode: 'days', days: 7, mb: 5 });
+    const second = app(); t.after(() => second.componentWillUnmount());
+    second.setState({ seTab: '缓存' });
+    await second.loadCacheSettings();
+    assert.equal(second.vSettings().fields[1].value, 7, 'a browser with empty storage reads the same settings');
+    second.vSettings().fields[0].set({ target: { value: '按占用空间' } });
+    second.vSettings().fields[1].set({ target: { value: '1' } });
+    await second.vSettings().save();
+    second.vSettings().fields[1].set({ target: { value: '2' } });
+    second.vSettings().reset();
+    assert.equal(second.vSettings().fields[1].value, 1);
+    saved.settings = { mode: 'days', days: 3, mb: 1 };
+    await instance.vSettings().reload();
+    assert.equal(instance.vSettings().fields[1].value, 3, 'reload sees policy changed on another device');
+});
+
+test('image cache has an independent server-side MB budget and usage', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const metadata = { settings: { mode: 'days', days: 7, mb: 5 }, count: 10, size_bytes: 2048 };
+    instance.setState({ seTab: '图片缓存', cacheSettings: metadata, cacheDraft: { ...metadata.settings } });
+    assert.equal(instance.vSettings().saveDisabled, true);
+    let stored = { settings: { mb: 256 }, count: 3, size_bytes: 1024 }, writes = [];
+    globalThis.fetch = async (url, options) => {
+        assert.equal(url, '/api/image-cache');
+        if (options.method === 'PUT') { writes.push(JSON.parse(options.body)); stored = { ...stored, settings: writes.at(-1) }; }
+        return json(stored);
+    };
+    await instance.vSettings().tabs.find(tab => tab.name === '图片缓存').pick();
+    assert.equal(instance.vSettings().fields[0].label, '图片缓存上限（MB）');
+    assert.equal(instance.vSettings().fields[0].value, 256);
+    assert.match(instance.vSettings().fields[1].value, /3 张.*1 KB/);
+    instance.vSettings().fields[0].set({ target: { value: '64' } });
+    await instance.vSettings().save();
+    assert.deepEqual(writes, [{ mb: 64 }]);
+    assert.equal(instance.state.cacheSettings, metadata, 'image changes never consume or change the metadata budget');
+    instance.vSettings().fields[0].set({ target: { value: '1' } });
+    instance.vSettings().reset();
+    assert.equal(instance.vSettings().fields[0].value, 64);
+    const other = app(); t.after(() => other.componentWillUnmount()); other.setState({ seTab: '图片缓存' });
+    await other.vSettings().reload();
+    assert.equal(other.vSettings().fields[0].value, 64);
+});
+
+test('failed cache settings loads and writes stay visible without claiming success', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ seTab: '缓存' });
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: '无法读取服务端缓存' }), { status: 500 });
+    await instance.vSettings().reload();
+    assert.equal(instance.vSettings().saveDisabled, true);
+    assert.match(instance.state.toast.text, /无法读取/);
+    globalThis.fetch = async () => json({ settings: { mode: 'days', days: 30, mb: 5 }, count: 0, size_bytes: 0 });
+    await instance.vSettings().reload();
+    instance.vSettings().fields[1].set({ target: { value: '0' } });
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: '缓存天数必须是正整数' }), { status: 400 });
+    await instance.vSettings().save();
+    assert.match(instance.state.toast.text, /正整数/);
+    assert.equal(instance.vSettings().fields[1].value, 0, 'failed writes keep the draft available for correction');
+});
+
+test('browser storage failures do not break a completed search', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    window.localStorage.setItem = () => { throw new Error('storage full'); };
+    instance.setState({ route: 'search', code: 'QA-001' });
+    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [] : { id: 'QA-001', stars: [{ name: 'Live Actor' }] });
+    await instance.runSearch();
+    assert.equal(instance.state.searchError, '');
+    assert.equal(instance.renderVals().s.rows[0].actorText, 'Live Actor');
+});
+
+test('background metadata failures preserve results and can retry when details open', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'recognize', src: 'cili' });
+    let attempts = 0;
+    globalThis.fetch = async url => {
+        if (url.endsWith('/recognize')) return json({ movies: [{ id: 'QA-001', title: 'Known title', img: '/api/test-cover' }] });
+        if (url.startsWith('/api/magnets/')) return json([{ link: 'magnet:test', title: 'QA', size: '1 GB' }]);
+        if (++attempts === 1) return new Response('{}', { status: 503 });
+        return json({ id: 'QA-001', stars: [{ name: 'Recovered Actor' }] });
+    };
+    await instance.runSearch();
+    let view = instance.renderVals().s;
+    assert.equal(instance.state.searchError, '');
+    assert.equal(view.rows[0].title, 'Known title');
+    assert.equal(view.rows[0].cover, '/api/test-cover');
+    assert.equal(view.rows[0].noMag, false);
+    assert.match(view.rows[0].actorText, /补全失败/);
+    await view.rows[0].open();
+    view = instance.renderVals().s;
+    assert.equal(view.rows[0].actorText, 'Recovered Actor');
+    assert.equal(attempts, 2);
+});
+
+test('background metadata stops queuing on reset or unmount and ignores stale responses', async t => {
+    for (const action of ['reset', 'unmount']) await t.test(action, async () => {
+        const instance = app();
+        instance.setState({ route: 'search', sMode: 'filter', src: 'cili' });
+        const releases = []; let details = 0, renders = 0;
+        instance.forceUpdate = () => { renders++; };
+        globalThis.fetch = async url => {
+            if (url.startsWith('/api/movies?')) return json({ movies: Array.from({ length: 8 }, (_, i) => ({ id: 'QA-' + i })) });
+            if (url.startsWith('/api/magnets/')) return json([]);
+            details++;
+            await new Promise(resolve => releases.push(resolve));
+            return json({ id: url.split('/').at(-1), stars: [{ name: 'Stale Actor' }] });
+        };
+        const pending = instance.runSearch();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(details, 4, 'metadata follows the existing concurrency limit');
+        if (action === 'reset') instance.clearSearch(); else instance.componentWillUnmount();
+        const before = renders;
+        for (const release of releases) release();
+        await pending;
+        assert.equal(details, 4, 'cancelled searches do not queue more metadata requests');
+        assert.equal(renders, before, 'stale responses never repaint the current page');
+        assert.ok(!instance.constructor.data.MOVIES.some(movie => movie.actors.includes('Stale Actor')));
+        instance.componentWillUnmount();
+    });
+});
+
 test('performance: movie and transcode dialogs open before slow requests complete', async () => {
-    const instance = app(); instance.setState({ route: 'search', code: 'QA-001' });
-    globalThis.fetch = async url => json(url.includes('/magnets/') ? [] : { id: 'QA-001', gid: '1', uc: 0 });
+    const instance = app(); instance.setState({ route: 'search', sMode: 'filter', src: 'cili' });
+    globalThis.fetch = async url => url.startsWith('/api/movies?') ? json({ movies: [{ id: 'QA-001' }] }) : url.includes('/magnets/') ? json([]) : new Response('{}', { status: 503 });
     await instance.runSearch();
     let release;
     globalThis.fetch = () => new Promise(resolve => { release = resolve; });
@@ -632,7 +956,7 @@ test('audit: organize-only preview is executable and disabled metadata options s
 
 test('audit: manual designation submits an override and regenerates the actual preview', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
-    instance.setState({ scScanDir: '/qa' });
+    instance.setState({ scScanDir: '/qa', scOutDir: '/library' });
     instance.applyScrapeResult({ success: true, items: [{ source_path: '/qa/unknown.mp4', scrape_status: 'unrecognized' }] });
     instance.vScrape().rows[0].fix();
     assert.equal(instance.state.scRepair.src, '/qa/unknown.mp4');
@@ -657,6 +981,45 @@ test('audit: opening movie details preserves its loaded best magnet', async t =>
     globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [{ link: 'magnet:test', title: 'QA', size: '1 GB' }] : { id: 'QA-1', gid: '1', uc: 0 });
     await instance.runSearch(); await instance.renderVals().s.rows[0].open();
     assert.equal(instance.renderVals().s.rows[0].noMag, false);
+});
+
+test('search detail updates retain known metadata and covers while syncing background information', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'filter', src: 'javbus' });
+    const cover = 'https://covers.example.test/list.jpg', expectedCover = '/api/image-proxy?url=' + encodeURIComponent(cover);
+    const summary = { id: 'QA-001', title: 'List title', date: '2026-09-01', img: cover };
+    let details = 0;
+    globalThis.fetch = async url => {
+        if (url.startsWith('/api/movies?')) return json({ movies: [summary] });
+        if (url.startsWith('/api/magnets/')) return json([{ link: 'magnet:test', title: 'QA', size: '1 GB' }]);
+        details++;
+        return json({ id: 'QA-001', gid: '1', uc: 0, title: '', img: null, date: null, stars: [{ name: 'Background actor' }], producer: { name: 'Background studio' } });
+    };
+    await instance.runSearch();
+    let view = instance.renderVals().s;
+    assert.equal(view.rows[0].actorText, 'Background actor', 'details fetched for magnets immediately enrich the list');
+    assert.equal(view.rows[0].cover, expectedCover);
+    assert.equal(view.rows[0].title, summary.title);
+    assert.equal(view.rows[0].date, summary.date);
+    let failMagnets = false;
+    globalThis.fetch = async url => {
+        if (url.startsWith('/api/magnets/')) {
+            if (failMagnets) throw new Error('fixture magnet refresh failed');
+            return json([{ link: 'magnet:test', title: 'QA', size: '1 GB' }]);
+        }
+        details++;
+        return json({ id: 'QA-001', gid: '1', uc: 0, img: null });
+    };
+    await view.rows[0].open();
+    view = instance.renderVals().s;
+    assert.equal(view.d.cover, expectedCover, 'the detail drawer receives the known cover');
+    assert.equal(view.d.studio, 'Background studio');
+    assert.equal(view.rows[0].actorText, 'Background actor');
+    assert.equal(view.rows[0].cover, expectedCover);
+    failMagnets = true;
+    await view.rows[0].open();
+    assert.equal(instance.renderVals().s.rows[0].noMag, false, 'a failed detail refresh does not erase an already loaded best magnet');
+    assert.ok(details >= 1);
 });
 
 test('audit: automation summaries and GPU diagnostics contain only actual backend state', t => {

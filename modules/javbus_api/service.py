@@ -5,6 +5,7 @@ from typing import Any
 from modules.common.runtime import get_javbus_config
 
 from .client import JavBusClient
+from .metadata_cache import MovieMetadataCache
 from .parser import (
     convert_magnets_html,
     parse_filter_info,
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 class JavBusApiService:
     def __init__(self) -> None:
         self.client = self._build_client(get_javbus_config())
+        self.metadata_cache = MovieMetadataCache()
 
     def _build_client(self, cfg: dict[str, Any]) -> JavBusClient:
         proxy = cfg.get("proxy") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY") or None
@@ -90,8 +92,26 @@ class JavBusApiService:
         return payload
 
     async def get_movie_detail(self, movie_id: str) -> dict[str, Any]:
+        movie_id = str(movie_id).strip().upper()
+        try:
+            cached = await self.metadata_cache.get(movie_id)
+            if cached is not None:
+                return cached
+        except OSError:
+            logger.warning("Movie metadata cache could not be read")
         html = await self.client.get_text(f"/{movie_id}")
-        return parse_movie_detail(html, self.base_url, movie_id)
+        details = parse_movie_detail(html, self.base_url, movie_id)
+        try:
+            await self.metadata_cache.put(details)
+        except OSError:
+            logger.warning("Movie metadata cache could not be saved")
+        return details
+
+    async def get_metadata_cache_settings(self) -> dict[str, Any]:
+        return await self.metadata_cache.status()
+
+    async def update_metadata_cache_settings(self, values: dict[str, Any]) -> dict[str, Any]:
+        return await self.metadata_cache.configure(values)
 
     async def get_movie_magnets(
         self,

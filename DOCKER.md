@@ -23,6 +23,10 @@
 4. 准备强随机 `APP_SESSION_SECRET`，不要使用示例值。
 5. 确认配置文件路径使用可写持久化路径：`JAVJAEGER_CONFIG_PATH=/app/data/config.json`。
 
+影片补全资料和缓存清理设置保存在 `/app/data/movie_metadata_cache.json`，使用同一个 `./data` 挂载即可跨设备共享并在容器更新后保留。备份整个 `data/` 目录时会一并包含此文件；无需为浏览器单独配置缓存。
+
+封面图片及其独立空间上限保存在 `/app/data/image_cache/`，也使用现有 `./data` 挂载。在「设置 → 图片缓存」设置容量，默认 256 MB，按图片缓存文件的实际大小计量。`GET /api/image-cache` 返回 `settings`、`count` 和 `size_bytes`；`PUT /api/image-cache` 接受 `{"mb": 正整数}`，保存后立即清理超限图片。资料缓存的天数或 MB 设置不受影响。
+
 ### 1. 配置 docker-compose.yml
 
 生产部署至少保留以下配置：
@@ -50,11 +54,14 @@ services:
     volumes:
       - ./data:/app/data
       - ./actor_images:/app/actor_images
+      - /srv/downloads:/media/inbox
       - /srv/media/jav1:/media/jav1
       - /srv/media/jav2:/media/jav2
 ```
 
-然后在影视库页面的“路径配置”里保存 `/media/jav1` 和 `/media/jav2`。演员头像始终写入 `/app/actor_images`，不会落到任一媒体数据源路径里；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到这里，并删除同番号、同大小且内容完全相同的重复视频文件。如果有缓存、样品图或整理临时目录，可以在忽略路径里填写容器内绝对路径，例如 `/media/jav1/cache`，也可以填写相对扫描根目录的 `cache`。每个路径会作为独立 `scan_root` 记录，后续只重扫其中一个路径时不会清理另一个路径的索引。
+然后在影视库页面的“路径配置”中，把待刮削目录设为 `/media/inbox`，影视库目录设为 `/media/jav1` 和 `/media/jav2`。本地刮削默认从待刮削目录读取，整理到第一个影视库目录，也可为单次任务选择其他输出目录。两个目录都必须挂载且允许写入。扫描影视库时始终跳过待刮削目录。
+
+演员头像始终写入 `/app/actor_images`，不会落到任一媒体数据源路径里；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到这里，并删除同番号、同大小且内容完全相同的重复视频文件。如果有缓存、样品图或整理临时目录，可以在忽略路径里填写容器内绝对路径，例如 `/media/jav1/cache`，也可以填写相对扫描根目录的 `cache`。每个路径会作为独立 `scan_root` 记录，后续只重扫其中一个路径时不会清理另一个路径的索引。
 
 影视库转码会在媒体文件所在目录创建临时输出；只有输出有效且实际体积严格小于原文件时才会原子覆盖，否则删除临时输出并保留原片，因此媒体 volume 必须可写。视频编码强制使用经过真实探针验证的 GPU 编码器，不会回退到 CPU。所有转码都要求 ffprobe 可用，以在覆盖前校验源片和临时输出的视频流、时长及原有音轨；“H.265 自适应转码”还会读取每个源文件的编码、实际码率、分辨率、帧率和音频信息并动态计算目标码率。`transcoding.max_concurrent_tasks` 默认是 `2`；请结合 GPU 编码会话上限、内存和磁盘吞吐设置为 1–8，修改后重启容器。
 
@@ -220,6 +227,7 @@ volumes:
     "failure_backoff_seconds": [120.0, 600.0]
   },
   "local_library": {
+    "source_directory": "/media/inbox",
     "directories": ["/media/jav1", "/media/jav2"],
     "ignored_paths": ["cache", "/media/jav1/sample"],
     "actor_image_directory": "/app/actor_images"
@@ -235,7 +243,7 @@ volumes:
 - 环境变量优先级高于 `config.json`
 - 前端不会收到密码或 secret，只会收到脱敏默认值
 - 只有对应模块设置了 `enabled: true`，页面才会显示“使用配置连接/登录”
-- 影视库路径配置由 `local_library.directories` 和 `local_library.ignored_paths` 保存，页面保存时会写入同一个可写配置文件
+- 媒体目录配置由 `local_library.source_directory`、`local_library.directories` 和 `local_library.ignored_paths` 保存，页面保存时会写入同一个可写配置文件；旧配置保留原影视库目录，待刮削目录需由用户补选
 - 演员头像目录由 `JAVJAEGER_ACTOR_IMAGE_DIR` 覆盖；Docker 推荐单独挂载 `./actor_images:/app/actor_images`
 - 不要把 `/app/config.json` 以 `:ro` 方式挂载后再使用设置页保存；只读配置会导致 `/api/system/settings` 返回 `config_save_failed`
 

@@ -1798,6 +1798,26 @@ textarea {
     min-height: 42px;
   }
 }
+.jj-path-hint {
+  display: block;
+  color: var(--dim2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.jj-path-input {
+  display: flex;
+  gap: 8px;
+}
+.jj-path-input .input {
+  flex: 1;
+  min-width: 0;
+}
+.jj-path-value {
+  margin-top: 4px;
+  color: var(--fg);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}
 @media (prefers-reduced-motion: reduce) {
   .jj-cinema-card-overlay {
     transition: none;

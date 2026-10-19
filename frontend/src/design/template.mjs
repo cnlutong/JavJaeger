@@ -21,6 +21,18 @@ export function adaptTemplate(source, logo) {
         .replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"')
         .replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"')
         .replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">停止</button>', '<span style="font-size:12px;color:var(--dim)">后台执行中</span>');
+    html = html.replace('<label>扫描目录</label>', '<label>待刮削目录</label>')
+        .replace('<label>整理输出目录</label>', '<label>影视库目录</label>')
+        .replace('onChange="{{ sc.setScanDir }}"></div>', 'aria-label="待刮削目录" onChange="{{ sc.setScanDir }}"><button class="btn btn-secondary" onClick="{{ sc.browseSource }}">浏览待刮削目录</button></div>')
+        .replace('onChange="{{ sc.setOutDir }}"></div>', 'aria-label="影视库目录" onChange="{{ sc.setOutDir }}"><button class="btn btn-secondary" onClick="{{ sc.browseTarget }}">浏览影视库目录</button><span class="jj-path-hint">读取待刮削目录，按预览整理到影视库目录。本页修改仅用于本次任务。</span><button class="btn btn-ghost" onClick="{{ sc.configurePaths }}">配置默认目录</button></div>')
+        .replace('<h5 style="margin:0">影视库路径配置</h5>', '<h5 style="margin:0">媒体目录配置</h5>')
+        .replace('<sc-for list="{{ lb.pathGroups }}"', `<div class="field"><label for="jj-source-directory">待刮削目录</label><span class="jj-path-hint">下载完成、尚未整理的原片放在这里。扫描影视库时会跳过此目录。</span><div class="jj-path-input"><input id="jj-source-directory" class="input" aria-label="待刮削目录" value="{{ lb.sourcePath }}" onChange="{{ lb.setSourcePath }}"><button class="btn btn-secondary" onClick="{{ lb.browseSource }}">浏览</button></div></div>
+        <sc-for list="{{ lb.pathGroups }}"`)
+        .replace('路径变更不会立即扫描。保存后用「扫描入库」重新索引；被移除的路径其影片记录会保留，直到执行「清洗无效文件」。', '保存后，本地刮削会使用这两个默认目录。生成预览后，确认执行才会移动文件；扫描入库只读取影视库目录。修改路径不会删除已有索引或立即扫描。');
+    html = html.replace('>媒体库路径</span>', '>影视库目录</span>')
+        .replace('<button class="btn btn-secondary btn-block" style="font-size:12.5px" onClick="{{ lb.openPaths }}">', '<div class="jj-path-hint">待刮削目录<div class="jj-path-value">{{ lb.sourceDirectory }}</div></div><button class="btn btn-ghost" onClick="{{ lb.openScrape }}">前往本地刮削</button><button class="btn btn-secondary btn-block" style="font-size:12.5px" onClick="{{ lb.openPaths }}">')
+        .replace('<span style="font-size:11px;color:{{ r.stFg }};width:118px;text-align:right">{{ r.status }}</span>', '')
+        .replace('选择模板并确认扫描目录后点击「生成预览」。', '确认待刮削目录和影视库目录后点击「生成预览」。');
     const start = html.indexOf('  <sc-if value="{{ cn.player }}">');
     const end = html.indexOf('  <sc-if value="{{ at.auto }}">', start);
     html = html.slice(0, start) + `
@@ -48,7 +60,9 @@ export function adaptTemplate(source, logo) {
                 </div>
                 <div class="jj-provider-fields"><sc-for list="{{ s.fields }}" as="f"><div class="field"><label>{{ f.label }}</label><input class="input" aria-label="{{ f.label }}" type="{{ f.inputType }}" value="{{ f.value }}" onChange="{{ f.set }}"></div></sc-for></div>
               </div>`);
+    html = html.replace('<sc-if value="{{ f.isSecret }}">', '<sc-if value="{{ f.isPath }}"><div class="jj-path-input"><input class="input" style="font-family:var(--mono)" value="{{ f.value }}" onChange="{{ f.set }}"><button class="btn btn-secondary" aria-label="浏览{{ f.label }}" onClick="{{ f.browse }}">浏览</button></div></sc-if><sc-if value="{{ f.isSecret }}">');
     html = html.replaceAll('value="{{ f.value }}"', 'aria-label="{{ f.label }}" value="{{ f.value }}"')
+        .replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:{{ f.mono }}', '<sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:{{ f.mono }}')
         .replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:var(--mono)"', '<sc-if value="{{ f.isCheck }}"><label><input type="checkbox" checked="{{ f.on }}" onChange="{{ f.set }}">{{ f.label }}</label></sc-if><sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:var(--mono)"');
     html = html.replace(/批次 b-20260723-1418[^<]+/, '{{ d.batchSummary }}')
         .replace('全部 128', '全部 {{ d.historyCount }}').replace('未入库 3', '未入库 {{ d.missingCount }}').replace('失败 2</span>', '失败 {{ d.failureCount }}</span>')
@@ -76,7 +90,7 @@ export function adaptTemplate(source, logo) {
         .replace(/缺少 Cookie，无法列目录或提交离线任务。[\s\S]*?后重新连接。/, '请到设置中连接当前网盘，再浏览目录。')
         .replace('onClick="{{ sc.applyStrategy }}"', 'disabled="{{ !sc.nConf }}" onClick="{{ sc.applyStrategy }}"')
         .replace('onChange="{{ au.togglePauseAll }}"', 'disabled="{{ au.pauseAll }}" onChange="{{ au.togglePauseAll }}"')
-        .replace('onClick="{{ se.save }}"', 'disabled="{{ se.isOverview }}" onClick="{{ se.save }}"');
+        .replace('onClick="{{ se.save }}"', 'disabled="{{ se.saveDisabled }}" onClick="{{ se.save }}"');
     html = html.replace('      <sc-if value="{{ sc.hasPreview }}">\n', `<sc-if value="{{ sc.outcome }}"><div style="background:var(--surf);border-radius:8px;padding:16px"><h5>执行结果 · {{ sc.outcome.summary }}</h5><p>失败项可修正配置后重新生成预览；已完成的文件无需重复处理。</p><sc-for list="{{ sc.outcome.rows }}" as="r"><div style="padding:8px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere"><span style="color:{{ r.fg }}">{{ r.status }}</span> · {{ r.path }}<div style="color:var(--dim)">{{ r.note }}</div></div></sc-for></div></sc-if><sc-if value="{{ sc.hasPreview }}">`);
     for (const action of ['au.save', 'au.runNow', 'au.toggleRun', 'au.remove']) html = html.replace(`onClick="{{ ${action} }}"`, `disabled="{{ !au.hasTask }}" onClick="{{ ${action} }}"`);
     html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>')
@@ -84,8 +98,10 @@ export function adaptTemplate(source, logo) {
         .replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="详情与配置" style="position:fixed;top:0;right:0;bottom:0;')
         .replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=')
         .replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
-    const poster = key => `<sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if>`;
+    const poster = (key, fit = 'cover') => `<sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${fit}"></sc-if>`;
     html = html.replace(/(<div style="width:70px;aspect-ratio:3\/2;[^"]*)">{{ r.code }}<\/div>/, `$1;position:relative;overflow:hidden">${poster('r')}{{ r.code }}</div>`)
+        .replace(/(<div style="width:74px;aspect-ratio:3\/2;[^"]*)">{{ m.code }}<\/div>/, `$1;position:relative;overflow:hidden">${poster('m')}{{ m.code }}</div>`)
+        .replace(/(<div style="width:246px;flex:none;aspect-ratio:3\/2;[^"]*)">{{ s.d.code }}<\/div>/, `$1;position:relative;overflow:hidden;align-self:flex-start">${poster('s.d', 'contain')}{{ s.d.code }}</div>`)
         .replace('position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">', `position:relative;aspect-ratio:2/3;background:linear-gradient(160deg,var(--ph1),var(--ph3));display:grid;place-items:center">${poster('r')}`);
     html = html.replace('box-shadow:inset 0 -1px 0 var(--line2)">\n                <span', `box-shadow:inset 0 -1px 0 var(--line2)">${poster('m')}\n                <span`)
         .replace('右侧实时预览一条真实文件名', '右侧使用示例元数据预览命名规则');

@@ -108,6 +108,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "allow_unknown": True,
     },
     "local_library": {
+        "source_directory": "",
         "directories": [],
         "ignored_paths": [],
         "actor_image_directory": DEFAULT_ACTOR_IMAGE_DIRECTORY,

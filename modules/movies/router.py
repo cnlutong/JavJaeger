@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 from modules.common import runtime
+from modules.common.paths import UserPathError
 from modules.history.service import local_actor_library_service, local_movie_library_service
 from .local_library import (
     clean_invalid_local_library_files,
@@ -96,6 +97,8 @@ async def get_local_movie_library_settings():
 async def put_local_movie_library_settings(request: LocalLibrarySettingsRequest):
     try:
         return update_local_library_settings(request)
+    except UserPathError as exc:
+        raise HTTPException(status_code=400, detail={"error": exc.code, "message": exc.message}) from exc
     except runtime.ConfigSaveError as exc:
         raise HTTPException(
             status_code=500,

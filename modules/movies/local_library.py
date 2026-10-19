@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from modules.common import runtime
-from modules.common.paths import UserPathError, resolve_existing_directory
+from modules.common.paths import UserPathError, resolve_existing_directory, resolve_user_path
 from modules.history.service import (
     LOCAL_LIBRARY_INFORMATION_FIELDS,
     local_movie_library_service,
@@ -206,6 +206,7 @@ def get_local_library_settings() -> dict[str, Any]:
     config = runtime.get_local_library_config()
     return {
         "success": True,
+        "source_directory": str(config.get("source_directory") or "").strip(),
         "directories": _normalize_path_values(config.get("directories")),
         "ignored_paths": _normalize_path_values(config.get("ignored_paths")),
     }
@@ -213,12 +214,21 @@ def get_local_library_settings() -> dict[str, Any]:
 
 def update_local_library_settings(request: LocalLibrarySettingsRequest) -> dict[str, Any]:
     updates: dict[str, Any] = {}
+    if request.source_directory is not None:
+        source = request.source_directory.strip()
+        updates["source_directory"] = str(resolve_user_path(source)) if source else ""
     if request.directories is not None:
         updates["directories"] = _normalize_path_values(request.directories)
     if request.ignored_paths is not None:
         updates["ignored_paths"] = _normalize_path_values(request.ignored_paths)
 
     if updates:
+        settings = {**get_local_library_settings(), **updates}
+        if settings["source_directory"]:
+            source = resolve_user_path(settings["source_directory"])
+            for value in settings["directories"]:
+                if resolve_user_path(value).is_relative_to(source):
+                    raise UserPathError("library_inside_source", "影视库目录不能与待刮削目录相同，也不能位于待刮削目录内")
         runtime.update_config_section("local_library", updates)
     return get_local_library_settings()
 
@@ -237,9 +247,9 @@ def _scan_directories_from_request(request: LocalLibraryScanRequest) -> list[str
 
 
 def _scan_ignored_paths_from_request(request: LocalLibraryScanRequest) -> list[str]:
-    if request.ignored_paths is not None:
-        return _normalize_path_values(request.ignored_paths)
-    return get_local_library_settings()["ignored_paths"]
+    settings = get_local_library_settings()
+    ignored = request.ignored_paths if request.ignored_paths is not None else settings["ignored_paths"]
+    return _normalize_path_values([*ignored, settings["source_directory"]])
 
 
 def _resolve_ignored_paths(root: Path, ignored_paths: list[str]) -> list[Path]:
@@ -422,7 +432,7 @@ def _regularize_scan_files(records: list[dict[str, Any]]) -> tuple[list[dict[str
 
 
 def _collect_library_scan_records(root: Path, request: LocalLibraryScanRequest, ignored_paths: list[Path], previous: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    video_files = _filter_ignored_video_files(_walk_video_files(root, request.recursive, request.max_depth), ignored_paths)
+    video_files = _filter_ignored_video_files(_walk_video_files(root, request.recursive, request.max_depth, ignored_paths), ignored_paths)
     return [_build_library_file_record(path, root, request.probe_media, previous.get(os.path.normcase(os.path.abspath(path)))) for path in video_files]
 
 

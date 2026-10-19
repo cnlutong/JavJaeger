@@ -8,6 +8,8 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 
 - 通过内置 JavBus API-compatible provider 检索影片列表、详情、演员、类别和磁力信息。
 - 按关键词、番号、演员、类别、制作商、发行商、系列等条件筛选影片。
+- 搜索结果先显示摘要，再在后台分批补全演员、制作商等资料。补全后的公开影片资料按番号保存在服务器的 `data/movie_metadata_cache.json`，所有设备和浏览器共用，容器重启后仍可复用。在「设置 → 缓存」选择按缓存天数或占用空间（MB）清理，默认保留 30 天；保存后立即清理超限缓存，配置统一保存在服务端。空间模式按缓存文件的实际 UTF-8 字节数限制容量，优先清理最早缓存的资料。缓存包含公开资料和图片地址，不包含图片文件、磁力或本地入库状态。过期或未缓存的影片自动补全，失败时保留原结果，可打开详情重试。
+- 封面图片经图片代理读取后，单独保存在服务端 `data/image_cache/`，换设备、切换封面／列表模式和打开详情时共用。在「设置 → 图片缓存」配置独立的 MB 上限，默认 256 MB；图片数量和实际缓存文件大小单独统计，不占用资料缓存额度。保存后立即清理较久未使用的图片；超过上限的单张图片可显示但不写入缓存，失败响应也不会缓存。图片缓存和设置在容器重启后保留。
 - 在 JavBus、Cilisiusou 和 YHG007 磁力来源之间切换，并支持字幕、4K 排除和批量选择。
 - 将磁力任务派发到 PikPak、115 网盘或 Aria2。
 - 在网盘管理中浏览 WebDAV、115 网盘目录和服务端本地文件夹，并把 WebDAV 文件或目录批量发送给 Aria2。
@@ -23,7 +25,7 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 | --- | --- |
 | 后端 | Python 3.11+、FastAPI、Uvicorn |
 | 前端 | React 18、Claude Design 原始模板与运行时、Nocturne、esbuild |
-| 数据 | `data/` 下的本地 JSON 状态文件 |
+| 数据 | `data/` 下的本地 JSON 状态文件和图片缓存 |
 | 下载与媒体 | PikPak API、115 扫码/Cookie 离线下载、WebDAV、Aria2 JSON-RPC、FFmpeg/ffprobe、NVENC/QSV/VAAPI/AMF/VideoToolbox |
 | 部署 | Docker、docker compose、可选 Nginx 反向代理 |
 
@@ -208,7 +210,8 @@ Copy-Item config.example.json config.json
     "allow_unknown": true
   },
   "local_library": {
-    "directories": ["/app/data"],
+    "source_directory": "/media/inbox",
+    "directories": ["/media/JAV"],
     "ignored_paths": [],
     "actor_image_directory": "data/actor_images"
   },
@@ -228,7 +231,7 @@ Copy-Item config.example.json config.json
 - `webdav.auto_connect` 和 `aria2.auto_connect` 会在页面加载后尝试使用服务端配置连接。
 - `pikpak.auto_login` 会在页面加载后尝试使用服务端配置登录。
 - `magnet_health.enabled` 会在最佳磁力派发前按阈值剔除低健康度候选；`probe_with_aria2` 启用后会使用已配置 Aria2 做 metadata-only 探测并自动清理探测任务。
-- `local_library.directories` 和 `local_library.ignored_paths` 会由影视库页面的“路径配置”保存；Docker 中必须填写容器内可见路径。
+- `local_library.source_directory` 是待刮削目录；`local_library.directories` 是影视库目录列表，第一项作为默认刮削输出目录。两者由影视库页面的“路径配置”统一保存，本地刮削自动读取。`local_library.ignored_paths` 仅用于影视库扫描；Docker 中必须填写容器内可见路径。
 - `local_library.actor_image_directory` 保存演员头像；Docker 默认用 `JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images` 指向单独挂载目录。
 - `transcoding.max_concurrent_tasks` 控制同时运行的 GPU FFmpeg 进程数，范围为 1–8，修改后重启应用生效；其余任务保持排队状态。新任务只使用通过实际硬件探针的编码器，未检测到 GPU 时不会回退到 CPU。
 - `/api/client-config` 只返回前端需要的脱敏默认值，不返回密码和 RPC secret。
@@ -318,6 +321,8 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 
 ### 本地影片库
 
+在“设置 → 媒体目录”可直接修改待刮削目录和默认影视库目录，支持浏览服务端目录、保存、重置和重新载入。修改默认影视库目录会保留其他影视库路径和排除目录；保存后同步到影视库和本地刮削，正在运行的任务和已有预览仍使用原路径。影视库的“路径配置”继续使用同一套配置。
+
 影视库保留左侧筛选、右侧统计卡片与列表、海报、演员视图。列表为演员与封面预留更大空间；拖动表头分隔线可调整各列宽度，聚焦分隔线后也可用左右方向键微调，列宽保存在当前浏览器，并可点击“恢复默认列宽”重置。滚动条跟随主题，海报支持键盘打开详情；手机端详情中的本地文件与播放、转码操作按纵向排列。
 
 影院模式参考 Jellyfin 的浏览方式，提供最近入库、高清收藏、系列、演员与 VR 分区，支持搜索、组合筛选、排序及分页。影片详情在影院内打开，关闭后保留原浏览位置；可选择本地文件或分段播放，并自动跳过已标记缺失的分段。封面、简介及分区均来自本地索引，未配置的媒体和观看进度不会用示例数据填充。
@@ -329,7 +334,13 @@ WebDAV 和 Aria2 连接状态是 session-scoped；一个浏览器会话不会覆
 - Docker 运行：填写容器内路径，例如把宿主机目录挂载到 `/media/JAV` 后，在页面中填写 `/media/JAV`
 
 如果服务端运行在 Docker 或 Linux 中，不能直接填写宿主机 Windows 路径，除非该路径已经通过 volume、SMB、NFS 或 WSL 等方式挂载到服务端可见的位置。
-影视库页面支持在“路径配置”中一次保存多个服务端可访问路径和多个忽略路径；点击“保存并扫描”会先写入 `config.json`，再用当前路径配置扫描入库。后端会按路径分别记录 `scan_root`，重新扫描某一个路径并启用“移除缺失文件”时，只会清理该路径下已经不存在的旧文件记录，不会删除其他数据源路径的记录。忽略路径可以是绝对路径，也可以是相对每个扫描根目录的路径，例如 `cache` 或 `sample`。演员头像不跟随这些数据源路径，始终写入 `local_library.actor_image_directory` 或 `JAVJAEGER_ACTOR_IMAGE_DIR` 指向的目录；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到该目录，并删除同番号、同大小且内容完全相同的重复视频文件。
+影视库页面的“路径配置”统一保存两类目录：待刮削目录用于存放下载完成、尚未整理的原片；影视库目录用于存放整理结果，也用于扫描已有收藏。可配置多个影视库目录，第一项作为默认刮削输出目录。本地刮削自动填入这两个目录，也可为单次任务修改；刷新页面后重新读取默认目录，恢复中的任务和已有预览继续使用原路径。生成预览不会移动文件，确认执行后才整理入库。关闭“整理到目标目录”仍可原地刮削。
+
+待刮削目录可以位于影视库目录内，扫描影视库时始终跳过它，即使请求指定了其他忽略路径。影视库目录不能与待刮削目录相同或位于待刮削目录内，避免再次刮削整理结果。保存路径不会立即扫描或删除已有索引；旧配置的影视库路径继续保留，需补选待刮削目录，不自动猜测或移动现有文件。
+
+在待刮削目录中选择原地刮削时，只写入所选资料，不自动加入影视库。文件整理到影视库目录后才自动入库。
+
+后端按影视库路径分别记录 `scan_root`，重新扫描某一个路径并启用“移除缺失文件”时，只会清理该路径下已经不存在的旧文件记录，不会删除其他数据源路径的记录。忽略路径可以是绝对路径，也可以是相对每个扫描根目录的路径，例如 `cache` 或 `sample`。演员头像不跟随这些数据源路径，始终写入 `local_library.actor_image_directory` 或 `JAVJAEGER_ACTOR_IMAGE_DIR` 指向的目录；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到该目录，并删除同番号、同大小且内容完全相同的重复视频文件。
 扫描导入时会读取视频旁的同名 `.nfo`，用其中的番号、标题、演员、标签、片商、系列、封面和媒体流信息重建影视库索引；JavJaeger 新写出的 NFO 还包含完整规范化元数据，可无损恢复演员引用、样片、列表缩略图和刮削源原始字段。旧版或第三方 NFO 会继续按标准 XML 字段兼容导入。只有显式启用在线刮削时，在线结果才会覆盖这些 NFO 元数据。
 影片操作区同时提供“移除”和“彻底删除”：移除只清理影视库及演员关联记录，保留硬盘文件；彻底删除会永久删除该记录登记的视频、同名 NFO/封面/缩略图/字幕以及 NFO 引用的影片目录内资料文件，再清理影视库及演员关联记录。目录级图片或样片仍被同目录其他影片共享时会保留；任何登记路径超出原 `scan_root`，或扫描目录当前不可访问时，后端都会拒绝物理删除并保留记录。
 历史记录页可核对下载历史中的影片是否已经进入本地影片库；未入库记录会保留旧资源链接作为“已尝试”链接，并可一键自动重新选择可替换磁力后派发到当前下载工具。
@@ -511,7 +522,7 @@ JavJaeger/
 │   ├── pan115/              # 115 QR/Cookie, offline dispatch, direct-link resolution
 │   ├── webdav/              # WebDAV browsing, Aria2 dispatch, session state
 │   ├── automation/          # saved workflow tasks and scheduler
-│   └── proxy/               # final catch-all API route
+│   └── proxy/               # trusted image proxy/cache and final API catch-all
 ├── frontend/src/            # editable frontend source
 ├── static/                  # static assets and generated frontend bundle
 ├── templates/index.html     # HTML shell only

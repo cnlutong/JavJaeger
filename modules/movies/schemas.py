@@ -93,6 +93,7 @@ class LocalLibraryScanRequest(BaseModel):
 
 
 class LocalLibrarySettingsRequest(BaseModel):
+    source_directory: Optional[str] = None
     directories: Optional[list[str]] = None
     ignored_paths: Optional[list[str]] = None
 

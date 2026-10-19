@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const http = require('node:http');
+const crypto = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const { chromium } = require('playwright');
 
@@ -15,6 +17,14 @@ before(async () => {
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'javjaeger-browser-'));
     for (const dir of ['static', 'templates']) fs.symlinkSync(path.join(root, dir), path.join(scratch, dir), process.platform === 'win32' ? 'junction' : 'dir');
     fs.writeFileSync(path.join(scratch, 'config.json'), JSON.stringify({ session_secret: 'isolated-browser-test', scrapers: Object.fromEntries(['javbus', 'libredmm', 'jav321', 'tokyohot', 'dlgetchu', 'fc2'].map(key => [key, { enabled: false }])) }));
+    const imageCache = path.join(scratch, 'data/image_cache'); fs.mkdirSync(imageCache, { recursive: true });
+    for (const [index, name] of ['old-one', 'old-two', 'shared-cover'].entries()) {
+        const url = `https://www.javbus.com/qa-cache/${name}.svg`, key = crypto.createHash('sha256').update(url).digest('hex');
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="#405c7a"/><circle cx="220" cy="60" r="30" fill="#cab99b"/><path d="M0 200V150L90 70L190 180L260 110L300 150V200" fill="#233348"/></svg>';
+        const file = path.join(imageCache, key + '.image');
+        fs.writeFileSync(file, 'image/svg+xml\n' + svg + (index < 2 ? ' '.repeat(600000) : ''));
+        fs.utimesSync(file, index + 1, index + 1);
+    }
     const socket = net.createServer();
     socket.listen(0, '127.0.0.1');
     await once(socket, 'listening');
@@ -91,7 +101,7 @@ const dispatchContract = require('../fixtures/dispatch-contract.json');
 const magnet = { ...dispatchContract.magnets[0], source: 'javbus' };
 
 async function libraryFixture(page, count = 4) {
-    const state = { requests: [], records: Array.from({ length: count }, (_, i) => ({
+    const state = { requests: [], settings: { source_directory: '/qa-incoming', directories: ['/qa'], ignored_paths: [] }, records: Array.from({ length: count }, (_, i) => ({
         movie_id: `QA-${String(i + 1).padStart(3, '0')}`, title: `QA 测试影片 ${i + 1}`, date: `2026-09-${String(i + 1).padStart(2, '0')}`,
         stars: ['测试演员'], genres: ['测试标签'], studio: 'QA Studio', publisher: 'QA Publisher', series: 'QA Series',
         is_vr: i === 1, file_count: 1, total_size: 102400, scan_roots: ['/qa'], full_text: '测试演员 测试标签',
@@ -102,7 +112,10 @@ async function libraryFixture(page, count = 4) {
         const request = route.request(), url = new URL(request.url()), method = request.method();
         state.requests.push({ path: url.pathname, method, body: request.postDataJSON?.() });
         if (url.pathname.endsWith('/actors')) return route.fulfill({ json: { success: true, total_actors: 1, actors: [{ key: 'qa-star', name: '测试演员', movie_count: state.records.length, movie_ids: state.records.map(r => r.movie_id) }] } });
-        if (url.pathname.endsWith('/settings')) return route.fulfill({ json: { success: true, directories: ['/qa'], ignored_paths: [] } });
+        if (url.pathname.endsWith('/settings')) {
+            if (method === 'PUT') state.settings = { ...state.settings, ...request.postDataJSON() };
+            return route.fulfill({ json: { success: true, ...state.settings } });
+        }
         if (url.pathname.endsWith('/information/check')) return route.fulfill({ json: { success: true, total_movies: count, complete_count: count - 1, incomplete_count: 1, incomplete_records: [{ movie_id: 'QA-001', missing_labels: ['本地封面'] }] } });
         if (url.pathname.endsWith('/information/download')) return route.fulfill({ json: { success: true, success_count: 1, failed_count: 0, results: [] } });
         if (url.pathname.endsWith('/scan/jobs')) return route.fulfill({ json: { success: true, task_id: 'qa-scan' } });
@@ -649,11 +662,14 @@ test('imported runtime renders all original pages with no demo data or errors', 
 
 test('original search controls use actual movie, magnet, filter and recognition APIs', async t => {
     const calls = [];
+    const cover = 'https://covers.example.test/search.svg';
+    let detailRequests = 0;
     const page = await openApp(t, 1440, async p => {
         await p.route('**/api/movies?*', route => { calls.push(route.request().url()); return route.fulfill({ json: { movies: [movie()] } }); });
-        await p.route('**/api/movies/QA-*', route => { calls.push(route.request().url()); return route.fulfill({ json: movie() }); });
+        await p.route('**/api/movies/QA-*', route => { calls.push(route.request().url()); detailRequests++; return route.fulfill({ json: { ...movie(), img: cover, producer: { name: 'QA Detail Studio' } } }); });
         await p.route('**/api/magnets/**', route => { calls.push(route.request().url()); return route.fulfill({ json: [magnet] }); });
         await p.route('**/api/movies/recognize', route => { calls.push(route.request().postDataJSON()); return route.fulfill({ json: { movies: [movie()] } }); });
+        await p.route('**/api/image-proxy?*', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="#405c7a"/><text x="30" y="112" fill="white" font-size="36">QA-001</text></svg>' }));
     });
     await navigate(page, '影片检索');
     await field(page, '番号').fill('QA-001');
@@ -661,6 +677,107 @@ test('original search controls use actual movie, magnet, filter and recognition 
     await page.getByText('QA 测试影片 QA-001', { exact: true }).waitFor();
     assert.ok(calls.some(url => typeof url === 'string' && url.includes('gid=123')));
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-design-search.png'), fullPage: true });
+    const expectedCover = '/api/image-proxy?url=' + encodeURIComponent(cover);
+    assert.equal(await page.locator('main img').getAttribute('src'), expectedCover);
+    await page.locator('label').filter({ has: page.locator('input[name="jj-view"]') }).filter({ hasText: '列表' }).click();
+    const listCover = page.locator('tbody tr').first().locator('td').nth(1).locator('img');
+    await listCover.waitFor();
+    assert.equal(await listCover.getAttribute('src'), expectedCover, 'list and grid use the same proxied cover');
+    await page.waitForFunction(() => document.querySelector('tbody img')?.naturalWidth > 0);
+    const bounds = await listCover.boundingBox();
+    assert.ok(bounds.width > 0 && bounds.width <= 74 && bounds.height > 0 && bounds.height <= 50, 'thumbnail stays inside the cover cell');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-search-list-cover-desktop.png'), fullPage: false });
+    const openDetails = async () => {
+        await page.locator('main').getByRole('button', { name: '详情', exact: true }).click();
+        const dialog = page.getByRole('dialog', { name: '详情与配置', exact: true });
+        await dialog.getByText('QA Detail Studio', { exact: true }).waitFor();
+        const image = dialog.locator('img');
+        await image.waitFor();
+        assert.equal(await image.getAttribute('src'), expectedCover, 'details reuse the searched cover');
+        await page.waitForFunction(() => document.querySelector('.jj-drawer img')?.naturalWidth > 0);
+        await dialog.evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)));
+        return dialog;
+    };
+    let dialog = await openDetails();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-search-detail-cover-desktop.png'), fullPage: false });
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    assert.equal(await listCover.getAttribute('src'), expectedCover, 'closing details leaves the list cover intact');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await listCover.scrollIntoViewIfNeeded();
+    assert.ok(await listCover.isVisible(), 'list cover remains visible on mobile');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-search-list-cover-mobile.png'), fullPage: false });
+    dialog = await openDetails();
+    const detailBounds = await dialog.locator('img').boundingBox();
+    assert.ok(detailBounds.x >= 0 && detailBounds.x + detailBounds.width <= 390, 'detail cover fits the mobile drawer');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-search-detail-cover-mobile.png'), fullPage: false });
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.locator('label').filter({ has: page.locator('input[name="jj-view"]') }).filter({ hasText: '封面' }).click();
+    assert.equal(await page.locator('main img').getAttribute('src'), expectedCover);
+    assert.equal(detailRequests, 1, 'a direct movie search already loaded its full details');
+});
+
+test('search: summaries appear first and background metadata fills rows before details open', async t => {
+    let releaseDetails;
+    const gate = new Promise(resolve => { releaseDetails = resolve; });
+    t.after(() => releaseDetails());
+    let detailCalls = 0;
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/movies?*', route => route.fulfill({ json: { movies: ['QA-001', 'QA-002'].map(id => ({ id, title: 'Summary ' + id, img: '/api/test-cover', gid: '123', uc: 0 })) } }));
+        await p.route('**/api/movies/QA-*', async route => {
+            detailCalls++;
+            const id = route.request().url().split('/').at(-1);
+            if (id === 'QA-001') await gate;
+            await route.fulfill({ json: { id, stars: [{ name: '后台演员 ' + id }], producer: { name: '后台制作商 ' + id }, img: null } });
+        });
+        await p.route('**/api/test-cover', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="#405c7a"/><circle cx="220" cy="60" r="30" fill="#cab99b"/><path d="M0 200V150L90 70L190 180L260 110L300 150V200" fill="#233348"/></svg>' }));
+        await p.route('**/api/magnets/**', route => route.fulfill({ json: [magnet] }));
+    });
+    await navigate(page, '影片检索');
+    await field(page, '磁力来源').selectOption('Cilisousuo');
+    await page.getByRole('button', { name: '标签筛选', exact: true }).click();
+    const started = page.waitForRequest(request => request.url().endsWith('/api/movies/QA-001'), { timeout: 3000 });
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('Summary QA-001', { exact: true }).waitFor();
+    await started;
+    await page.locator('label').filter({ has: page.locator('input[name="jj-view"]') }).filter({ hasText: '列表' }).click();
+    const row = page.locator('main tbody tr').filter({ hasText: 'Summary QA-001' });
+    await row.getByText('资料补全中…', { exact: true }).waitFor();
+    await page.getByText('后台演员 QA-002', { exact: true }).waitFor();
+    assert.equal(await page.locator('.jj-drawer').count(), 0, 'metadata loads without opening details');
+    releaseDetails();
+    await row.getByText('后台演员 QA-001', { exact: true }).waitFor();
+    assert.equal(await row.locator('img').getAttribute('src'), '/api/test-cover');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-background-metadata-desktop.png'), fullPage: false });
+    await row.getByRole('button', { name: '详情', exact: true }).click();
+    const dialog = page.locator('.jj-drawer');
+    await dialog.getByText('后台制作商 QA-001', { exact: true }).waitFor();
+    assert.equal(detailCalls, 2, 'opening details does not repeat background requests');
+    await dialog.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await row.scrollIntoViewIfNeeded();
+    assert.ok(await row.getByText('后台演员 QA-001', { exact: true }).isVisible());
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-background-metadata-mobile.png'), fullPage: false });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '影片检索');
+    await page.getByRole('button', { name: '标签筛选', exact: true }).click();
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('后台演员 QA-001', { exact: true }).waitFor();
+    await page.getByText('后台演员 QA-002', { exact: true }).waitFor();
+    assert.equal(detailCalls, 4, 'page reload reads details from the shared backend');
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('后台演员 QA-001', { exact: true }).waitFor();
+    assert.equal(detailCalls, 6, 'a repeated search checks the backend shared cache');
+    await page.getByRole('button', { name: '番号查询', exact: true }).click();
+    await field(page, '番号').fill('QA-001');
+    await page.getByRole('button', { name: '查询番号', exact: true }).click();
+    await page.getByText('后台演员 QA-001', { exact: true }).waitFor();
+    await page.locator('main').getByRole('button', { name: '详情', exact: true }).click();
+    await page.locator('.jj-drawer').getByText('后台制作商 QA-001', { exact: true }).waitFor();
+    assert.equal(detailCalls, 7, 'the drawer reuses the backend result from the direct search');
+    await page.locator('.jj-drawer').evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-metadata-cache-restored.png'), fullPage: false });
 });
 
 test('original cinema and library show real indexed files', async t => {
@@ -692,6 +809,240 @@ test('library path editing, scan, information check and deletion use confirmed w
     await approve(page, '移除记录');
     await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 3);
     assert.equal(state.records.length, 3);
+});
+
+test('server cache: independent browsers reuse metadata and share retention settings', async t => {
+    let sourceCalls = 0;
+    const upstream = http.createServer((request, response) => {
+        if (request.url === '/QA-SHARED') {
+            sourceCalls++;
+            response.setHeader('Content-Type', 'text/html; charset=utf-8');
+            response.end(`<div class="container"><h3>QA-SHARED 缓存验证影片</h3><div class="movie"><a class="bigImage"><img src="/cover.svg"></a><div class="info">
+                <p><span class="header">製作商:</span><a href="/studio/qa">共享制作商</a></p>
+                <p><span class="genre" onmouseover="star"><a href="/star/qa">共享演员</a></span></p>
+                </div></div></div><script>var gid = 123; var uc = 0;</script>`);
+        } else {
+            response.setHeader('Content-Type', 'image/svg+xml');
+            response.end('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200"><rect width="300" height="200" fill="#405c7a"/><path d="M0 200V150L90 70L190 180L260 110L300 150V200" fill="#233348"/></svg>');
+        }
+    });
+    upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
+    const settingsURL = baseURL + '/api/system/settings', cacheURL = baseURL + '/api/metadata-cache';
+    const original = (await (await fetch(settingsURL)).json()).javbus;
+    const put = (url, body) => fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    t.after(async () => {
+        await put(settingsURL, { javbus: original });
+        await put(cacheURL, { mode: 'days', days: 30, mb: 5 });
+        await new Promise(resolve => upstream.close(resolve));
+    });
+    assert.ok((await put(settingsURL, { javbus: { base_url: `http://127.0.0.1:${upstream.address().port}`, proxy: '', request_interval_seconds: 0 } })).ok);
+    const setup = async p => {
+        await p.route('**/api/magnets/**', route => route.fulfill({ json: [] }));
+        await p.route('**/api/metadata-cache', route => route.continue());
+    };
+    const first = await openApp(t, 1440, setup);
+    const query = async page => {
+        await navigate(page, '影片检索');
+        await field(page, '番号').fill('QA-SHARED');
+        await page.getByRole('button', { name: '查询番号', exact: true }).click();
+        await page.getByText('共享演员', { exact: true }).waitFor();
+        await page.locator('main').getByRole('button', { name: '详情', exact: true }).click();
+        await page.locator('.jj-drawer').getByText('共享制作商', { exact: true }).waitFor();
+        await page.locator('.jj-drawer').getByRole('button', { name: '关闭', exact: true }).click();
+    };
+    const cacheTab = async page => {
+        await navigate(page, '设置');
+        await page.locator('aside').getByRole('button', { name: '缓存', exact: true }).click();
+        await field(page, '缓存清理方式').waitFor();
+    };
+    await query(first);
+    await cacheTab(first);
+    await field(first, '最多缓存天数').fill('7');
+    await first.getByRole('button', { name: '保存', exact: true }).click();
+    await first.getByText('设置已保存', { exact: true }).waitFor();
+    const second = await openApp(t, 1440, setup);
+    await query(second);
+    assert.equal(sourceCalls, 1, 'a new browser with no local storage must reuse the server cache');
+    for (const page of [first, second]) {
+        assert.equal(await page.evaluate(() => localStorage.getItem('javjaeger.movieMetadata.v1')), null);
+        assert.equal(await page.evaluate(() => localStorage.getItem('javjaeger.movieCacheSettings.v1')), null);
+    }
+    await cacheTab(second);
+    assert.equal(await field(second, '最多缓存天数').inputValue(), '7');
+    await field(second, '缓存清理方式').selectOption({ label: '按占用空间' });
+    await field(second, '最多占用空间（MB）').fill('1');
+    await second.getByRole('button', { name: '保存', exact: true }).click();
+    await second.getByText('设置已保存', { exact: true }).waitFor();
+    await first.getByRole('button', { name: '重新载入', exact: true }).click();
+    await first.getByText('配置已重新载入', { exact: true }).waitFor();
+    assert.equal(await field(first, '缓存清理方式').inputValue(), '按占用空间');
+    assert.equal(await field(first, '最多占用空间（MB）').inputValue(), '1');
+    const disk = path.join(scratch, 'data/movie_metadata_cache.json');
+    assert.ok(fs.statSync(disk).size <= 1024 ** 2);
+    assert.ok(fs.readFileSync(disk, 'utf8').includes('共享演员'));
+    await first.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-server-cache-desktop.png'), animations: 'disabled' });
+    await field(second, '最多占用空间（MB）').fill('0');
+    await second.getByRole('button', { name: '保存', exact: true }).click();
+    await second.getByText(/正整数/).waitFor();
+    await second.getByRole('button', { name: '重置改动', exact: true }).click();
+    assert.equal(await field(second, '最多占用空间（MB）').inputValue(), '1');
+    await second.setViewportSize({ width: 390, height: 844 });
+    await field(second, '最多占用空间（MB）').scrollIntoViewIfNeeded();
+    assert.ok(await second.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await second.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-server-cache-mobile.png'), animations: 'disabled' });
+});
+
+test('image cache: covers render across browsers and the separate MB limit persists and prunes', async t => {
+    const cover = 'https://www.javbus.com/qa-cache/shared-cover.svg';
+    const setup = async p => {
+        await p.route('**/api/movies/QA-IMAGE', route => route.fulfill({ json: { ...movie('QA-IMAGE'), img: cover } }));
+        await p.route('**/api/magnets/**', route => route.fulfill({ json: [] }));
+        await p.route('**/api/image-cache', route => route.continue());
+    };
+    const first = await openApp(t, 1440, setup);
+    const showCover = async page => {
+        await navigate(page, '影片检索');
+        await field(page, '番号').fill('QA-IMAGE');
+        const loaded = page.waitForResponse(response => response.url().includes('/api/image-proxy?'));
+        await page.getByRole('button', { name: '查询番号', exact: true }).click();
+        assert.equal((await loaded).status(), 200, 'the real backend serves the disk-cached cover');
+        await page.waitForFunction(() => document.querySelector('main img')?.naturalWidth === 300);
+        await page.locator('label').filter({ has: page.locator('input[name="jj-view"]') }).filter({ hasText: '列表' }).click();
+        await page.waitForFunction(() => document.querySelector('tbody img')?.naturalWidth === 300);
+        await page.locator('main').getByRole('button', { name: '详情', exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('.jj-drawer img')?.naturalWidth === 300);
+        await page.locator('.jj-drawer').getByRole('button', { name: '关闭', exact: true }).click();
+    };
+    await showCover(first);
+    const second = await openApp(t, 1440, setup);
+    await showCover(second);
+    await navigate(second, '设置');
+    await second.locator('aside').getByRole('button', { name: '图片缓存', exact: true }).click();
+    await field(second, '图片缓存上限（MB）').waitFor();
+    assert.equal(await field(second, '图片缓存上限（MB）').inputValue(), '256');
+    const before = await (await fetch(baseURL + '/api/metadata-cache')).json();
+    await field(second, '图片缓存上限（MB）').fill('1');
+    await second.getByRole('button', { name: '保存', exact: true }).click();
+    await second.getByText('设置已保存', { exact: true }).waitFor();
+    const images = await (await fetch(baseURL + '/api/image-cache')).json();
+    assert.equal(images.settings.mb, 1);
+    assert.equal(images.count, 2);
+    assert.ok(images.size_bytes <= 1024 ** 2);
+    assert.deepEqual(await (await fetch(baseURL + '/api/metadata-cache')).json(), before, 'image quota never consumes metadata quota');
+    await navigate(first, '设置');
+    await first.locator('aside').getByRole('button', { name: '图片缓存', exact: true }).click();
+    await field(first, '图片缓存上限（MB）').waitFor();
+    assert.equal(await field(first, '图片缓存上限（MB）').inputValue(), '1');
+    await field(first, '图片缓存上限（MB）').fill('2');
+    await first.getByRole('button', { name: '重置改动', exact: true }).click();
+    assert.equal(await field(first, '图片缓存上限（MB）').inputValue(), '1');
+    await first.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-image-cache-desktop.png'), animations: 'disabled' });
+    await field(first, '图片缓存上限（MB）').fill('0');
+    await first.getByRole('button', { name: '保存', exact: true }).click();
+    await first.getByText(/正整数/).waitFor();
+    await first.getByRole('button', { name: '重置改动', exact: true }).click();
+    await first.setViewportSize({ width: 390, height: 844 });
+    await field(first, '图片缓存上限（MB）').scrollIntoViewIfNeeded();
+    assert.ok(await first.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await first.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-image-cache-mobile.png'), animations: 'disabled' });
+});
+
+test('settings: both media directories can be browsed, saved, reset and restored', async t => {
+    const root = fs.realpathSync(scratch);
+    const [oldSource, oldTarget, source, target, archive] = ['settings-old-inbox', 'settings-old-library', 'settings-inbox', 'settings-library', 'settings-archive'].map(name => path.join(root, name));
+    for (const dir of [oldSource, oldTarget, source, target, archive]) fs.mkdirSync(dir);
+    const endpoint = baseURL + '/api/movies/local-library/settings';
+    const previous = await (await fetch(endpoint)).json();
+    const put = values => fetch(endpoint, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
+    t.after(() => put(previous));
+    await put({ source_directory: oldSource, directories: [oldTarget, archive], ignored_paths: ['skip'] });
+    const page = await openApp(t, 1440, p => p.route('**/api/movies/local-library/settings', route => route.continue()));
+    await navigate(page, '设置');
+    await page.locator('aside').getByRole('button', { name: '媒体目录', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '待刮削目录', exact: true }).inputValue(), oldSource);
+    for (const [label, value] of [['待刮削目录', source], ['影视库目录', target]]) {
+        await page.getByRole('textbox', { name: label, exact: true }).fill(value);
+        await page.getByRole('button', { name: '浏览' + label, exact: true }).click();
+        await page.getByRole('button', { name: '使用该目录', exact: true }).click();
+        assert.equal(await page.getByRole('textbox', { name: label, exact: true }).inputValue(), value);
+    }
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByText('设置已保存', { exact: true }).waitFor();
+    const saved = await (await fetch(endpoint)).json();
+    assert.equal(saved.source_directory, source);
+    assert.deepEqual(saved.directories, [target, archive]);
+    assert.deepEqual(saved.ignored_paths, ['skip']);
+    await navigate(page, '影视库');
+    await page.locator('.jj-library-sidebar').getByText(target, { exact: true }).waitFor();
+    await page.getByRole('button', { name: '前往本地刮削', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '待刮削目录', exact: true }).inputValue(), source);
+    assert.equal(await page.getByRole('textbox', { name: '影视库目录', exact: true }).inputValue(), target);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '设置');
+    await page.locator('aside').getByRole('button', { name: '媒体目录', exact: true }).click();
+    await page.getByRole('textbox', { name: '待刮削目录', exact: true }).fill('/discarded');
+    await page.getByRole('button', { name: '重置改动', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '待刮削目录', exact: true }).inputValue(), source);
+    assert.equal(await page.getByRole('textbox', { name: '影视库目录', exact: true }).inputValue(), target);
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-settings-paths-desktop.png'), fullPage: false });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('textbox', { name: '影视库目录', exact: true }).scrollIntoViewIfNeeded();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-settings-paths-mobile.png'), fullPage: false });
+});
+
+test('library workflow: saved incoming and library directories survive reload and drive scraping', async t => {
+    const incoming = path.join(fs.realpathSync(scratch), 'path-workflow-incoming'), library = path.join(fs.realpathSync(scratch), 'path-workflow-library');
+    fs.mkdirSync(incoming); fs.mkdirSync(library);
+    const source = path.join(incoming, 'QA-987.mp4'); fs.writeFileSync(source, 'test video');
+    const endpoint = baseURL + '/api/movies/local-library/settings';
+    const previous = await (await fetch(endpoint)).json();
+    t.after(async () => { await fetch(endpoint, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(previous) }); });
+    await fetch(endpoint, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_directory: '', directories: [], ignored_paths: [] }) });
+    const page = await openApp(t, 1440, async p => {
+        for (const pattern of ['**/api/movies/local-library**', '**/api/movies/local-scrape/**']) await p.route(pattern, route => route.continue());
+    });
+    await navigate(page, '影视库');
+    await page.getByRole('button', { name: '路径配置', exact: true }).click();
+    await page.getByRole('textbox', { name: '待刮削目录', exact: true }).fill(incoming);
+    await page.locator('.jj-drawer').getByRole('button', { name: '浏览', exact: true }).click();
+    await page.getByRole('button', { name: '使用该目录', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: '待刮削目录', exact: true }).inputValue(), incoming);
+    await page.locator('.jj-drawer').getByRole('button', { name: '添加', exact: true }).first().click();
+    await page.getByRole('textbox', { name: '路径', exact: true }).fill(library);
+    await page.getByRole('button', { name: '保存路径配置', exact: true }).click();
+    await page.getByText('路径配置已保存', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '路径配置', exact: true }).click();
+    await page.getByRole('textbox', { name: '路径', exact: true }).fill('/discarded-library');
+    await page.locator('.jj-drawer').getByRole('button', { name: '取消', exact: true }).click();
+    await page.locator('.jj-library-sidebar').getByText(library, { exact: true }).waitFor();
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '本地刮削');
+    assert.equal(await field(page, '待刮削目录').inputValue(), incoming);
+    assert.equal(await field(page, '影视库目录').inputValue(), library);
+    await page.locator('label').filter({ hasText: /^联网刮削元数据/ }).getByRole('checkbox').uncheck();
+    await field(page, '文件夹命名规则').fill('{code}');
+    await page.locator('.field').filter({ has: page.locator('label').filter({ hasText: /^文件命名规则/ }) }).locator('input').fill('{code}');
+    await page.getByRole('button', { name: '生成预览', exact: true }).click();
+    await page.getByText(path.join(library, 'QA-987', 'QA-987.mp4'), { exact: true }).waitFor();
+    assert.ok(fs.existsSync(source), 'preview must preserve the incoming file');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-two-path-desktop.png'), fullPage: true });
+    await page.getByRole('button', { name: /^确认执行/ }).click(); await approve(page, '开始执行');
+    await page.getByRole('heading', { name: /执行结果 · 1 成功/ }).waitFor();
+    assert.ok(!fs.existsSync(source));
+    assert.ok(fs.existsSync(path.join(library, 'QA-987', 'QA-987.mp4')));
+    const records = await (await page.request.get(baseURL + '/api/movies/local-library')).json();
+    assert.ok(records.records.some(record => record.movie_id === 'QA-987' && record.files[0].path.startsWith(library)));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: '配置默认目录', exact: true }).click();
+    await page.getByRole('heading', { name: '媒体目录配置', exact: true }).waitFor();
+    await page.locator('.jj-drawer').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+    assert.notEqual(await page.locator('.jj-drawer').evaluate(element => getComputedStyle(element).backgroundColor), 'rgba(0, 0, 0, 0)');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-two-path-mobile.png'), fullPage: false });
+    await page.request.delete(baseURL + '/api/movies/local-library/QA-987');
 });
 
 test('settings connect PikPak with session-only secrets, dispatch and show write failures', async t => {
@@ -786,7 +1137,7 @@ test('scrape preview handles real conflicts, persists templates and submits chos
         });
     });
     await navigate(page, '本地刮削');
-    await field(page, '扫描目录').fill('/qa'); await field(page, '整理输出目录').fill('/target');
+    await field(page, '待刮削目录').fill('/qa'); await field(page, '影视库目录').fill('/target');
     await page.getByRole('button', { name: '另存为', exact: true }).click();
     assert.match(await page.evaluate(() => localStorage.getItem('localScrapeTaskTemplates')), /\/qa/);
     await page.getByRole('button', { name: '生成预览', exact: true }).click();
@@ -950,7 +1301,7 @@ test('audit: failed batch retry, ignore and history check/clear form a complete 
     let attempts = 0, cleared = false;
     const page = await openApp(t, 1440, async p => {
         await p.route('**/api/movies/batch', r => r.fulfill({ json: dispatchContract.batch }));
-        await p.route('**/api/pikpak/download', r => { attempts++; return r.fulfill({ json: { success: false, results: [{ movie_id: 'QA-001', success: false, message: '测试连接失败' }] } }); });
+        await p.route('**/api/pikpak/download', r => { attempts++; return r.fulfill({ json: { success: false, results: [{ movie_id: 'QA-001', success: false, message: attempts === 1 ? '测试连接失败' : '测试连接失败（重试）' }] } }); });
         await p.route('**/api/history', r => { if (r.request().method() === 'DELETE') cleared = true; return r.fulfill({ json: r.request().method() === 'GET' ? (cleared ? [] : [{ movie_id: 'QA-001', download_resources: [{ link: magnet.link, source: 'javbus' }] }]) : { success: true } }); });
         await p.route('**/api/history/check-local-library', r => r.fulfill({ json: { success: true, records: [{ movie_id: 'QA-001', needs_reselect: true, in_local_library: false }] } }));
     });
@@ -959,7 +1310,7 @@ test('audit: failed batch retry, ignore and history check/clear form a complete 
     await page.getByRole('button', { name: '派发 1 个番号', exact: true }).click(); await approve(page, '开始派发');
     await page.getByText('测试连接失败', { exact: true }).waitFor();
     await page.getByRole('button', { name: '重新派发全部失败', exact: true }).click(); await approve(page, '开始派发');
-    await page.waitForFunction(() => document.body.textContent.includes('测试连接失败'));
+    await page.getByText('测试连接失败（重试）', { exact: true }).waitFor();
     assert.equal(attempts, 2);
     await page.getByRole('button', { name: '忽略此项', exact: true }).click();
     assert.equal(await page.getByText('上一批派发部分失败', { exact: true }).count(), 0);
@@ -1000,7 +1351,7 @@ test('audit: real backend saves settings, repairs a designation, organizes media
     await page.getByText('设置已保存', { exact: true }).waitFor();
     assert.equal(JSON.parse(fs.readFileSync(path.join(scratch, 'config.json'), 'utf8')).javbus.timeout_seconds, 9);
     await navigate(page, '本地刮削');
-    await field(page, '扫描目录').fill(input); await field(page, '整理输出目录').fill(output);
+    await field(page, '待刮削目录').fill(input); await field(page, '影视库目录').fill(output);
     await field(page, '文件夹命名规则').fill('{code}');
     await page.locator('label').filter({ hasText: /^联网刮削元数据/ }).getByRole('checkbox').uncheck();
     await page.getByRole('button', { name: '生成预览', exact: true }).click();
@@ -1048,11 +1399,11 @@ test('audit: refresh restores a running preview and partial execution keeps per-
             return r.fulfill({ json: ready ? { status: 'success', result: { success: true, items: [{ source_path: '/qa/QA-001.mp4', code: 'QA-001', scrape_status: 'found', metadata: { id: 'QA-001', title: 'QA' } }] } } : { status: 'running', percent: 20 } });
         });
     });
-    await navigate(page, '本地刮削'); await field(page, '扫描目录').fill('/qa');
+    await navigate(page, '本地刮削'); await field(page, '待刮削目录').fill('/qa'); await field(page, '影视库目录').fill('/target');
     await page.getByRole('button', { name: '生成预览', exact: true }).click();
     await page.waitForFunction(() => sessionStorage.getItem('localScrapeActiveTask'));
     await page.reload({ waitUntil: 'networkidle' }); await page.getByRole('button', { name: '管理界面', exact: true }).click(); await navigate(page, '本地刮削');
-    assert.equal(await field(page, '扫描目录').inputValue(), '/qa');
+    assert.equal(await field(page, '待刮削目录').inputValue(), '/qa');
     ready = true; await page.getByRole('button', { name: /^确认执行/ }).click(); await approve(page, '开始执行');
     await page.getByRole('heading', { name: '执行结果 · 1 成功，1 失败', exact: true }).waitFor();
     assert.equal(await page.getByText('/qa/QA-002.mp4', { exact: false }).count(), 1);

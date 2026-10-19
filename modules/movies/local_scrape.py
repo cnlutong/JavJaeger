@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from modules.common.runtime import get_javbus_config
+from modules.common.runtime import get_javbus_config, get_local_library_config
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
 from modules.history.service import local_actor_library_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
@@ -204,11 +204,13 @@ def _scrape_diagnostic_log(message: str, level: str = "info") -> dict[str, str]:
     }
 
 
-def _walk_video_files(root: Path, recursive: bool, max_depth: int | None) -> list[Path]:
+def _walk_video_files(root: Path, recursive: bool, max_depth: int | None, excluded_paths: list[Path] | None = None) -> list[Path]:
     files: list[Path] = []
     root = root.resolve()
 
     def walk(current: Path, depth: int) -> None:
+        if any(current.is_relative_to(path) for path in excluded_paths or []):
+            return
         try:
             entries = list(current.iterdir())
         except OSError as exc:
@@ -826,6 +828,9 @@ def _build_library_record_for_applied_video(
     metadata: dict[str, Any],
     scraped_at: str,
 ) -> dict[str, Any] | None:
+    source_directory = get_local_library_config().get("source_directory")
+    if source_directory and current_video.resolve().is_relative_to(resolve_user_path(source_directory)):
+        return None
     movie_id = str(metadata.get("id") or "").strip().upper()
     if not movie_id:
         return None

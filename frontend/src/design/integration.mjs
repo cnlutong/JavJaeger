@@ -94,8 +94,8 @@ export function connectDesign(Base) {
             this.state = { ...this.state, theme: loadAppTheme(), route: 'cinema', cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '',
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
-                scPhase: 'idle', scScanDir: '', scOutDir: '', lbPaths: [], lbExcludes: [], auTask: '',
-                settings: {}, settingsDraft: {}, connections: {}, clientConfig: {}, tasks: [], fileRows: [],
+                scPhase: 'idle', scScanDir: '', scOutDir: '', lbSource: '', lbPaths: [], lbExcludes: [], auTask: '',
+                settings: {}, settingsDraft: {}, cacheSettings: null, cacheDraft: null, imageCacheSettings: null, imageCacheDraft: null, connections: {}, clientConfig: {}, tasks: [], fileRows: [],
                 tcCaps: {}, searchError: '', searchDone: false, loading: false, libraryLoaded: false,
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
                 autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
@@ -112,6 +112,10 @@ export function connectDesign(Base) {
             this.libraryByCode = new Map();
             this.latestByActor = new Map();
             this.pendingRequests = new Map();
+            try {
+                window.localStorage.removeItem('javjaeger.movieMetadata.v1');
+                window.localStorage.removeItem('javjaeger.movieCacheSettings.v1');
+            } catch {}
             this._readGeneration = 0;
             this.requestVersion = 0;
             this._disposed = false;
@@ -269,6 +273,10 @@ export function connectDesign(Base) {
             const payload = await this.request('/api/system/settings');
             this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: [] });
         }
+        async loadCacheSettings(images = false) {
+            const result = await this.request(images ? '/api/image-cache' : '/api/metadata-cache');
+            this.setState({ [images ? 'imageCacheSettings' : 'cacheSettings']: result, [images ? 'imageCacheDraft' : 'cacheDraft']: { ...result.settings } });
+        }
         async loadCatalogs() {
             for (const [url, table] of [['/static/actors.json', data.ACTOR_CATALOG], ['/static/categories.json', data.GENRE_CATALOG]]) {
                 const groups = await this.request(url);
@@ -296,11 +304,30 @@ export function connectDesign(Base) {
                 options: [...new Set(data.LIB.flatMap(movie => movie[field]))].filter(value => value && value !== '—'),
                 test: (movie, value) => Array.isArray(movie[field]) ? movie[field].includes(value) : movie[field] === value,
             })));
-            this.setState({ libraryLoaded: true, librarySummary: library, librarySettings: settings,
-                ...(!this.state.lbPathCfg ? { lbPaths: settings.directories || [], lbExcludes: settings.ignored_paths || [] } : {}),
+            this.applyLibrarySettings(settings);
+            this.setState({ libraryLoaded: true, librarySummary: library,
                 cnHero: data.LIB.some(movie => movie.code === this.state.cnHero) ? this.state.cnHero : data.LIB[0]?.code || '' });
             this._libraryLoadedAt = Date.now();
             await this.checkInformation();
+        }
+        applyLibrarySettings(settings, saved = false) {
+            const st = this.state, source = settings.source_directory || '', target = settings.directories?.[0] || '';
+            this.setState({ librarySettings: settings,
+                ...(saved ? { seSource: undefined, seTarget: undefined } : {}),
+                ...(!st.lbPathCfg || saved ? { lbSource: source, lbPaths: settings.directories || [], lbExcludes: settings.ignored_paths || [] } : {}),
+                ...(st.scPhase === 'idle' && (!st.scrapeTask || jobFinished(st.scrapeTask)) ? { scScanDir: saved ? source : st.scScanDir || source, scOutDir: saved ? target : st.scOutDir || target } : {}),
+            });
+        }
+        openLibraryPaths() {
+            const settings = this.state.librarySettings || {};
+            this.setState({ lbPathCfg: true, lbSource: settings.source_directory || '', lbPaths: settings.directories || [], lbExcludes: settings.ignored_paths || [] });
+        }
+        async saveLibraryPaths(values) {
+            const source = (values.source_directory || '').trim(), directories = (values.directories || []).map(path => path.trim()).filter(Boolean);
+            if (!source || !directories.length) throw new Error('请选择待刮削目录和影视库目录');
+            const settings = await this.request('/api/movies/local-library/settings', 'PUT', { source_directory: source, directories, ignored_paths: (values.ignored_paths || []).map(path => path.trim()).filter(Boolean) });
+            this.applyLibrarySettings(settings, true);
+            return settings;
         }
         async checkInformation(refreshFiles = false) {
             const result = await this.request('/api/movies/local-library/information/check?fields=' + id(this.state.infoFields.join(',')) + '&refresh_files=' + refreshFiles);
@@ -346,11 +373,26 @@ export function connectDesign(Base) {
             if (changed) this.forceUpdate?.();
         }
 
+        applyMovieDetails(movie, detail) {
+            const raw = { ...movie.raw, ...Object.fromEntries(Object.entries(detail).filter(([, value]) => value != null && value !== '')) };
+            Object.assign(movie, movieView(raw), { mag: movie.mag, magCount: movie.magCount, detailsLoaded: true, detailError: '' });
+        }
+        async loadMovieDetails(movie, version = this.requestVersion) {
+            if (movie.detailsLoaded) return;
+            movie.detailsLoading = true;
+            try {
+                const detail = await this.request(`/api/movies/${id(movie.code)}`);
+                if (version === this.requestVersion && !this._disposed) { this.applyMovieDetails(movie, detail); }
+            } catch (error) {
+                if (version === this.requestVersion && !this._disposed) { movie.detailError = safeText(error.message); throw error; }
+            } finally {
+                if (version === this.requestVersion && !this._disposed) { movie.detailsLoading = false; this.forceUpdate?.(); }
+            }
+        }
         async getMagnets(movie, source = this.state.src) {
             const query = new URLSearchParams({ source: sourceKey(source), sortBy: this.state.sortBy, sortOrder: this.state.sortOrder, exclude4k: String(this.state.exclude4k) });
             if (this.state.sub !== '0') query.set('hasSubtitle', this.state.sub);
             if (sourceKey(source) === 'javbus') {
-                if (!movie.raw.gid || movie.raw.uc === undefined) movie.raw = { ...movie.raw, ...await this.request(`/api/movies/${id(movie.code)}`) };
                 if (movie.raw.gid) query.set('gid', movie.raw.gid);
                 if (movie.raw.uc !== undefined) query.set('uc', movie.raw.uc);
             }
@@ -377,7 +419,8 @@ export function connectDesign(Base) {
                     payload = { movies: [st.sMode === 'magnet' && sourceKey(st.src) !== 'javbus' ? { id: st.code.trim() } : await this.request(`/api/movies/${id(st.code.trim())}`)] };
                 }
                 if (version !== this.requestVersion || this._disposed) return;
-                const movies = (payload.movies || []).map(movie => ({ ...movieView(movie), magnetsLoading: true }));
+                const detailsLoaded = st.sMode === 'code' || st.sMode === 'magnet' && sourceKey(st.src) === 'javbus';
+                const movies = (payload.movies || []).map(movie => ({ ...movieView(movie), magnetsLoading: true, detailsLoaded, detailsLoading: !detailsLoaded && st.sMode !== 'magnet' }));
                 data.MOVIES.splice(0, data.MOVIES.length, ...movies);
                 this.magnets.clear();
                 this.setState({ loading: false, magnetsLoading: true, searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage ?? payload.pagination?.nextPage ?? payload.has_next_page ?? movies.length >= 30) });
@@ -385,22 +428,27 @@ export function connectDesign(Base) {
                 for (let offset = 0; offset < movies.length; offset += 4) {
                     await Promise.all(movies.slice(offset, offset + 4).map(async movie => {
                         try {
+                            if (st.sMode !== 'magnet') {
+                                try { await this.loadMovieDetails(movie, version); }
+                                catch { /* Keep the summary and magnet lookup available if metadata fails. */ }
+                            }
+                            if (version !== this.requestVersion || this._disposed) return;
                             const magnets = await this.getMagnets(movie, st.src);
-                            if (version !== this.requestVersion) return;
+                            if (version !== this.requestVersion || this._disposed) return;
                             this.magnets.set(movie.code, magnets);
                             movie.mag = magnets[0] ? `${magnets[0].name} · ${magnets[0].size}` : '';
                             movie.magCount = magnets.length;
                         } catch (error) { movie.mag = ''; movie.magnetError = safeText(error.message); if (st.sMode === 'magnet') throw error; }
                         finally { movie.magnetsLoading = false; }
                     }));
-                    if (version !== this.requestVersion) return;
+                    if (version !== this.requestVersion || this._disposed) return;
                     this.forceUpdate?.();
                 }
                 if (st.autoDownload && st.sMode !== 'magnet') this.confirmDispatch(movies.map(movie => movie.code));
             } catch (error) {
-                if (version === this.requestVersion) { this.setState({ searchError: safeText(error.message), searchDone: true }); this.toast(safeText(error.message), BAD); }
+                if (version === this.requestVersion && !this._disposed) { this.setState({ searchError: safeText(error.message), searchDone: true }); this.toast(safeText(error.message), BAD); }
             }
-            if (version === this.requestVersion) this.setState({ loading: false, magnetsLoading: false });
+            if (version === this.requestVersion && !this._disposed) this.setState({ loading: false, magnetsLoading: false });
         };
         clearSearch() {
             ++this.requestVersion;
@@ -812,14 +860,24 @@ export function connectDesign(Base) {
             const totalSize = data.LIB.reduce((sum, movie) => sum + Number(movie.raw.total_size || 0), 0);
             view.stats = [stat('影片', data.LIB.length), stat('文件', data.LIB.reduce((sum, movie) => sum + movie.files, 0)), stat('占用容量', size(totalSize), '', ACC), stat('待补资料', st.checkResult?.incomplete_count ?? '待检查', '', WARN)];
             view.paths = st.lbPaths.map(path => ({ path, status: '已配置', fg: 'var(--fg)', stFg: DIM, scan: () => this.scanLibrary([path]) }));
-            view.pathGroups = [['媒体库路径', 'lbPaths'], ['排除目录', 'lbExcludes']].map(([name, key]) => ({ name, hint: '服务端可访问的路径', empty: !st[key].length, emptyText: '尚未添加路径',
+            view.sourceDirectory = st.librarySettings?.source_directory || '尚未配置';
+            view.sourcePath = st.lbSource;
+            view.setSourcePath = event => this.setState({ lbSource: event.target.value });
+            view.browseSource = () => this.perform(() => this.browseDirectory(st.lbSource, { key: 'lbSource' }));
+            view.openScrape = this.go('scrape');
+            view.openPaths = () => this.openLibraryPaths();
+            view.closePaths = () => this.setState({ lbPathCfg: false, lbSource: st.librarySettings?.source_directory || '', lbPaths: st.librarySettings?.directories || [], lbExcludes: st.librarySettings?.ignored_paths || [] });
+            view.pathGroups = [['影视库目录（刮削输出）', 'lbPaths', '第一项作为默认输出目录，保存后同步到本地刮削'], ['排除目录', 'lbExcludes', '扫描影视库时跳过这些路径']].map(([name, key, hint]) => ({ name, hint, empty: !st[key].length, emptyText: '尚未添加路径',
                 add: () => this.setState({ [key]: [...st[key], ''] }), rows: st[key].map((path, index) => ({ path, status: '', stFg: DIM2,
                     change: event => this.setState({ [key]: st[key].map((value, i) => i === index ? event.target.value : value) }),
                     browse: () => this.perform(() => this.browseDirectory(path, { key, index })), remove: () => this.setState({ [key]: st[key].filter((_, i) => i !== index) }),
                 })),
             }));
-            view.savePaths = () => this.perform(async () => { await this.request('/api/movies/local-library/settings', 'PUT', { directories: st.lbPaths.map(path => path.trim()).filter(Boolean), ignored_paths: st.lbExcludes.map(path => path.trim()).filter(Boolean) }); this.setState({ lbPathCfg: false }); }, '路径配置已保存');
-            view.scanAll = () => this.scanLibrary(st.lbPaths);
+            view.savePaths = () => this.perform(async () => {
+                await this.saveLibraryPaths({ source_directory: st.lbSource, directories: st.lbPaths, ignored_paths: st.lbExcludes });
+                this.setState({ lbPathCfg: false });
+            }, '路径配置已保存');
+            view.scanAll = () => this.scanLibrary(st.librarySettings?.directories || st.lbPaths);
             view.refresh = () => this.perform(() => this.loadLibrary(), '影视库已刷新');
             view.stopScan = () => this.toast('当前扫描由后端运行，完成后会自动更新', WARN);
             view.runSearch = () => this.forceUpdate?.();
@@ -848,8 +906,8 @@ export function connectDesign(Base) {
             view.showList = view.showList && !view.empty;
             view.showPoster = view.showPoster && !view.empty;
             view.emptyTitle = !st.libraryLoaded ? '正在读取影视库…' : !data.LIB.length ? '开始建立你的影视库' : view.showActor ? '暂无演员信息' : '没有符合条件的影片';
-            view.emptyBody = !st.libraryLoaded ? '正在加载影片与媒体信息。' : !data.LIB.length ? '添加媒体路径，扫描后即可浏览本地收藏。' : view.showActor ? '扫描或补全影片资料后，演员会出现在这里。' : '试试其他关键词，或清除筛选查看全部影片。';
-            view.emptyActionText = data.LIB.length ? '清除筛选' : '添加媒体路径';
+            view.emptyBody = !st.libraryLoaded ? '正在加载影片与媒体信息。' : !data.LIB.length ? '配置待刮削目录和影视库目录，再到本地刮削生成预览并整理入库。已有收藏可直接扫描影视库目录。' : view.showActor ? '扫描或补全影片资料后，演员会出现在这里。' : '试试其他关键词，或清除筛选查看全部影片。';
+            view.emptyActionText = data.LIB.length ? '清除筛选' : '配置媒体目录';
             view.emptyAction = data.LIB.length ? view.reset : view.openPaths;
             view.showEmptyAction = st.libraryLoaded && (!view.showActor || !data.LIB.length);
             const record = data.LIB.find(movie => movie.code === st.lbDetail);
@@ -880,7 +938,7 @@ export function connectDesign(Base) {
         scanLibrary(paths) {
             const directories = paths.map(path => path.trim()).filter(Boolean);
             if (!directories.length) { this.setState({ lbPathCfg: true }); return; }
-            this.ask({ title: '扫描入库？', body: '扫描已配置目录并导入媒体与 NFO 信息。', list: directories, color: ACC, okText: '开始扫描',
+            this.ask({ title: '扫描入库？', body: '扫描影视库目录并导入媒体与 NFO 信息，跳过待刮削目录。', list: directories, color: ACC, okText: '开始扫描',
                 run: () => this.perform(async () => { await this.startJob('scanTask', '/api/movies/local-library/scan/jobs', { directories, ignored_paths: this.state.lbExcludes, recursive: true, probe_media: true }, 'scan'); this.setState({ lbScanning: true }); }, '后台扫描已启动'),
             });
         }
@@ -956,6 +1014,7 @@ export function connectDesign(Base) {
         previewScrape() { return this.perform(async () => {
             if (this.state.scPhase === 'scanning') throw new Error('当前任务运行中，请等待完成');
             if (!this.state.scScanDir.trim()) throw new Error('请填写扫描目录');
+            if (this.state.scOpts.organize && !this.state.scOutDir.trim()) throw new Error('请选择影视库目录；如需原地刮削，请关闭“整理到目标目录”');
             const payload = this.scrapePayload();
             if (!Number.isInteger(payload.concurrent) || payload.concurrent < 1 || payload.concurrent > 5) throw new Error('并发数应为 1–5 的整数');
             if (payload.max_depth !== null && (!Number.isInteger(payload.max_depth) || payload.max_depth < 0)) throw new Error('递归深度应为非负整数或留空');
@@ -988,6 +1047,9 @@ export function connectDesign(Base) {
         vScrape() {
             const view = super.vScrape(), st = this.state, rows = data.SCRAPE_ROWS;
             view.namingFields = LOCAL_SCRAPE_NAMING_FIELDS.map(field => field.placeholder).join(' ');
+            view.browseSource = () => this.perform(() => this.browseDirectory(st.scScanDir, { key: 'scScanDir' }));
+            view.browseTarget = () => this.perform(() => this.browseDirectory(st.scOutDir, { key: 'scOutDir' }));
+            view.configurePaths = () => { this.openLibraryPaths(); this.setState({ route: 'library' }); };
             view.outcome = st.scPhase === 'idle' && st.scrapeResult?.results ? {
                 summary: `${st.scrapeResult.success_count || 0} 成功，${st.scrapeResult.failed_count || 0} 失败${st.scrapeResult.library_failed_count ? `，${st.scrapeResult.library_failed_count} 个目录入库失败，请到影视库重新扫描` : ''}`,
                 rows: st.scrapeResult.results.map(item => ({ path: item.target_video_path || item.source_path, status: item.success ? (item.skipped ? '已跳过' : '已完成') : '失败', note: safeText(item.message || item.error || item.image_error, ''), fg: item.success ? OK : BAD })),
@@ -1015,7 +1077,7 @@ export function connectDesign(Base) {
             }));
             view.saveTpl = () => this.perform(async () => { saveLocalScrapeTaskTemplate(window.localStorage, `刮削模板 ${st.scrapeTemplates.length + 1}`, { directory: st.scScanDir, targetDirectory: st.scOutDir, folderTemplate: st.scFolderRule, namingTemplate: st.scFileRule, maxDepth: st.scMaxDepth, concurrent: st.scConcurrent, ...Object.fromEntries(Object.entries(optionNames).map(([key, name]) => [key, st.scOpts[name]])) }); this.setState({ scrapeTemplates: loadLocalScrapeTaskTemplates() }); }, '模板已保存');
             view.preview = () => this.previewScrape();
-            view.reset = () => { if (st.scPhase === 'scanning') { this.toast('后台任务运行中，请等待完成', WARN); return; } this.dismissBackgroundTask('scrapeTask'); data.SCRAPE_ROWS.splice(0); this.scrapePreviewConfig = null; this.setState({ scPhase: 'idle', scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {} }); };
+            view.reset = () => { if (st.scPhase === 'scanning') { this.toast('后台任务运行中，请等待完成', WARN); return; } this.dismissBackgroundTask('scrapeTask'); data.SCRAPE_ROWS.splice(0); this.scrapePreviewConfig = null; this.setState({ scPhase: 'idle', scrapeResult: null, scSkip: [], scPct: 0, pathEdits: {}, scScanDir: st.librarySettings?.source_directory || st.scScanDir, scOutDir: st.librarySettings?.directories?.[0] || st.scOutDir }); };
             view.applyStrategy = () => { const strategy = st.scStrategy.split(' ')[0]; this.setState({ pathEdits: { ...st.pathEdits, ...Object.fromEntries(rows.filter(row => row.kind === 'conflict').map(row => [row.src, strategy])) } }); this.toast('已为冲突项设置处理策略'); };
             view.execute = () => this.executeScrape(); view.dryRun = () => this.executeScrape(false);
             const skipped = new Set(st.scSkip);
@@ -1073,7 +1135,7 @@ export function connectDesign(Base) {
         formField(label, value, update, kind = 'text', options = [], hint = '') {
             const revealed = this.state.seReveal.includes(label);
             return { label, value: value ?? '', on: Boolean(value), checkLabel: label, hint, hintFg: DIM2, span: 'auto', mono: 'inherit', ls: 'normal',
-                isText: kind === 'text' || kind === 'number', isTextarea: kind === 'textarea', isSecret: kind === 'secret', isSelect: kind === 'select', isCheck: kind === 'check', isStatus: kind === 'status',
+                isText: kind === 'text' || kind === 'number', isPath: kind === 'path', isTextarea: kind === 'textarea', isSecret: kind === 'secret', isSelect: kind === 'select', isCheck: kind === 'check', isStatus: kind === 'status',
                 inputType: kind === 'secret' && !revealed ? 'password' : kind === 'number' ? 'number' : 'text', statusFg: DIM,
                 options: options.map(option => ({ t: String(option) })), set: event => update(kind === 'check' ? event.target.checked : kind === 'number' ? Number(event.target.value) : event.target.value),
                 revealText: revealed ? '隐藏' : '显示', reveal: () => this.setState({ seReveal: revealed ? this.state.seReveal.filter(key => key !== label) : [...this.state.seReveal, label] }),
@@ -1251,7 +1313,7 @@ export function connectDesign(Base) {
                 refreshAria: () => this.perform(() => this.loadAria()), ariaConnected: st.connections.aria2_connected, ariaDown: !st.connections.aria2_connected, ariaStatus: st.connections.aria2_connected ? '已连接' : '未连接', ariaDot: st.connections.aria2_connected ? OK : DIM2, ariaFg: DIM, ariaMeta: `${tasks.length} 个任务`, connectAria: () => this.perform(() => this.connect('aria2', true), 'Aria2 已连接'), jobs115: null,
                 browsePath: () => this.perform(() => this.browseDirectory()), closeAdd: () => this.setState({ fsAdd: null }),
                 addForm: st.fsAdd === 'browse' ? { title: '浏览服务端目录', desc: '选择服务端可访问的目录', path: st.browsePath, entries: directories.items.map(entry => ({ name: entry.name || entry.path, meta: entry.path, open: () => this.perform(() => this.browseDirectory(entry.path, st.browserTarget)) })) } : null,
-                pickPath: () => { const target = st.browserTarget; this.setState({ fsAdd: null }); if (target) this.setState({ [target.key]: st[target.key].map((value, index) => index === target.index ? st.browsePath : value) }); else this.perform(() => this.loadFiles('local', st.browsePath)); },
+                pickPath: () => { const target = st.browserTarget; this.setState({ fsAdd: null }); if (target) this.setState({ [target.key]: target.index === undefined ? st.browsePath : st[target.key].map((value, index) => index === target.index ? st.browsePath : value), ...(target.key === 'scScanDir' ? { scOverrides: {} } : {}) }); else this.perform(() => this.loadFiles('local', st.browsePath)); },
                 pauseAll: () => this.ask({ title: '暂停全部下载？', body: '暂停当前活动及等待中的 Aria2 任务。', color: WARN, okText: '暂停', run: () => this.perform(async () => { for (const task of tasks.filter(task => ['active', 'waiting'].includes(task.status))) await this.request(`/api/aria2/pause/${id(task.gid)}`, 'POST'); await this.loadAria(); }, '下载已暂停') }),
                 tasks: taskPage.items.map(task => ({ name: task.name, dir: task.gid, pct: Number(task.totalLength) ? Math.round(100 * Number(task.completedLength) / Number(task.totalLength)) : 0, speed: `${size(task.downloadSpeed)}/s`, eta: '—', sizeText: `${size(task.completedLength)} / ${size(task.totalLength)}`, status: task.status, stFg: task.status === 'error' ? BAD : DIM, fg: 'var(--fg)', canPause: ['active', 'waiting'].includes(task.status), canResume: task.status === 'paused', pause: () => this.ariaAction(task, 'pause'), resume: () => this.ariaAction(task, 'resume'), del: () => this.ask({ title: '删除 Aria2 任务？', body: `从 Aria2 移除 ${task.name} 下载任务，保留已下载文件。`, color: BAD, okText: '删除', run: () => this.ariaAction(task, 'remove') }) })),
             };
@@ -1261,9 +1323,30 @@ export function connectDesign(Base) {
             const st = this.state, sectionMap = { 'JavBus API': 'javbus', '刮削源': 'scrapers', WebDAV: 'webdav', Aria2: 'aria2', PikPak: 'pikpak', '115 网盘': 'pan115', 磁力筛选: 'magnet_health' }, key = sectionMap[st.seTab];
             const values = st.settingsDraft[key] || {}, update = (field, value) => this.setState({ settingsDraft: { ...st.settingsDraft, [key]: { ...values, [field]: value } } });
             const labels = { enabled: '启用', base_url: '基地址', url: '服务地址', username: '用户名', password: '密码', secret: 'RPC Secret', cookie: 'Cookie', timeout_seconds: '请求超时（秒）', proxy: '代理', request_interval_seconds: '请求间隔（秒）', cache_expire_seconds: '缓存有效期（秒）', cache_max_size: '缓存条目上限', image_retry_attempts: '图片重试次数', image_retry_backoff_seconds: '图片重试间隔', auto_connect: '自动连接', auto_login: '自动登录', save_dir_id: '离线目录 CID', login_app: '登录 App', batch_size: '批量大小', batch_interval_seconds: '批次间隔（秒）', jitter_seconds: '随机延时（秒）', probe_with_aria2: '使用 Aria2 探测', min_seeders: '最少做种数', min_peers: '最少节点数', min_availability: '最低可用率', min_score: '最低评分', probe_timeout_seconds: '探测超时（秒）', allow_unknown: '允许未知健康度' };
-            const tabs = ['配置概览', '外观', ...Object.keys(sectionMap), '运行安全'];
+            const isMedia = st.seTab === '媒体目录', media = st.librarySettings || {}, isImages = st.seTab === '图片缓存', isCache = st.seTab === '缓存' || isImages;
+            const savedKey = isImages ? 'imageCacheSettings' : 'cacheSettings', draftKey = isImages ? 'imageCacheDraft' : 'cacheDraft', cacheSaved = st[savedKey], cache = st[draftKey] || {};
+            const tabs = ['配置概览', '外观', '媒体目录', '缓存', '图片缓存', ...Object.keys(sectionMap), '运行安全'];
             const status = name => name === 'WebDAV' ? (st.connections.webdav_connected ? '已连接' : '未连接') : this.toolStates().find(tool => tool.name === name)?.hint || '';
             let fields = key && key !== 'scrapers' ? Object.entries(values).filter(([field, value]) => labels[field] && typeof value !== 'object').map(([field, value]) => this.formField(labels[field], value, value => update(field, value), ['password', 'secret', 'cookie'].includes(field) ? 'secret' : typeof value === 'boolean' ? 'check' : typeof value === 'number' ? 'number' : 'text', [], ['password', 'secret', 'cookie'].includes(field) ? '留空保留服务端已存值；保存会写入服务端配置。' : '')) : [];
+            if (isMedia) fields = [
+                ['待刮削目录', 'seSource', media.source_directory || '', '存放尚未整理的原片，扫描影视库时会跳过此目录。'],
+                ['影视库目录', 'seTarget', media.directories?.[0] || '', '刮削结果的默认存放位置；其他影视库路径和排除目录保持原配置。'],
+            ].map(([label, stateKey, fallback, hint]) => ({
+                ...this.formField(label, st[stateKey] ?? fallback, value => this.setState({ [stateKey]: value }), 'path', [], hint), span: '1 / -1',
+                browse: () => this.perform(() => this.browseDirectory(st[stateKey] ?? fallback, { key: stateKey })),
+            }));
+            if (isCache && !isImages) fields = [
+                this.formField('缓存清理方式', cache.mode === 'size' ? '按占用空间' : '按缓存天数', value => this.setState({ cacheDraft: { ...cache, mode: value === '按占用空间' ? 'size' : 'days' } }), 'select', ['按缓存天数', '按占用空间']),
+                cache.mode === 'size'
+                    ? this.formField('最多占用空间（MB）', cache.mb, value => this.setState({ cacheDraft: { ...cache, mb: value } }), 'number', [], '按服务端缓存文件的实际大小计算，超限时优先清理最早缓存的资料。')
+                    : this.formField('最多缓存天数', cache.days, value => this.setState({ cacheDraft: { ...cache, days: value } }), 'number', [], '从资料补全时间起计算，超过后在下次搜索时重新获取。'),
+                this.formField('当前缓存', `${st.cacheSettings?.count || 0} 部 · ${size(st.cacheSettings?.size_bytes || 0)}`, () => {}, 'status', [], '仅保存公开影片资料和封面地址，不包含封面图片。'),
+            ];
+            if (isImages) fields = [
+                this.formField('图片缓存上限（MB）', cache.mb, value => this.setState({ imageCacheDraft: { mb: value } }), 'number', [], '按图片缓存文件的实际大小计算，超限时优先清理较久未使用的图片。'),
+                this.formField('当前图片缓存', `${cacheSaved?.count || 0} 张 · ${size(cacheSaved?.size_bytes || 0)}`, () => {}, 'status', [], '单独计算空间，不占用影片资料缓存的上限。单张图片超过总上限时，仅显示，不缓存。'),
+            ];
+            if (isCache && !cacheSaved) fields = [this.formField('服务端缓存', '尚未载入', () => {}, 'status', [], '点击重新载入，读取服务器上的缓存设置。')];
             if (st.seTab === '运行安全') fields = [this.formField('会话密钥', st.settings.security?.session_secret_configured ? '已配置' : '未配置', () => {}, 'status'), this.formField('环境变量覆盖', Object.entries(st.settings.environment_overrides?.javbus || {}).filter(([, value]) => value).map(([name]) => name).join(' · ') || '无', () => {}, 'status')];
             const sources = st.settingsDraft.scrapers || {}, priority = sources.priority || [], providers = [...new Set([...priority, ...Object.keys(sources).filter(name => name !== 'priority')])];
             const updateSource = (name, updates) => this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, [name]: { ...sources[name], ...updates } } } });
@@ -1277,18 +1360,20 @@ export function connectDesign(Base) {
                 if (st.settings !== this.state.settings) throw new Error('配置已重新载入，请重新测试刮削源');
                 this.setState(current => ({ sourcesResult: [...current.sourcesResult.filter(item => !providers.includes(item.provider || item.name)), ...(result.results || [])] }));
             }, '刮削源测试已完成');
+            const openTab = name => () => { this.setState({ seTab: name }); if (['缓存', '图片缓存'].includes(name)) return this.perform(() => this.loadCacheSettings(name === '图片缓存')); };
             return {
-                tabs: tabs.map(name => ({ name, status: status(name), dot: status(name) === '已连接' ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? 'rgba(145,132,217,.12)' : 'transparent', fg: name === st.seTab ? 'var(--fg)' : DIM, fw: name === st.seTab ? 500 : 400, pick: () => this.setState({ seTab: name }) })),
-                isOverview: st.seTab === '配置概览', isAppearance: st.seTab === '外观', isSources: key === 'scrapers', isForm: Boolean(key && key !== 'scrapers') || st.seTab === '运行安全', fields,
-                cur: { title: st.seTab, desc: st.seTab === '外观' ? '管理界面配色主题' : '配置现有服务与连接', canTest: ['webdav', 'aria2', 'pikpak', 'pan115', 'scrapers', 'javbus'].includes(key), banner: status(st.seTab), bannerFg: DIM, bannerBg: 'var(--t03)', bannerRing: 'var(--t09)', bannerMeta: '' },
-                overview: tabs.filter(name => !['配置概览', '外观'].includes(name)).map(name => ({ name, status: status(name) || '查看配置', dot: DIM2, stFg: DIM, ring: 'var(--ring)', meta: '', action: '查看', go: () => this.setState({ seTab: name }) })),
+                saveDisabled: st.seTab === '配置概览' || isCache && !cacheSaved,
+                tabs: tabs.map(name => ({ name, status: status(name), dot: status(name) === '已连接' ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? 'rgba(145,132,217,.12)' : 'transparent', fg: name === st.seTab ? 'var(--fg)' : DIM, fw: name === st.seTab ? 500 : 400, pick: openTab(name) })),
+                isOverview: st.seTab === '配置概览', isAppearance: st.seTab === '外观', isSources: key === 'scrapers', isForm: isCache || isMedia || Boolean(key && key !== 'scrapers') || st.seTab === '运行安全', fields,
+                cur: { title: st.seTab, desc: isImages ? '封面图片统一缓存在服务器，所有设备共用。容量独立计算，保存后立即清理超限图片。' : isCache ? '缓存与清理设置统一保存在服务器，所有设备和浏览器共用。保存后立即生效。' : isMedia ? '统一配置刮削输入和影视库输出，保存后同步到影视库与本地刮削。保存不会移动文件或启动扫描。' : st.seTab === '外观' ? '管理界面配色主题' : '配置现有服务与连接', canTest: ['webdav', 'aria2', 'pikpak', 'pan115', 'scrapers', 'javbus'].includes(key), banner: status(st.seTab), bannerFg: DIM, bannerBg: 'var(--t03)', bannerRing: 'var(--t09)', bannerMeta: '' },
+                overview: tabs.filter(name => !['配置概览', '外观'].includes(name)).map(name => ({ name, status: status(name) || '查看配置', dot: DIM2, stFg: DIM, ring: 'var(--ring)', meta: '', action: '查看', go: openTab(name) })),
                 themes: [{ key: 'dark', name: '深色', desc: '深色主题', bg: '#161826', surf: '#232532', ring: '#3f424d', fg: '#e9e9ed', dim: '#92939b', acc: '#9184d9' }, { key: 'light', name: '浅色', desc: '浅色主题', bg: '#f1f2f7', surf: '#ffffff', ring: '#d7dae4', fg: '#1a1c28', dim: '#676977', acc: '#5b4fa8' }].map(theme => ({ ...theme, active: st.theme === theme.key, ringOuter: st.theme === theme.key ? ACC : 'var(--ring)', badge: st.theme === theme.key ? '当前使用' : '点击切换', badgeFg: ACC, badgeBg: 'var(--t08)', pick: () => { saveAppTheme(theme.key); this.setState({ theme: theme.key }); } })),
                 sources: providers.map((name, index) => { const source = sources[name] || {}, result = st.sourcesResult.find(item => item.provider === name || item.name === name); return { name, host: name === 'javbus' ? st.settingsDraft.javbus?.base_url || st.settings.javbus?.base_url || '' : source.base_url || '', status: source.implemented === false ? '未实现' : result ? (result.success ? '测试成功' : '测试失败') : '待测试', latency: result?.duration_ms != null ? `${result.duration_ms} ms` : '', note: [name === 'javbus' ? '共用 JavBus 访问设置；修改后先保存再测试' : '测试使用已保存配置', safeText(result?.error_message, '')].filter(Boolean).join(' · '), on: source.enabled, order: index + 1, op: source.enabled ? 1 : .55, ring: 'var(--t09)', stFg: DIM, dot: DIM2, upDisabled: index === 0, toggleText: source.enabled ? '禁用' : '启用', toggle: () => updateSource(name, { enabled: !source.enabled }), test: () => testSources([name]), up: () => { const next = [...providers]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; this.setState({ settingsDraft: { ...st.settingsDraft, scrapers: { ...sources, priority: next } } }); },
                     fields: Object.entries(name === 'javbus' ? {} : source).filter(([field]) => ['language', 'request_delay', 'base_url', 'api_key'].includes(field)).map(([field, value]) => this.formField(field, value, value => updateSource(name, { [field]: value }), field === 'api_key' ? 'secret' : typeof value === 'number' ? 'number' : 'text')) }; }),
                 test: () => key === 'scrapers' || key === 'javbus' ? testSources(key === 'javbus' ? ['javbus'] : providers) : this.perform(() => this.connect(key, !values.password && !values.secret && !values.cookie && Object.entries(values).every(([field, value]) => ['password', 'secret', 'cookie'].includes(field) || st.settings[key]?.[field] === value)), '连接成功'),
                 applyTestResults: () => this.perform(async () => { requireSavedSources(); if (!st.sourcesResult.length) throw new Error('请先运行测试'); await this.request('/api/movies/metadata-scrapers/apply-test-results', 'POST', { results: st.sourcesResult }); await this.loadSettings(); }, '已按测试结果更新配置'),
-                save: () => this.perform(async () => { if (st.seTab === '外观') { saveAppTheme(st.theme); return; } await this.request('/api/system/settings', 'PUT', buildSettingsPayload(st.settingsDraft)); await this.loadSettings(); await this.loadConnections(); }, '设置已保存'),
-                reload: () => this.perform(() => this.loadSettings(), '配置已重新载入'), reset: () => this.setState({ settingsDraft: withSecretPlaceholders(st.settings), sourcesResult: [] }),
+                save: () => this.perform(async () => { if (isCache) { if (!cacheSaved) throw new Error('请先载入服务端缓存设置'); const result = await this.request(isImages ? '/api/image-cache' : '/api/metadata-cache', 'PUT', cache); this.setState({ [savedKey]: result, [draftKey]: { ...result.settings } }); return; } if (isMedia) return this.saveLibraryPaths({ ...media, source_directory: st.seSource ?? media.source_directory, directories: [st.seTarget ?? media.directories?.[0] ?? '', ...(media.directories || []).slice(1)] }); if (st.seTab === '外观') { saveAppTheme(st.theme); return; } await this.request('/api/system/settings', 'PUT', buildSettingsPayload(st.settingsDraft)); await this.loadSettings(); await this.loadConnections(); }, '设置已保存'),
+                reload: () => this.perform(async () => { if (isCache) await this.loadCacheSettings(isImages); else if (isMedia) this.applyLibrarySettings(await this.request('/api/movies/local-library/settings'), true); else await this.loadSettings(); }, '配置已重新载入'), reset: () => isCache ? this.setState({ [draftKey]: cacheSaved ? { ...cacheSaved.settings } : null }) : isMedia ? this.setState({ seSource: undefined, seTarget: undefined }) : this.setState({ settingsDraft: withSecretPlaceholders(st.settings), sourcesResult: [] }),
                 startQr: () => this.perform(() => this.startQr()), showQrLogin: key === 'pan115', logout: () => { clearPikPakSession(); this.auth = null; this.setState({ pikLogged: false }); }, showLogout: key === 'pikpak' && st.pikLogged,
             };
         }
@@ -1353,16 +1438,15 @@ export function connectDesign(Base) {
             for (const row of search.rows) {
                 const movie = movieIndex.get(row.code);
                 row.cover = movie?.cover;
+                if (!movie?.actors.length) row.actorText = movie?.detailsLoading ? '资料补全中…' : movie?.detailError ? '资料补全失败，点击详情重试' : '';
                 if (!movie?.mag) row.magText = movie?.magnetsLoading ? '正在查询磁力…' : movie?.magnetError ? `磁力获取失败：${movie.magnetError}` : '当前条件下没有可用磁力';
             }
             for (const row of search.rows) row.open = () => this.perform(async () => {
                 const version = this.requestVersion;
                 const original = data.MOVIES.find(movie => movie.code === row.code);
                 this.setState({ detail: row.code });
-                const detail = movieView(await this.request(`/api/movies/${id(row.code)}`));
+                await this.loadMovieDetails(original, version);
                 if (version !== this.requestVersion || this._disposed) return;
-                Object.assign(original, detail);
-                this.forceUpdate?.();
                 const magnets = await this.getMagnets(original);
                 if (version !== this.requestVersion || this._disposed) return;
                 this.magnets.set(row.code, magnets);
@@ -1370,7 +1454,7 @@ export function connectDesign(Base) {
                 original.magCount = magnets.length;
                 this.forceUpdate?.();
             });
-            if (search.d) { search.d.magnets = this.magnetRows(st.detail); search.d.magCount = search.d.magnets.length; search.d.copy = () => this.perform(() => this.copyText(st.detail), '番号已复制'); }
+            if (search.d) { search.d.cover = movieIndex.get(st.detail)?.cover; search.d.magnets = this.magnetRows(st.detail); search.d.magCount = search.d.magnets.length; search.d.copy = () => this.perform(() => this.copyText(st.detail), '番号已复制'); }
             if (search.browse) {
                 const groups = search.browse.groups;
                 const page = this.pageItems(groups.flatMap(group => group.items), 'catalogPage', [st.browse, st.browseQ]);

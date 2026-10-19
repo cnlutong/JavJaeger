@@ -3385,6 +3385,55 @@ def test_local_library_settings_persist_and_scan_respects_ignored_paths(tmp_path
     assert records_by_id["ABP-123"]["files"][0]["path"] == str(kept_video.resolve())
 
 
+def test_library_paths_keep_unscraped_files_out_of_the_index(tmp_path, monkeypatch):
+    library = tmp_path / "library"
+    incoming = library / "incoming"
+    incoming.mkdir(parents=True)
+    (library / "ABP-123.mp4").write_bytes(b"organized")
+    (incoming / "IPX-456.mp4").write_bytes(b"not scraped")
+    service = local_movie_library_service.__class__(str(tmp_path / "library.json"))
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr(runtime, "CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(runtime, "config", runtime.merge_config(runtime.DEFAULT_CONFIG, {}))
+    monkeypatch.setattr(movies_local_library, "local_movie_library_service", service)
+    client = TestClient(main.app)
+
+    response = client.put("/api/movies/local-library/settings", json={
+        "source_directory": f"  {incoming}  ", "directories": [str(library)],
+    })
+    assert response.status_code == 200
+    assert response.json()["source_directory"] == str(incoming)
+    assert json.loads(config_path.read_text())["local_library"]["source_directory"] == str(incoming)
+    assert client.get("/api/movies/local-library/settings").json()["source_directory"] == str(incoming)
+    original_iterdir = Path.iterdir
+    def library_only(path):
+        assert path != incoming, "library scans must not traverse the incoming directory"
+        return original_iterdir(path)
+    monkeypatch.setattr(Path, "iterdir", library_only)
+    # An explicit ignore list must not reintroduce the incoming directory.
+    scan = client.post("/api/movies/local-library/scan", json={"ignored_paths": []}).json()
+    assert scan["success"] is True
+    assert scan["scanned_files"] == 1
+    assert {record["movie_id"] for record in asyncio.run(service.get_all())} == {"ABP-123"}
+
+    previous = config_path.read_bytes()
+    for output in [incoming, incoming / "organized"]:
+        invalid = client.put("/api/movies/local-library/settings", json={"directories": [str(output)]})
+        assert invalid.status_code == 400
+        assert config_path.read_bytes() == previous
+
+    monkeypatch.setattr(Path, "iterdir", original_iterdir)
+    monkeypatch.setattr(local_scrape, "local_movie_library_service", service)
+    monkeypatch.setattr(local_scrape, "_probe_video_metadata", lambda _path: {})
+    in_place = client.post("/api/movies/local-scrape/apply", json={
+        "items": [{"source_path": str(incoming / "IPX-456.mp4"), "metadata": {"id": "IPX-456"}}],
+        "organize": False, "target_directory": str(library), "write_nfo": False, "download_images": False,
+    }).json()
+    assert in_place["success_count"] == 1
+    assert in_place["library_recorded_count"] == 0
+    assert {record["movie_id"] for record in asyncio.run(service.get_all())} == {"ABP-123"}
+
+
 def test_local_library_information_download_refreshes_video_media_metadata(tmp_path, monkeypatch):
     video = tmp_path / "ABP-123.mp4"
     video.write_bytes(b"video")
