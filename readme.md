@@ -489,6 +489,10 @@ GET    /api/automation/tasks/{task_id}/runs
 
 本地影视库在刮削或补全影片元数据时会同步维护 `data/local_actor_library.json`。演员以独立索引保存关联影片，头像保存在单独的演员头像目录；如果演员已有本地头像，后续刮削会复用并跳过下载。
 
+资料补全逐片将元数据和媒体参数原子保存到 `data/local_movie_library.json.updates/`，成功写入后才更新内存。每片更新只包含该片记录；正常结束、异常或取消时统一合并完整 JSON 并重建一次演员索引，避免逐片重写全库。应用启动会先恢复未合并更新并修复演员索引，再接受请求；恢复只读取索引，不扫描媒体硬盘或联网下载头像。快照代号用于排除已合并的旧更新，防止清理中断后恢复已删除的记录。增量文件损坏或结构无效时启动会报错并保留文件，请先备份再排查。
+
+备份和迁移时，将 `data/local_movie_library.json`、`data/local_movie_library.json.updates/` 和 `data/local_actor_library.json` 一起保存。回滚到不支持增量恢复的旧版本前，先在当前版本完成恢复并等待资料任务结束，再停止应用、备份并切换版本。直接读取完整 JSON 的外部工具应等待补全任务结束；补全过程中的最新记录通过 API 读取。
+
 `/api/movies/local-scrape/apply` 的 item 可带预览返回的 `target_video_path`，执行部分文件时保留确认过的分片编号；服务端限定目标必须符合本次目录与命名模板。资料的 `overwrite_existing` 仅决定是否更新已存在的 NFO 和图片，不能覆盖视频冲突选择。跨盘移动先复制至目标目录的临时文件，校验大小与源状态后再替换目标，复制失败保留源文件与原目标。
 
 `/api/movies/local-scrape/preview` 在目标文件冲突时返回 `source_file` 和 `target_file` 详情，包含大小、修改时间以及通过 `ffprobe` 可探测到的分辨率和码率；`/api/movies/local-scrape/apply` 的 item 可传 `conflict_resolution` 为 `auto_best`、`skip`、`keep_newer`、`keep_older`、`keep_larger`、`keep_higher_resolution`、`keep_higher_bitrate`，旧的 `keep_source` 和 `keep_target` 仍兼容。`auto_best` 会按分辨率、码率、文件大小、修改时间依次选择保留文件；源文件更优时移动源文件覆盖目标，目标文件更优时保留目标并删除源文件，仍无法判断时保留目标且不删除源文件。分辨率或码率无法探测、两边相同或缺少冲突策略时，后端不会自动覆盖文件。

@@ -18,7 +18,7 @@
 ### 0. 部署前检查
 
 1. 确认当前目录是仓库根目录，并已拉取目标版本。
-2. 备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json`、`data/automation_tasks.json`、`data/transcoding_tasks.json` 和 `actor_images/`。
+2. 停止应用后备份现有运行数据，至少保留 `data/config.json`、`data/downloaded_movies.json`、`data/local_movie_library.json`、`data/local_movie_library.json.updates/`、`data/local_actor_library.json`、`data/automation_tasks.json`、`data/transcoding_tasks.json` 和 `actor_images/`。影片库 JSON、增量目录和演员索引必须一起备份。
 3. 确认宿主机 `./data` 目录存在且对 Docker 进程可写。
 4. 准备强随机 `APP_SESSION_SECRET`，不要使用示例值。
 5. 确认配置文件路径使用可写持久化路径：`JAVJAEGER_CONFIG_PATH=/app/data/config.json`。
@@ -125,6 +125,8 @@ curl -fsS -X POST http://127.0.0.1:8000/api/movies/metadata-scrapers/test \
 ### 5. 回滚和排障
 
 回滚到上一版本：
+
+如果目标版本不支持影片库增量恢复，先在当前版本启动并完成索引恢复，等待资料任务结束后停止应用，再备份整个 `data/` 目录并切换版本。不要只复制影片库 JSON 而遗漏 `.updates/`：其中可能包含已保存、尚未合并的逐片资料。恢复仅处理索引，不扫描媒体硬盘；无效增量文件会阻止启动并保留现场。
 
 ```bash
 git checkout <previous-release-or-commit>

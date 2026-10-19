@@ -9,7 +9,7 @@ from modules.automation.router import router as automation_router
 from modules.automation.service import automation_service
 from modules.common.runtime import SESSION_SECRET, VERSION_INFO, is_frontend_cache_disabled
 from modules.history.router import router as history_router
-from modules.history.service import download_history_service
+from modules.history.service import download_history_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from modules.javbus_api.router import router as javbus_api_router
 from modules.magnets.router import router as magnets_router
@@ -87,6 +87,7 @@ async def startup_event():
     logger.info("JavJaeger 应用启动中...")
     await javbus_api_service.startup()
     await download_history_service.load_records()
+    await local_movie_library_service.startup()
     await automation_service.startup()
     await transcoding_service.startup()
     logger.info("JavJaeger 应用启动完成")

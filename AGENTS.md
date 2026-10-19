@@ -83,6 +83,7 @@ Use this as the source-of-truth ownership map.
   - local movie library persistence used to avoid duplicate downloads
   - actor information library persistence and local actor avatar index
   - scraped local movie metadata and full-text persistence
+  - durable per-movie update files, snapshot compaction, and actor-index recovery
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
   - background local library scans, information checks, completion and invalid-file cleanup workflows

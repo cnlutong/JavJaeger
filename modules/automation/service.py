@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from modules.common.runtime import get_aria2_config
+from modules.common.runtime import get_aria2_config, run_blocking_io
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from modules.magnets.service import get_best_magnet_payload
@@ -528,17 +528,7 @@ class AutomationService:
         return [task.model_copy(deep=True) for task in self._cached_tasks]
 
     async def _save_tasks_unlocked(self, tasks: list[AutomationTask]) -> None:
-        writing = asyncio.create_task(asyncio.to_thread(self._write_tasks, tasks))
-        cancelled = False
-        while True:
-            try:
-                await asyncio.shield(writing)
-                break
-            except asyncio.CancelledError:
-                # Keep the caller's lock until its writer can no longer replace the file.
-                cancelled = True
-        if cancelled:
-            raise asyncio.CancelledError
+        await run_blocking_io(self._write_tasks, tasks)
 
     def _write_tasks(self, tasks: list[AutomationTask]) -> None:
         self._cache_signature = None

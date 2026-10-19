@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import datetime
 import json
@@ -12,6 +13,28 @@ from fastapi.templating import Jinja2Templates
 logger = logging.getLogger(__name__)
 
 DEFAULT_ACTOR_IMAGE_DIRECTORY = "data/actor_images"
+
+
+async def run_blocking_io(operation, *args):
+    """Finish a filesystem operation before cancellation releases its caller's lock."""
+    return await finish_before_cancel(asyncio.to_thread(operation, *args))
+
+
+async def finish_before_cancel(awaitable):
+    work = asyncio.ensure_future(awaitable)
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(work)
+            break
+        except asyncio.CancelledError:
+            if work.cancelled():
+                raise
+            cancelled = True
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
 
 SCRAPER_PROVIDER_NAMES = [
     "javbus",

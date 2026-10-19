@@ -1,19 +1,40 @@
 import asyncio
 import copy
 import datetime
+import hashlib
 import json
 import logging
 import os
 import re
+import stat
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from modules.common.image_download import download_image
-from modules.common.runtime import get_actor_image_directory
+from modules.common.runtime import get_actor_image_directory, run_blocking_io
 from modules.javbus_api import javbus_api_service
 
 
 logger = logging.getLogger(__name__)
+
+
+def _write_library_json(path: Path, payload: dict[str, Any], permissions_from: Path | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    created = False
+    try:
+        with temporary.open("x", encoding="utf-8") as file:
+            created = True
+            try:
+                temporary.chmod(stat.S_IMODE((permissions_from or path).stat().st_mode))
+            except FileNotFoundError:
+                pass
+            json.dump(payload, file, ensure_ascii=False, separators=(",", ":"))
+        temporary.replace(path)
+    finally:
+        if created:
+            temporary.unlink(missing_ok=True)
 
 
 LOCAL_LIBRARY_INFORMATION_FIELDS = ("title", "date", "stars", "genres", "cover_url")
@@ -536,9 +557,7 @@ class ActorLibraryService:
     async def _save_locked(self) -> None:
         now = datetime.datetime.now().isoformat()
         payload = {"version": 1, "updated_at": now, "actors": self._cache}
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
-        with open(self.file_path, "w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, indent=2)
+        await run_blocking_io(_write_library_json, Path(self.file_path), payload)
 
     async def _ensure_actor_avatar(self, actor_key: str, actor: dict[str, Any], overwrite: bool) -> bool:
         existing_path = await self.get_avatar_path(actor_key)
@@ -698,6 +717,7 @@ local_actor_library_service = ActorLibraryService()
 
 
 class LocalMovieLibraryService:
+    # ponytail: one process owns snapshots and updates; use transactions before adding writers.
     def __init__(
         self,
         file_path: str = "data/local_movie_library.json",
@@ -708,40 +728,114 @@ class LocalMovieLibraryService:
         self._cache: dict[str, dict[str, Any]] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
+        self._actor_sync_lock = asyncio.Lock()
+        self._actor_revision = 0
+        self._snapshot_generation = "legacy"
+        self._has_updates = False
+        self._actors_dirty = False
 
     def _empty_payload(self) -> dict[str, Any]:
         return {"version": 1, "updated_at": "", "movies": {}}
 
+    @property
+    def _updates_directory(self) -> Path:
+        return Path(self.file_path + ".updates")
+
+    def _load_movie_records(self) -> None:
+        path = Path(self.file_path)
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            if any(self._updates_directory.glob("*.json")):
+                raise ValueError("影片库快照缺失，请保留增量文件并恢复配套快照")
+            data = self._empty_payload()
+            _write_library_json(path, data)
+        if isinstance(data, list):
+            records = {str(record["movie_id"]).upper(): record for record in data if record.get("movie_id")}
+            generation = "legacy"
+        else:
+            records = {str(key).upper(): value for key, value in data.get("movies", {}).items()}
+            generation = data.get("generation", "legacy")
+        has_updates = False
+        for update_path in self._updates_directory.glob("*.json"):
+            if update_path.is_symlink():
+                raise ValueError("影片库增量文件不能是符号链接")
+            entry = json.loads(update_path.read_text(encoding="utf-8"))
+            record = entry.get("record") if isinstance(entry, dict) else None
+            movie_id = str(record.get("movie_id") or "").strip().upper() if isinstance(record, dict) else ""
+            if (not movie_id or update_path.stem != hashlib.sha256(movie_id.encode()).hexdigest()
+                    or not isinstance(entry.get("generation"), str)
+                    or not isinstance(record.get("files"), list)
+                    or any(not isinstance(file, dict) for file in record["files"])):
+                raise ValueError("影片库增量文件无效，请保留文件并检查备份")
+            if entry.get("generation") == generation:
+                records[movie_id] = record
+            has_updates = True
+        self._cache = records
+        self._snapshot_generation = generation
+        self._has_updates = has_updates
+        self._actors_dirty = (self._updates_directory / "actors-dirty").exists()
+        self._loaded = True
+
     async def load_records(self) -> dict[str, dict[str, Any]]:
         async with self._lock:
-            if self._loaded:
-                return self._cache
-
-            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
-            if os.path.exists(self.file_path):
-                with open(self.file_path, "r", encoding="utf-8") as file:
-                    data = json.load(file)
-                if isinstance(data, list):
-                    self._cache = {str(record.get("movie_id", "")).upper(): record for record in data if record.get("movie_id")}
-                else:
-                    movies = data.get("movies", {}) if isinstance(data, dict) else {}
-                    self._cache = {str(movie_id).upper(): record for movie_id, record in movies.items()}
-                logger.info("已加载 %s 条本地影片库记录", len(self._cache))
-            else:
-                with open(self.file_path, "w", encoding="utf-8") as file:
-                    json.dump(self._empty_payload(), file, ensure_ascii=False, indent=2)
-                self._cache = {}
-                logger.info("已创建空的本地影片库文件: %s", self.file_path)
-
-            self._loaded = True
+            if not self._loaded:
+                await run_blocking_io(self._load_movie_records)
             return self._cache
 
+    async def startup(self) -> None:
+        await self.load_records()
+        # Rebuild the derived actor projection before requests can observe a recovered library.
+        if self._has_updates:
+            async with self._lock:
+                await self._save_locked()
+        if self._actors_dirty:
+            await self._sync_actor_library(download_missing_avatars=False)
+
+    def _write_snapshot(self) -> None:
+        self._updates_directory.mkdir(parents=True, exist_ok=True)
+        (self._updates_directory / "actors-dirty").touch()
+        self._actors_dirty = True
+        generation = uuid4().hex
+        _write_library_json(Path(self.file_path), {
+            "version": 1, "generation": generation,
+            "updated_at": datetime.datetime.now().isoformat(), "movies": self._cache,
+        })
+        self._snapshot_generation = generation
+        self._has_updates = False
+        # A replaced snapshot invalidates old overlays even if cleanup is interrupted.
+        for path in self._updates_directory.glob("*.json"):
+            path.unlink(missing_ok=True)
+
     async def _save_locked(self) -> None:
-        now = datetime.datetime.now().isoformat()
-        payload = {"version": 1, "updated_at": now, "movies": self._cache}
-        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
-        with open(self.file_path, "w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, indent=2)
+        self._actor_revision += 1
+        await run_blocking_io(self._write_snapshot)
+
+    def _write_movie_update(self, movie_id: str, record: dict[str, Any], actors_changed: bool) -> None:
+        record.setdefault("files", [])
+        directory = self._updates_directory
+        if actors_changed:
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "actors-dirty").touch()
+            self._actors_dirty = True
+        path = directory / (hashlib.sha256(movie_id.encode()).hexdigest() + ".json")
+        _write_library_json(path, {"generation": self._snapshot_generation, "record": record}, Path(self.file_path))
+        self._cache[movie_id] = record
+        self._has_updates = True
+        self._actor_revision += 1
+
+    async def _mark_actors_synced(self, revision: int) -> None:
+        async with self._lock:
+            if revision == self._actor_revision:
+                await run_blocking_io((self._updates_directory / "actors-dirty").unlink, True)
+                self._actors_dirty = False
+
+    async def flush_information_updates(self) -> None:
+        async with self._lock:
+            if self._has_updates:
+                await self._save_locked()
+        if self._actors_dirty:
+            await self._sync_actor_library(download_missing_avatars=True)
 
     async def _sync_actor_library(
         self,
@@ -750,11 +844,27 @@ class LocalMovieLibraryService:
     ) -> dict[str, Any] | None:
         if self.actor_library_service is None:
             return None
-        source_records = records if records is not None else list(self._cache.values())
-        return await self.actor_library_service.sync_from_movie_records(
-            source_records,
-            download_missing_avatars=download_missing_avatars,
-        )
+        # Read current records after earlier synchronizations finish, never a stale caller snapshot.
+        async with self._actor_sync_lock:
+            async with self._lock:
+                revision = self._actor_revision
+                source_records = []
+                for record in self._cache.values():
+                    snapshot = {key: record[key] for key in ("movie_id", "title", "date", "cover_url", "img", "stars") if key in record}
+                    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+                    snapshot["metadata"] = {key: metadata[key] for key in ("id", "title", "date", "cover_url", "actor_refs", "stars") if key in metadata}
+                    raw = metadata.get("raw")
+                    if isinstance(raw, dict):
+                        snapshot["metadata"]["raw"] = {"stars": raw.get("stars")}
+                    source_records.append(snapshot)
+                source_records = copy.deepcopy(source_records)
+            result = await self.actor_library_service.sync_from_movie_records(
+                source_records,
+                download_missing_avatars=download_missing_avatars,
+            )
+            if result.get("success"):
+                await self._mark_actors_synced(revision)
+            return result
 
     async def get_all(self) -> list[dict[str, Any]]:
         records = await self.load_records()
@@ -854,12 +964,19 @@ class LocalMovieLibraryService:
     async def refresh_file_states(self, movie_ids: list[str] | None = None) -> None:
         records = await self.load_records()
         selected = {str(movie_id).upper() for movie_id in movie_ids} if movie_ids is not None else None
-        files = [file for key, record in records.items() if selected is None or key in selected for file in record.get("files", [])]
-        states = await asyncio.to_thread(self._scan_file_states, [{"path": file.get("path")} for file in files])
+        paths_by_movie = {key: {str(Path(str(file.get("path") or ""))) for file in record.get("files", [])}
+                          for key, record in records.items() if selected is None or key in selected}
+        files = [{"path": path} for paths in paths_by_movie.values() for path in paths]
+        states = await asyncio.to_thread(self._scan_file_states, files)
         async with self._lock:
-            for file in files:
-                file["filesystem"] = states.get(str(Path(str(file.get("path") or ""))), {})
-            if files:
+            touched = False
+            for key, paths in paths_by_movie.items():
+                for file in self._cache.get(key, {}).get("files", []):
+                    path = str(Path(str(file.get("path") or "")))
+                    if path in paths:
+                        file["filesystem"] = states.get(path, {})
+                        touched = True
+            if touched:
                 await self._save_locked()
 
     def _missing_information_fields(
@@ -946,6 +1063,7 @@ class LocalMovieLibraryService:
         scrape_error: str | None,
         full_text: str,
         scraped_at: str,
+        sync_actors: bool = True,
     ) -> bool:
         await self.load_records()
         normalized = str(movie_id or "").strip().upper()
@@ -956,7 +1074,7 @@ class LocalMovieLibraryService:
             record = self._cache.get(normalized)
             if not record:
                 return False
-
+            record = copy.deepcopy(record)
             record["metadata"] = metadata
             record["title"] = metadata.get("title") or normalized
             record["date"] = metadata.get("date") or ""
@@ -971,9 +1089,9 @@ class LocalMovieLibraryService:
             record["scrape_error"] = scrape_error
             record["scraped_at"] = scraped_at
             self._refresh_record_totals(record, scraped_at)
-            actor_records = list(self._cache.values())
-            await self._save_locked()
-        await self._sync_actor_library(actor_records, download_missing_avatars=True)
+            await run_blocking_io(self._write_movie_update, normalized, record, True)
+        if sync_actors:
+            await self._sync_actor_library(download_missing_avatars=True)
         return True
 
     async def update_file_media_info(self, movie_id: str, media_by_path: dict[str, dict[str, Any]]) -> bool:
@@ -995,6 +1113,7 @@ class LocalMovieLibraryService:
             record = self._cache.get(normalized)
             if not record:
                 return False
+            record = copy.deepcopy(record)
             changed = False
             for file_record in record.get("files", []):
                 file_path = os.path.abspath(str(file_record.get("path") or ""))
@@ -1010,7 +1129,7 @@ class LocalMovieLibraryService:
                         changed = True
             if changed:
                 self._refresh_record_totals(record, datetime.datetime.now().isoformat())
-                await self._save_locked()
+                await run_blocking_io(self._write_movie_update, normalized, record, False)
             return changed
 
     async def update_file_after_transcode(self, movie_id: str, path: str, media_info: dict[str, Any]) -> bool:

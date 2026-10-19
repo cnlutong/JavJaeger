@@ -16,7 +16,7 @@ def test_10000_movie_rescan_reuses_media_probes_and_runs_off_event_loop(tmp_path
     service._cache = {path.stem: {"movie_id": path.stem, "files": [{
         "path": str(path), "scan_root": str(tmp_path), "size": 5_000_000_000, "modified_at": "2026-09-01", **media,
     }]} for path in paths}
-    probes, walk_threads, directories = [], [], []
+    probes, walk_threads, directories, directory_threads = [], [], [], []
     changed = False
     scandir = os.scandir
 
@@ -30,7 +30,10 @@ def test_10000_movie_rescan_reuses_media_probes_and_runs_off_event_loop(tmp_path
         return media
 
     def scan(path):
-        directories.append(str(path))
+        # Count media enumeration; index recovery is covered in test_library_update_recovery.py.
+        if Path(path) != service._updates_directory:
+            directories.append(str(path))
+            directory_threads.append(threading.get_ident())
         return scandir(path)
 
     monkeypatch.setattr(local_library, "local_movie_library_service", service)
@@ -49,6 +52,7 @@ def test_10000_movie_rescan_reuses_media_probes_and_runs_off_event_loop(tmp_path
         assert probes == []
         assert walk_threads and event_loop_thread not in walk_threads
         assert len(directories) == len(set(directories)) == 50
+        assert event_loop_thread not in directory_threads
         summary = await service.get_summary()
         assert summary["total_movies"] == 10_000
         assert summary["total_size"] == 50_000_000_000_000
@@ -107,7 +111,9 @@ def test_file_verification_reads_each_directory_once_and_persists_snapshot(tmp_p
     scandir = os.scandir
 
     def counted_scandir(path):
-        calls.append((str(path), threading.get_ident()))
+        # Count media enumeration; index recovery is covered in test_library_update_recovery.py.
+        if Path(path) != service._updates_directory:
+            calls.append((str(path), threading.get_ident()))
         return scandir(path)
 
     monkeypatch.setattr(os, "scandir", counted_scandir)
