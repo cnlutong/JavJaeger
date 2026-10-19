@@ -2,6 +2,8 @@
 
 ## 概览
 
+本指南用于运行应用的服务器。Mac 仅用于开发和测试时，无需安装 Docker，参见 [Mac 开发与测试](readme.md#mac-开发与测试)。
+
 当前 Docker 运行方式有两个关键点：
 
 - 应用容器内部监听 `5000` 端口
@@ -48,8 +50,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./actor_images:/app/actor_images
-      - D:/JAV:/media/jav1
-      - E:/JAV:/media/jav2
+      - /srv/media/jav1:/media/jav1
+      - /srv/media/jav2:/media/jav2
 ```
 
 然后在影视库页面的“路径配置”里保存 `/media/jav1` 和 `/media/jav2`。演员头像始终写入 `/app/actor_images`，不会落到任一媒体数据源路径里；扫描时启用“整理文件”会把旧 `actors/` 目录里的 JPG/JPEG 头像移到这里，并删除同番号、同大小且内容完全相同的重复视频文件。如果有缓存、样品图或整理临时目录，可以在忽略路径里填写容器内绝对路径，例如 `/media/jav1/cache`，也可以填写相对扫描根目录的 `cache`。每个路径会作为独立 `scan_root` 记录，后续只重扫其中一个路径时不会清理另一个路径的索引。

@@ -63,6 +63,8 @@ docker-compose up -d
 
 ### 源码运行
 
+本节用于部署服务器，或需要手动启动应用的开发场景。只在 Mac 上开发、由另一台服务器运行应用时，按下方“Mac 开发与测试”配置即可。
+
 本地刮削的“保留分辨率高的”和“保留码率高的”冲突策略依赖系统可执行的 `ffprobe`。源码运行时请先安装 FFmpeg，并确认 `ffprobe -version` 可用。
 
 ```bash
@@ -84,7 +86,35 @@ http://localhost:8000
 python main.py
 ```
 
-这种方式会监听 `5000`。
+这种方式会监听 `5000`。macOS 的 Control Center 可能占用该端口；需要手动运行时，使用上面的 Uvicorn 命令指定 `8000`。
+
+### Mac 开发与测试
+
+Mac 负责编辑、构建和测试，应用部署在另一台服务器。Mac 需要 Python 3.11+ 和 Node.js 20+；Docker、Aria2 服务、GPU 驱动和媒体目录挂载由部署服务器提供。本机不需要配置真实账户或启动常驻应用。
+
+首次在项目根目录执行：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+npm ci
+npx playwright install chromium --only-shell
+```
+
+Python 依赖安装在项目 `.venv` 中，用于导入后端和执行测试。Chromium 仅用于无界面浏览器回归。无需复制或覆盖已有的 `config.json`，也无需新建部署环境变量。
+
+每次打开新终端后，先激活虚拟环境，再验证：
+
+```bash
+source .venv/bin/activate
+npm run check
+npm run test:browser
+```
+
+`npm run check` 构建前端并运行前后端测试；浏览器回归会临时启动使用独立端口和临时数据的后端，结束后关闭。测试通过时，命令退出码为 `0`。真实网盘、媒体处理和 GPU 编码仍需在部署服务器验收；仅开发和运行现有测试不要求额外安装 FFmpeg。
+
+普通源码由 `.gitattributes` 统一使用 LF。原始设计文件、`archive/` 和运行数据保留字节内容；生成的前端 bundle 只通过构建更新。Windows 路径行为使用明确的兼容性用例验证，普通文件工作流测试使用临时路径，避免绑定开发机的盘符。
 
 ## 配置
 
@@ -539,7 +569,7 @@ npm run test:frontend
 
 ```bash
 npm ci
-npx playwright install chromium
+npx playwright install chromium --only-shell
 npm run test:browser
 ```
 

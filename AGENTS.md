@@ -31,6 +31,8 @@ Strict TDD means:
 
 Bug fixes require a regression test. New features require contract or workflow tests before implementation. Documentation-only and mechanical formatting changes do not need a failing test.
 
+Development setup on macOS is for editing, builds, and isolated tests; deployment services run on the target server. Follow the Mac setup in `readme.md`, without requiring local Docker, downloader services, or real account configuration. Ordinary source files use LF through `.gitattributes`; exclude imported design bytes, generated output, archived files, and runtime state from manual normalization.
+
 ## Mandatory Read Order
 
 Read these before changing code:

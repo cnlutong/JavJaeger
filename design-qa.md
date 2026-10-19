@@ -2,17 +2,17 @@
 
 ## 视觉目标
 
-- 海报墙：`D:\code\JavJaeger\docs\designs\local-library-immersive-grid.png`
-- 焦点剧场：`D:\code\JavJaeger\docs\designs\local-library-immersive-shelf.png`
-- 封面走廊：`D:\code\JavJaeger\docs\designs\local-library-immersive-corridor.png`
+- 海报墙：[local-library-immersive-grid.png](docs/designs/local-library-immersive-grid.png)
+- 焦点剧场：[local-library-immersive-shelf.png](docs/designs/local-library-immersive-shelf.png)
+- 封面走廊：[local-library-immersive-corridor.png](docs/designs/local-library-immersive-corridor.png)
 
 ## 实现截图与状态
 
-- 海报墙：`D:\code\JavJaeger\docs\designs\qa\immersive-grid-1440x1024.png`
-- 焦点剧场：`D:\code\JavJaeger\docs\designs\qa\immersive-shelf-1440x1024.png`
-- 封面走廊：`D:\code\JavJaeger\docs\designs\qa\immersive-corridor-1440x1024.png`
-- 移动端焦点剧场：`D:\code\JavJaeger\docs\designs\qa\immersive-shelf-390x844.png`
-- 对比图：`D:\code\JavJaeger\docs\designs\qa\comparison-grid.png`、`comparison-shelf.png`、`comparison-corridor.png`
+- 海报墙：[immersive-grid-1440x1024.png](docs/designs/qa/immersive-grid-1440x1024.png)
+- 焦点剧场：[immersive-shelf-1440x1024.png](docs/designs/qa/immersive-shelf-1440x1024.png)
+- 封面走廊：[immersive-corridor-1440x1024.png](docs/designs/qa/immersive-corridor-1440x1024.png)
+- 移动端焦点剧场：[immersive-shelf-390x844.png](docs/designs/qa/immersive-shelf-390x844.png)
+- 对比图：[comparison-grid.png](docs/designs/qa/comparison-grid.png)、[comparison-shelf.png](docs/designs/qa/comparison-shelf.png)、[comparison-corridor.png](docs/designs/qa/comparison-corridor.png)
 - 截图方式：Codex in-app Browser，桌面视口 1440 × 1024；移动视口 390 × 844。
 - 数据状态：本地 API 返回 2 部影片，当前本地封面文件不可用，因此截图展示真实的深色封面回退状态；没有向产品注入演示数据。
 

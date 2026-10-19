@@ -823,17 +823,30 @@ class LocalMovieLibraryService:
         for directory, paths in directories.items():
             try:
                 with os.scandir(directory) as entries:
-                    names = {os.path.normcase(entry.name) for entry in entries if entry.is_file()}
+                    names = {entry.name for entry in entries if entry.is_file()}
             except OSError:
                 names = set()
+            folded_names = {name.casefold() for name in names}
+
+            def has_file(name: str) -> bool:
+                if name in names:
+                    return True
+                if name.casefold() not in folded_names:
+                    return False
+                # Let the filesystem decide; macOS volumes can use either case policy.
+                try:
+                    return (directory / name).is_file()
+                except OSError:
+                    return False
+
             for path in paths:
                 states[str(path)] = {
                     "checked_at": checked_at,
-                    "exists": os.path.normcase(path.name) in names,
-                    "nfo": os.path.normcase(path.with_suffix(".nfo").name) in names,
-                    "poster": any(os.path.normcase(name) in names for name in
+                    "exists": has_file(path.name),
+                    "nfo": has_file(path.with_suffix(".nfo").name),
+                    "poster": any(has_file(name) for name in
                                   (f"{path.stem}-poster.jpg", f"{path.stem}-poster.png", "poster.jpg", "folder.jpg", "cover.jpg")),
-                    "thumbnail": any(os.path.normcase(name) in names for name in
+                    "thumbnail": any(has_file(name) for name in
                                      (f"{path.stem}-thumb.jpg", f"{path.stem}-thumb.png", "thumb.jpg", "thumbnail.jpg")),
                 }
         return states

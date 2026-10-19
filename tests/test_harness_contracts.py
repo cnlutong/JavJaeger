@@ -2626,8 +2626,8 @@ def test_local_scrape_recognizes_padded_designation_with_site_suffix():
     assert local_scrape.recognize_designation("c800.me@ssni00048hhb") == "SSNI-048"
 
 
-def test_local_scrape_target_paths_support_custom_folder_templates():
-    source_path = Path(r"D:\incoming\ABP-123.mp4")
+def test_local_scrape_target_paths_support_custom_folder_templates(tmp_path):
+    source_path = tmp_path / "incoming" / "ABP-123.mp4"
     metadata = local_scrape._build_metadata(
         {
             "id": "ABP-123",
@@ -2645,18 +2645,18 @@ def test_local_scrape_target_paths_support_custom_folder_templates():
         source_path,
         metadata,
         True,
-        r"D:\library",
+        str(tmp_path / "library"),
         "{code}",
         "{actor}/{year}/{title}",
     )
 
-    assert target_dir == Path(r"D:\library") / "Actor One" / "2024" / "ABP-123 Sample_ Title"
+    assert target_dir == tmp_path / "library" / "Actor One" / "2024" / "ABP-123 Sample_ Title"
     assert target_stem == "ABP-123"
     assert target_video == target_dir / "ABP-123.mp4"
 
 
-def test_local_scrape_target_paths_put_vr_movies_in_vr_folder():
-    source_path = Path(r"D:\incoming\VRKM-821.mp4")
+def test_local_scrape_target_paths_put_vr_movies_in_vr_folder(tmp_path):
+    source_path = tmp_path / "incoming" / "VRKM-821.mp4"
     metadata = local_scrape._build_metadata(
         {
             "id": "VRKM-821",
@@ -2671,18 +2671,18 @@ def test_local_scrape_target_paths_put_vr_movies_in_vr_folder():
         source_path,
         metadata,
         True,
-        r"D:\library",
+        str(tmp_path / "library"),
         "{code}",
         "{code}",
     )
 
     assert metadata["is_vr"] is True
-    assert target_dir == Path(r"D:\library") / "VR" / "VRKM-821"
+    assert target_dir == tmp_path / "library" / "VR" / "VRKM-821"
     assert target_video == target_dir / "VRKM-821.mp4"
 
 
-def test_local_scrape_empty_folder_template_uses_target_root():
-    source_path = Path(r"D:\incoming\ABP-123.mp4")
+def test_local_scrape_empty_folder_template_uses_target_root(tmp_path):
+    source_path = tmp_path / "incoming" / "ABP-123.mp4"
     metadata = local_scrape._build_metadata(
         {
             "id": "ABP-123",
@@ -2696,14 +2696,14 @@ def test_local_scrape_empty_folder_template_uses_target_root():
         source_path,
         metadata,
         True,
-        r"D:\library",
+        str(tmp_path / "library"),
         "{code} {title}",
         "",
     )
 
-    assert target_dir == Path(r"D:\library")
+    assert target_dir == tmp_path / "library"
     assert target_stem == "ABP-123 Sample Title"
-    assert target_video == Path(r"D:\library") / "ABP-123 Sample Title.mp4"
+    assert target_video == tmp_path / "library" / "ABP-123 Sample Title.mp4"
 
 
 def test_local_scrape_target_paths_truncate_multibyte_segments_to_filesystem_limit():

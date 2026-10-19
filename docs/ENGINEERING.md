@@ -35,7 +35,9 @@ npm run build:frontend
 npm run check
 ```
 
-`npm run check` rebuilds the frontend bundle and runs the backend harness. Backend-only changes may use `python -m pytest` during the red/green loop, but final validation should match the changed surface.
+Activate the project virtual environment first (`source .venv/bin/activate` on macOS). See [Mac development and testing](../readme.md#mac-开发与测试) for setup without a local deployment.
+
+`npm run check` rebuilds the frontend bundle and runs the frontend and backend harnesses. Page or interaction changes also require `npm run test:browser`, which starts and stops an isolated backend. Backend-only changes may use `python -m pytest` during the red/green loop, but final validation should match the changed surface.
 
 ## Baseline Contracts
 
