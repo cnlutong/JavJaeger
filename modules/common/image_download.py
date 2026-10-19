@@ -1,8 +1,10 @@
 import asyncio
 import base64
 import logging
+import stat
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -32,15 +34,32 @@ def image_download_headers(javbus_config: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
+def _write_image(target: Path, content: bytes) -> None:
+    temporary = target.with_name(f'.{target.name}.{uuid4().hex}.tmp')
+    created = False
+    try:
+        with temporary.open('xb') as file:
+            created = True
+            file.write(content)
+        try:
+            temporary.chmod(stat.S_IMODE(target.stat().st_mode))
+        except FileNotFoundError:
+            pass
+        temporary.replace(target)
+    finally:
+        if created:
+            temporary.unlink(missing_ok=True)
+
+
 async def download_image(url: str, target: Path, overwrite: bool) -> str | None:
     if not url:
         return None
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not overwrite:
+    await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+    if not overwrite and await asyncio.to_thread(target.exists):
         return target.name
     if url.startswith("data:"):
         _, _, payload = url.partition(",")
-        target.write_bytes(base64.b64decode(payload))
+        await asyncio.to_thread(_write_image, target, base64.b64decode(payload))
         return target.name
 
     javbus_config = get_javbus_config()
@@ -74,7 +93,7 @@ async def download_image(url: str, target: Path, overwrite: bool) -> str | None:
             async with httpx.AsyncClient(**client_kwargs) as client:
                 response = await client.get(url, headers=headers)
                 response.raise_for_status()
-                target.write_bytes(response.content)
+                await asyncio.to_thread(_write_image, target, response.content)
             return target.name
         except Exception as exc:
             last_exc = exc

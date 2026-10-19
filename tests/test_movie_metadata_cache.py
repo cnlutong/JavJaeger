@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from unittest.mock import AsyncMock
 
 import pytest
@@ -119,3 +120,70 @@ def test_cache_recovers_from_corrupt_json_and_settings_write_errors_are_reported
     assert response.status_code == 500
     assert '缓存' in response.json()['detail']
     client.close()
+
+
+@pytest.mark.parametrize('mode', ['days', 'size'])
+def test_warm_metadata_hits_do_not_scan_or_serialize_other_movies(tmp_path, monkeypatch, mode):
+    import modules.javbus_api.metadata_cache as storage
+    path = tmp_path / 'cache.json'
+    entries = {f'QA-{index}': {'saved_at': storage.time.time(), 'data': {'id': f'QA-{index}', 'title': 'cached'}} for index in range(2000)}
+    path.write_text(json.dumps({'settings': {'mode': mode, 'days': 30, 'mb': 5}, 'entries': entries}))
+    scans, serializations = [], []
+    original_encode = storage.encode
+
+    class CountedEntries(dict):
+        def items(self):
+            scans.append(len(self))
+            return super().items()
+
+    def counted_encode(value):
+        serializations.append(1)
+        return original_encode(value)
+
+    async def exercise():
+        cache = MovieMetadataCache(path)
+        assert await cache.get('QA-1000')
+        cache._entries = CountedEntries(cache._entries)
+        monkeypatch.setattr(storage, 'encode', counted_encode)
+        for _ in range(20):
+            assert (await cache.get('QA-1000'))['title'] == 'cached'
+        assert scans == [], 'a warm hit must not traverse unrelated metadata'
+        assert serializations == [], 'a warm hit must not encode the entire cache'
+    asyncio.run(exercise())
+
+
+def test_metadata_maintenance_runs_off_event_loop_and_rechecks_expiry_after_mutations(tmp_path, monkeypatch):
+    import modules.javbus_api.metadata_cache as storage
+    now = [1_800_000_000]
+    monkeypatch.setattr(storage.time, 'time', lambda: now[0])
+    loop_thread = threading.get_ident()
+    encoding_threads = []
+    original_encode = storage.encode
+
+    def tracked_encode(value):
+        encoding_threads.append(threading.get_ident())
+        return original_encode(value)
+
+    monkeypatch.setattr(storage, 'encode', tracked_encode)
+
+    async def exercise():
+        cache = MovieMetadataCache(tmp_path / 'cache.json')
+        await cache.configure({'mode': 'size', 'days': 1, 'mb': 1})
+        await cache.put({'id': 'QA-OLD', 'title': 'old'})
+        now[0] += 86400
+        assert await cache.get('QA-OLD'), 'size mode must not expire by days'
+        await cache.configure({'mode': 'days', 'days': 1, 'mb': 1})
+        assert await cache.get('QA-OLD') is None
+        await cache.put({'id': 'QA-NEW', 'title': 'new'})
+        assert await cache.get('QA-NEW')
+        with monkeypatch.context() as failed_save:
+            def deny_write():
+                raise PermissionError('cache is read-only')
+            failed_save.setattr(cache, '_save', deny_write)
+            with pytest.raises(PermissionError):
+                await cache.configure({'mode': 'size', 'days': 1, 'mb': 1})
+        now[0] += 86400
+        assert await cache.get('QA-NEW') is None, 'new entries and failed configuration must preserve the next expiry'
+        assert (await cache.status())['count'] == 0
+        assert encoding_threads and all(thread != loop_thread for thread in encoding_threads)
+    asyncio.run(exercise())

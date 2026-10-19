@@ -16,6 +16,7 @@ from modules.history.service import local_actor_library_service
 from modules.history import service as history_service_module
 from modules.common import runtime
 from modules.common import paths as common_paths
+from modules.common import image_download
 from modules.movies import local_scrape
 from modules.movies import local_library as movies_local_library
 from modules.movies import metadata_scrapers
@@ -1105,7 +1106,7 @@ def test_local_scrape_image_download_uses_configured_retry_policy(tmp_path, monk
 
         def raise_for_status(self) -> None:
             if self.status_code >= 400:
-                raise local_scrape.httpx.HTTPStatusError("failed", request=None, response=self)
+                raise image_download.httpx.HTTPStatusError("failed", request=None, response=self)
 
     class FakeAsyncClient:
         def __init__(self, **kwargs) -> None:
@@ -1124,10 +1125,10 @@ def test_local_scrape_image_download_uses_configured_retry_policy(tmp_path, monk
     async def fake_sleep(seconds):
         sleeps.append(seconds)
 
-    monkeypatch.setattr(local_scrape.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(image_download.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(local_scrape.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(
-        local_scrape,
+        image_download,
         "get_javbus_config",
         lambda: {
             "image_retry_attempts": 4,
@@ -1167,9 +1168,9 @@ def test_local_scrape_image_download_uses_configured_javbus_referer(tmp_path, mo
             captured_headers.append(headers or {})
             return FakeResponse()
 
-    monkeypatch.setattr(local_scrape.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(image_download.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(
-        local_scrape,
+        image_download,
         "get_javbus_config",
         lambda: {
             "base_url": "https://javbus.example.test/custom",
@@ -4039,7 +4040,7 @@ def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_
 
         def raise_for_status(self) -> None:
             if self.status_code >= 400:
-                raise local_scrape.httpx.HTTPStatusError("failed", request=None, response=self)
+                raise image_download.httpx.HTTPStatusError("failed", request=None, response=self)
 
     class FakeAsyncClient:
         def __init__(self, **kwargs) -> None:
@@ -4060,7 +4061,7 @@ def test_local_scrape_downloads_images_with_browser_headers_and_keeps_going(tmp_
                 return FakeResponse(url, 403, b"forbidden")
             return FakeResponse(url, 200, f"image:{url}".encode("utf-8"))
 
-    monkeypatch.setattr(local_scrape.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(image_download.httpx, "AsyncClient", FakeAsyncClient)
 
     video = tmp_path / "ABP-123 Sample.mp4"
     metadata = {

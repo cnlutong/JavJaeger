@@ -713,6 +713,7 @@ async def download_missing_local_library_information(
             or any(field in metadata_field_names for field in (record.get("missing_fields") or []))
         )
     ]
+    refresh_movie_id_set = set(refresh_movie_ids)
     _emit_progress(progress_callback, {"phase": "scrape", "total": len(candidate_records),
                                       "message": f"正在联网获取 {len(refresh_movie_ids)} 部影片的资料"})
     metadata_map = await _scrape_metadata(refresh_movie_ids, request.concurrent) if refresh_movie_ids else {}
@@ -729,7 +730,7 @@ async def download_missing_local_library_information(
         record = status.get("record") if isinstance(status, dict) else None
         existing_metadata = record.get("metadata") if isinstance(record, dict) and isinstance(record.get("metadata"), dict) else {}
         scraped = metadata_map.get(movie_id)
-        needs_metadata_refresh = movie_id in set(refresh_movie_ids)
+        needs_metadata_refresh = movie_id in refresh_movie_id_set
         if needs_metadata_refresh and not scraped:
             failed_count += 1
             results.append(

@@ -16,6 +16,13 @@ export function adaptDesignScript(script) {
         script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === 'fs' ? ' || st.fsAdd' : ''}) ? this.${method}() : {}`);
     }
     return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes")
+        .replace('const dm = LIB.find((r) => r.code === st.lbDetail);', `const sortField = st.lbSort.startsWith('发行') ? 'date' : st.lbSort.startsWith('番号') ? 'code' : st.lbSort.includes('体积') ? 'total_size' : 'added';
+    rows.sort((a, b) => sortField === 'total_size' ? Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0) : sortField === 'code' ? a.code.localeCompare(b.code) : String(b[sortField]).localeCompare(String(a[sortField])));
+    const libraryPage = this.pageItems(rows, 'lbPage', [st.lbQ, st.lbActor, st.lbStudio, st.lbRes, st.lbM, st.lbSubOnly, st.lbMissing, st.lbSort]);
+    const dm = LIB.find((r) => r.code === st.lbDetail);`)
+        .replace('rows: rows.map((r) => ({\n        code: r.code, title: r.title, meta:', 'paging: libraryPage.paging,\n      rows: libraryPage.items.map((r) => ({\n        code: r.code, title: r.title, meta:')
+        .replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, 'const shelvesByTab = {};\n\n    const chips')
+        .replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, 'wall: wallRows,\n      heroTitleSize:')
         .replace('const list = this.visible();', "const list = st.route === 'search' ? this.visible() : [];")
         .replace('const rows = list.map((m) => {', "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {")
         .replace('actors: CN_ACTORS.map((a) => {', 'actors: (showActors ? CN_ACTORS : []).map((a) => {')
@@ -512,14 +519,15 @@ export function connectDesign(Base) {
             if (this._polling || this._disposed) return;
             this._polling = true;
             try {
-                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) await this.perform(() => this.loadTranscodes());
-                if (this.state.route === 'storage' && this.state.connections.aria2_connected) await this.perform(() => this.loadAria());
-                if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) await this.perform(() => this.loadTasks());
-                await this.perform(() => this.pollInformation());
+                const pending = [];
+                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes()));
+                if (this.state.route === 'storage' && this.state.connections.aria2_connected) pending.push(this.perform(() => this.loadAria()));
+                if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) pending.push(this.perform(() => this.loadTasks()));
+                pending.push(this.perform(() => this.pollInformation()));
                 for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/'], ['dispatchTask', '/api/115/download-jobs/'], ['cleanupTask', '/api/movies/local-library/clean-invalid/jobs/']]) {
                     const current = this.state[key];
                     if (!current || ['success', 'completed', 'failed'].includes(current.status)) continue;
-                    await this.perform(async () => {
+                    pending.push(this.perform(async () => {
                         let task;
                         try { task = await this.request(prefix + id(current.id)); }
                         catch (error) {
@@ -561,9 +569,10 @@ export function connectDesign(Base) {
                             else this.applyScrapeResult(task.result);
                         } else if (task.status === 'failed') { this.setState(key === 'scrapeTask' ? { scPhase: 'idle' } : { lbScanning: false }); throw new Error(safeText(task.message || task.error)); }
                         else if (key === 'scrapeTask') this.setState({ scPct: task.percent || 0 });
-                    });
+                    }));
                 }
-                if (this.state.qr?.session_id) await this.pollQr();
+                if (this.state.qr?.session_id) pending.push(this.perform(() => this.pollQr()));
+                await Promise.all(pending);
             } finally { this._polling = false; }
         }
 
@@ -884,10 +893,6 @@ export function connectDesign(Base) {
             view.checkItems = [['title', '标题'], ['date', '发行日期'], ['stars', '演员'], ['genres', '标签'], ['cover_url', '封面链接'], ['nfo', 'NFO 文件'], ['poster_file', '本地封面']].map(([key, label]) => ({ label, hint: '', on: st.infoFields.includes(key), toggle: () => this.setState({ infoFields: st.infoFields.includes(key) ? st.infoFields.filter(value => value !== key) : [...st.infoFields, key] }) }));
             view.scanMessage = st.scanTask?.message || '扫描任务运行中，完成后自动更新';
             view.scanPercent = st.scanTask?.percent || 0;
-            const sortField = st.lbSort.startsWith('发行') ? 'date' : st.lbSort.startsWith('番号') ? 'code' : st.lbSort.includes('体积') ? 'total_size' : 'added';
-            view.rows.sort((a, b) => { const left = this.libraryByCode.get(a.code), right = this.libraryByCode.get(b.code); return sortField === 'total_size' ? Number(right.raw.total_size || 0) - Number(left.raw.total_size || 0) : sortField === 'code' ? left.code.localeCompare(right.code) : String(right[sortField]).localeCompare(String(left[sortField])); });
-            const page = this.pageItems(view.rows, 'lbPage', [st.lbQ, st.lbActor, st.lbStudio, st.lbRes, st.lbM, st.lbSubOnly, st.lbMissing, st.lbSort]);
-            view.rows = page.items; view.paging = page.paging;
             for (const row of view.rows) { const movie = this.libraryByCode.get(row.code); row.cover = movie?.cover; row.cNote = movie?.unchecked ? '本地文件待核验' : st.checkResult ? row.cNote : '待检查'; row.completeness = st.checkResult && !movie?.unchecked ? row.completeness : '—'; }
             view.actorOptions = ['全部演员', ...new Set(data.LIB.flatMap(movie => movie.actors))].map(t => ({ t }));
             view.studioOptions = ['全部制作商', ...new Set(data.LIB.map(movie => movie.studio))].map(t => ({ t }));

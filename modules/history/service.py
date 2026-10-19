@@ -890,8 +890,18 @@ class LocalMovieLibraryService:
         selected_fields = normalize_local_library_information_fields(field_names)
         if refresh_files and any(field in selected_fields for field in ("nfo", "poster_file")):
             await self.refresh_file_states()
-        records = copy.deepcopy(await self.get_all())
-        return await asyncio.to_thread(self._check_information, records, selected_fields)
+        records = []
+        for record in await self.get_all():
+            # Snapshot validation inputs, not scraped payloads or media details.
+            snapshot = {key: record[key] for key in ("movie_id", "scrape_status", "img", *LOCAL_LIBRARY_INFORMATION_FIELDS) if key in record}
+            metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+            snapshot["metadata"] = {key: metadata[key] for key in LOCAL_LIBRARY_INFORMATION_FIELDS if key in metadata}
+            raw = metadata.get("raw")
+            if isinstance(raw, dict):
+                snapshot["metadata"]["raw"] = {"id": raw.get("id")}
+            snapshot["files"] = [{"filesystem": file.get("filesystem", {})} for file in record.get("files", [])]
+            records.append(snapshot)
+        return await asyncio.to_thread(self._check_information, copy.deepcopy(records), selected_fields)
 
     def _check_information(self, records: list[dict[str, Any]], selected_fields: tuple[str, ...]) -> dict[str, Any]:
         checked_records: list[dict[str, Any]] = []

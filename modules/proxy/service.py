@@ -70,6 +70,7 @@ class ImageProxyService:
             if not re.fullmatch(r"[a-f0-9]{64}", path.stem) or path.is_symlink(): continue
             stat = path.stat()
             self._entries[path.stem] = (stat.st_size, stat.st_mtime_ns)
+        self._prune()
         self._loaded = True
 
     def _prune(self, extra=0):
@@ -82,7 +83,7 @@ class ImageProxyService:
             used -= length
 
     def _read(self, key):
-        self._load(); self._prune()
+        self._load()
         if key not in self._entries: return None
         path = self.directory / (key + ".image")
         try:

@@ -14,6 +14,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from modules.automation.service import AutomationService
+from modules.automation.schemas import AutomationNode, AutomationTaskCreate
+from modules.common import image_download
 from modules.history.service import ActorLibraryService, DownloadHistoryService, LocalMovieLibraryService, javbus_api_service
 from modules.javbus_api.client import JavBusClient
 from modules.movies.transcoding import TranscodingService
@@ -137,6 +139,131 @@ def test_automation_polling_reuses_parsed_file_and_detects_external_updates(tmp_
         path.write_text('{"tasks": [{}]}', encoding="utf-8")
         with pytest.raises(ValidationError):
             await service.list_tasks()
+
+    asyncio.run(check())
+
+
+def test_automation_persistence_leaves_api_event_loop_available(tmp_path, monkeypatch):
+    path = tmp_path / "tasks.json"
+    work_threads = []
+    encode, write, replace = json.dumps, Path.write_text, Path.replace
+
+    def encoding(payload, *args, **kwargs):
+        if isinstance(payload, dict) and "tasks" in payload:
+            work_threads.append(threading.get_ident())
+        return encode(payload, *args, **kwargs)
+
+    def writing(target, *args, **kwargs):
+        if target == path.with_suffix(".json.tmp"):
+            work_threads.append(threading.get_ident())
+        return write(target, *args, **kwargs)
+
+    def replacing(source, target):
+        if target == path:
+            work_threads.append(threading.get_ident())
+        return replace(source, target)
+
+    monkeypatch.setattr(json, "dumps", encoding)
+    monkeypatch.setattr(Path, "write_text", writing)
+    monkeypatch.setattr(Path, "replace", replacing)
+
+    async def check():
+        service = AutomationService(str(path), scheduler_enabled=False)
+        task = await service.create_task(AutomationTaskCreate(name="QA", nodes=[
+            AutomationNode(id=kind, type=kind) for kind in ("trigger", "search", "magnet", "download")
+        ]))
+        assert len(work_threads) == 3
+        assert threading.get_ident() not in work_threads
+        assert (await service.list_tasks())[0].id == task.id
+        assert not path.with_suffix(".json.tmp").exists()
+
+    asyncio.run(check())
+
+
+def test_cancelled_automation_save_cannot_overwrite_a_later_success(tmp_path, monkeypatch):
+    service = AutomationService(str(tmp_path / "tasks.json"), scheduler_enabled=False)
+    started, release = threading.Event(), threading.Event()
+    write = service._write_tasks
+
+    def blocked_write(tasks):
+        if not started.is_set():
+            started.set()
+            assert release.wait(5)
+        write(tasks)
+
+    monkeypatch.setattr(service, "_write_tasks", blocked_write)
+
+    async def check():
+        nodes = [AutomationNode(id=kind, type=kind) for kind in ("trigger", "search", "magnet", "download")]
+        first = asyncio.create_task(service.create_task(AutomationTaskCreate(name="first", nodes=nodes)))
+        second = None
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            first.cancel()
+            second = asyncio.create_task(service.create_task(AutomationTaskCreate(name="second", nodes=nodes)))
+            done, _ = await asyncio.wait({first, second}, timeout=0.05)
+            assert not done, "a cancelled save must retain its lock until the writer stops"
+            first.cancel()
+            done, _ = await asyncio.wait({first, second}, timeout=0.05)
+            assert not done, "repeated cancellation must not release an active writer's lock"
+        finally:
+            release.set()
+            results = await asyncio.gather(first, *([second] if second else []), return_exceptions=True)
+        assert isinstance(results[0], asyncio.CancelledError)
+        assert {task.name for task in await service.list_tasks()} == {"first", "second"}
+
+    asyncio.run(check())
+
+
+@pytest.mark.parametrize("downloader", [image_download.download_image, local_scrape._download_image])
+@pytest.mark.parametrize("url", ["data:image/png;base64,aW1hZ2U=", "https://example.invalid/image.png"])
+def test_image_download_disk_access_leaves_api_event_loop_available(tmp_path, monkeypatch, downloader, url):
+    target = tmp_path / "covers" / "poster.jpg"
+    work_threads, requests = [], []
+    publication_steps = []
+    mkdir, exists, replace = Path.mkdir, Path.exists, Path.replace
+    open_file = Path.open
+
+    def making(path, *args, **kwargs):
+        work_threads.append(threading.get_ident())
+        return mkdir(path, *args, **kwargs)
+
+    def checking(path):
+        work_threads.append(threading.get_ident())
+        return exists(path)
+
+    def creating(path, mode='r', *args, **kwargs):
+        if mode == 'xb':
+            work_threads.append(threading.get_ident())
+            publication_steps.append('create')
+        return open_file(path, mode, *args, **kwargs)
+
+    def replacing(path, destination):
+        work_threads.append(threading.get_ident())
+        publication_steps.append('replace')
+        return replace(path, destination)
+
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, **kwargs):
+            requests.append(url)
+            return SimpleNamespace(content=b"image", raise_for_status=lambda: None)
+
+    monkeypatch.setattr(Path, "mkdir", making)
+    monkeypatch.setattr(Path, "exists", checking)
+    monkeypatch.setattr(Path, "replace", replacing)
+    monkeypatch.setattr(Path, "open", creating)
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+
+    async def check():
+        assert await downloader(url, target, True) == target.name
+        assert await downloader(url, target, False) == target.name
+        assert target.read_bytes() == b"image"
+        assert len(requests) == (0 if url.startswith("data:") else 1)
+        assert publication_steps == ['create', 'replace']
+        assert work_threads and threading.get_ident() not in work_threads
 
     asyncio.run(check())
 

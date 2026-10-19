@@ -29,6 +29,7 @@ class MovieMetadataCache:
         self._loaded = False
         self._settings = dict(DEFAULT_SETTINGS)
         self._entries = {}
+        self._next_expiry = 0
 
     def _load(self):
         if self._loaded:
@@ -56,11 +57,15 @@ class MovieMetadataCache:
     def _payload(self):
         return {"version": 1, "settings": self._settings, "entries": self._entries}
 
-    def _prune(self):
+    def _prune(self, force=False):
+        if not force and time.time() < self._next_expiry:
+            return False
         before = len(self._entries)
+        self._next_expiry = math.inf
         if self._settings["mode"] == "days":
             cutoff = time.time() - self._settings["days"] * 86400
             self._entries = {key: entry for key, entry in self._entries.items() if entry["saved_at"] > cutoff}
+            self._next_expiry = min((entry["saved_at"] + self._settings["days"] * 86400 for entry in self._entries.values()), default=math.inf)
         else:
             total = len(encode(self._payload()))
             for key, entry in list(self._entries.items()):
@@ -81,8 +86,9 @@ class MovieMetadataCache:
 
     async def get(self, movie_id):
         async with self._lock:
-            await asyncio.to_thread(self._load)
-            if self._prune():
+            if not self._loaded:
+                await asyncio.to_thread(self._load)
+            if time.time() >= self._next_expiry and await asyncio.to_thread(self._prune):
                 await asyncio.to_thread(self._save)
             entry = self._entries.get(str(movie_id).strip().upper())
             return copy.deepcopy(entry["data"]) if entry else None
@@ -96,28 +102,29 @@ class MovieMetadataCache:
             await asyncio.to_thread(self._load)
             self._entries.pop(data["id"], None)
             self._entries[data["id"]] = {"saved_at": time.time(), "data": data}
-            self._prune()
+            await asyncio.to_thread(self._prune, True)
             await asyncio.to_thread(self._save)
 
     async def status(self):
         async with self._lock:
             await asyncio.to_thread(self._load)
-            if self._prune():
+            if await asyncio.to_thread(self._prune):
                 await asyncio.to_thread(self._save)
             return {"settings": dict(self._settings), "count": len(self._entries),
-                    "size_bytes": len(encode(self._payload())) if self.file_path.exists() else 0}
+                    "size_bytes": await asyncio.to_thread(lambda: len(encode(self._payload())) if self.file_path.exists() else 0)}
 
     async def configure(self, values):
         if not valid_settings(values):
             raise ValueError("请选择缓存清理方式，缓存天数和空间上限必须是正整数")
         async with self._lock:
             await asyncio.to_thread(self._load)
-            previous_settings, previous_entries = self._settings, dict(self._entries)
+            previous_settings, previous_entries, previous_expiry = self._settings, dict(self._entries), self._next_expiry
             self._settings = {key: values[key] for key in DEFAULT_SETTINGS}
-            self._prune()
+            await asyncio.to_thread(self._prune, True)
             try:
                 await asyncio.to_thread(self._save)
             except OSError:
                 self._settings, self._entries = previous_settings, previous_entries
+                self._next_expiry = previous_expiry
                 raise
         return await self.status()

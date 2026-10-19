@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import datetime
 import errno
 import json
@@ -14,9 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import httpx
-
-from modules.common.runtime import get_javbus_config, get_local_library_config
+from modules.common.runtime import get_local_library_config
+from modules.common.image_download import download_image as _download_image
 from modules.common.paths import UserPathError, resolve_existing_directory, resolve_existing_file, resolve_user_path
 from modules.history.service import local_actor_library_service, local_movie_library_service
 from modules.javbus_api import javbus_api_service
@@ -57,27 +55,6 @@ SKIPPED_DIRECTORY_NAMES = {"behind the scenes", "backdrops"}
 TS_MIN_VIDEO_SIZE = 10 * 1024 * 1024
 MPEG_TS_PACKET_SIZE = 188
 MPEG_TS_SYNC_BYTE = 0x47
-IMAGE_DOWNLOAD_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.javbus.com/",
-    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-}
-DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS = 3
-DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS = 0.25
-
-
-def _image_download_headers(javbus_config: dict[str, Any]) -> dict[str, str]:
-    headers = dict(IMAGE_DOWNLOAD_HEADERS)
-    base_url = str(javbus_config.get("base_url") or "").strip()
-    if base_url:
-        headers["Referer"] = f"{base_url.rstrip('/')}/"
-    return headers
-
-
 DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     (re.compile(r"(?i)(FC2)-?PPV-?(\d{6,8})"), 100),
     (re.compile(r"(?i)(\d{3}[A-Z]{2,6})-(\d{3,5})"), 95),
@@ -1296,55 +1273,6 @@ def _write_nfo(video_path: Path, metadata: dict[str, Any], poster_name: str | No
     nfo_path = video_path.with_suffix(".nfo")
     nfo_path.write_bytes(b'\xef\xbb\xbf<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml)
     return nfo_path
-
-
-async def _download_image(url: str, target: Path, overwrite: bool) -> str | None:
-    if not url:
-        return None
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and not overwrite:
-        return target.name
-    if url.startswith("data:"):
-        _, _, payload = url.partition(",")
-        target.write_bytes(base64.b64decode(payload))
-        return target.name
-    javbus_config = get_javbus_config()
-    headers = _image_download_headers(javbus_config)
-    client_kwargs: dict[str, Any] = {"timeout": 20.0, "follow_redirects": True}
-    proxy = javbus_config.get("proxy")
-    if proxy:
-        client_kwargs["proxy"] = proxy
-    retry_attempts_value = javbus_config.get("image_retry_attempts")
-    try:
-        retry_attempts = int(
-            DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS if retry_attempts_value in (None, "") else retry_attempts_value
-        )
-    except (TypeError, ValueError):
-        retry_attempts = DEFAULT_IMAGE_DOWNLOAD_ATTEMPTS
-    retry_attempts = max(1, min(retry_attempts, 10))
-    retry_backoff_value = javbus_config.get("image_retry_backoff_seconds")
-    try:
-        retry_backoff = float(
-            DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS if retry_backoff_value in (None, "") else retry_backoff_value
-        )
-    except (TypeError, ValueError):
-        retry_backoff = DEFAULT_IMAGE_DOWNLOAD_BACKOFF_SECONDS
-    retry_backoff = max(0.0, min(retry_backoff, 10.0))
-    last_exc: Exception | None = None
-    for attempt in range(1, retry_attempts + 1):
-        try:
-            async with httpx.AsyncClient(**client_kwargs) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                target.write_bytes(response.content)
-            return target.name
-        except Exception as exc:
-            last_exc = exc
-            if attempt < retry_attempts and retry_backoff > 0:
-                await asyncio.sleep(retry_backoff * attempt)
-    if last_exc:
-        raise last_exc
-    return target.name
 
 
 async def _download_image_or_warn(url: str, target: Path, overwrite: bool) -> str | None:

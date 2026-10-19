@@ -528,6 +528,19 @@ class AutomationService:
         return [task.model_copy(deep=True) for task in self._cached_tasks]
 
     async def _save_tasks_unlocked(self, tasks: list[AutomationTask]) -> None:
+        writing = asyncio.create_task(asyncio.to_thread(self._write_tasks, tasks))
+        cancelled = False
+        while True:
+            try:
+                await asyncio.shield(writing)
+                break
+            except asyncio.CancelledError:
+                # Keep the caller's lock until its writer can no longer replace the file.
+                cancelled = True
+        if cancelled:
+            raise asyncio.CancelledError
+
+    def _write_tasks(self, tasks: list[AutomationTask]) -> None:
         self._cache_signature = None
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"tasks": [task.model_dump() for task in tasks]}

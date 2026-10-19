@@ -177,3 +177,43 @@ def test_corrupt_cached_images_and_interrupted_writes_are_reclaimed(tmp_path, mo
         assert not list(tmp_path.glob('*.tmp'))
         assert (await proxy.status())['count'] == 1
     asyncio.run(exercise())
+
+
+def test_warm_image_hits_do_not_scan_unrelated_cached_files(tmp_path, monkeypatch):
+    for index in range(2000):
+        (tmp_path / (f'{index:064x}' + '.image')).write_bytes(b'image/png\n' + PNG)
+    mocked_source(monkeypatch, lambda request: httpx.Response(200, content=PNG, headers={'content-type': 'image/png'}))
+    scans = []
+
+    class CountedEntries(dict):
+        def values(self):
+            scans.append(len(self))
+            return super().values()
+
+    async def exercise():
+        proxy = service.ImageProxyService(tmp_path)
+        assert await proxy.get_image(URL) == (PNG, 'image/png')
+        proxy._entries = CountedEntries(proxy._entries)
+        for _ in range(20):
+            assert await proxy.get_image(URL) == (PNG, 'image/png')
+        assert scans == [], 'a warm image hit must not sum the entire image index'
+    asyncio.run(exercise())
+
+
+def test_restarted_image_cache_prunes_the_saved_budget_before_serving_hits(tmp_path):
+    import hashlib
+    import os
+    urls = ['https://www.javbus.com/old.png', 'https://www.javbus.com/new.png']
+    paths = [tmp_path / (hashlib.sha256(url.encode()).hexdigest() + '.image') for url in urls]
+    for index, path in enumerate(paths):
+        path.write_bytes(b'image/png\n' + PNG + b'x' * 600000)
+        os.utime(path, ns=(index + 1, index + 1))
+    (tmp_path / 'settings.json').write_text('{"mb":1}')
+
+    async def exercise():
+        proxy = service.ImageProxyService(tmp_path)
+        assert (await proxy.get_image(urls[1]))[1] == 'image/png'
+        assert not paths[0].exists() and paths[1].exists()
+        status = await proxy.status()
+        assert status['count'] == 1 and status['size_bytes'] <= 1024 ** 2
+    asyncio.run(exercise())

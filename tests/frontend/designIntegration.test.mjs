@@ -180,6 +180,28 @@ test('performance: unchanged task polling does not schedule a render', async () 
     assert.equal(renders, 1);
 });
 
+test('performance: slow transcodes do not delay independent background job progress', async () => {
+    const instance = app(), requests = [];
+    instance.setState({ informationTask: { id: 'info', status: 'running' }, scanTask: { id: 'scan', status: 'running' }, qr: { session_id: 'qr', status: 0 } });
+    let release;
+    globalThis.fetch = async url => {
+        requests.push(url);
+        if (url.includes('/qrcode/')) return new Response('{}', { status: 503 });
+        return url.endsWith('/transcoding/tasks') ? new Promise(resolve => { release = resolve; }) : json({ status: 'running', percent: 40 });
+    };
+    const pending = instance.poll();
+    pending.catch(() => {});
+    await new Promise(resolve => setImmediate(resolve));
+    try {
+        assert.ok(requests.includes('/api/movies/local-library/information/jobs/info'), 'information progress starts while the transcode response is pending');
+        assert.ok(requests.includes('/api/movies/local-library/scan/jobs/scan'), 'scan progress starts while the transcode response is pending');
+        assert.equal(instance.state.informationTask.percent, 40);
+        assert.equal(instance.state.scanTask.percent, 40);
+        await instance.poll();
+        assert.equal(requests.length, 4, 'a failed QR request does not allow another poll to overlap the pending cycle');
+    } finally { release(json({ tasks: [] })); await pending; instance.componentWillUnmount(); }
+});
+
 test('performance: duplicate reads share a request but a write starts a fresh read', async () => {
     const instance = app(), reads = [];
     globalThis.fetch = async (url, options) => options.method === 'GET'
@@ -768,6 +790,32 @@ test('performance: library and cinema avoid quadratic full-library lookups', asy
     lookups = 0; instance.vCinema();
     assert.ok(lookups < count * 40, `cinema code accesses: ${lookups}`);
     assert.ok(predicates <= count * data.FILTER_DIMS.length, `facet scans: ${predicates}`);
+});
+
+test('performance: 10000-film library and cinema format only the visible page', async t => {
+    for (const method of ['vLibrary', 'vCinema']) await t.test(method, async () => {
+        const instance = app(), count = 10000;
+        await loadRecords(instance, Array.from({ length: count }, (_, i) => localRecord(`QA-${String(count - i - 1).padStart(5, '0')}`)));
+        const data = Object.getPrototypeOf(instance.constructor).data;
+        let titles = 0;
+        for (const movie of data.LIB) {
+            const title = movie.title;
+            Object.defineProperty(movie, 'title', { get() { titles++; return title; }, configurable: true });
+        }
+        instance.setState({ lbSort: '番号 A→Z', cnTab: '全部影片', cnSort: '番号' });
+        let view = instance[method](), rows = view.rows || view.wall;
+        assert.equal(rows.length, 60);
+        assert.equal(rows[0].code, 'QA-00000');
+        assert.match(view.paging.text, /10000/);
+        assert.ok(titles <= 64, `${method} formatted ${titles} titles for one 60-film page`);
+        view.paging.next();
+        view = instance[method]();
+        assert.equal((view.rows || view.wall)[0].code, 'QA-00060');
+        instance.setState({ lbQ: 'QA-09999', cnQ: 'QA-09999' });
+        view = instance[method]();
+        assert.deepEqual((view.rows || view.wall).map(row => row.code), ['QA-09999'], 'filtering still examines the full library and resets pagination');
+        assert.equal(view.paging.visible, false);
+    });
 });
 
 test('performance: series shelves are bounded and can open every film in a series', async () => {
