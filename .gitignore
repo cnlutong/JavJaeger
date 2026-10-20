@@ -39,3 +39,9 @@ actor_images/
 
 
 data/downloaded_movies.json
+
+# Android TV local configuration and generated output
+android-tv/.gradle/
+android-tv/.kotlin/
+android-tv/local.properties
+android-tv/**/build/

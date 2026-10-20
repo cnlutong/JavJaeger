@@ -1,0 +1,193 @@
+package com.javjaeger.tv;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import static org.junit.Assert.*;
+
+public class LibraryClientTest {
+    private ServerSocket server;
+    private Thread serverThread;
+    private String address;
+    private final AtomicReference<String> body = new AtomicReference<>("{}");
+    private final AtomicReference<String> requested = new AtomicReference<>();
+    private final AtomicReference<String> redirect = new AtomicReference<>();
+    private final AtomicReference<Integer> responseCode = new AtomicReference<>(200);
+    private final AtomicBoolean chunked = new AtomicBoolean();
+
+    @Before public void startServer() throws IOException {
+        server = new ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"));
+        serverThread = new Thread(() -> {
+            while (!server.isClosed()) try (Socket socket = server.accept()) {
+                socket.setSoTimeout(1000);
+                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                requested.set(reader.readLine().split(" ")[1]);
+                String line;
+                while ((line = reader.readLine()) != null && !line.isEmpty()) { }
+                byte[] bytes = body.get().getBytes(StandardCharsets.UTF_8);
+                String headers = "HTTP/1.1 " + responseCode.get() + " Test\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                        + (redirect.get() == null ? "" : "Location: " + redirect.get() + "\r\n")
+                        + (chunked.get() ? "Transfer-Encoding: chunked\r\n" : "Content-Length: " + bytes.length + "\r\n") + "\r\n";
+                OutputStream output = socket.getOutputStream();
+                output.write(headers.getBytes(StandardCharsets.UTF_8));
+                if (chunked.get()) output.write((Integer.toHexString(bytes.length) + "\r\n").getBytes(StandardCharsets.UTF_8));
+                output.write(bytes);
+                if (chunked.get()) output.write("\r\n0\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ignored) { /* Shutdown or a size-limited client can close the connection. */ }
+        });
+        serverThread.setDaemon(true);
+        serverThread.start();
+        address = "http://127.0.0.1:" + server.getLocalPort();
+    }
+
+    @After public void stopServer() throws Exception { server.close(); serverThread.join(1000); }
+
+    @Test public void normalizesServerWithoutDroppingSubpathOrIpv6() {
+        assertEquals("https://example.test/javjaeger", LibraryClient.normalizeServer("  https://example.test/javjaeger///  "));
+        assertEquals("http://[::1]:8000/media", LibraryClient.normalizeServer("http://[::1]:8000/media/"));
+        assertEquals("https://example.test", new LibraryClient("https://example.test/").getBaseUrl());
+        for (String invalid : new String[]{null, "", "example.test", "file:///secret", "javascript:alert(1)",
+                "https://user:secret@example.test", "https://example.test?token=secret", "https://example.test/#secret",
+                "https:///missing", "http://example.test:70000", "http://example.test:0", "http://example.test:-2", "http://example.test/\\other"}) {
+            try { LibraryClient.normalizeServer(invalid); fail("Accepted an invalid address"); }
+            catch (IllegalArgumentException expected) { assertFalse(expected.getMessage().contains("secret")); }
+        }
+    }
+
+    @Test public void loadsCompactLibraryAndMapsNativeCinemaFields() throws Exception {
+        body.set("{\"success\":true,\"records\":[{\"movie_id\":\"QA-001\",\"title\":\"影院影片\",\"date\":\"2025-03-01\","
+                + "\"stars\":[\"Alice\",{\"name\":\"演员\"}],\"genres\":[{\"name\":\"剧情\"}],\"media_info\":{\"height\":2160},"
+                + "\"metadata\":{\"plot\":\"本地简介\"},\"files\":[{\"path\":\"/private/library/QA-001-CD1.mp4\",\"exists\":true},null,"
+                + "{\"path\":\"C:\\\\media\\\\QA-001-CD2.mkv\",\"exists\":false},{\"file_name\":\"自选版本.mp4\"}]}]}");
+        LibraryClient client = new LibraryClient(address + "/media/");
+        List<Movie> movies = client.loadMovies();
+        assertEquals("/media/api/movies/local-library?compact=true", requested.get());
+        assertEquals(1, movies.size());
+        Movie movie = movies.get(0);
+        assertEquals("QA-001", movie.id);
+        assertEquals("影院影片", movie.title);
+        assertEquals("本地简介", movie.description);
+        assertEquals("2025", movie.year);
+        assertEquals("2160p", movie.quality);
+        assertEquals("Alice", movie.actors.get(0));
+        assertEquals("剧情", movie.tags.get(0));
+        assertEquals(3, movie.files.size());
+        assertEquals(0, movie.files.get(0).index);
+        assertEquals("QA-001-CD1.mp4", movie.files.get(0).label);
+        assertEquals(2, movie.files.get(1).index);
+        assertEquals("QA-001-CD2.mkv", movie.files.get(1).label);
+        assertTrue(movie.files.get(1).missing);
+        assertFalse(movie.files.get(2).missing);
+        assertTrue(movie.matches("  alice  "));
+        assertTrue(movie.matches("qa-001"));
+        assertTrue(movie.matches("演员"));
+        assertTrue(movie.matches("剧情"));
+        assertTrue(movie.matches(""));
+        assertFalse(movie.matches("does not exist"));
+        try { movie.files.clear(); fail("Mutable movie files"); } catch (UnsupportedOperationException expected) { }
+    }
+
+    @Test public void loadsDetailWithMetadataFallbacksAndBuildsOnlySameOriginUrls() throws Exception {
+        body.set("{\"success\":true,\"in_local_library\":true,\"record\":{\"movie_id\":\"QA-002\",\"metadata\":{\"title\":\"详情\","
+                + "\"description\":\"简介\",\"date\":\"2024-01-01\",\"stars\":[{\"name\":\"Alice\"}],\"genres\":[\"VR\"],"
+                + "\"media_info\":{\"height\":1080}},\"poster_url\":\"http://evil.test/secret\",\"files\":[{\"path\":\"http://evil.test/video\"}]}}");
+        LibraryClient client = new LibraryClient(address + "/base");
+        Movie movie = client.loadMovie("QA-002");
+        assertEquals("/base/api/movies/local-library/QA-002", requested.get());
+        assertEquals("详情", movie.title);
+        assertEquals("简介", movie.description);
+        assertEquals("2024", movie.year);
+        assertEquals("1080p", movie.quality);
+        assertEquals(address + "/base/api/movies/local-library/poster/QA-002", client.posterUrl(movie.id));
+        assertEquals(address + "/base/api/movies/local-library/QA-002/play?file_index=0", client.playbackUrl(movie.id, 0));
+        for (String invalid : new String[]{"", "..", "../secrets", "QA-002?token=secret", "http://evil.test"}) {
+            try { client.posterUrl(invalid); fail("Accepted invalid movie ID"); }
+            catch (IllegalArgumentException expected) { assertFalse(expected.getMessage().contains("secret")); }
+        }
+        try { client.playbackUrl("QA-002", -1); fail("Accepted a negative file index"); }
+        catch (IllegalArgumentException expected) { }
+    }
+
+    @Test public void rejectsHttpApiAndMalformedJsonErrorsWithoutExposingResponse() throws Exception {
+        LibraryClient client = new LibraryClient(address);
+        for (String response : new String[]{"secret password", "{\"success\":false,\"message\":\"secret password\"}",
+                "{\"success\":true,\"records\":\"secret password\"}", "{\"success\":true,\"records\":[{\"title\":\"secret password\"}]}"}) {
+            body.set(response);
+            assertSafeFailure(client, false);
+        }
+        body.set("{\"success\":true,\"in_local_library\":false,\"record\":null}");
+        assertSafeFailure(client, true);
+        body.set("secret password");
+        responseCode.set(500);
+        assertSafeFailure(client, false);
+    }
+
+    @Test public void detailReadsRawFileResolutionAndFilesystemState() throws Exception {
+        body.set("{\"success\":true,\"in_local_library\":true,\"record\":{\"movie_id\":\"QA-003\",\"files\":["
+                + "{\"path\":\"/media/part1.mp4\",\"height\":720,\"filesystem\":{\"exists\":false}},"
+                + "{\"path\":\"/media/part2.mp4\",\"height\":1080,\"filesystem\":{\"exists\":true}}]}}");
+        Movie movie = new LibraryClient(address).loadMovie("QA-003");
+        assertEquals("1080p", movie.quality);
+        assertTrue(movie.files.get(0).missing);
+        assertFalse(movie.files.get(1).missing);
+    }
+
+    @Test public void artworkUsesRegisteredLocalAssetsThenSameOriginImageProxy() throws Exception {
+        body.set("{\"success\":true,\"records\":["
+                + "{\"movie_id\":\"QA-010\",\"metadata\":{\"cover_url\":\"https://cdn.example/封面.jpg?size=720&crop=1\"}},"
+                + "{\"movie_id\":\"QA-011\",\"poster_url\":\"/api/movies/local-library/poster/QA-011\",\"cover_url\":\"https://cdn.example/remote.jpg\"},"
+                + "{\"movie_id\":\"QA-012\",\"cover_url\":\"https://cdn.example/remote.jpg\",\"files\":[{\"filesystem\":{\"thumbnail\":true}}]},"
+                + "{\"movie_id\":\"QA-013\",\"poster_url\":\"/api/system/settings\",\"cover_url\":\"file:///secret\",\"metadata\":{\"img\":\"https://cdn.example/fallback.jpg\"}},"
+                + "{\"movie_id\":\"QA-014\",\"cover_url\":\"https://user:secret@cdn.example/a.jpg\",\"img\":\"javascript:alert(1)\",\"metadata\":{\"cover_url\":\"//cdn.example/a.jpg\"}},"
+                + "{\"movie_id\":\"QA-015\",\"poster_url\":\"/api/movies/local-library/poster/OTHER\",\"files\":[{\"filesystem\":{\"poster\":true}}]},"
+                + "{\"movie_id\":\"QA-016\",\"thumbnail_url\":\"/api/movies/local-library/thumbnail/QA-016\"},"
+                + "{\"movie_id\":\"QA-017\",\"cover_url\":\"https://cdn.example:70000/a.jpg\",\"metadata\":{\"list_thumbnail_url\":\"https://cdn.example/thumb.jpg\"}}]}");
+        LibraryClient client = new LibraryClient(address + "/base");
+        List<Movie> movies = client.loadMovies();
+        assertEquals(address + "/base/api/image-proxy?url=https%3A%2F%2Fcdn.example%2F%E5%B0%81%E9%9D%A2.jpg%3Fsize%3D720%26crop%3D1", client.posterUrl(movies.get(0)));
+        assertEquals(client.posterUrl("QA-011"), client.posterUrl(movies.get(1)));
+        assertEquals(address + "/base/api/movies/local-library/thumbnail/QA-012", client.posterUrl(movies.get(2)));
+        assertEquals(address + "/base/api/image-proxy?url=https%3A%2F%2Fcdn.example%2Ffallback.jpg", client.posterUrl(movies.get(3)));
+        assertEquals(client.posterUrl("QA-014"), client.posterUrl(movies.get(4)));
+        assertEquals(client.posterUrl("QA-015"), client.posterUrl(movies.get(5)));
+        assertEquals(address + "/base/api/movies/local-library/thumbnail/QA-016", client.posterUrl(movies.get(6)));
+        assertEquals(address + "/base/api/image-proxy?url=https%3A%2F%2Fcdn.example%2Fthumb.jpg", client.posterUrl(movies.get(7)));
+    }
+
+    @Test public void neverFollowsRedirects() throws Exception {
+        redirect.set("http://127.0.0.1:1/secret-password");
+        responseCode.set(302);
+        assertSafeFailure(new LibraryClient(address), false);
+        assertEquals("/api/movies/local-library?compact=true", requested.get());
+    }
+
+    @Test public void boundsServerResponsesAtSixteenMebibytes() throws Exception {
+        char[] large = new char[16 * 1024 * 1024 + 1];
+        java.util.Arrays.fill(large, 'x');
+        body.set(new String(large));
+        assertSafeFailure(new LibraryClient(address), false);
+        chunked.set(true);
+        assertSafeFailure(new LibraryClient(address), false);
+    }
+
+    private static void assertSafeFailure(LibraryClient client, boolean detail) {
+        try {
+            if (detail) client.loadMovie("QA-001"); else client.loadMovies();
+            fail("Accepted an invalid response");
+        } catch (IOException expected) {
+            assertFalse(expected.toString().contains("secret"));
+            assertFalse(expected.toString().contains("password"));
+            assertNull(expected.getCause());
+        }
+    }
+}

@@ -118,6 +118,14 @@ npm run test:browser
 
 普通源码由 `.gitattributes` 统一使用 LF。原始设计文件、`archive/` 和运行数据保留字节内容；生成的前端 bundle 只通过构建更新。Windows 路径行为使用明确的兼容性用例验证，普通文件工作流测试使用临时路径，避免绑定开发机的盘符。
 
+### Android TV 客户端
+
+下载编译好的 APK：[JavJaeger TV v0.1.0 测试版](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.1.0)。
+
+`android-tv/` 是独立原生电视客户端，连接现有 JavJaeger 服务器，提供海报浏览、影片搜索、详情、文件选择及原文件分段播放。支持 Android 6.0（API 23）及以上的 Android TV；服务器继续负责媒体库扫描、资料补全与下载。电视与服务器需要网络互通，首次打开时填写服务器地址，例如 `http://192.168.1.100:8000`。
+
+构建、安装与隔离模拟器测试见 [Android TV 说明](android-tv/README.md)。客户端只保存不含凭据的服务器地址。当前没有电视专用登录、外挂字幕或跨设备续播；播放编码支持取决于电视设备。
+
 ## 配置
 
 复制示例配置：
@@ -554,6 +562,7 @@ JavJaeger/
 │   ├── automation/          # saved workflow tasks and scheduler
 │   └── proxy/               # trusted image proxy/cache and final API catch-all
 ├── frontend/src/            # editable frontend source
+├── android-tv/              # standalone read-only native Android TV client
 ├── static/                  # static assets and generated frontend bundle
 ├── templates/index.html     # HTML shell only
 ├── tests/                   # executable harnesses

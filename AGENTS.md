@@ -121,6 +121,10 @@ Use this as the source-of-truth ownership map.
   - explicit 404 for unknown API paths
 - `frontend/src/`
   - editable frontend source
+- `android-tv/`
+  - standalone native Android TV client: server selection, read-only library browsing, search, details and playback
+  - depends only on Android/Media3 and existing server HTTP APIs; never imports backend or browser implementation
+  - stores only a credential-free server address; downloading, scraping and library management remain server-owned
 - `frontend/src/design/`
   - original Claude Design HTML, runtime, design system and logo
   - `integration.mjs` connects original view controls to existing APIs
@@ -235,7 +239,7 @@ Generated output:
 
 Required:
 
-- edit frontend code only in `frontend/src/**`
+- edit browser frontend code only in `frontend/src/**`; native Android TV source belongs in `android-tv/`
 - rebuild the bundle after frontend source changes
 
 Forbidden:
@@ -420,6 +424,11 @@ Frontend changes:
 - frontend bundle rebuild
 - confirm `templates/index.html` still loads `static/app.js` and `static/app.css`
 - for page or interaction changes, run `npm run test:browser` (isolated Chromium workflow harness)
+
+Android TV changes:
+
+- from `android-tv/`, run `./gradlew testDebugUnitTest lintDebug assembleDebug` with JDK 21 and the Android SDK
+- run `python3 tests/android_tv_smoke.py --serial <emulator> --apk <debug-apk>` for the isolated server and remote-control workflow
 
 Security or workflow changes:
 

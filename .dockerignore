@@ -34,6 +34,7 @@ docker-compose.yml
 readme.md
 demo photo/
 archive/
+android-tv/
 
 # 数据文件（通过 volume 挂载，不需要打包进镜像）
 data/

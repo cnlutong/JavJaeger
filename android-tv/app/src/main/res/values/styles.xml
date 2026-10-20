@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.JavJaegerTV" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/tv_accent</item>
+        <item name="android:windowBackground">@color/tv_background</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorBackground">@color/tv_background</item>
+        <item name="android:textColorPrimary">@color/tv_text</item>
+        <item name="android:textColorSecondary">@color/tv_muted</item>
+    </style>
+</resources>
