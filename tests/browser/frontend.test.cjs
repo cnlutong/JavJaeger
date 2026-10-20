@@ -149,9 +149,9 @@ async function libraryArtwork(page, state) {
     });
 }
 
-test('deployment: image revision and update time render after reload on desktop and mobile', async t => {
+test('deployment: cinema and management share the image revision and update time after reload', async t => {
     const page = await openApp(t, 1440);
-    for (const width of [1440, 390]) {
+    for (const width of [1440, 1024, 390]) {
         await page.setViewportSize({ width, height: 900 });
         if (width === 390) { await page.reload(); await page.getByRole('button', { name: '管理界面', exact: true }).click(); }
         const badge = page.getByLabel('部署版本', { exact: true });
@@ -160,6 +160,17 @@ test('deployment: image revision and update time render after reload on desktop 
         assert.match(await badge.getAttribute('title'), /1234567890abcdef1234567890abcdef12345678/);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-deployment-${width}.png`), fullPage: false });
+        const management = { text: await badge.innerText(), title: await badge.getAttribute('title') };
+        await page.getByRole('button', { name: '影院模式', exact: true }).click();
+        const cinema = page.locator('.jj-cinema-bar').getByLabel('部署版本', { exact: true });
+        assert.equal(await cinema.innerText(), management.text);
+        assert.equal(await cinema.getAttribute('title'), management.title);
+        assert.equal(await cinema.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }), true);
+        assert.equal(await page.getByRole('searchbox', { name: '影院搜索', exact: true }).isVisible(), true);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-cinema-deployment-${width}.png`), fullPage: false });
+        await page.getByRole('button', { name: '管理界面', exact: true }).click();
+        assert.equal(await badge.innerText(), management.text);
     }
 });
 

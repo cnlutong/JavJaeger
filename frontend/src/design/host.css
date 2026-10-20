@@ -118,8 +118,9 @@ input, select, textarea { min-width: 0; }
 .jj-cinema .btn-primary { color: #07232b; background: var(--acc); border: 1px solid var(--acc); font-weight: 600; }
 .jj-cinema .input { background: var(--surf); color: var(--fg); border: 1px solid var(--ring); box-shadow: none; border-radius: 6px; }
 .jj-cinema-bar { flex: none; display: flex; align-items: center; gap: 28px; min-height: 68px; padding: 0 40px; border-bottom: 1px solid #ffffff09; background: #101114f5; z-index: 15; }
+.jj-cinema-identity { display: flex; flex-direction: column; gap: 4px; flex: none; }
 .jj-cinema-brand { font-size: 18px; font-weight: 600; letter-spacing: -.04em; flex: none; }
-.jj-cinema-bar nav { display: flex; align-self: stretch; gap: 4px; white-space: nowrap; }
+.jj-cinema-bar nav { display: flex; align-self: stretch; gap: 4px; white-space: nowrap; min-width: 0; overflow-x: auto; }
 .jj-cinema-bar nav button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--dim); padding: 0 14px; }
 .jj-cinema-bar nav button[aria-current="page"] { border-bottom-color: var(--acc); color: var(--fg); }
 .jj-cinema-search { display: flex; align-items: center; gap: 9px; margin-left: auto; padding: 0 12px; width: clamp(200px, 23vw, 360px); min-width: 160px; height: 38px; border: 1px solid var(--ring); border-radius: 22px; background: #ffffff05; color: var(--dim); }

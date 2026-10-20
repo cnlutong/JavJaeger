@@ -1,5 +1,6 @@
 // Cinema presentation reuses the existing library, filtering and player services.
 const icon = name => `<i aria-hidden="true" class="ph ph-${name}"></i>`;
+export const deploymentBadge = '<div class="jj-deployment" aria-label="部署版本" title="{{ sysInfo }}"><span>{{ version }}</span><span>{{ deploymentTime }}</span></div>';
 const artwork = (key, className, loading = 'lazy') => `<div class="${className}"><span>${icon('film-strip')}<small>{{ ${key}.code }}</small></span><sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="${loading}" onError="{{ cn.imageError }}"></sc-if></div>`;
 const cards = list => `<sc-for list="{{ ${list} }}" as="it"><button class="jj-cinema-card" onClick="{{ it.open }}" aria-label="查看 {{ it.code }} 详情" title="{{ it.title }}">
   <div class="jj-cinema-card-art">${artwork('it', 'jj-cinema-poster')}<span class="jj-cinema-card-overlay">${icon('info')}</span><sc-if value="{{ it.unavailable }}"><span class="jj-cinema-badge">文件缺失</span></sc-if><span class="jj-cinema-card-quality">{{ it.res }}</span></div>
@@ -10,7 +11,7 @@ const backdrop = key => `<sc-if value="{{ ${key}.backdrop }}"><img class="jj-cin
 
 export const cinemaTemplate = `<sc-if value="{{ at.cinema }}"><div class="jj-cinema">
   <header class="jj-cinema-bar" aria-hidden="{{ cn.detailOpen }}">
-    <span class="jj-cinema-brand">JavJaeger</span>
+    <div class="jj-cinema-identity"><span class="jj-cinema-brand">JavJaeger</span>${deploymentBadge}</div>
     <nav aria-label="影院导航"><sc-for list="{{ cn.tabs }}" as="t"><button aria-current="{{ t.current }}" onClick="{{ t.pick }}">{{ t.name }}</button></sc-for></nav>
     <div class="jj-cinema-search">${icon('magnifying-glass')}<input type="search" aria-label="影院搜索" placeholder="搜索影片、番号、演员" value="{{ cn.query }}" onChange="{{ cn.setQuery }}"><sc-if value="{{ cn.hasQuery }}"><button aria-label="清空影院搜索" onClick="{{ cn.clearQuery }}">${icon('x')}</button></sc-if></div>
     <button class="btn btn-secondary jj-cinema-exit" onClick="{{ cn.exit }}">管理界面</button>

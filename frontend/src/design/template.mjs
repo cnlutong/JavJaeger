@@ -1,4 +1,4 @@
-import { cinemaTemplate } from './cinema.mjs';
+import { cinemaTemplate, deploymentBadge } from './cinema.mjs';
 
 // Keep the imported design unchanged; host layout and API controls live here.
 export function adaptTemplate(source, logo) {
@@ -6,7 +6,7 @@ export function adaptTemplate(source, logo) {
         .replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, '')
         .replace(/<script src="_ds\/[^"]*"><\/script>/g, '')
         .replaceAll('src="static/logo.jpg"', `src="${logo}"`)
-        .replace(/<span title="\{\{ sysInfo \}\}"[^>]*>v2.4.1<\/span>/, '<div class="jj-deployment" aria-label="部署版本" title="{{ sysInfo }}"><span>{{ version }}</span><span>{{ deploymentTime }}</span></div>')
+        .replace(/<span title="\{\{ sysInfo \}\}"[^>]*>v2.4.1<\/span>/, deploymentBadge)
         .replace('animation:jjspin 900ms linear infinite"></span>后台', 'animation:{{ bg.animation }}"></span>后台')
         .replace('width:1440px;min-height:900px;', 'width:100%;min-height:100vh;')
         .replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="路径"><button class="btn btn-secondary" onClick="{{ r.browse }}">浏览</button>')

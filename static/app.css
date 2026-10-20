@@ -988,6 +988,12 @@ textarea {
   background: #101114f5;
   z-index: 15;
 }
+.jj-cinema-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: none;
+}
 .jj-cinema-brand {
   font-size: 18px;
   font-weight: 600;
@@ -999,6 +1005,8 @@ textarea {
   align-self: stretch;
   gap: 4px;
   white-space: nowrap;
+  min-width: 0;
+  overflow-x: auto;
 }
 .jj-cinema-bar nav button {
   border: 0;
