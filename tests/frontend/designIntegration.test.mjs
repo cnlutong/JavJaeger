@@ -860,6 +860,16 @@ test('search dispatch submits the displayed selected magnet and its source', asy
     instance.componentWillUnmount();
 });
 
+test('dispatching search results before every magnet is ready still submits every selected movie', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', tool: 'Aria2' });
+    instance.magnets.set('QA-1', [{ movie_id: 'QA-1', link: 'magnet:ready' }]);
+    const fixture = mockJobs('dispatch-aria2', { success: true, results: [] });
+    instance.confirmDispatch(['QA-1', 'QA-2']); await instance.state.dlg.run();
+    assert.deepEqual(fixture.calls[0].body.movie_ids, ['QA-1', 'QA-2']);
+    assert.equal(fixture.calls[0].body.magnet_links, null, 'the detached workflow completes unfinished preflight');
+});
+
 const json = value => new Response(JSON.stringify(value));
 
 test('performance: 10000 history, transcode, scrape and storage entries render one page', () => {

@@ -621,7 +621,9 @@ export function connectDesign(Base) {
         confirmDispatch(codes, magnets, destination) {
             codes = [...new Set(codes.map(code => String(code).trim().toUpperCase()).filter(Boolean))];
             if (!codes.length) { this.toast('请选择影片或填写番号', WARN); return; }
-            const st = { ...this.state, tool: destination || this.state.tool }, chosen = magnets || (st.route === 'search' ? codes.flatMap(code => (this.magnets.get(code) || []).slice(0, 1)) : null);
+            const st = { ...this.state, tool: destination || this.state.tool };
+            const chosen = magnets || (st.route === 'search' && codes.every(code => this.magnets.get(code)?.length)
+                ? codes.flatMap(code => this.magnets.get(code).slice(0, 1)) : null);
             return this.ask({ title: `派发 ${codes.length} 部到 ${st.tool}？`, color: ACC, okText: '开始派发',
                 body: '将提交真实下载任务；本地已有影片与已尝试链接由后端检查。', list: codes,
                 run: () => this.perform(async () => {

@@ -6612,7 +6612,8 @@ class Component extends DCLogic {
           this.toast("\u8BF7\u9009\u62E9\u5F71\u7247\u6216\u586B\u5199\u756A\u53F7", WARN);
           return;
         }
-        const st = { ...this.state, tool: destination || this.state.tool }, chosen = magnets || (st.route === "search" ? codes.flatMap((code) => (this.magnets.get(code) || []).slice(0, 1)) : null);
+        const st = { ...this.state, tool: destination || this.state.tool };
+        const chosen = magnets || (st.route === "search" && codes.every((code) => this.magnets.get(code)?.length) ? codes.flatMap((code) => this.magnets.get(code).slice(0, 1)) : null);
         return this.ask({
           title: `\u6D3E\u53D1 ${codes.length} \u90E8\u5230 ${st.tool}\uFF1F`,
           color: ACC,
