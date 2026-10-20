@@ -1332,6 +1332,14 @@ async def _write_actor_images(video_path: Path, metadata: dict[str, Any], overwr
         if actor_key in used_actor_keys:
             continue
         used_actor_keys.add(actor_key)
+        target = local_actor_library_service.avatar_target_for(actor_key)
+        if not overwrite:
+            try:
+                if await asyncio.to_thread(target.is_file):
+                    actor_names.append(str(target))
+                    continue
+            except OSError:
+                pass
         avatar_url = str(
             actor.get("avatar")
             or actor.get("img")
@@ -1348,7 +1356,6 @@ async def _write_actor_images(video_path: Path, metadata: dict[str, Any], overwr
             avatar_url = str(star_info.get("avatar") or "").strip() if isinstance(star_info, dict) else ""
         if not avatar_url:
             continue
-        target = local_actor_library_service.avatar_target_for(actor_key)
         name = await _download_image_or_warn(str(avatar_url), target, overwrite)
         if name:
             actor_names.append(str(target.parent / name))

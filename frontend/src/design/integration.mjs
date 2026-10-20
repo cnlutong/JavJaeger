@@ -149,6 +149,7 @@ export function connectDesign(Base) {
                 ['catalogPage', ['browse', 'browseQ']],
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
                 ['historyPage', ['dHf']], ['tcPage', ['tcF']], ['scPage', ['scF', 'scPhase']],
+                ['scOutcomePage', ['scrapeResult']],
                 ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize']], ['directoryPage', ['browsePath']],
                 ['dlgPage', ['dlg']],
             ]) {
@@ -467,7 +468,7 @@ export function connectDesign(Base) {
         dispatchOne(movie) { return () => this.confirmDispatch([movie.code]); }
         async finishDispatch(result, tool, preflight = []) {
             const results = [...preflight, ...(result.results || [])];
-            this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool });
+            this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool, failedPage: null });
             await this.perform(() => this.loadHistory());
             const failed = results.filter(item => item.success === false && !item.skipped).length;
             if (failed) throw new Error(`有 ${failed} 项未成功提交，请到下载派发页查看并重试`);
@@ -1055,9 +1056,11 @@ export function connectDesign(Base) {
             view.browseSource = () => this.perform(() => this.browseDirectory(st.scScanDir, { key: 'scScanDir' }));
             view.browseTarget = () => this.perform(() => this.browseDirectory(st.scOutDir, { key: 'scOutDir' }));
             view.configurePaths = () => { this.openLibraryPaths(); this.setState({ route: 'library' }); };
-            view.outcome = st.scPhase === 'idle' && st.scrapeResult?.results ? {
+            const outcome = st.scPhase === 'idle' && st.scrapeResult?.results ? this.pageItems(st.scrapeResult.results, 'scOutcomePage', []) : null;
+            view.outcome = outcome ? {
                 summary: `${st.scrapeResult.success_count || 0} 成功，${st.scrapeResult.failed_count || 0} 失败${st.scrapeResult.library_failed_count ? `，${st.scrapeResult.library_failed_count} 个目录入库失败，请到影视库重新扫描` : ''}`,
-                rows: st.scrapeResult.results.map(item => ({ path: item.target_video_path || item.source_path, status: item.success ? (item.skipped ? '已跳过' : '已完成') : '失败', note: safeText(item.message || item.error || item.image_error, ''), fg: item.success ? OK : BAD })),
+                rows: outcome.items.map(item => ({ path: item.target_video_path || item.source_path, status: item.success ? (item.skipped ? '已跳过' : '已完成') : '失败', note: safeText(item.message || item.error || item.image_error, ''), fg: item.success ? OK : BAD })),
+                paging: outcome.paging,
             } : null;
             if (view.outcome) view.idle = false;
             view.setScanDir = event => this.setState({ scScanDir: event.target.value, scOverrides: {} });
@@ -1109,7 +1112,8 @@ export function connectDesign(Base) {
                 failureMap.set(`${result.movie_id}:${result.magnet}`, result);
             }
             for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) failureMap.set(`${result.movie_id}:${result.magnet || ''}`, { ...result, tool: st.dispatchTool });
-            const failed = [...failureMap.values()].map(result => ({ code: result.movie_id || '', reason: safeText(result.message || result.error), tool: result.tool, time: '', raw: result,
+            const failed = [...failureMap.values()], failures = this.pageItems(failed, 'failedPage', []);
+            const failedRows = failures.items.map(result => ({ code: result.movie_id || '', reason: safeText(result.message || result.error), tool: result.tool, time: '', raw: result,
                 noRetry: !result.movie_id, retry: () => this.confirmDispatch([result.movie_id], result.magnet ? [{ link: result.magnet, movie_id: result.movie_id, source: result.source }] : undefined, result.tool),
                 skip: () => this.perform(async () => {
                     if (result.movie_id && result.magnet) await this.request(`/api/history/${id(result.movie_id)}/dismiss-failure`, 'POST', { link: result.magnet });
@@ -1117,23 +1121,24 @@ export function connectDesign(Base) {
                     await this.loadHistory();
                 }, '已忽略该失败项'),
             }));
-            const history = data.HISTORY.map(record => ({ raw: record, code: record.movie_id || record.id || '', title: record.title || '', res: selectHistoryRedispatchResource(record)?.link || '', src: selectHistoryRedispatchResource(record)?.source || '', tool: record.download_tool || record.tool || '', time: record.timestamp || record.download_time || record.date || '',
+            const history = data.HISTORY;
+            const page = this.pageItems(history.filter(record => st.dHf === '0' || (st.dHf === '1' ? record.needs_reselect : record.status === 'failed')), 'historyPage', [st.dHf]);
+            const historyRows = page.items.map(record => { const resource = selectHistoryRedispatchResource(record); return { raw: record, code: record.movie_id || record.id || '', title: record.title || '', res: resource?.link || '', src: resource?.source || '', tool: record.download_tool || record.tool || '', time: record.timestamp || record.download_time || record.date || '',
                 status: ({ submitted: '已提交', failed: '派发失败', ignored: '已忽略' }[record.status] || record.status || '已记录'), local: record.in_local_library ? '已入库' : record.needs_reselect ? '未入库' : '待核对', stBg: 'var(--t08)', stFg: DIM, localFg: DIM2, actText: '重新派发', act: () => { const resource = selectHistoryRedispatchResource(record, sourceKey(st.dSrc)); this.confirmDispatch([record.movie_id || record.id], resource ? [{ ...resource, movie_id: record.movie_id || record.id }] : undefined); },
-            }));
-            const page = this.pageItems(history.filter(record => st.dHf === '0' || (st.dHf === '1' ? record.raw.needs_reselect : record.raw.status === 'failed')), 'historyPage', [st.dHf]);
+            }; });
             return { tool: st.tool, src: st.dSrc, tools: this.toolStates().map(tool => ({ ...tool, key: tool.name, status: tool.hint, meta: '', active: st.tool === tool.name, bg: st.tool === tool.name ? 'var(--t08)' : 'transparent', ring: 'var(--t09)', needsAction: !tool.connected, actionText: '配置', pick: () => this.setState({ tool: tool.name }), action: () => this.setState({ route: 'settings', seTab: tool.name }) })),
                 scope1: st.dScope === '1', scope2: st.dScope === '2', scope3: st.dScope === '3', setScope1: () => this.setState({ dScope: '1' }), setScope2: () => this.setState({ dScope: '2' }), setScope3: () => this.setState({ dScope: '3' }),
                 codes: st.dCodes, setCodes: event => this.setState({ dCodes: event.target.value }), setSrc: event => this.setState({ dSrc: event.target.value }),
                 subOnly: st.dSubOnly, toggleSub: () => this.setState({ dSubOnly: !st.dSubOnly }), no4k: st.dNo4k, toggle4k: () => this.setState({ dNo4k: !st.dNo4k }),
                 skipLocal: true, toggleSkipLocal: () => {}, skipTried: true, toggleSkipTried: () => {}, runCount: codes.length, run: () => this.confirmDispatch(codes),
-                stats: [stat('历史记录', history.length), stat('PikPak', st.pikLogged ? '已登录' : '未登录'), stat('Aria2', st.connections.aria2_connected ? '已连接' : '未连接'), stat('115 网盘', this.allConnected() ? '已配置' : '未配置')], failed,
-                hasFailed: failed.length > 0, batchSummary: `失败 ${failed.length} 项`, retryAll: () => this.confirmDispatch(failed.map(item => item.code).filter(Boolean), failed.every(item => item.raw.magnet) ? failed.map(item => ({ link: item.raw.magnet, movie_id: item.code, source: item.raw.source })) : undefined),
-                historyCount: history.length, missingCount: history.filter(item => item.raw.needs_reselect).length, failureCount: history.filter(item => item.raw.status === 'failed').length,
+                stats: [stat('历史记录', history.length), stat('PikPak', st.pikLogged ? '已登录' : '未登录'), stat('Aria2', st.connections.aria2_connected ? '已连接' : '未连接'), stat('115 网盘', this.allConnected() ? '已配置' : '未配置')], failed: failedRows, failedPaging: failures.paging,
+                hasFailed: failed.length > 0, batchSummary: `失败 ${failed.length} 项`, retryAll: () => this.confirmDispatch(failed.map(item => item.movie_id).filter(Boolean), failed.every(item => item.magnet) ? failed.map(item => ({ link: item.magnet, movie_id: item.movie_id, source: item.source })) : undefined),
+                historyCount: history.length, missingCount: history.filter(item => item.needs_reselect).length, failureCount: history.filter(item => item.status === 'failed').length,
                 hf0: st.dHf === '0', hf1: st.dHf === '1', hf2: st.dHf === '2', setHf0: () => this.setState({ dHf: '0' }), setHf1: () => this.setState({ dHf: '1' }), setHf2: () => this.setState({ dHf: '2' }),
                 checkNote: st.dChecked ? '已核对本地库' : '尚未核对本地库', check: () => this.perform(async () => { const result = await this.request('/api/history/check-local-library', 'POST'); data.HISTORY.splice(0, data.HISTORY.length, ...(result.records || [])); this.setState({ dChecked: true }); }, '本地库核对完成'),
                 refresh: () => this.perform(() => this.loadHistory(), '历史记录已刷新'),
                 clear: () => this.ask({ title: '清空下载历史？', body: '将同时清空已尝试链接，后续派发可能再次尝试旧链接。', ackText: '我确认清空历史记录', color: BAD, okText: '清空', run: () => this.perform(async () => { await this.request('/api/history', 'DELETE'); await this.loadHistory(); }, '下载历史已清空') }),
-                history: page.items, paging: page.paging,
+                history: historyRows, paging: page.paging,
             };
         }
 

@@ -10,7 +10,7 @@ from urllib.parse import quote
 import httpx
 
 from modules.common import runtime
-from modules.common.runtime import get_pan115_config
+from modules.common.runtime import get_pan115_config, trim_finished_tasks
 from modules.history.service import download_history_service, local_movie_library_service
 from modules.magnets.service import get_same_source_replacement_magnet_payload
 
@@ -980,7 +980,8 @@ async def download(request: DownloadRequest, progress_callback=None) -> dict[str
 
 
 class Pan115DownloadJobManager:
-    def __init__(self) -> None:
+    def __init__(self, max_jobs: int = 20) -> None:
+        self.max_jobs = max_jobs
         self._jobs: dict[str, dict[str, Any]] = {}
 
     def submit(self, request: DownloadRequest) -> dict[str, Any]:
@@ -1022,7 +1023,6 @@ class Pan115DownloadJobManager:
             snapshot["completed_count"] = len(result.get("results") or [])
             snapshot["status"] = "completed" if result.get("success") else "failed"
         except Exception:
-            snapshot["status"] = "failed"
             snapshot["error"] = "115 派发中断，请检查连接并核对下载历史后重试"
             previous = {(item.get("movie_id"), item.get("original_magnet") or item.get("magnet")): item for item in snapshot.get("results", [])}
             results = []
@@ -1035,7 +1035,12 @@ class Pan115DownloadJobManager:
             snapshot["completed_count"] = len(results)
             await download_history_service.record_dispatch_results([item for item in results if not item.get("success")], "pan115")
         finally:
+            if snapshot["status"] in {"queued", "running"}:
+                snapshot["status"] = "failed"
+                snapshot["error"] = snapshot["error"] or "115 派发中断，请检查连接并核对下载历史后重试"
             snapshot["updated_at"] = time.time()
+            self._jobs[job_id] = self._jobs.pop(job_id)
+            trim_finished_tasks(self._jobs, self.max_jobs)
 
 
 download_job_manager = Pan115DownloadJobManager()

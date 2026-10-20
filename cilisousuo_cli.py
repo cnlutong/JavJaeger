@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import sys
+from contextlib import nullcontext
 from dataclasses import dataclass, asdict
 from html import unescape as html_unescape
 from typing import List, Optional, Pattern, Tuple
@@ -390,7 +391,7 @@ def select_best_result(results: List[SearchResult], exclude_4k: bool = False) ->
     return best
 
 
-async def search_cilisousuo(query: str, resolve_detail: bool = True, limit: Optional[int] = None, best_only: bool = False, allow_chinese_subtitles: bool = False) -> List[SearchResult]:
+async def search_cilisousuo(query: str, resolve_detail: bool = True, limit: Optional[int] = None, best_only: bool = False, allow_chinese_subtitles: bool = False, *, client: Optional[httpx.AsyncClient] = None) -> List[SearchResult]:
     """
     搜索磁力链接
     :param query: 搜索关键词
@@ -398,10 +399,11 @@ async def search_cilisousuo(query: str, resolve_detail: bool = True, limit: Opti
     :param limit: 限制结果数量（在过滤和排序之前）
     :param best_only: 是否只返回最佳结果
     :param allow_chinese_subtitles: 是否不过滤中文字幕版本
+    :param client: 可选的调用方会话，由调用方负责关闭
     :return: 搜索结果列表，如果 best_only=True 且找到最佳结果，返回单元素列表
     """
     search_url = f"{BASE_URL}/search?q={httpx.QueryParams({ 'q': query })['q']}"
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+    async with (nullcontext(client) if client is not None else httpx.AsyncClient(timeout=30.0, follow_redirects=True)) as client:
         html = await fetch_text(client, search_url)
         results = parse_list_html(html)
         # 先做相关性过滤

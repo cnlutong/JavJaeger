@@ -655,6 +655,80 @@ test('performance: 10000 history, transcode, scrape and storage entries render o
     assert.equal(instance.vStorage().rows.length, 1);
     instance.componentWillUnmount();
 });
+
+test('performance: 10000 scrape outcomes format one page and retain every result after paging or reset', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    assert.match(adaptTemplate(original.match(/<x-dc>([\s\S]*?)<\/x-dc>/)[1], '/logo'), /onClick="\{\{ sc.reset \}\}">完成<\/button>/);
+    let formats = 0;
+    const results = Array.from({ length: 10000 }, (_, i) => ({ success: i < 6000,
+        get target_video_path() { formats++; return `/qa/result-${i}.mp4`; } }));
+    instance.setState({ route: 'scrape', scPhase: 'idle', scrapeResult: { success_count: 6000, failed_count: 4000, results } });
+    let outcome = instance.vScrape().outcome;
+    assert.equal(outcome.rows.length, 60);
+    assert.equal(formats, 60, 'format only the visible outcome rows');
+    assert.equal(outcome.rows[0].path, '/qa/result-0.mp4');
+    assert.match(outcome.summary, /6000 成功，4000 失败/);
+    assert.match(outcome.paging.text, /共 10000 项/);
+    outcome.paging.next(); outcome = instance.vScrape().outcome;
+    assert.equal(outcome.rows[0].path, '/qa/result-60.mp4');
+    for (let page = 2; page < 167; page++) { outcome.paging.next(); outcome = instance.vScrape().outcome; }
+    assert.equal(outcome.rows.length, 40);
+    assert.equal(outcome.rows.at(-1).path, '/qa/result-9999.mp4');
+    assert.equal(outcome.paging.last, true);
+    instance.setState({ scrapeResult: { success_count: 10000, failed_count: 0, results } });
+    assert.equal(instance.vScrape().outcome.rows[0].path, '/qa/result-0.mp4', 'a new result resets pagination');
+    instance.vScrape().reset();
+    assert.equal(instance.vScrape().outcome, null);
+});
+
+test('performance: 10000 failed resources page before formatting and preserve cross-page retry and ignore', async t => {
+    const instance = app(), data = instance.constructor.data; t.after(() => instance.componentWillUnmount());
+    let titles = 0;
+    const records = Array.from({ length: 10000 }, (_, i) => ({ movie_id: `QA-${i}`, status: 'failed', needs_reselect: i % 2 === 0,
+        get title() { titles++; return `Movie ${i}`; },
+        failed_resources: [{ link: `magnet:${i}`, source: 'javbus', tool: 'pikpak' }],
+    }));
+    data.HISTORY.push(...records); instance.setState({ route: 'dispatch' });
+    let view = instance.vDispatch();
+    assert.equal(view.failed.length, 60);
+    assert.equal(view.history.length, 60);
+    assert.equal(titles, 60, 'format only the visible history rows');
+    assert.equal(view.historyCount, 10000);
+    assert.equal(view.missingCount, 5000);
+    assert.match(view.batchSummary, /失败 10000 项/);
+    view.failedPaging.next(); view = instance.vDispatch();
+    assert.equal(view.failed[0].code, 'QA-60');
+    let submitted;
+    instance.confirmDispatch = (codes, magnets) => { submitted = { codes, magnets }; };
+    view.retryAll();
+    assert.equal(submitted.codes.length, 10000);
+    assert.equal(submitted.magnets.at(-1).link, 'magnet:9999');
+    view.paging.next(); view = instance.vDispatch();
+    assert.equal(view.history[0].code, 'QA-60');
+    view.setHf1(); view = instance.vDispatch();
+    assert.equal(view.history[0].code, 'QA-0', 'history filtering resets its page and still examines every record');
+    assert.match(view.paging.text, /共 5000 项/);
+    assert.equal(view.failed[0].code, 'QA-60', 'history and failed-resource pagination remain independent');
+    const requests = [];
+    globalThis.fetch = async (url, options) => {
+        requests.push([url, options.body && JSON.parse(options.body)]);
+        if (url.endsWith('/dismiss-failure')) { records[60].failed_resources = []; return json({ success: true }); }
+        return json(records);
+    };
+    await view.failed[0].skip(); view = instance.vDispatch();
+    assert.deepEqual(requests[0], ['/api/history/QA-60/dismiss-failure', { link: 'magnet:60' }]);
+    assert.match(view.batchSummary, /失败 9999 项/);
+    assert.equal(view.failed[0].code, 'QA-61');
+    for (let page = 2; page < 167; page++) { view.failedPaging.next(); view = instance.vDispatch(); }
+    assert.equal(view.failed.at(-1).code, 'QA-9999');
+    assert.equal(view.failedPaging.last, true);
+    instance.loadHistory = async () => data.HISTORY.splice(0);
+    await assert.rejects(instance.finishDispatch({ results: [{ movie_id: 'NEW-001', success: false, message: 'Failed fixture' }] }, 'PikPak'));
+    view = instance.vDispatch();
+    assert.equal(view.failed[0].code, 'NEW-001', 'a new dispatch batch resets failure pagination');
+    assert.equal(view.failedPaging.visible, false);
+});
+
 const localRecord = (code, overrides = {}) => ({ movie_id: code, title: code, files: [{ path: `/${code}.mp4`, size: 100 }], stars: [], genres: [], total_size: 100, ...overrides });
 test('cinema: search, removable filters and details preserve the browsing context', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());

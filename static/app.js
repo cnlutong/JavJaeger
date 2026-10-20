@@ -6015,6 +6015,7 @@ class Component extends DCLogic {
           ["historyPage", ["dHf"]],
           ["tcPage", ["tcF"]],
           ["scPage", ["scF", "scPhase"]],
+          ["scOutcomePage", ["scrapeResult"]],
           ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize"]],
           ["directoryPage", ["browsePath"]],
           ["dlgPage", ["dlg"]]
@@ -6417,7 +6418,7 @@ class Component extends DCLogic {
       }
       async finishDispatch(result, tool, preflight = []) {
         const results = [...preflight, ...result.results || []];
-        this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool });
+        this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool, failedPage: null });
         await this.perform(() => this.loadHistory());
         const failed = results.filter((item) => item.success === false && !item.skipped).length;
         if (failed) throw new Error(`\u6709 ${failed} \u9879\u672A\u6210\u529F\u63D0\u4EA4\uFF0C\u8BF7\u5230\u4E0B\u8F7D\u6D3E\u53D1\u9875\u67E5\u770B\u5E76\u91CD\u8BD5`);
@@ -7233,9 +7234,11 @@ class Component extends DCLogic {
           this.openLibraryPaths();
           this.setState({ route: "library" });
         };
-        view.outcome = st.scPhase === "idle" && st.scrapeResult?.results ? {
+        const outcome = st.scPhase === "idle" && st.scrapeResult?.results ? this.pageItems(st.scrapeResult.results, "scOutcomePage", []) : null;
+        view.outcome = outcome ? {
           summary: `${st.scrapeResult.success_count || 0} \u6210\u529F\uFF0C${st.scrapeResult.failed_count || 0} \u5931\u8D25${st.scrapeResult.library_failed_count ? `\uFF0C${st.scrapeResult.library_failed_count} \u4E2A\u76EE\u5F55\u5165\u5E93\u5931\u8D25\uFF0C\u8BF7\u5230\u5F71\u89C6\u5E93\u91CD\u65B0\u626B\u63CF` : ""}`,
-          rows: st.scrapeResult.results.map((item) => ({ path: item.target_video_path || item.source_path, status: item.success ? item.skipped ? "\u5DF2\u8DF3\u8FC7" : "\u5DF2\u5B8C\u6210" : "\u5931\u8D25", note: safeText(item.message || item.error || item.image_error, ""), fg: item.success ? OK : BAD }))
+          rows: outcome.items.map((item) => ({ path: item.target_video_path || item.source_path, status: item.success ? item.skipped ? "\u5DF2\u8DF3\u8FC7" : "\u5DF2\u5B8C\u6210" : "\u5931\u8D25", note: safeText(item.message || item.error || item.image_error, ""), fg: item.success ? OK : BAD })),
+          paging: outcome.paging
         } : null;
         if (view.outcome) view.idle = false;
         view.setScanDir = (event) => this.setState({ scScanDir: event.target.value, scOverrides: {} });
@@ -7317,7 +7320,8 @@ class Component extends DCLogic {
           failureMap.set(`${result.movie_id}:${result.magnet}`, result);
         }
         for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) failureMap.set(`${result.movie_id}:${result.magnet || ""}`, { ...result, tool: st.dispatchTool });
-        const failed = [...failureMap.values()].map((result) => ({
+        const failed = [...failureMap.values()], failures = this.pageItems(failed, "failedPage", []);
+        const failedRows = failures.items.map((result) => ({
           code: result.movie_id || "",
           reason: safeText(result.message || result.error),
           tool: result.tool,
@@ -7331,26 +7335,30 @@ class Component extends DCLogic {
             await this.loadHistory();
           }, "\u5DF2\u5FFD\u7565\u8BE5\u5931\u8D25\u9879")
         }));
-        const history = data.HISTORY.map((record) => ({
-          raw: record,
-          code: record.movie_id || record.id || "",
-          title: record.title || "",
-          res: selectHistoryRedispatchResource(record)?.link || "",
-          src: selectHistoryRedispatchResource(record)?.source || "",
-          tool: record.download_tool || record.tool || "",
-          time: record.timestamp || record.download_time || record.date || "",
-          status: { submitted: "\u5DF2\u63D0\u4EA4", failed: "\u6D3E\u53D1\u5931\u8D25", ignored: "\u5DF2\u5FFD\u7565" }[record.status] || record.status || "\u5DF2\u8BB0\u5F55",
-          local: record.in_local_library ? "\u5DF2\u5165\u5E93" : record.needs_reselect ? "\u672A\u5165\u5E93" : "\u5F85\u6838\u5BF9",
-          stBg: "var(--t08)",
-          stFg: DIM,
-          localFg: DIM2,
-          actText: "\u91CD\u65B0\u6D3E\u53D1",
-          act: () => {
-            const resource = selectHistoryRedispatchResource(record, sourceKey(st.dSrc));
-            this.confirmDispatch([record.movie_id || record.id], resource ? [{ ...resource, movie_id: record.movie_id || record.id }] : void 0);
-          }
-        }));
-        const page = this.pageItems(history.filter((record) => st.dHf === "0" || (st.dHf === "1" ? record.raw.needs_reselect : record.raw.status === "failed")), "historyPage", [st.dHf]);
+        const history = data.HISTORY;
+        const page = this.pageItems(history.filter((record) => st.dHf === "0" || (st.dHf === "1" ? record.needs_reselect : record.status === "failed")), "historyPage", [st.dHf]);
+        const historyRows = page.items.map((record) => {
+          const resource = selectHistoryRedispatchResource(record);
+          return {
+            raw: record,
+            code: record.movie_id || record.id || "",
+            title: record.title || "",
+            res: resource?.link || "",
+            src: resource?.source || "",
+            tool: record.download_tool || record.tool || "",
+            time: record.timestamp || record.download_time || record.date || "",
+            status: { submitted: "\u5DF2\u63D0\u4EA4", failed: "\u6D3E\u53D1\u5931\u8D25", ignored: "\u5DF2\u5FFD\u7565" }[record.status] || record.status || "\u5DF2\u8BB0\u5F55",
+            local: record.in_local_library ? "\u5DF2\u5165\u5E93" : record.needs_reselect ? "\u672A\u5165\u5E93" : "\u5F85\u6838\u5BF9",
+            stBg: "var(--t08)",
+            stFg: DIM,
+            localFg: DIM2,
+            actText: "\u91CD\u65B0\u6D3E\u53D1",
+            act: () => {
+              const resource2 = selectHistoryRedispatchResource(record, sourceKey(st.dSrc));
+              this.confirmDispatch([record.movie_id || record.id], resource2 ? [{ ...resource2, movie_id: record.movie_id || record.id }] : void 0);
+            }
+          };
+        });
         return {
           tool: st.tool,
           src: st.dSrc,
@@ -7377,13 +7385,14 @@ class Component extends DCLogic {
           runCount: codes.length,
           run: () => this.confirmDispatch(codes),
           stats: [stat("\u5386\u53F2\u8BB0\u5F55", history.length), stat("PikPak", st.pikLogged ? "\u5DF2\u767B\u5F55" : "\u672A\u767B\u5F55"), stat("Aria2", st.connections.aria2_connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5"), stat("115 \u7F51\u76D8", this.allConnected() ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E")],
-          failed,
+          failed: failedRows,
+          failedPaging: failures.paging,
           hasFailed: failed.length > 0,
           batchSummary: `\u5931\u8D25 ${failed.length} \u9879`,
-          retryAll: () => this.confirmDispatch(failed.map((item) => item.code).filter(Boolean), failed.every((item) => item.raw.magnet) ? failed.map((item) => ({ link: item.raw.magnet, movie_id: item.code, source: item.raw.source })) : void 0),
+          retryAll: () => this.confirmDispatch(failed.map((item) => item.movie_id).filter(Boolean), failed.every((item) => item.magnet) ? failed.map((item) => ({ link: item.magnet, movie_id: item.movie_id, source: item.source })) : void 0),
           historyCount: history.length,
-          missingCount: history.filter((item) => item.raw.needs_reselect).length,
-          failureCount: history.filter((item) => item.raw.status === "failed").length,
+          missingCount: history.filter((item) => item.needs_reselect).length,
+          failureCount: history.filter((item) => item.status === "failed").length,
           hf0: st.dHf === "0",
           hf1: st.dHf === "1",
           hf2: st.dHf === "2",
@@ -7401,7 +7410,7 @@ class Component extends DCLogic {
             await this.request("/api/history", "DELETE");
             await this.loadHistory();
           }, "\u4E0B\u8F7D\u5386\u53F2\u5DF2\u6E05\u7A7A") }),
-          history: page.items,
+          history: historyRows,
           paging: page.paging
         };
       }
@@ -8163,7 +8172,7 @@ class Component extends DCLogic {
     html = html.replaceAll('value="{{ f.value }}"', 'aria-label="{{ f.label }}" value="{{ f.value }}"').replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:{{ f.mono }}', '<sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:{{ f.mono }}').replace('<sc-if value="{{ f.isText }}"><input class="input" style="font-family:var(--mono)"', '<sc-if value="{{ f.isCheck }}"><label><input type="checkbox" checked="{{ f.on }}" onChange="{{ f.set }}">{{ f.label }}</label></sc-if><sc-if value="{{ f.isText }}"><input type="{{ f.inputType }}" class="input" style="font-family:var(--mono)"');
     html = html.replace(/批次 b-20260723-1418[^<]+/, "{{ d.batchSummary }}").replace("\u5168\u90E8 128", "\u5168\u90E8 {{ d.historyCount }}").replace("\u672A\u5165\u5E93 3", "\u672A\u5165\u5E93 {{ d.missingCount }}").replace("\u5931\u8D25 2</span>", "\u5931\u8D25 {{ d.failureCount }}</span>").replace('<div style="background:rgba(201,160,94,.06);', '<sc-if value="{{ d.hasFailed }}"><div style="background:rgba(201,160,94,.06);').replace('      <div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">\u4E0B\u8F7D\u5386\u53F2', '      </sc-if><div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">\n        <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;box-shadow:inset 0 -1px 0 var(--line2)">\n          <h5 style="margin:0">\u4E0B\u8F7D\u5386\u53F2').replace("\u6807\u8BB0\u8DF3\u8FC7</button>", "\u5FFD\u7565\u6B64\u9879</button>").replace("\u590D\u5236 ffmpeg \u547D\u4EE4", "\u590D\u5236\u8F6C\u7801\u53C2\u6570").replace('<button class="btn btn-ghost" onClick="{{ au.autoLayout }}">\u81EA\u52A8\u6392\u7248</button>', "").replace("\u8FD0\u884C\u4E2D\u4EFB\u52A1 2 / 4", "\u5DF2\u542F\u7528\u4EFB\u52A1 {{ au.enabledCount }} / {{ au.taskCount }}").replace("\u4ECA\u65E5\u81EA\u52A8\u6D3E\u53D1 18 \u90E8", "\u4ECA\u65E5\u81EA\u52A8\u6D3E\u53D1 {{ au.dispatchedToday }} \u90E8").replace("\u4ECA\u65E5\u8DF3\u8FC7 41 \xB7 \u9519\u8BEF 2", "\u4ECA\u65E5\u8DF3\u8FC7 {{ au.skippedToday }} \xB7 \u9519\u8BEF {{ au.errorsToday }}").replace('<b style="color:var(--bad);font-weight:500">AV1 \u4E0D\u53EF\u7528</b><br>av1_nvenc \u786C\u4EF6\u63A2\u9488\u5931\u8D25\uFF1A\u5F53\u524D\u9A71\u52A8 535.161 \u4E0D\u652F\u6301\u3002\u76F8\u5173\u9884\u8BBE\u5DF2\u7981\u7528\uFF0C\u4E0D\u4F1A\u56DE\u9000 CPU\u3002', "{{ tc.hardwareMessage }}").replace("\u5E76\u53D1\u4E0A\u9650 2", "\u5E76\u53D1\u4E0A\u9650 {{ tc.maxConcurrent }}").replaceAll(/每 [125]s 轮询/g, "\u6BCF 3s \u66F4\u65B0").replace(" \xB7 \u5168\u5C40\u5E76\u53D1 5", "").replace("\u53EF\u7528\u53D8\u91CF {code} {title} {actors} {studio} {label} {series} {year} {date}", "\u53EF\u7528\u53D8\u91CF {{ sc.namingFields }}").replace('onClick="{{ s.run }}">{{ s.runText }}', 'disabled="{{ s.loading }}" onClick="{{ s.run }}">{{ s.runText }}').replace('onClick="{{ sc.preview }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.preview }}"').replace('onClick="{{ sc.reset }}"', 'disabled="{{ sc.scanning }}" onClick="{{ sc.reset }}"').replace('onClick="{{ d.run }}"', 'disabled="{{ !d.runCount }}" onClick="{{ d.run }}"');
     html = html.replace("YHG007 \u6765\u6E90\u4E0D\u53EF\u8FBE", "\u67E5\u8BE2\u5931\u8D25").replace(/HTTPConnectionPool\(host='yhg007.com'[\s\S]*?已保留上一次 JavBus 结果缓存。/, "{{ s.error }}\u3002\u53EF\u91CD\u8BD5\u6216\u68C0\u67E5\u6765\u6E90\u8BBE\u7F6E\u3002").replace("3 \u4E2A\u6587\u4EF6\u51B2\u7A81\u9700\u8981\u5904\u7406", "{{ sc.nConf }} \u4E2A\u6587\u4EF6\u51B2\u7A81\u9700\u8981\u5904\u7406").replace("115 \u7F51\u76D8\u672A\u914D\u7F6E", "\u5F53\u524D\u7F51\u76D8\u672A\u8FDE\u63A5").replace(/缺少 Cookie，无法列目录或提交离线任务。[\s\S]*?后重新连接。/, "\u8BF7\u5230\u8BBE\u7F6E\u4E2D\u8FDE\u63A5\u5F53\u524D\u7F51\u76D8\uFF0C\u518D\u6D4F\u89C8\u76EE\u5F55\u3002").replace('onClick="{{ sc.applyStrategy }}"', 'disabled="{{ !sc.nConf }}" onClick="{{ sc.applyStrategy }}"').replace('onChange="{{ au.togglePauseAll }}"', 'disabled="{{ au.pauseAll }}" onChange="{{ au.togglePauseAll }}"').replace('onClick="{{ se.save }}"', 'disabled="{{ se.saveDisabled }}" onClick="{{ se.save }}"');
-    html = html.replace('      <sc-if value="{{ sc.hasPreview }}">\n', `<sc-if value="{{ sc.outcome }}"><div style="background:var(--surf);border-radius:8px;padding:16px"><h5>\u6267\u884C\u7ED3\u679C \xB7 {{ sc.outcome.summary }}</h5><p>\u5931\u8D25\u9879\u53EF\u4FEE\u6B63\u914D\u7F6E\u540E\u91CD\u65B0\u751F\u6210\u9884\u89C8\uFF1B\u5DF2\u5B8C\u6210\u7684\u6587\u4EF6\u65E0\u9700\u91CD\u590D\u5904\u7406\u3002</p><sc-for list="{{ sc.outcome.rows }}" as="r"><div style="padding:8px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere"><span style="color:{{ r.fg }}">{{ r.status }}</span> \xB7 {{ r.path }}<div style="color:var(--dim)">{{ r.note }}</div></div></sc-for></div></sc-if><sc-if value="{{ sc.hasPreview }}">`);
+    html = html.replace('      <sc-if value="{{ sc.hasPreview }}">\n', `<sc-if value="{{ sc.outcome }}"><div style="background:var(--surf);border-radius:8px;padding:16px"><h5>\u6267\u884C\u7ED3\u679C \xB7 {{ sc.outcome.summary }}</h5><p>\u5931\u8D25\u9879\u53EF\u4FEE\u6B63\u914D\u7F6E\u540E\u91CD\u65B0\u751F\u6210\u9884\u89C8\uFF1B\u5DF2\u5B8C\u6210\u7684\u6587\u4EF6\u65E0\u9700\u91CD\u590D\u5904\u7406\u3002</p><button class="btn btn-secondary" onClick="{{ sc.reset }}">\u5B8C\u6210</button><sc-for list="{{ sc.outcome.rows }}" as="r"><div style="padding:8px 0;border-bottom:1px solid var(--line2);overflow-wrap:anywhere"><span style="color:{{ r.fg }}">{{ r.status }}</span> \xB7 {{ r.path }}<div style="color:var(--dim)">{{ r.note }}</div></div></sc-for></div></sc-if><sc-if value="{{ sc.hasPreview }}">`);
     for (const action of ["au.save", "au.runNow", "au.toggleRun", "au.remove"]) html = html.replace(`onClick="{{ ${action} }}"`, `disabled="{{ !au.hasTask }}" onClick="{{ ${action} }}"`);
     html = html.replace(/(<sc-for list="{{ lb.actors }}"[^>]*>\s*)<div ([\s\S]*?)<\/div>\s*<\/sc-for>/, '$1<button class="jj-actor-card" onClick="{{ a.open }}" $2</button>\n          </sc-for>').replace('flex:none">{{ a.initial }}</div>', 'flex:none;position:relative;overflow:hidden">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></div>').replace(/<aside style="position:absolute;top:0;right:0;bottom:0;/g, '<aside class="jj-drawer" role="dialog" aria-modal="true" aria-label="\u8BE6\u60C5\u4E0E\u914D\u7F6E" style="position:fixed;top:0;right:0;bottom:0;').replace(/<div style="position:absolute;inset:0;background:([^\"]+)" onClick=/g, '<div class="jj-scrim" style="position:fixed;inset:0;background:$1" onClick=').replaceAll('style="position:absolute;left:50%;transform:translateX(-50%);bottom:22px;', 'class="jj-selection" style="position:fixed;left:50%;transform:translateX(-50%);bottom:22px;');
     const poster = (key, fit = "cover") => `<sc-if value="{{ ${key}.cover }}"><img src="{{ ${key}.cover }}" alt="" loading="lazy" style="position:absolute;inset:0;width:100%;height:100%;object-fit:${fit}"></sc-if>`;
@@ -8186,7 +8195,8 @@ class Component extends DCLogic {
     html = html.replace('<div style="display:flex;align-items:stretch;gap:0">', '<div class="jj-auto-flow" style="display:flex;align-items:stretch;gap:0">').replace('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">', '<div class="jj-auto-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">');
     html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
     html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
-    const pager2 = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+    const pager2 = (key, label = "\u5206\u9875") => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="${label}"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+    html = html.replace('<sc-for list="{{ sc.outcome.rows }}"', `${pager2("sc.outcome.paging", "\u6267\u884C\u7ED3\u679C\u5206\u9875")}<sc-for list="{{ sc.outcome.rows }}"`).replace(/(<sc-if value="{{ d.hasFailed }}">[\s\S]*?)(<table class="table")/, `$1${pager2("d.failedPaging", "\u5931\u8D25\u8D44\u6E90\u5206\u9875")}$2`);
     html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager2("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager2("bg.paging")}<sc-for list="{{ bg.items }}"`);
     for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {
       html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager2(key + ".paging")}$2`);

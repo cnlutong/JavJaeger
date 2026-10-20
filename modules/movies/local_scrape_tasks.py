@@ -1,8 +1,9 @@
 import asyncio
 import datetime
 import uuid
-from collections import deque
 from typing import Any, Awaitable, Callable
+
+from modules.common.runtime import trim_finished_tasks
 
 from . import local_library
 from .local_scrape import apply_local_scrape, preview_local_scrape
@@ -17,7 +18,6 @@ class LocalScrapeTaskManager:
         self.max_tasks = max_tasks
         self.max_logs = max_logs
         self._tasks: dict[str, dict[str, Any]] = {}
-        self._order: deque[str] = deque()
 
     def start_preview_task(self, request: LocalScrapePreviewRequest) -> str:
         return self._start_task("preview", lambda progress: preview_local_scrape(request, progress_callback=progress))
@@ -74,8 +74,6 @@ class LocalScrapeTaskManager:
             "finished_at": None,
         }
         self._tasks[task_id] = task
-        self._order.append(task_id)
-        self._trim_finished_tasks()
         asyncio.create_task(self._run_task(task, runner))
         return task_id
 
@@ -95,8 +93,16 @@ class LocalScrapeTaskManager:
             task["message"] = str(exc)
             self._append_log(task, f"任务失败：{exc}")
         finally:
+            if task["status"] in {"queued", "running"}:
+                task["status"] = "failed"
+                task["error"] = "task_failed"
+                task["message"] = "任务已中断，请核对已完成结果后重试"
+                self._append_log(task, task["message"])
             task["finished_at"] = datetime.datetime.now().isoformat()
             task["updated_at"] = task["finished_at"]
+            task_id = task["task_id"]
+            self._tasks[task_id] = self._tasks.pop(task_id)
+            trim_finished_tasks(self._tasks, self.max_tasks)
 
     def _apply_progress(self, task: dict[str, Any], event: dict[str, Any]) -> None:
         now = datetime.datetime.now().isoformat()
@@ -123,15 +129,6 @@ class LocalScrapeTaskManager:
         snapshot = dict(task)
         snapshot["logs"] = list(task["logs"])
         return snapshot
-
-    def _trim_finished_tasks(self) -> None:
-        while len(self._order) > self.max_tasks:
-            oldest = self._order[0]
-            task = self._tasks.get(oldest)
-            if task and task.get("status") == "running":
-                break
-            self._order.popleft()
-            self._tasks.pop(oldest, None)
 
 
 local_scrape_task_manager = LocalScrapeTaskManager()

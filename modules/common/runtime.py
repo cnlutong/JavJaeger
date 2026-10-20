@@ -36,6 +36,13 @@ async def finish_before_cancel(awaitable):
     return result
 
 
+def trim_finished_tasks(tasks: dict[str, dict[str, Any]], limit: int) -> None:
+    """Keep recent finished snapshots without evicting queued or running work."""
+    finished = [key for key, task in tasks.items() if task.get("status") not in {"queued", "running"}]
+    for key in finished[:max(0, len(finished) - limit)]:
+        tasks.pop(key)
+
+
 SCRAPER_PROVIDER_NAMES = [
     "javbus",
     "r18dev",

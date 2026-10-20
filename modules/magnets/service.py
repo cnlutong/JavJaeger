@@ -10,10 +10,11 @@ from bs4 import BeautifulSoup
 from cilisousuo_cli import (
     filter_4k_results as cilisousuo_filter_4k_results,
     filter_results_by_subtitle as cilisousuo_filter_results_by_subtitle,
+    fetch_text as fetch_cilisousuo_text,
     is_4k_resource,
+    parse_detail_for_magnet as parse_cilisousuo_detail_magnet,
     parse_size_to_bytes,
     search_cilisousuo,
-    select_best_result as cilisousuo_select_best_result,
 )
 
 from modules.common import runtime
@@ -404,13 +405,6 @@ async def get_cilisousuo_best_magnet_payload(
     exclude_4k: bool = False,
     excluded_links: list[str] | None = None,
 ) -> dict[str, Any] | None:
-    results = await search_cilisousuo(movie_id, resolve_detail=True, allow_chinese_subtitles=has_subtitle_filter != "false")
-    results = cilisousuo_filter_results_by_subtitle(results, has_subtitle_filter)
-    if exclude_4k:
-        results = cilisousuo_filter_4k_results(results)
-    if not results:
-        return None
-
     def to_payload(result: Any) -> dict[str, Any]:
         has_subtitle = has_chinese_subtitle(result.title) or has_chinese_subtitle(result.filename)
         title = result.title or result.filename or f"{movie_id} - 最佳资源"
@@ -424,26 +418,39 @@ async def get_cilisousuo_best_magnet_payload(
             "source": "cilisousuo",
         }
 
-    candidates = _filter_excluded_magnet_links(
-        [to_payload(result) for result in results if getattr(result, "magnet", None)],
-        excluded_links,
-    )
-    if not candidates:
-        return None
-    payload_by_link = {payload["link"]: payload for payload in candidates}
-
-    def select_best_payload(remaining: list[dict[str, Any]]) -> dict[str, Any] | None:
-        remaining_links = {item.get("link") for item in remaining}
-        source_remaining = [result for result in results if getattr(result, "magnet", None) in remaining_links]
-        selected = cilisousuo_select_best_result(source_remaining, exclude_4k=False)
-        if selected and selected.magnet:
-            return payload_by_link.get(selected.magnet)
-        return remaining[0] if remaining else None
-
-    return await select_healthy_best_magnet(
-        candidates,
-        select_best_payload,
-    )
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        results = await search_cilisousuo(movie_id, resolve_detail=False, allow_chinese_subtitles=has_subtitle_filter != "false", client=client)
+        results = cilisousuo_filter_results_by_subtitle(results, has_subtitle_filter)
+        if exclude_4k:
+            results = cilisousuo_filter_4k_results(results)
+        if not results:
+            return None
+        results = sorted(results, key=lambda result: -1 if (size := parse_size_to_bytes(result.size)) is None else size, reverse=True)
+        detail_links: dict[str, str | None] = {}
+        seen_links: set[str] = set()
+        health_config = runtime.get_magnet_health_config()
+        # ponytail: sequential timeouts accumulate; add bounded prefetch if fallback latency dominates.
+        for result in results:
+            if not result.magnet:
+                if result.detail_url not in detail_links:
+                    try:
+                        html = await fetch_cilisousuo_text(client, result.detail_url)
+                        detail_links[result.detail_url] = parse_cilisousuo_detail_magnet(html)
+                    except Exception as exc:
+                        logger.warning("获取详情失败 %s: %s", result.detail_path, exc)
+                        detail_links[result.detail_url] = None
+                result.magnet = detail_links[result.detail_url]
+            if not result.magnet:
+                continue
+            key = _normalize_magnet_link_key(result.magnet)
+            if key in seen_links:
+                continue
+            seen_links.add(key)
+            candidates = _filter_excluded_magnet_links([to_payload(result)], excluded_links)
+            selected = await select_healthy_best_magnet(candidates, lambda remaining: remaining[0], health_config)
+            if selected:
+                return selected
+    return None
 
 
 def _build_yhg007_headers() -> dict[str, str]:

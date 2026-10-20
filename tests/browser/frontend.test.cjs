@@ -650,6 +650,67 @@ test('performance: 10000 entries stay paged across history, transcode, scrape an
     await dialog.getByRole('button', { name: '取消', exact: true }).click();
 });
 
+test('performance: 10000 scrape execution outcomes remain paged and can reset', async t => {
+    const results = Array.from({ length: 10000 }, (_, i) => ({ success: i < 6000, source_path: `/qa/result-${i}.mp4` }));
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.addInitScript(() => sessionStorage.setItem('localScrapeActiveTask', JSON.stringify({ taskId: 'qa-outcomes', type: 'apply', config: { scScanDir: '/qa' } })));
+        await p.route('**/api/movies/local-scrape/jobs/qa-outcomes', route => route.fulfill({ json: {
+            status: 'success', result: { success: true, success_count: 6000, failed_count: 4000, results },
+        } }));
+    });
+    await navigate(page, '本地刮削');
+    const heading = page.getByRole('heading', { name: '执行结果 · 6000 成功，4000 失败', exact: true });
+    await heading.waitFor();
+    const outcome = heading.locator('..'), rows = outcome.locator(':scope > div');
+    assert.equal(await rows.count(), 60, 'execution outcomes render one page of DOM rows');
+    await outcome.getByText('第 1 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await outcome.getByRole('button', { name: '下一页', exact: true }).click();
+    await outcome.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    assert.match(await rows.first().innerText(), /result-60\.mp4/);
+    assert.equal(await rows.count(), 60);
+    await page.setViewportSize({ width: 390, height: 900 });
+    await outcome.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-scrape-outcomes-paged.png'), fullPage: false });
+    await outcome.getByRole('button', { name: '完成', exact: true }).click();
+    assert.equal(await heading.count(), 0);
+});
+
+test('performance: 10000 dispatch failures remain paged with full retry and exact ignore', async t => {
+    const records = Array.from({ length: 10000 }, (_, i) => ({ movie_id: `QA-${i}`, title: `QA ${i}`, status: 'failed',
+        failed_resources: [{ link: `magnet:${i}`, source: 'javbus', tool: 'pikpak' }],
+    }));
+    let ignored;
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/history', route => route.fulfill({ json: records }));
+        await p.route('**/api/history/*/dismiss-failure', route => {
+            const movieId = new URL(route.request().url()).pathname.split('/')[3];
+            ignored = { movieId, ...route.request().postDataJSON() };
+            records.find(record => record.movie_id === movieId).failed_resources = [];
+            return route.fulfill({ json: { success: true } });
+        });
+    });
+    await navigate(page, '下载派发');
+    const failures = page.getByRole('heading', { name: '上一批派发部分失败', exact: true }).locator('../..');
+    const rows = failures.locator('tbody tr');
+    assert.equal(await rows.count(), 60, 'failed resources render one page of DOM rows');
+    await failures.getByText('失败 10000 项', { exact: true }).waitFor();
+    await failures.getByRole('button', { name: '下一页', exact: true }).click();
+    await failures.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    assert.match(await rows.first().innerText(), /QA-60/);
+    await failures.getByRole('button', { name: '重新派发全部失败', exact: true }).click();
+    const dialog = page.locator('.jj-confirm');
+    await dialog.getByText('第 1 / 167 页 · 共 10000 项', { exact: true }).waitFor();
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    await rows.first().getByRole('button', { name: '忽略此项', exact: true }).click();
+    await failures.getByText('失败 9999 项', { exact: true }).waitFor();
+    assert.deepEqual(ignored, { movieId: 'QA-60', link: 'magnet:60' });
+    assert.match(await rows.first().innerText(), /QA-61/);
+    assert.equal(await rows.count(), 60);
+    await failures.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-dispatch-failures-paged.png'), fullPage: false });
+});
+
 test('imported runtime renders all original pages with no demo data or errors', async t => {
     const page = await openApp(t);
     for (const name of ['影片检索', '下载派发', '本地刮削', '影视库', '自动模式', '转码', '网盘与下载', '设置']) {
