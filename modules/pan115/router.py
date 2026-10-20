@@ -92,9 +92,9 @@ async def pan115_download_job_status(job_id: str):
 
 
 @router.get("/api/115/files")
-async def pan115_files(cid: str = "0", offset: int = 0, limit: int = 100):
+async def pan115_files(cid: str = "0", offset: int = 0, limit: int = 100, refresh: bool = False):
     try:
-        return await list_directory_from_config(cid, offset=offset, limit=limit)
+        return await list_directory_from_config(cid, offset=offset, limit=limit, **({'refresh': True} if refresh else {}))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Pan115Error as exc:

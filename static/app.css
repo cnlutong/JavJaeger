@@ -710,6 +710,25 @@ textarea {
   padding: 16px;
   position: relative;
 }
+.jj-file-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+}
+.jj-file-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.jj-file-toolbar select {
+  width: 78px;
+}
+.jj-file-toolbar > span {
+  flex-basis: 100%;
+}
 .jj-library-main > div:first-child > div:last-child {
   flex-wrap: wrap;
   max-width: 100%;

@@ -550,11 +550,12 @@ async def get_status() -> dict[str, Any]:
     return {**payload, **status}
 
 
-async def list_directory_from_config(cid: str = "0", offset: int = 0, limit: int = 100) -> dict[str, Any]:
+async def list_directory_from_config(cid: str = "0", offset: int = 0, limit: int = 100, refresh: bool = False) -> dict[str, Any]:
     config = get_pan115_config()
     if not config.get("enabled") or not config.get("cookie"):
         raise ValueError("pan115_not_configured")
-    return await Pan115Client(str(config.get("cookie"))).list_directory(cid, offset=offset, limit=limit)
+    return await Pan115Client(str(config.get("cookie"))).list_directory(cid, offset=offset, limit=limit,
+        **({'cache_ttl_seconds': 0} if refresh else {}))
 
 
 async def resolve_download_entries_from_config(

@@ -1845,6 +1845,65 @@ test('audit: real automation backend saves all four nodes, toggles scheduling an
     await page.getByText('任务已删除', { exact: true }).waitFor();
 });
 
+test('115 directory paging distinguishes this page from all pages and refreshes uncached entries', async t => {
+    let entries = Array.from({ length: 245 }, (_, i) => ({ id: String(i), name: `file-${String(i).padStart(3, '0')}.mp4`, kind: i === 0 ? 'folder' : 'file', size: 1024 ** 3, pick_code: 'pick-' + i }));
+    const calls = []; let releaseRefresh, secondPageReached;
+    const secondPage = new Promise(resolve => { secondPageReached = resolve; });
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/webdav/status', r => r.fulfill({ json: { webdav_connected: false, aria2_connected: true } }));
+        await p.route('**/api/115/status', r => r.fulfill({ json: { connected: true } }));
+        await p.route('**/api/aria2/downloads', r => r.fulfill({ json: { downloads: [] } }));
+        await p.route('**/api/115/files?*', async route => {
+            const query = new URL(route.request().url()).searchParams, offset = Number(query.get('offset')), refresh = query.get('refresh') === 'true';
+            calls.push({ offset, refresh });
+            if (refresh && offset === 0) entries = [...entries.slice(0, -1), { id: 'fresh', name: 'fresh.mp4', kind: 'file', size: 1024 ** 3, pick_code: 'fresh-pick' }];
+            if (refresh && offset === 200) {
+                const wait = new Promise(resolve => { releaseRefresh = resolve; }); secondPageReached(); await wait;
+            }
+            await route.fulfill({ json: { cid: '0', count: entries.length, items: entries.slice(offset, offset + 200) } });
+        });
+    });
+    await navigate(page, '网盘与下载'); await page.locator('aside').getByText('115 网盘', { exact: true }).click();
+    const perPage = page.getByRole('combobox', { name: '网盘每页数量', exact: true });
+    const fileTable = page.getByRole('table').filter({ has: page.getByRole('checkbox', { name: '全选本页', exact: true }) });
+    await fileTable.getByText('file-000.mp4', { exact: true }).waitFor();
+    assert.equal(await fileTable.locator('tbody tr').count(), 60);
+    await perPage.selectOption('20'); assert.equal(await fileTable.locator('tbody tr').count(), 20);
+    const header = fileTable.getByRole('checkbox', { name: '全选本页', exact: true });
+    await header.check(); await page.getByText(/已选 20 个文件/).waitFor();
+    const pager = page.getByRole('navigation', { name: '网盘文件分页', exact: true });
+    await pager.getByRole('button', { name: '下一页', exact: true }).click(); assert.equal(await header.isChecked(), false);
+    await header.check(); await page.getByText(/已选 40 个文件/).waitFor();
+    await header.uncheck(); await page.getByText(/已选 20 个文件/).waitFor();
+    await pager.getByRole('button', { name: '上一页', exact: true }).click(); assert.equal(await header.isChecked(), true);
+    await page.getByRole('button', { name: '全选本目录（245 项）', exact: true }).click();
+    await page.getByText(/已选 245 个文件/).waitFor();
+    assert.deepEqual(calls, [{ offset: 0, refresh: false }, { offset: 200, refresh: false }]);
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-directory-selection-desktop.png'), animations: 'disabled' });
+    const filter = page.getByPlaceholder('关键词 / 番号', { exact: true });
+    await filter.fill('file-24'); await page.getByRole('button', { name: '全选本目录（5 项）', exact: true }).click();
+    await filter.fill(''); await page.getByText(/已选 5 个文件/).waitFor();
+    const refresh = page.getByRole('button', { name: '刷新目录', exact: true });
+    await refresh.click(); await secondPage;
+    assert.equal(await refresh.isEnabled(), false);
+    assert.equal(await page.getByRole('button', { name: '全选本目录（245 项）', exact: true }).isEnabled(), false);
+    assert.equal(await page.getByRole('button', { name: '发送到 Aria2', exact: true }).isEnabled(), false);
+    releaseRefresh(); await page.getByText(/已选 4 个文件/).waitFor();
+    await page.getByText('目录已刷新', { exact: true }).waitFor();
+    assert.deepEqual(calls.slice(-2), [{ offset: 0, refresh: true }, { offset: 200, refresh: true }]);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.locator('.jj-file-toolbar').scrollIntoViewIfNeeded();
+    await perPage.selectOption('50'); assert.equal(await fileTable.locator('tbody tr').count(), 50);
+    await page.getByRole('button', { name: '全选本目录（245 项）', exact: true }).click();
+    await page.getByText(/已选 245 个文件/).waitFor();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.locator('.jj-toast').waitFor({ state: 'hidden' });
+    await page.locator('.jj-file-toolbar').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-directory-selection-mobile.png'), animations: 'disabled' });
+    await page.reload({ waitUntil: 'networkidle' }); await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '网盘与下载'); assert.equal(await perPage.inputValue(), '50');
+});
+
 test('audit: 115 folders load every page, navigate back and dispatch with the source identity', async t => {
     const calls = [];
     const page = await openApp(t, 1440, async p => {

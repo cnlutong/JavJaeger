@@ -2195,6 +2195,29 @@ def test_pan115_directory_cache_reuses_recent_listing(monkeypatch):
     assert calls == [(pan115_service_module.PAN115_FILE_LIST_URL, calls[0][1])]
 
 
+def test_pan115_directory_refresh_bypasses_cache_and_replaces_the_cached_page(monkeypatch):
+    calls = []
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, params, headers):
+            calls.append(params)
+            body = {'state': True, 'cid': 'folder', 'count': 1, 'data': [{'fid': str(len(calls)), 'n': 'movie.mp4', 's': 1024, 'pc': 'pick'}]}
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: body)
+    monkeypatch.setattr(pan115_service_module.httpx, 'AsyncClient', Client)
+    monkeypatch.setattr(pan115_service_module, 'directory_cache', pan115_service_module.Pan115DirectoryCache())
+    monkeypatch.setattr(pan115_service_module, 'get_pan115_config', lambda: {'enabled': True, 'cookie': 'UID=fixture;CID=fixture;SEID=fixture'})
+    client = TestClient(main.app)
+    url = '/api/115/files?cid=folder&offset=200&limit=50'
+    first = client.get(url).json()
+    assert client.get(url).json() == first and len(calls) == 1
+    fresh = client.get(url + '&refresh=true')
+    assert fresh.status_code == 200 and fresh.json()['items'][0]['id'] == '2'
+    assert len(calls) == 2 and calls[-1]['offset'] == '200' and calls[-1]['limit'] == '50'
+    assert client.get(url).json() == fresh.json() and len(calls) == 2
+
+
 def test_pan115_directory_listing_exposes_pick_code(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):

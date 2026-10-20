@@ -5877,6 +5877,8 @@ class Component extends DCLogic {
   var scrapeConfigKeys = ["scScanDir", "scOutDir", "scFolderRule", "scFileRule", "scMaxDepth", "scConcurrent", "scOpts", "scOverrides"];
   var libraryColumns = [["\u5C01\u9762", 152, 104], ["\u756A\u53F7", 104, 88], ["\u6807\u9898", 256, 160], ["\u6F14\u5458", 232, 120], ["\u5A92\u4F53\u53C2\u6570", 140, 100], ["\u6587\u4EF6", 80, 64], ["\u8D44\u6599\u5B8C\u6574\u5EA6", 112, 104], ["\u64CD\u4F5C", 74, 64]];
   var libraryWidthsKey = "javjaeger.libraryColumnWidths";
+  var filePageSizes = [20, 50, 60, 100, 200];
+  var filePageSizeKey = "javjaeger.storagePageSize";
   function movieView(record, local = false) {
     const metadata = record.metadata || {}, media = record.media_info || metadata.media_info || {};
     const tags = names(record.genres || metadata.genres);
@@ -5986,6 +5988,8 @@ class Component extends DCLogic {
           fsMinSize: "0",
           fsMinUnit: "MB",
           fsVideoOnly: false,
+          fsPageSize: 60,
+          fsLoading: false,
           infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"],
           lbWidths: []
         };
@@ -5994,6 +5998,11 @@ class Component extends DCLogic {
           if (Array.isArray(widths) && widths.length === libraryColumns.length && widths.every(Number.isFinite)) {
             this.state.lbWidths = widths.map((width, i) => Math.max(libraryColumns[i][2], Math.min(1200, width)));
           }
+        } catch {
+        }
+        try {
+          const count = Number(window.localStorage.getItem(filePageSizeKey));
+          if (filePageSizes.includes(count)) this.state.fsPageSize = count;
         } catch {
         }
         this.magnets = /* @__PURE__ */ new Map();
@@ -6042,7 +6051,7 @@ class Component extends DCLogic {
           ["tcPage", ["tcF"]],
           ["scPage", ["scF", "scPhase"]],
           ["scOutcomePage", ["scrapeResult"]],
-          ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize", "fsMinUnit"]],
+          ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize", "fsMinUnit", "fsPageSize"]],
           ["directoryPage", ["browsePath"]],
           ["dlgPage", ["dlg"]]
         ]) {
@@ -7870,22 +7879,36 @@ class Component extends DCLogic {
           this.toast("115 \u626B\u7801\u767B\u5F55\u6210\u529F", OK);
         }
       }
-      async loadFiles(source = this.state.fsSrc, path = this.state.directory) {
+      async loadFiles(source = this.state.fsSrc, path = this.state.directory, refresh = false) {
         const version = this.fileRequestVersion = (this.fileRequestVersion || 0) + 1;
-        let payload;
-        if (source === "115") {
-          const items = [];
-          let offset = 0;
-          do {
-            payload = await this.request(`/api/115/files?cid=${id(path || "0")}&offset=${offset}&limit=200`);
-            items.push(...payload.items || []);
-            offset += (payload.items || []).length;
-          } while ((payload.items || []).length && offset < Number(payload.count || 0));
-          payload.entries = items;
-        } else payload = await this.request(`/api/${source === "local" ? "system" : "webdav"}/files?path=${id(path || (source === "local" ? "" : "/"))}`);
-        if (version !== this.fileRequestVersion || this._disposed) return;
-        this.setState({ fsSrc: source, directory: payload.current_path ?? path, directoryParent: payload.parent_path, fileRows: payload.entries || payload.files || [], fsSel: [] });
-        if (this.state.connections.aria2_connected) await this.loadAria();
+        this.setState({ fsLoading: true });
+        try {
+          let payload;
+          if (source === "115") {
+            const items = [];
+            let offset = 0;
+            do {
+              payload = await this.request(`/api/115/files?cid=${id(path || "0")}&offset=${offset}&limit=200${refresh ? "&refresh=true" : ""}`);
+              if (version !== this.fileRequestVersion || this._disposed) return;
+              items.push(...payload.items || []);
+              offset += (payload.items || []).length;
+            } while ((payload.items || []).length && offset < Number(payload.count || 0));
+            payload = { ...payload, entries: items };
+          } else payload = await this.request(`/api/${source === "local" ? "system" : "webdav"}/files?path=${id(path || (source === "local" ? "" : "/"))}`);
+          if (version !== this.fileRequestVersion || this._disposed) return;
+          const entries = payload.entries || payload.files || [], selected = new Set(refresh ? this.state.fsSel : []);
+          this.setState({
+            fsSrc: source,
+            directory: payload.current_path ?? path,
+            directoryParent: payload.parent_path,
+            fileRows: entries,
+            fsSel: entries.map((file) => file.path || file.id).filter((key) => selected.has(key))
+          });
+          if (this.state.connections.aria2_connected) await this.loadAria();
+          return true;
+        } finally {
+          if (version === this.fileRequestVersion && !this._disposed) this.setState({ fsLoading: false });
+        }
       }
       async loadAria() {
         const payload = await this.request("/api/aria2/downloads"), tasks = payload.downloads || [];
@@ -7938,19 +7961,38 @@ class Component extends DCLogic {
       vStorage() {
         const st = this.state, connected = st.fsSrc === "local" || (st.fsSrc === "115" ? this.allConnected() : st.connections.webdav_connected);
         const minimum = this.minFileSize(), sizeError = minimum === null ? "\u6700\u5C0F\u4F53\u79EF\u8BF7\u8F93\u5165\u5927\u4E8E\u6216\u7B49\u4E8E 0 \u7684\u6709\u6548\u6570\u5B57" : "";
-        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected) && !sizeError;
+        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected) && !sizeError && !st.fsLoading;
         const rows = st.fileRows.filter((file) => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === "folder" || (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= (minimum ?? 0) * 1024 ** 2));
         const selectedKeys = new Set(st.fsSel), selected = rows.filter((file) => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
-        const page = this.pageItems(rows, "fsPage", [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit]);
+        const page = this.pageItems(rows, "fsPage", [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit, st.fsPageSize], st.fsPageSize);
+        const pageKeys = new Set(page.items.map((file) => file.path || file.id)), allSel = pageKeys.size > 0 && [...pageKeys].every((key) => selectedKeys.has(key));
         const taskPage = this.pageItems(tasks, "fsTaskPage", []);
         const directories = this.pageItems([...st.browseParent != null ? [{ name: "..", path: st.browseParent }] : [], ...st.directories], "directoryPage", [st.browsePath]);
         return {
           paging: page.paging,
           taskPaging: taskPage.paging,
           directoryPaging: directories.paging,
+          loading: st.fsLoading,
+          pageSize: st.fsPageSize,
+          pageSizes: filePageSizes.map((value) => ({ value })),
+          setPageSize: (event) => {
+            const count = Number(event.target.value);
+            if (!filePageSizes.includes(count)) return;
+            try {
+              window.localStorage.setItem(filePageSizeKey, String(count));
+            } catch {
+            }
+            this.setState({ fsPageSize: count });
+          },
+          refreshFiles: () => {
+            if (this.state.fsLoading) return;
+            return this.perform(async () => {
+              if (await this.loadFiles(st.fsSrc, st.directory, true)) this.toast("\u76EE\u5F55\u5DF2\u5237\u65B0", OK);
+            });
+          },
           sources: [["local", "\u670D\u52A1\u7AEF\u672C\u5730", true], ["webdav", "WebDAV", st.connections.webdav_connected], ["115", "115 \u7F51\u76D8", this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? "\u53EF\u7528" : "\u672A\u8FDE\u63A5", dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: "", op: 1, cursor: "pointer", needsCfg: key !== "local", bg: key === st.fsSrc ? "rgba(145,132,217,.08)" : "transparent", ring: key === st.fsSrc ? ACC : "var(--t09)", config: () => this.setState({ route: "settings", seTab: name }), pick: () => {
             this.fileRequestVersion = (this.fileRequestVersion || 0) + 1;
-            this.setState({ fsSrc: key, fileRows: [], directory: "", directoryTrail: [] });
+            this.setState({ fsSrc: key, fileRows: [], fsSel: [], fsLoading: false, directory: "", directoryTrail: [] });
             if (up) this.perform(() => this.loadFiles(key, ""));
           } })),
           subtitle: st.fsSrc === "local" ? "\u670D\u52A1\u7AEF\u672C\u5730\u76EE\u5F55" : "\u8FDC\u7A0B\u76EE\u5F55 \xB7 \u53EF\u53D1\u9001\u5230 Aria2",
@@ -7972,9 +8014,17 @@ class Component extends DCLogic {
             this.setState({ directoryTrail: trail.slice(0, -1) });
             return this.loadFiles(st.fsSrc, parent);
           }) }],
-          dirMeta: `${rows.length} \u9879`,
-          allSel: rows.length > 0 && selected.length === rows.length,
-          toggleAll: () => this.setState({ fsSel: selected.length === rows.length ? [] : rows.map((file) => file.path || file.id) }),
+          dirMeta: st.fsLoading ? "\u6B63\u5728\u8BFB\u53D6\u76EE\u5F55\u2026" : `\u672C\u9875 ${page.items.length} \u9879 \xB7 \u76EE\u5F55\u7B5B\u9009\u7ED3\u679C ${rows.length} \u9879`,
+          allSel,
+          selectionDisabled: st.fsLoading || rows.length === 0,
+          pageSelectText: allSel ? "\u53D6\u6D88\u672C\u9875\u9009\u62E9" : "\u5168\u9009\u672C\u9875",
+          directorySelectText: `\u5168\u9009\u672C\u76EE\u5F55\uFF08${rows.length} \u9879\uFF09`,
+          selectDirectory: () => {
+            if (!this.state.fsLoading) this.setState({ fsSel: rows.map((file) => file.path || file.id) });
+          },
+          toggleAll: () => {
+            if (!this.state.fsLoading) this.setState({ fsSel: allSel ? st.fsSel.filter((key) => !pageKeys.has(key)) : [.../* @__PURE__ */ new Set([...st.fsSel, ...pageKeys])] });
+          },
           rows: page.items.map((file) => {
             const dir = file.is_directory || file.kind === "folder", key = file.path || file.id;
             return {
@@ -8450,7 +8500,15 @@ class Component extends DCLogic {
     for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {
       html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager2(key + ".paging")}$2`);
     }
-    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager2("fs.paging")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
+    html = html.replace('checked="{{ fs.allSel }}" onChange="{{ fs.toggleAll }}"', 'aria-label="\u5168\u9009\u672C\u9875" title="\u4EC5\u9009\u62E9\u5F53\u524D\u9875" disabled="{{ fs.selectionDisabled }}" checked="{{ fs.allSel }}" onChange="{{ fs.toggleAll }}"');
+    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1
+        <div class="jj-file-toolbar" role="group" aria-label="\u7F51\u76D8\u76EE\u5F55\u64CD\u4F5C">
+          <label>\u6BCF\u9875 <select class="input" aria-label="\u7F51\u76D8\u6BCF\u9875\u6570\u91CF" value="{{ fs.pageSize }}" onChange="{{ fs.setPageSize }}"><sc-for list="{{ fs.pageSizes }}" as="p"><option value="{{ p.value }}">{{ p.value }}</option></sc-for></select> \u9879</label>
+          <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.toggleAll }}">{{ fs.pageSelectText }}</button>
+          <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.selectDirectory }}">{{ fs.directorySelectText }}</button>
+          <button class="btn btn-secondary" disabled="{{ fs.loading }}" onClick="{{ fs.refreshFiles }}">\u5237\u65B0\u76EE\u5F55</button>
+          <span class="jj-path-hint">\u672C\u76EE\u5F55\u5168\u9009\u5305\u542B\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\u7684\u6240\u6709\u5206\u9875\uFF1B\u9009\u62E9\u6587\u4EF6\u5939\u540E\uFF0C\u4E0B\u8F7D\u65F6\u9012\u5F52\u5904\u7406\u3002</span>
+        </div>${pager2("fs.paging", "\u7F51\u76D8\u6587\u4EF6\u5206\u9875")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-ghost" onClick="{{ lb.configureCheck }}">\u68C0\u67E5\u9879\u8BBE\u7F6E</button><button class="btn btn-secondary" disabled="{{ lb.checkBusy }}" onClick="{{ lb.openCheck }}">').replace('onClick="{{ lb.runCheck }}"', 'disabled="{{ lb.checkBusy }}" onClick="{{ lb.runCheck }}"').replace('\u52FE\u9009\u8981\u68C0\u67E5\u7684\u8D44\u6599\uFF0C\u4F5C\u4E3A <code style="font-family:var(--mono);font-size:11.5px;color:var(--accs)">fields</code> \u53C2\u6570\u63D0\u4EA4\uFF1B\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002', "\u9009\u62E9\u68C0\u67E5\u5185\u5BB9\uFF0C\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002\u68C0\u67E5\u5728\u540E\u53F0\u8FD0\u884C\uFF0C\u5B8C\u6210\u540E\u53EF\u4ECE\u540E\u53F0\u4EFB\u52A1\u67E5\u770B\u7ED3\u679C\u5E76\u5F00\u59CB\u8865\u5168\u3002").replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, (library) => library.replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">').replace("<aside style=", '<aside class="jj-library-sidebar" aria-label="\u5F71\u89C6\u5E93\u7B5B\u9009" style=').replace("<main style=", '<main class="jj-library-main" aria-label="\u5F71\u89C6\u5E93\u5185\u5BB9" style=').replace('<select class="input" style="width:auto;', '<select aria-label="\u5F71\u89C6\u5E93\u6392\u5E8F" class="input" style="width:auto;').replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">').replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">').replace('<sc-if value="{{ lb.showList }}">', '<sc-if value="{{ lb.showList }}"><div class="jj-library-table-tools"><span>\u62D6\u52A8\u8868\u5934\u5206\u9694\u7EBF\u8C03\u6574\u5217\u5BBD</span><button class="btn btn-ghost" onClick="{{ lb.resetWidths }}">\u6062\u590D\u9ED8\u8BA4\u5217\u5BBD</button></div>').replace('<table class="table">', '<table class="table" style="width:{{ lb.tableWidth }}">').replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><sc-for list="{{ lb.columns }}" as="c"><th scope="col" style="width:{{ c.cssWidth }}">{{ c.label }}<span class="jj-column-resize" role="separator" tabIndex="0" aria-label="\u8C03\u6574{{ c.label }}\u5217\u5BBD" aria-orientation="vertical" aria-valuemin="{{ c.min }}" aria-valuemax="1200" aria-valuenow="{{ c.width }}" title="\u62D6\u52A8\u8C03\u6574\u5217\u5BBD\uFF1B\u65B9\u5411\u952E\u5FAE\u8C03\uFF0CHome \u6700\u7A84\uFF0CEnd \u6700\u5BBD" onPointerDown="{{ c.resize }}" onKeyDown="{{ c.resize }}"></span></th></sc-for></tr></thead>').replace('<div style="width:70px;aspect-ratio:3/2;', '<div class="jj-library-list-cover" style="width:100%;aspect-ratio:2/3;').replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">').replace('<div style="font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">', '<div class="jj-library-list-title" title="{{ r.title }}" style="font-size:13px">').replace('<td style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>', '<td class="jj-library-list-actors" title="{{ r.actorText }}" style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>').replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="\u67E5\u770B {{ r.code }} \u8BE6\u60C5" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>').replace("background:linear-gradient(transparent,var(--scrim9))", "background:linear-gradient(transparent,rgba(12,14,24,.94))").replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}').replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
     html = html.replace('<div style="width:186px;flex:none;aspect-ratio:2/3;', '<div class="jj-library-detail-cover" style="position:relative;overflow:hidden;width:186px;flex:none;aspect-ratio:2/3;').replace('color:var(--t30)">{{ lb.d.code }}</div>', `color:var(--t30)">${poster("lb.d")}{{ lb.d.code }}</div>`);

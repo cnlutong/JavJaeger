@@ -956,7 +956,9 @@ test('performance: 10000 history, transcode, scrape and storage entries render o
         console.log(JSON.stringify({ method, count: 10000, viewMs: Math.round(performance.now() - before) }));
     }
     const storage = instance.vStorage(); storage.toggleAll();
-    assert.equal(instance.state.fsSel.length, 10000, 'batch selection still includes all filtered entries');
+    assert.equal(instance.state.fsSel.length, 60, 'the header selects only the rendered page');
+    instance.vStorage().selectDirectory();
+    assert.equal(instance.state.fsSel.length, 10000, 'directory selection explicitly includes every filtered page');
     assert.equal(instance.vStorage().rows.every(row => row.sel), true);
     assert.equal(instance.vStorage().tasks.length, 60);
     instance.setState({ fsQ: 'QA-9999' });
@@ -1404,6 +1406,76 @@ test('audit: remote folder selection is usable and local files cannot dispatch',
     assert.equal(instance.vStorage().rows[0].canSend, true);
     instance.setState({ fsQ: 'absent' });
     assert.equal(instance.vStorage().rows.length, 0);
+});
+
+test('storage separates page selection from directory selection and keeps other pages selected', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const files = Array.from({ length: 83 }, (_, i) => ({ id: String(i), path: '/folder/' + i, name: `file-${i}.mp4`, size: 1024, is_directory: i === 0 }));
+    instance.setState({ route: 'storage', fsSrc: '115', directory: 'folder', fileRows: files, connections: { pan115: true } });
+    let view = instance.vStorage();
+    assert.equal(view.rows.length, 60); view.toggleAll();
+    assert.equal(instance.state.fsSel.length, 60);
+    assert.equal(instance.vStorage().allSel, true);
+    view.paging.next(); view = instance.vStorage();
+    assert.equal(view.rows.length, 23); assert.equal(view.allSel, false);
+    view.toggleAll(); assert.equal(instance.state.fsSel.length, 83);
+    instance.vStorage().toggleAll(); assert.equal(instance.state.fsSel.length, 60);
+    instance.vStorage().paging.prev();
+    assert.equal(instance.vStorage().allSel, true);
+    instance.vStorage().rows[0].toggle(); assert.equal(instance.vStorage().allSel, false);
+    instance.vStorage().selectDirectory(); assert.equal(instance.state.fsSel.length, 83);
+    let submitted; instance.sendFiles = files => { submitted = files; };
+    instance.vStorage().sendSel(); assert.equal(submitted.length, 83);
+    instance.setState({ fsQ: 'file-82' });
+    instance.vStorage().selectDirectory(); assert.deepEqual(instance.state.fsSel, ['/folder/82']);
+    instance.setState({ fsQ: 'absent' }); instance.vStorage().toggleAll();
+    assert.equal(instance.vStorage().allSel, false);
+});
+
+test('storage page size is remembered, validated and resets the page without losing selection', t => {
+    const storage = new Map(), instance = app(storage); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'storage', fileRows: Array.from({ length: 83 }, (_, i) => ({ path: '/' + i, name: String(i), size: 1 })) });
+    instance.vStorage().paging.next(); instance.vStorage().rows[0].toggle();
+    instance.vStorage().setPageSize({ target: { value: '20' } });
+    let view = instance.vStorage();
+    assert.equal(view.rows.length, 20); assert.equal(view.rows[0].name, '0'); assert.equal(instance.state.fsSel.length, 1);
+    view.paging.next(); assert.equal(instance.vStorage().rows[0].name, '20');
+    view.setPageSize({ target: { value: '-1' } }); assert.equal(instance.vStorage().pageSize, 20);
+    const restored = app(storage); t.after(() => restored.componentWillUnmount());
+    assert.equal(restored.vStorage().pageSize, 20);
+    const template = adaptTemplate(original, '/logo.jpg');
+    assert.match(template, /网盘每页数量/); assert.match(template, /fs.selectDirectory/); assert.match(template, /刷新目录/);
+});
+
+test('storage refresh bypasses every 115 page cache and publishes only a complete directory', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'storage', fsSrc: '115', directory: 'folder', fsSel: ['kept', 'gone'], fileRows: [{ id: 'kept', name: 'kept', size: 1 }, { id: 'gone', name: 'gone', size: 1 }], connections: { pan115: true } });
+    const calls = []; let release;
+    globalThis.fetch = async url => {
+        calls.push(url); const query = new URL(url, 'http://test').searchParams;
+        assert.equal(query.get('cid'), 'folder'); assert.equal(query.get('refresh'), 'true');
+        if (query.get('offset') === '0') return json({ items: [{ id: 'kept', name: 'kept', size: 1 }], count: 2 });
+        await new Promise(resolve => { release = resolve; });
+        return json({ items: [{ id: 'new', name: 'new', size: 1 }], count: 2 });
+    };
+    const refresh = instance.vStorage().refreshFiles();
+    while (!release) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(instance.vStorage().loading, true); assert.equal(instance.vStorage().canSend, false);
+    assert.equal(instance.state.fileRows[1].id, 'gone', 'do not publish partial directory pages');
+    await instance.vStorage().refreshFiles(); assert.equal(calls.length, 2, 'ignore repeated refresh while loading');
+    release(); await refresh;
+    assert.equal(instance.vStorage().loading, false);
+    assert.deepEqual(instance.state.fileRows.map(file => file.id), ['kept', 'new']);
+    assert.deepEqual(instance.state.fsSel, ['kept']);
+    instance.vStorage().selectDirectory(); assert.deepEqual(instance.state.fsSel, ['kept', 'new']);
+    const completeRows = instance.state.fileRows;
+    globalThis.fetch = async url => {
+        if (new URL(url, 'http://test').searchParams.get('offset') === '0') return json({ items: [{ id: 'partial', name: 'partial' }], count: 2 });
+        throw new Error('listing temporarily unavailable');
+    };
+    await instance.vStorage().refreshFiles();
+    assert.equal(instance.state.fileRows, completeRows, 'a failed later page never replaces the complete list');
+    assert.deepEqual(instance.state.fsSel, ['kept', 'new']); assert.equal(instance.vStorage().loading, false);
 });
 
 test('custom MB and GB thresholds preserve folders and freeze recursive download filters', async t => {

@@ -85,6 +85,7 @@ const informationSummary = task => {
 const scrapeConfigKeys = ['scScanDir', 'scOutDir', 'scFolderRule', 'scFileRule', 'scMaxDepth', 'scConcurrent', 'scOpts', 'scOverrides'];
 const libraryColumns = [['封面', 152, 104], ['番号', 104, 88], ['标题', 256, 160], ['演员', 232, 120], ['媒体参数', 140, 100], ['文件', 80, 64], ['资料完整度', 112, 104], ['操作', 74, 64]];
 const libraryWidthsKey = 'javjaeger.libraryColumnWidths';
+const filePageSizes = [20, 50, 60, 100, 200], filePageSizeKey = 'javjaeger.storagePageSize';
 
 function movieView(record, local = false) {
     const metadata = record.metadata || {}, media = record.media_info || metadata.media_info || {};
@@ -128,6 +129,7 @@ export function connectDesign(Base) {
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
                 backgroundJobs: [], autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
                 scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '0', fsMinUnit: 'MB', fsVideoOnly: false,
+                fsPageSize: 60, fsLoading: false,
                 infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
             };
             try {
@@ -135,6 +137,10 @@ export function connectDesign(Base) {
                 if (Array.isArray(widths) && widths.length === libraryColumns.length && widths.every(Number.isFinite)) {
                     this.state.lbWidths = widths.map((width, i) => Math.max(libraryColumns[i][2], Math.min(1200, width)));
                 }
+            } catch {}
+            try {
+                const count = Number(window.localStorage.getItem(filePageSizeKey));
+                if (filePageSizes.includes(count)) this.state.fsPageSize = count;
             } catch {}
             this.magnets = new Map();
             this.searchByCode = new Map();
@@ -177,7 +183,7 @@ export function connectDesign(Base) {
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
                 ['historyPage', ['dHf']], ['tcPage', ['tcF']], ['scPage', ['scF', 'scPhase']],
                 ['scOutcomePage', ['scrapeResult']],
-                ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize', 'fsMinUnit']], ['directoryPage', ['browsePath']],
+                ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize', 'fsMinUnit', 'fsPageSize']], ['directoryPage', ['browsePath']],
                 ['dlgPage', ['dlg']],
             ]) {
                 if (filters.some(key => key in patch && patch[key] !== this.state[key])) patch[page] = null;
@@ -1442,17 +1448,27 @@ export function connectDesign(Base) {
             this.setState({ qr: { ...qr, ...result } });
             if (Number(result.status) === 2) { await this.loadSettings(); await this.loadConnections(); this.toast('115 扫码登录成功', OK); }
         }
-        async loadFiles(source = this.state.fsSrc, path = this.state.directory) {
+        async loadFiles(source = this.state.fsSrc, path = this.state.directory, refresh = false) {
             const version = this.fileRequestVersion = (this.fileRequestVersion || 0) + 1;
-            let payload;
-            if (source === '115') {
-                const items = []; let offset = 0;
-                do { payload = await this.request(`/api/115/files?cid=${id(path || '0')}&offset=${offset}&limit=200`); items.push(...(payload.items || [])); offset += (payload.items || []).length; } while ((payload.items || []).length && offset < Number(payload.count || 0));
-                payload.entries = items;
-            } else payload = await this.request(`/api/${source === 'local' ? 'system' : 'webdav'}/files?path=${id(path || (source === 'local' ? '' : '/'))}`);
-            if (version !== this.fileRequestVersion || this._disposed) return;
-            this.setState({ fsSrc: source, directory: payload.current_path ?? path, directoryParent: payload.parent_path, fileRows: payload.entries || payload.files || [], fsSel: [] });
-            if (this.state.connections.aria2_connected) await this.loadAria();
+            this.setState({ fsLoading: true });
+            try {
+                let payload;
+                if (source === '115') {
+                    const items = []; let offset = 0;
+                    do {
+                        payload = await this.request(`/api/115/files?cid=${id(path || '0')}&offset=${offset}&limit=200${refresh ? '&refresh=true' : ''}`);
+                        if (version !== this.fileRequestVersion || this._disposed) return;
+                        items.push(...(payload.items || [])); offset += (payload.items || []).length;
+                    } while ((payload.items || []).length && offset < Number(payload.count || 0));
+                    payload = { ...payload, entries: items };
+                } else payload = await this.request(`/api/${source === 'local' ? 'system' : 'webdav'}/files?path=${id(path || (source === 'local' ? '' : '/'))}`);
+                if (version !== this.fileRequestVersion || this._disposed) return;
+                const entries = payload.entries || payload.files || [], selected = new Set(refresh ? this.state.fsSel : []);
+                this.setState({ fsSrc: source, directory: payload.current_path ?? path, directoryParent: payload.parent_path, fileRows: entries,
+                    fsSel: entries.map(file => file.path || file.id).filter(key => selected.has(key)) });
+                if (this.state.connections.aria2_connected) await this.loadAria();
+                return true;
+            } finally { if (version === this.fileRequestVersion && !this._disposed) this.setState({ fsLoading: false }); }
         }
         async loadAria() {
             const payload = await this.request('/api/aria2/downloads'), tasks = payload.downloads || [];
@@ -1483,20 +1499,32 @@ export function connectDesign(Base) {
         vStorage() {
             const st = this.state, connected = st.fsSrc === 'local' || (st.fsSrc === '115' ? this.allConnected() : st.connections.webdav_connected);
             const minimum = this.minFileSize(), sizeError = minimum === null ? '最小体积请输入大于或等于 0 的有效数字' : '';
-            const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected) && !sizeError;
+            const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected) && !sizeError && !st.fsLoading;
             const rows = st.fileRows.filter(file => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === 'folder' || ((!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= (minimum ?? 0) * 1024 ** 2)));
             const selectedKeys = new Set(st.fsSel), selected = rows.filter(file => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
-            const page = this.pageItems(rows, 'fsPage', [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit]);
+            const page = this.pageItems(rows, 'fsPage', [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit, st.fsPageSize], st.fsPageSize);
+            const pageKeys = new Set(page.items.map(file => file.path || file.id)), allSel = pageKeys.size > 0 && [...pageKeys].every(key => selectedKeys.has(key));
             const taskPage = this.pageItems(tasks, 'fsTaskPage', []);
             const directories = this.pageItems([...(st.browseParent != null ? [{ name: '..', path: st.browseParent }] : []), ...st.directories], 'directoryPage', [st.browsePath]);
             return {
                 paging: page.paging, taskPaging: taskPage.paging, directoryPaging: directories.paging,
-                sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.fileRequestVersion = (this.fileRequestVersion || 0) + 1; this.setState({ fsSrc: key, fileRows: [], directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
+                loading: st.fsLoading, pageSize: st.fsPageSize, pageSizes: filePageSizes.map(value => ({ value })),
+                setPageSize: event => { const count = Number(event.target.value); if (!filePageSizes.includes(count)) return;
+                    try { window.localStorage.setItem(filePageSizeKey, String(count)); } catch {}
+                    this.setState({ fsPageSize: count }); },
+                refreshFiles: () => { if (this.state.fsLoading) return; return this.perform(async () => {
+                    if (await this.loadFiles(st.fsSrc, st.directory, true)) this.toast('目录已刷新', OK);
+                }); },
+                sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.fileRequestVersion = (this.fileRequestVersion || 0) + 1; this.setState({ fsSrc: key, fileRows: [], fsSel: [], fsLoading: false, directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
                 subtitle: st.fsSrc === 'local' ? '服务端本地目录' : '远程目录 · 可发送到 Aria2', offline: !connected, showFiles: connected, goSettings: () => this.setState({ route: 'settings', seTab: st.fsSrc === '115' ? '115 网盘' : 'WebDAV' }),
                 q: st.fsQ, setQ: event => this.setState({ fsQ: event.target.value }), videoOnly: st.fsVideoOnly, toggleVideo: () => this.setState({ fsVideoOnly: !st.fsVideoOnly }), minSize: st.fsMinSize, setMinSize: event => this.setState({ fsMinSize: event.target.value }),
                 minUnit: st.fsMinUnit, setMinUnit: event => this.setState({ fsMinUnit: event.target.value }), sizeError,
                 crumbs: [{ name: '根目录 / ', fg: ACC, go: () => this.perform(() => this.loadFiles(st.fsSrc, '')) }, { name: st.directory || '/', fg: DIM, go: () => this.perform(() => this.loadFiles()) }, { name: '上一级', fg: ACC, go: () => this.perform(() => { const trail = st.directoryTrail || []; const parent = st.fsSrc === '115' ? trail.at(-1) || '' : st.directoryParent ?? (st.directory.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/'); this.setState({ directoryTrail: trail.slice(0, -1) }); return this.loadFiles(st.fsSrc, parent); }) }],
-                dirMeta: `${rows.length} 项`, allSel: rows.length > 0 && selected.length === rows.length, toggleAll: () => this.setState({ fsSel: selected.length === rows.length ? [] : rows.map(file => file.path || file.id) }),
+                dirMeta: st.fsLoading ? '正在读取目录…' : `本页 ${page.items.length} 项 · 目录筛选结果 ${rows.length} 项`, allSel,
+                selectionDisabled: st.fsLoading || rows.length === 0, pageSelectText: allSel ? '取消本页选择' : '全选本页',
+                directorySelectText: `全选本目录（${rows.length} 项）`,
+                selectDirectory: () => { if (!this.state.fsLoading) this.setState({ fsSel: rows.map(file => file.path || file.id) }); },
+                toggleAll: () => { if (!this.state.fsLoading) this.setState({ fsSel: allSel ? st.fsSel.filter(key => !pageKeys.has(key)) : [...new Set([...st.fsSel, ...pageKeys])] }); },
                 rows: page.items.map(file => { const dir = file.is_directory || file.kind === 'folder', key = file.path || file.id; return { ...file, isDir: dir, canSend, type: dir ? '文件夹' : file.kind || '文件', size: size(file.size), date: file.modified || file.modified_time || file.mtime || '—', icon: dir ? 'ph-folder' : 'ph-file', iconFg: dir ? ACC : DIM, fg: dir ? ACC : 'var(--fg)', cursor: dir ? 'pointer' : 'default', sel: selectedKeys.has(key), toggle: () => this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter(value => value !== key) : [...st.fsSel, key] }),
                     open: () => { if (dir) { this.setState({ directoryTrail: [...(st.directoryTrail || []), st.directory] }); return this.perform(() => this.loadFiles(st.fsSrc, key)); } }, send: () => this.sendFiles([file]) }; }),
                 selCount: st.route === 'storage' ? selected.length : 0, selSize: size(selected.reduce((sum, file) => sum + Number(file.size || 0), 0)), clearSel: () => this.setState({ fsSel: [] }), sendSel: () => this.sendFiles(selected), canSend,

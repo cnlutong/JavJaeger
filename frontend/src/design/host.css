@@ -46,6 +46,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 button { touch-action: manipulation; }
 input, select, textarea { min-width: 0; }
 .jj-pager { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 16px; position: relative; }
+.jj-file-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; }
+.jj-file-toolbar label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.jj-file-toolbar select { width: 78px; }
+.jj-file-toolbar > span { flex-basis: 100%; }
 /* Preserve the library's original sidebar, statistics and view layout. */
 .jj-library-main > div:first-child > div:last-child { flex-wrap: wrap; max-width: 100%; }
 .jj-library-table-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--dim2); font-size: 12px; }

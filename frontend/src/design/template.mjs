@@ -154,7 +154,15 @@ export function adaptTemplate(source, logo) {
     for (const [route, key] of [['dispatch', 'd'], ['transcode', 'tc'], ['scrape', 'sc']]) {
         html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager(key + '.paging')}$2`);
     }
-    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1${pager('fs.paging')}$2`)
+    html = html.replace('checked="{{ fs.allSel }}" onChange="{{ fs.toggleAll }}"', 'aria-label="全选本页" title="仅选择当前页" disabled="{{ fs.selectionDisabled }}" checked="{{ fs.allSel }}" onChange="{{ fs.toggleAll }}"');
+    html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1
+        <div class="jj-file-toolbar" role="group" aria-label="网盘目录操作">
+          <label>每页 <select class="input" aria-label="网盘每页数量" value="{{ fs.pageSize }}" onChange="{{ fs.setPageSize }}"><sc-for list="{{ fs.pageSizes }}" as="p"><option value="{{ p.value }}">{{ p.value }}</option></sc-for></select> 项</label>
+          <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.toggleAll }}">{{ fs.pageSelectText }}</button>
+          <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.selectDirectory }}">{{ fs.directorySelectText }}</button>
+          <button class="btn btn-secondary" disabled="{{ fs.loading }}" onClick="{{ fs.refreshFiles }}">刷新目录</button>
+          <span class="jj-path-hint">本目录全选包含当前筛选结果的所有分页；选择文件夹后，下载时递归处理。</span>
+        </div>${pager('fs.paging', '网盘文件分页')}$2`)
         .replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager('fs.taskPaging')}$2`)
         .replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager('fs.directoryPaging')}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager('lb.paging')}$2`)
