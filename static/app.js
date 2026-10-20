@@ -5823,7 +5823,7 @@ class Component extends DCLogic {
     return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const dm = LIB.find((r) => r.code === st.lbDetail);", `const sortField = st.lbSort.startsWith('\u53D1\u884C') ? 'date' : st.lbSort.startsWith('\u756A\u53F7') ? 'code' : st.lbSort.includes('\u4F53\u79EF') ? 'total_size' : 'added';
     rows.sort((a, b) => sortField === 'total_size' ? Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0) : sortField === 'code' ? a.code.localeCompare(b.code) : String(b[sortField]).localeCompare(String(a[sortField])));
     const libraryPage = this.pageItems(rows, 'lbPage', [st.lbQ, st.lbActor, st.lbStudio, st.lbRes, st.lbM, st.lbSubOnly, st.lbMissing, st.lbSort]);
-    const dm = LIB.find((r) => r.code === st.lbDetail);`).replace("rows: rows.map((r) => ({\n        code: r.code, title: r.title, meta:", "paging: libraryPage.paging,\n      rows: libraryPage.items.map((r) => ({\n        code: r.code, title: r.title, meta:").replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, "const shelvesByTab = {};\n\n    const chips").replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, "wall: wallRows,\n      heroTitleSize:").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();
+    const dm = LIB.find((r) => r.code === st.lbDetail);`).replace("rows: rows.map((r) => ({\n        code: r.code, title: r.title, meta:", "paging: libraryPage.paging,\n      rows: libraryPage.items.map((r) => ({\n        code: r.code, title: r.title, meta:").replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, "const shelvesByTab = {};\n\n    const chips").replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, "wall: wallRows,\n      heroTitleSize:").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const dm = MOVIES.find((m) => m.code === st.detail);", "const dm = this.searchByCode.get(st.detail);").replace("const magReady = list.filter((m) => m.mag).length;", "const magReady = 0;").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();
     let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))
 `).replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("const o = st.scOpts;", "const o = st.scOpts, skipped = new Set(st.scSkip);").replaceAll("st.scSkip.includes(", "skipped.has(").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
   }
@@ -5978,6 +5978,7 @@ class Component extends DCLogic {
         } catch {
         }
         this.magnets = /* @__PURE__ */ new Map();
+        this.searchByCode = /* @__PURE__ */ new Map();
         this.libraryByCode = /* @__PURE__ */ new Map();
         this.latestByActor = /* @__PURE__ */ new Map();
         this.pendingRequests = /* @__PURE__ */ new Map();
@@ -6324,8 +6325,11 @@ class Component extends DCLogic {
         if (changed) this.forceUpdate?.();
       }
       applyMovieDetails(movie, detail) {
+        const previousCode = movie.code;
         const raw = { ...movie.raw, ...Object.fromEntries(Object.entries(detail).filter(([, value]) => value != null && value !== "")) };
         Object.assign(movie, movieView(raw), { mag: movie.mag, magCount: movie.magCount, detailsLoaded: true, detailError: "" });
+        if (previousCode !== movie.code) this.searchByCode.delete(previousCode);
+        this.searchByCode.set(movie.code, movie);
       }
       async loadMovieDetails(movie, version = this.requestVersion) {
         if (movie.detailsLoaded) return;
@@ -6362,6 +6366,7 @@ class Component extends DCLogic {
         const version = ++this.requestVersion, st = { ...this.state };
         data.MOVIES.splice(0);
         this.magnets.clear();
+        this.searchByCode.clear();
         this.setState({ loading: true, sel: [], detail: null, searchError: "", searchDone: false, nextPage: false, searchPage: null });
         try {
           let payload;
@@ -6380,6 +6385,7 @@ class Component extends DCLogic {
           const detailsLoaded = st.sMode === "code" || st.sMode === "magnet" && sourceKey(st.src) === "javbus";
           const movies = (payload.movies || []).map((movie) => ({ ...movieView(movie), magnetsLoading: true, detailsLoaded, detailsLoading: !detailsLoaded && st.sMode !== "magnet" }));
           data.MOVIES.splice(0, data.MOVIES.length, ...movies);
+          this.searchByCode = new Map(movies.map((movie) => [movie.code, movie]));
           this.magnets.clear();
           this.setState({ loading: false, magnetsLoading: true, searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage ?? payload.pagination?.nextPage ?? payload.has_next_page ?? movies.length >= 30) });
           for (let offset = 0; offset < movies.length; offset += 4) {
@@ -6421,6 +6427,7 @@ class Component extends DCLogic {
         ++this.requestVersion;
         data.MOVIES.splice(0);
         this.magnets.clear();
+        this.searchByCode.clear();
         this.setState({ loading: false, magnetsLoading: false, searchDone: false, searchError: "", nextPage: false, sel: [], detail: null });
       }
       visible() {
@@ -7988,7 +7995,7 @@ class Component extends DCLogic {
         view.dlg.list = confirmation.items;
         view.dlg.paging = confirmation.paging;
         const search = view.s, movies = st.route === "search" ? this.visible() : [];
-        const movieIndex = new Map(movies.map((movie) => [movie.code, movie]));
+        const movieIndex = this.searchByCode;
         search.paging = this.pageItems(movies, "searchPage", []).paging;
         search.selectPage = () => this.setState({ sel: [.../* @__PURE__ */ new Set([...st.sel, ...search.rows.map((row) => row.code)])] });
         Object.assign(search, {
@@ -8056,7 +8063,7 @@ class Component extends DCLogic {
         }
         for (const row of search.rows) row.open = () => this.perform(async () => {
           const version = this.requestVersion;
-          const original = data.MOVIES.find((movie) => movie.code === row.code);
+          const original = movieIndex.get(row.code);
           this.setState({ detail: row.code });
           await this.loadMovieDetails(original, version);
           if (version !== this.requestVersion || this._disposed) return;

@@ -24,6 +24,9 @@ export function adaptDesignScript(script) {
         .replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, 'const shelvesByTab = {};\n\n    const chips')
         .replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, 'wall: wallRows,\n      heroTitleSize:')
         .replace('const list = this.visible();', "const list = st.route === 'search' ? this.visible() : [];")
+        .replace('const dm = MOVIES.find((m) => m.code === st.detail);', 'const dm = this.searchByCode.get(st.detail);')
+        // The API adapter replaces both magnet progress and the download-all action.
+        .replace('const magReady = list.filter((m) => m.mag).length;', 'const magReady = 0;')
         .replace('const rows = list.map((m) => {', "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {")
         .replace('actors: CN_ACTORS.map((a) => {', 'actors: (showActors ? CN_ACTORS : []).map((a) => {')
         .replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, 'const latest = this.latestByActor.get(a.name);')
@@ -117,6 +120,7 @@ export function connectDesign(Base) {
                 }
             } catch {}
             this.magnets = new Map();
+            this.searchByCode = new Map();
             this.libraryByCode = new Map();
             this.latestByActor = new Map();
             this.pendingRequests = new Map();
@@ -401,8 +405,11 @@ export function connectDesign(Base) {
         }
 
         applyMovieDetails(movie, detail) {
+            const previousCode = movie.code;
             const raw = { ...movie.raw, ...Object.fromEntries(Object.entries(detail).filter(([, value]) => value != null && value !== '')) };
             Object.assign(movie, movieView(raw), { mag: movie.mag, magCount: movie.magCount, detailsLoaded: true, detailError: '' });
+            if (previousCode !== movie.code) this.searchByCode.delete(previousCode);
+            this.searchByCode.set(movie.code, movie);
         }
         async loadMovieDetails(movie, version = this.requestVersion) {
             if (movie.detailsLoaded) return;
@@ -430,7 +437,7 @@ export function connectDesign(Base) {
 
         runSearch = async () => {
             const version = ++this.requestVersion, st = { ...this.state };
-            data.MOVIES.splice(0); this.magnets.clear();
+            data.MOVIES.splice(0); this.magnets.clear(); this.searchByCode.clear();
             this.setState({ loading: true, sel: [], detail: null, searchError: '', searchDone: false, nextPage: false, searchPage: null });
             try {
                 let payload;
@@ -449,6 +456,7 @@ export function connectDesign(Base) {
                 const detailsLoaded = st.sMode === 'code' || st.sMode === 'magnet' && sourceKey(st.src) === 'javbus';
                 const movies = (payload.movies || []).map(movie => ({ ...movieView(movie), magnetsLoading: true, detailsLoaded, detailsLoading: !detailsLoaded && st.sMode !== 'magnet' }));
                 data.MOVIES.splice(0, data.MOVIES.length, ...movies);
+                this.searchByCode = new Map(movies.map(movie => [movie.code, movie]));
                 this.magnets.clear();
                 this.setState({ loading: false, magnetsLoading: true, searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage ?? payload.pagination?.nextPage ?? payload.has_next_page ?? movies.length >= 30) });
                 // Keep the existing four-request ceiling while loading results in order.
@@ -479,7 +487,7 @@ export function connectDesign(Base) {
         };
         clearSearch() {
             ++this.requestVersion;
-            data.MOVIES.splice(0); this.magnets.clear();
+            data.MOVIES.splice(0); this.magnets.clear(); this.searchByCode.clear();
             this.setState({ loading: false, magnetsLoading: false, searchDone: false, searchError: '', nextPage: false, sel: [], detail: null });
         }
         visible() { return this.state.sMode === 'magnet' ? [] : data.MOVIES; }
@@ -1439,7 +1447,7 @@ export function connectDesign(Base) {
             const confirmation = this.pageItems(view.dlg.list, 'dlgPage', []);
             view.dlg.list = confirmation.items; view.dlg.paging = confirmation.paging;
             const search = view.s, movies = st.route === 'search' ? this.visible() : [];
-            const movieIndex = new Map(movies.map(movie => [movie.code, movie]));
+            const movieIndex = this.searchByCode;
             search.paging = this.pageItems(movies, 'searchPage', []).paging;
             search.selectPage = () => this.setState({ sel: [...new Set([...st.sel, ...search.rows.map(row => row.code)])] });
             Object.assign(search, { offline: Boolean(st.searchError), error: st.searchError, srcText: st.searchError ? '查询失败' : st.searchDone ? '已获取结果' : '待查询', srcDot: st.searchError ? BAD : DIM2, srcFg: DIM,
@@ -1472,7 +1480,7 @@ export function connectDesign(Base) {
             }
             for (const row of search.rows) row.open = () => this.perform(async () => {
                 const version = this.requestVersion;
-                const original = data.MOVIES.find(movie => movie.code === row.code);
+                const original = movieIndex.get(row.code);
                 this.setState({ detail: row.code });
                 await this.loadMovieDetails(original, version);
                 if (version !== this.requestVersion || this._disposed) return;

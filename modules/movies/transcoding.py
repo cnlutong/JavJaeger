@@ -651,13 +651,17 @@ class TranscodingService:
             stage="等待 GPU 执行",
         )
         source_key = self._source_key(source_path)
+
+        async def persist_and_enqueue():
+            await self._save_unlocked()
+            self._queue.put_nowait(task.id)
+
         async with self._lock:
             if source_key in self._active_sources:
                 raise TranscodingConflictError("该文件已有等待中或运行中的转码任务")
             self._tasks[task.id] = task
             self._active_sources.add(source_key)
-            await self._save_unlocked()
-        self._queue.put_nowait(task.id)
+            await runtime.finish_before_cancel(persist_and_enqueue())
         return TranscodingTask(**_model_dump(task))
 
     async def cancel_task(self, task_id: str) -> TranscodingTask:
@@ -681,13 +685,17 @@ class TranscodingService:
                 if event:
                     event.set()
                 process = self._processes.get(task_id)
-            await self._save_unlocked()
+
+            async def persist_and_terminate():
+                await self._save_unlocked()
+                if process is not None and process.returncode is None:
+                    try:
+                        process.terminate()
+                    except ProcessLookupError:
+                        pass
+
+            await runtime.finish_before_cancel(persist_and_terminate())
             result = TranscodingTask(**_model_dump(task))
-        if process is not None and process.returncode is None:
-            try:
-                process.terminate()
-            except ProcessLookupError:
-                pass
         return result
 
     async def retry_task(self, task_id: str) -> TranscodingTask:
@@ -1385,16 +1393,19 @@ class TranscodingService:
     async def _load_unlocked(self) -> None:
         if self._loaded:
             return
-        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.storage_path.exists():
-            self._tasks = {}
+        tasks = await runtime.run_blocking_io(self._read_tasks)
+        self._tasks = tasks if tasks is not None else {}
+        if tasks is None:
             await self._save_unlocked()
-            self._loaded = True
-            return
+        self._loaded = True
+
+    def _read_tasks(self) -> dict[str, TranscodingTask] | None:
+        if not self.storage_path.exists():
+            return None
         try:
             payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
             items = payload.get("tasks", []) if isinstance(payload, dict) else []
-            self._tasks = {
+            return {
                 task.id: task
                 for item in items
                 if isinstance(item, dict)
@@ -1402,11 +1413,14 @@ class TranscodingService:
             }
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             logger.error("Failed to load transcoding tasks from %s: %s", self.storage_path, exc)
-            self._tasks = {}
-        self._loaded = True
+            return {}
 
     async def _save_unlocked(self) -> None:
         self._task_revision += 1
+        await runtime.run_blocking_io(self._write_tasks)
+
+    def _write_tasks(self) -> None:
+        # ponytail: progress uses 5s full snapshots; per-task updates if disk volume becomes limiting.
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": 1,
@@ -1414,8 +1428,11 @@ class TranscodingService:
             "tasks": [_model_dump(task) for task in self._tasks.values()],
         }
         temporary = self.storage_path.with_name(f".{self.storage_path.name}.{uuid.uuid4().hex}.tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, self.storage_path)
+        try:
+            temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            os.replace(temporary, self.storage_path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     @staticmethod
     def _progress_seconds(values: dict[str, str]) -> float:

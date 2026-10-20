@@ -475,16 +475,22 @@ class AutomationService:
 
     async def _run_due_tasks(self) -> None:
         now = datetime.now()
-        tasks = await self.list_tasks()
-        for task in tasks:
-            if not task.enabled or not task.next_run_at:
-                continue
+        async with self._lock:
+            if not await self._refresh_tasks_unlocked():
+                return
+            # Scheduling needs immutable fields, not the complete persisted run history.
+            schedules = sorted(
+                ((task.id, task.next_run_at, task.created_at) for task in self._cached_tasks
+                 if task.enabled and task.next_run_at),
+                key=lambda item: item[2], reverse=True,
+            )
+        for task_id, next_run_at, _ in schedules:
             try:
-                due_at = datetime.fromisoformat(task.next_run_at)
+                due_at = datetime.fromisoformat(next_run_at)
             except ValueError:
                 continue
-            if due_at <= now and task.id not in self._running_task_ids:
-                await self.run_task(task.id, manual=False, background=True)
+            if due_at <= now and task_id not in self._running_task_ids:
+                await self.run_task(task_id, manual=False, background=True)
 
     def _calculate_next_run(self, task: AutomationTask, now: datetime) -> str | None:
         if not task.enabled:

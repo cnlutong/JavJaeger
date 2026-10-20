@@ -506,21 +506,58 @@ def _number_same_movie_duplicate_target_records(records: list[dict[str, Any]]) -
             record["target_stem"] = target_video.stem
 
 
+def _subtitle_stems(candidate: Path) -> list[str]:
+    stem = candidate.stem.lower()
+    return [stem, *(stem[:index] for index, char in enumerate(stem) if char in ".-_")]
+
+
 def _subtitle_matches(video_path: Path, candidate: Path) -> bool:
     if candidate.suffix.lower() not in SUBTITLE_EXTENSIONS:
         return False
     if candidate.parent != video_path.parent:
         return False
-    stem = candidate.stem.lower()
-    video_stem = video_path.stem.lower()
-    return stem == video_stem or stem.startswith(f"{video_stem}.") or stem.startswith(f"{video_stem}-") or stem.startswith(f"{video_stem}_")
+    return video_path.stem.lower() in _subtitle_stems(candidate)
 
 
-def _related_subtitles(video_path: Path) -> list[Path]:
+def _index_subtitles(directory: Path) -> dict[str, dict[Path, None]] | None:
+    index: dict[str, dict[Path, None]] = {}
     try:
-        return [entry for entry in video_path.parent.iterdir() if entry.is_file() and _subtitle_matches(video_path, entry)]
+        for entry in directory.iterdir():
+            if entry.is_file() and entry.suffix.lower() in SUBTITLE_EXTENSIONS:
+                for stem in _subtitle_stems(entry):
+                    index.setdefault(stem, {})[entry] = None
+    except OSError:
+        return None
+    return index
+
+
+def _related_subtitles(video_path: Path, indexes: dict | None = None) -> list[Path]:
+    indexes = indexes if indexes is not None else {}
+    if video_path.parent not in indexes:
+        index = _index_subtitles(video_path.parent)
+        if index is None:
+            return []
+        indexes[video_path.parent] = index
+    try:
+        candidates = indexes[video_path.parent].get(video_path.stem.lower(), {})
+        return [entry for entry in candidates if entry.is_file() and _subtitle_matches(video_path, entry)]
     except OSError:
         return []
+
+
+def _move_subtitle_index(indexes: dict, source: Path, target: Path) -> None:
+    if source == target:
+        return
+    for path, remove in ((source, True), (target, False)):
+        index = indexes.get(path.parent)
+        if index is None:
+            continue
+        for stem in _subtitle_stems(path):
+            candidates = index.setdefault(stem, {})
+            if remove:
+                candidates.pop(path, None)
+            else:
+                candidates[path] = None
 
 
 def _subtitle_target_path(subtitle_path: Path, source_video_path: Path, target_dir: Path, target_stem: str) -> Path:
@@ -1379,6 +1416,8 @@ async def apply_local_scrape(
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     library_records_by_root: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    # ponytail: batch snapshot tracks our moves; externally added subtitles appear next batch.
+    subtitle_indexes: dict[Path, dict[str, dict[Path, None]]] = {}
     success_count = 0
     total_items = len(request.items)
 
@@ -1487,7 +1526,7 @@ async def apply_local_scrape(
             current_video = source_path
             moved_assets: list[str] = []
 
-            subtitles = _related_subtitles(source_path)
+            subtitles = await asyncio.to_thread(_related_subtitles, source_path, subtitle_indexes)
             conflict = target_video.exists() and target_video.resolve() != source_path.resolve()
             conflict_resolution = str(item.conflict_resolution or "").strip()
             keep_side = await asyncio.to_thread(_choose_conflict_keep_side, source_path, target_video, conflict_resolution) if conflict else None
@@ -1567,6 +1606,7 @@ async def apply_local_scrape(
             for subtitle in subtitles:
                 subtitle_target = _subtitle_target_path(subtitle, source_path, target_dir, target_stem)
                 await asyncio.to_thread(_move_file, subtitle, subtitle_target, overwrite_target)
+                _move_subtitle_index(subtitle_indexes, subtitle, subtitle_target)
                 moved_assets.append(str(subtitle_target))
 
             poster_name = None

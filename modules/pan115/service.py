@@ -902,6 +902,7 @@ async def download(request: DownloadRequest, progress_callback=None) -> dict[str
     client = Pan115Client(cookie)
 
     dispatch_links: list[str] = []
+    dispatch_keys: set[str] = set()
     dispatch_movie_ids: list[str] = []
     dispatch_sources: list[str] = []
     dispatch_original_links: list[str] = []
@@ -930,10 +931,11 @@ async def download(request: DownloadRequest, progress_callback=None) -> dict[str
             magnet_link = replacement_link
             magnet_source = str((replacement or {}).get("source") or magnet_source or "").strip().lower()
         key = _dedupe_key(magnet_link)
-        if any(_dedupe_key(link) == key for link in dispatch_links):
+        if key in dispatch_keys:
             results[index] = {"magnet": magnet_link, "success": False, "skipped": True, "movie_id": movie_id, "reason": "duplicate_magnet"}
             continue
         dispatch_links.append(magnet_link)
+        dispatch_keys.add(key)
         dispatch_movie_ids.append(movie_id)
         dispatch_sources.append(str(magnet_source or "").strip().lower())
         dispatch_original_links.append(original_magnet_link)

@@ -492,6 +492,34 @@ test('performance: search shows movies while magnets are still loading', async (
     assert.equal(view.rows[0].code, 'QA-001');
 });
 
+test('performance: incremental search enrichment avoids rescanning every result on each update', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'recognize', recogHtml: 'isolated fixture' });
+    const count = 400, movies = Array.from({ length: count }, (_, i) => ({ id: `QA-${i}`, title: `Film ${i}`, gid: String(i), uc: 0 }));
+    const details = new Map(movies.map(movie => [movie.id, movie])), data = instance.constructor.data;
+    let fullResultVisits = 0, updates = 0;
+    for (const method of ['map', 'filter', 'find']) Object.defineProperty(data.MOVIES, method, { configurable: true,
+        value(callback, ...args) { return Array.prototype[method].call(this, (...values) => { fullResultVisits++; return callback(...values); }, ...args); },
+    });
+    globalThis.fetch = async url => json(url.endsWith('/recognize') ? { movies } : url.includes('/magnets/') ? [] : details.get(url.split('/').at(-1)));
+    instance.forceUpdate = () => { updates++; instance.renderVals(); };
+    await instance.runSearch();
+    const first = instance.renderVals().s;
+    assert.equal(first.rows.length, 60);
+    first.paging.next();
+    const second = instance.renderVals().s;
+    assert.equal(second.rows[0].code, 'QA-60');
+    second.selectPage(); assert.equal(instance.state.sel.length, 60);
+    await second.rows[0].open();
+    const detail = instance.renderVals().s.d;
+    assert.equal(detail.code, 'QA-60'); assert.equal(detail.title, 'Film 60');
+    detail.dispatchBest(); assert.deepEqual(instance.state.dlg.list, ['QA-60']);
+    instance.clearSearch();
+    assert.equal(instance.renderVals().s.d, null, 'reset removes the previous search detail');
+    assert.ok(updates > 0, 'metadata and magnet progress still publish updates');
+    assert.ok(fullResultVisits <= count * 4, `${fullResultVisits} full-result visits while enriching ${count} films`);
+});
+
 test('search enriches every summary in the background and reuses details across all magnet sources', async t => {
     for (const src of ['javbus', 'cili', 'yhg']) await t.test(src, async t => {
         const instance = app(); t.after(() => instance.componentWillUnmount());
