@@ -214,6 +214,49 @@ test('background logs update live, restore after refresh and show honest stage p
     await openLog(); await log.getByText(/提交中断/).waitFor();
 });
 
+test('file job cancellation and selective retry remain available after refresh on desktop and mobile', async t => {
+    let task = { task_id: 'controlled-files', type: 'file-dispatch', status: 'running', phase: 'dispatch', percent: 33, completed: 1, total: 3,
+        can_cancel: true, can_retry: false, updated_at: 'one', message: '已提交 a.mp4，正在提交 b.mp4', logs: [] };
+    let cancellations = 0, retries = 0;
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: [task] } }));
+        await p.route('**/api/system/jobs/controlled-files', route => route.fulfill({ json: task }));
+        await p.route('**/api/system/jobs/controlled-files/cancel', async route => {
+            cancellations++;
+            task = { ...task, cancel_requested: true, can_cancel: false, updated_at: 'two', message: '正在取消，等待当前操作结束' };
+            await route.fulfill({ json: task });
+        });
+        await p.route('**/api/system/jobs/controlled-files/retry', async route => {
+            retries++;
+            task = { ...task, status: 'running', can_cancel: true, can_retry: false, cancel_requested: false, updated_at: 'four', message: '仅重试 b.mp4、c.mp4，保留 a.mp4 提交结果' };
+            await route.fulfill({ json: task });
+        });
+    });
+    const openLog = async () => {
+        await page.locator('header').getByRole('button', { name: '后台 1', exact: true }).click();
+        await page.getByRole('dialog', { name: '后台任务', exact: true }).getByRole('button', { name: '查看', exact: true }).click();
+    };
+    await openLog();
+    const dialog = page.getByRole('dialog', { name: '任务日志', exact: true });
+    await dialog.getByRole('button', { name: '取消任务', exact: true }).click();
+    await dialog.getByRole('status').getByText(/正在取消/).waitFor();
+    assert.equal(await dialog.getByRole('button', { name: '取消任务', exact: true }).count(), 0);
+    task = { ...task, status: 'cancelled', can_retry: true, updated_at: 'three', message: '任务已取消，已提交下载继续',
+        logs: [{ time: '2026-10-20T18:00:00', message: 'a.mp4 已确认成功，b.mp4、c.mp4 尚未提交' }],
+        result: { success: false, results: [{ filename: 'a.mp4', success: true, gid: '1234567890abcdef' }] } };
+    await dialog.getByRole('button', { name: '重试未提交项', exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-job-controls-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click(); await openLog();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-job-controls-mobile.png'), animations: 'disabled' });
+    await dialog.getByRole('button', { name: '重试未提交项', exact: true }).click();
+    await dialog.getByText(/仅重试 b.mp4/).waitFor();
+    await dialog.getByRole('button', { name: '取消任务', exact: true }).waitFor();
+    assert.equal(cancellations, 1); assert.equal(retries, 1);
+});
+
 test('deployment: cinema and management share the image revision and update time after reload', async t => {
     const page = await openApp(t, 1440);
     for (const width of [1440, 1024, 390]) {

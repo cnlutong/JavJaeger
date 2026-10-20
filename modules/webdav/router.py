@@ -187,7 +187,8 @@ async def add_downloads(request: Request, payload: AddDownloadsRequest):
 async def start_file_download_job(request: Request, payload: AddDownloadsRequest):
     state = await session_store.get_state(request)
     _check_file_dispatch(state, payload)
-    return submit_background_task(request, 'file-dispatch', file_dispatch_runner(state.webdav_client, state.aria2_client, payload))
+    runner = file_dispatch_runner(state.webdav_client, state.aria2_client, payload)
+    return submit_background_task(request, 'file-dispatch', runner, cancellable=True, retryable=runner.can_retry)
 
 
 @router.get("/api/aria2/status")

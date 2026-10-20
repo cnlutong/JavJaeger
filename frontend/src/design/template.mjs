@@ -148,7 +148,7 @@ export function adaptTemplate(source, logo) {
           <p style="font-size:12px;color:var(--dim)">{{ taskLog.progress.phaseText }} · {{ taskLog.progress.pctText }}</p>
           <span style="font-size:11px;color:var(--dim2)">最新日志在前，最多保留 300 条。进度表示当前阶段；实际下载进度请查看下载工具。</span>
           <pre role="log" aria-label="实时任务日志" aria-live="polite" aria-atomic="false">{{ taskLog.text }}</pre>
-          <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ taskLog.close }}">关闭日志</button><button class="btn btn-primary" onClick="{{ taskLog.result }}">{{ taskLog.resultText }}</button></div>
+          <div class="dialog-actions"><sc-if value="{{ taskLog.canCancel }}"><button class="btn btn-secondary" disabled="{{ taskLog.busy }}" onClick="{{ taskLog.cancel }}">取消任务</button></sc-if><sc-if value="{{ taskLog.canRetry }}"><button class="btn btn-secondary" disabled="{{ taskLog.busy }}" onClick="{{ taskLog.retry }}">重试未提交项</button></sc-if><button class="btn btn-secondary" onClick="{{ taskLog.close }}">关闭日志</button><button class="btn btn-primary" onClick="{{ taskLog.result }}">{{ taskLog.resultText }}</button></div>
         </div></div></sc-if>
       <sc-if value="{{ dlg.open }}">`);
     for (const [route, key] of [['dispatch', 'd'], ['transcode', 'tc'], ['scrape', 'sc']]) {

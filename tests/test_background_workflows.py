@@ -62,7 +62,7 @@ def test_folder_resolution_and_aria2_submission_publish_live_file_events():
     client = SimpleNamespace(list_directory_all=AsyncMock(return_value={'items': [
         {'id': 'video', 'name': 'a.mp4', 'size': 2 * 1024 ** 3, 'pick_code': 'pick'},
         {'id': 'text', 'name': 'a.txt', 'size': 100, 'pick_code': 'text'}]}),
-        resolve_direct_download=AsyncMock(return_value=SimpleNamespace(name='a.mp4', url='https://cdn.test/signed', headers=[])))
+        resolve_direct_download=AsyncMock(return_value=pan115.Pan115ResolvedDownload(name='a.mp4', url='https://cdn.test/signed', headers=[])))
     async def resolve(files, video_filter, min_file_size_mb, progress_callback=None):
         return await pan115._resolve_download_entries(client, files, video_filter, min_file_size_mb, progress_callback)
     async def exercise():
@@ -199,7 +199,7 @@ def test_file_dispatch_owns_a_private_connection_snapshot_until_completion(monke
                 clones.append(self)
             def close(self): self.closed = True
 
-        async def dispatch(webdav, aria2, payload, progress_callback=None):
+        async def dispatch(webdav, aria2, payload, progress_callback=None, journal=None):
             entered.set()
             await release.wait()
             assert original.closed and not webdav.closed

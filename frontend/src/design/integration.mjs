@@ -66,7 +66,7 @@ const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/ima
 const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask', cleanupTask: 'localLibraryCleanupTask' };
 const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发' };
 const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks', '/api/system/jobs'];
-const jobFinished = task => task && ['success', 'completed', 'failed'].includes(task.status);
+const jobFinished = task => task && ['success', 'completed', 'failed', 'cancelled'].includes(task.status);
 const taskProgress = task => {
     const finished = !['running', 'queued'].includes(task.status), total = Number(task.total ?? task.total_count ?? 0), completed = Number(task.completed ?? task.completed_count ?? 0);
     const pct = ['success', 'completed', 'noop'].includes(task.status) ? 100 : Math.max(0, Math.min(100, Number(task.percent ?? task.progress ?? task.pct ?? (total ? completed / total * 100 : 0)) || 0));
@@ -620,7 +620,7 @@ export function connectDesign(Base) {
         backgroundItem(kind, task, read, result) {
             const progress = taskProgress(task);
             return { kind, name: safeText(task.movie_id || task.code || task.message || task.stage, kind), ...progress,
-                meta: progress.phaseText, fg: task.status === 'failed' ? WARN : progress.finished ? OK : ACC,
+                meta: progress.phaseText, fg: ['failed', 'cancelled'].includes(task.status) ? WARN : progress.finished ? OK : ACC,
                 go: () => { this.setState({ bgOpen: false, taskLog: { title: kind, read, result, observed: [] } }); this.refreshTaskLog(); } };
         }
 
@@ -637,10 +637,24 @@ export function connectDesign(Base) {
             if (!task) return { open: false };
             const finished = !['running', 'queued'].includes(task.status), logs = task.logs?.length ? task.logs : monitor.observed;
             return { open: true, title: monitor.title + ' · 任务日志', message: safeText(task.message || task.stage, '等待任务上报进度'),
-                status: finished ? taskProgress(task).pctText : '运行中 · 每 3 秒更新', progress: taskProgress(task),
+                status: finished ? taskProgress(task).pctText : task.cancel_requested ? '正在取消 · 等待当前操作结束' : '运行中 · 每 3 秒更新', progress: taskProgress(task),
+                canCancel: Boolean(task.can_cancel), canRetry: Boolean(task.can_retry), busy: Boolean(this._controllingJobs?.has(task.task_id)),
+                cancel: () => this.controlJob(task, 'cancel'), retry: () => this.controlJob(task, 'retry'),
                 text: logs.slice(-300).reverse().map(line => `${String(line.time || '').replace('T', ' ').slice(0, 19)}  ${safeText(line.message, '日志内容已隐藏')}`).join('\n') || '等待任务日志…',
                 close: () => this.setState({ taskLog: null }),
                 resultText: finished ? '查看结果' : '前往任务页面', result: () => { this.setState({ taskLog: null }); monitor.result(); } };
+        }
+
+        async controlJob(task, action) {
+            this._controllingJobs ||= new Set();
+            if (this._controllingJobs.has(task.task_id)) return;
+            this._controllingJobs.add(task.task_id); this.setState({});
+            try {
+                await this.perform(async () => {
+                    const next = await this.request('/api/system/jobs/' + id(task.task_id) + '/' + action, 'POST');
+                    this.setState({ backgroundJobs: this.state.backgroundJobs.map(item => item.task_id === next.task_id ? next : item) });
+                });
+            } finally { this._controllingJobs.delete(task.task_id); this.setState({}); }
         }
 
         async finishDispatch(result, tool, preflight = []) {

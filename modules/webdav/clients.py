@@ -223,6 +223,10 @@ class WebDavClient:
         return files
 
 
+class SubmissionUnknown(Exception):
+    """The remote write may have succeeded; verify its GID before any retry."""
+
+
 class Aria2Client:
     def __init__(self, rpc_url: str, secret: str = ""):
         if aria2p is None:
@@ -270,6 +274,23 @@ class Aria2Client:
 
         download = self.aria2.add_uris([url], options=aria2_options)
         return download.gid
+
+    def submit_file(self, url, options, gid, verify_only=False):
+        if verify_only:
+            try:
+                return self.aria2.get_download(gid).gid
+            except Exception:
+                raise SubmissionUnknown() from None
+        try:
+            return self.add_download(url, {**options, 'gid': gid})
+        except Exception as exc:
+            try:
+                return self.aria2.get_download(gid).gid
+            except Exception:
+                # A JSON-RPC rejection is definite; a lost transport response is not.
+                if isinstance(exc, aria2p.ClientException):
+                    raise exc from None
+                raise SubmissionUnknown() from None
 
     def get_version(self) -> Dict[str, Any]:
         if not self.aria2:

@@ -5859,7 +5859,7 @@ class Component extends DCLogic {
   var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask", cleanupTask: "localLibraryCleanupTask" };
   var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1" };
   var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks", "/api/system/jobs"];
-  var jobFinished = (task) => task && ["success", "completed", "failed"].includes(task.status);
+  var jobFinished = (task) => task && ["success", "completed", "failed", "cancelled"].includes(task.status);
   var taskProgress = (task) => {
     const finished = !["running", "queued"].includes(task.status), total = Number(task.total ?? task.total_count ?? 0), completed = Number(task.completed ?? task.completed_count ?? 0);
     const pct = ["success", "completed", "noop"].includes(task.status) ? 100 : Math.max(0, Math.min(100, Number(task.percent ?? task.progress ?? task.pct ?? (total ? completed / total * 100 : 0)) || 0));
@@ -6610,7 +6610,7 @@ class Component extends DCLogic {
           name: safeText(task.movie_id || task.code || task.message || task.stage, kind),
           ...progress,
           meta: progress.phaseText,
-          fg: task.status === "failed" ? WARN : progress.finished ? OK : ACC,
+          fg: ["failed", "cancelled"].includes(task.status) ? WARN : progress.finished ? OK : ACC,
           go: () => {
             this.setState({ bgOpen: false, taskLog: { title: kind, read, result, observed: [] } });
             this.refreshTaskLog();
@@ -6632,8 +6632,13 @@ class Component extends DCLogic {
           open: true,
           title: monitor.title + " \xB7 \u4EFB\u52A1\u65E5\u5FD7",
           message: safeText(task.message || task.stage, "\u7B49\u5F85\u4EFB\u52A1\u4E0A\u62A5\u8FDB\u5EA6"),
-          status: finished ? taskProgress(task).pctText : "\u8FD0\u884C\u4E2D \xB7 \u6BCF 3 \u79D2\u66F4\u65B0",
+          status: finished ? taskProgress(task).pctText : task.cancel_requested ? "\u6B63\u5728\u53D6\u6D88 \xB7 \u7B49\u5F85\u5F53\u524D\u64CD\u4F5C\u7ED3\u675F" : "\u8FD0\u884C\u4E2D \xB7 \u6BCF 3 \u79D2\u66F4\u65B0",
           progress: taskProgress(task),
+          canCancel: Boolean(task.can_cancel),
+          canRetry: Boolean(task.can_retry),
+          busy: Boolean(this._controllingJobs?.has(task.task_id)),
+          cancel: () => this.controlJob(task, "cancel"),
+          retry: () => this.controlJob(task, "retry"),
           text: logs.slice(-300).reverse().map((line) => `${String(line.time || "").replace("T", " ").slice(0, 19)}  ${safeText(line.message, "\u65E5\u5FD7\u5185\u5BB9\u5DF2\u9690\u85CF")}`).join("\n") || "\u7B49\u5F85\u4EFB\u52A1\u65E5\u5FD7\u2026",
           close: () => this.setState({ taskLog: null }),
           resultText: finished ? "\u67E5\u770B\u7ED3\u679C" : "\u524D\u5F80\u4EFB\u52A1\u9875\u9762",
@@ -6642,6 +6647,21 @@ class Component extends DCLogic {
             monitor.result();
           }
         };
+      }
+      async controlJob(task, action) {
+        this._controllingJobs ||= /* @__PURE__ */ new Set();
+        if (this._controllingJobs.has(task.task_id)) return;
+        this._controllingJobs.add(task.task_id);
+        this.setState({});
+        try {
+          await this.perform(async () => {
+            const next = await this.request("/api/system/jobs/" + id(task.task_id) + "/" + action, "POST");
+            this.setState({ backgroundJobs: this.state.backgroundJobs.map((item) => item.task_id === next.task_id ? next : item) });
+          });
+        } finally {
+          this._controllingJobs.delete(task.task_id);
+          this.setState({});
+        }
       }
       async finishDispatch(result, tool, preflight = []) {
         const results = [...preflight, ...result.results || []];
@@ -8424,7 +8444,7 @@ class Component extends DCLogic {
           <p style="font-size:12px;color:var(--dim)">{{ taskLog.progress.phaseText }} \xB7 {{ taskLog.progress.pctText }}</p>
           <span style="font-size:11px;color:var(--dim2)">\u6700\u65B0\u65E5\u5FD7\u5728\u524D\uFF0C\u6700\u591A\u4FDD\u7559 300 \u6761\u3002\u8FDB\u5EA6\u8868\u793A\u5F53\u524D\u9636\u6BB5\uFF1B\u5B9E\u9645\u4E0B\u8F7D\u8FDB\u5EA6\u8BF7\u67E5\u770B\u4E0B\u8F7D\u5DE5\u5177\u3002</span>
           <pre role="log" aria-label="\u5B9E\u65F6\u4EFB\u52A1\u65E5\u5FD7" aria-live="polite" aria-atomic="false">{{ taskLog.text }}</pre>
-          <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ taskLog.close }}">\u5173\u95ED\u65E5\u5FD7</button><button class="btn btn-primary" onClick="{{ taskLog.result }}">{{ taskLog.resultText }}</button></div>
+          <div class="dialog-actions"><sc-if value="{{ taskLog.canCancel }}"><button class="btn btn-secondary" disabled="{{ taskLog.busy }}" onClick="{{ taskLog.cancel }}">\u53D6\u6D88\u4EFB\u52A1</button></sc-if><sc-if value="{{ taskLog.canRetry }}"><button class="btn btn-secondary" disabled="{{ taskLog.busy }}" onClick="{{ taskLog.retry }}">\u91CD\u8BD5\u672A\u63D0\u4EA4\u9879</button></sc-if><button class="btn btn-secondary" onClick="{{ taskLog.close }}">\u5173\u95ED\u65E5\u5FD7</button><button class="btn btn-primary" onClick="{{ taskLog.result }}">{{ taskLog.resultText }}</button></div>
         </div></div></sc-if>
       <sc-if value="{{ dlg.open }}">`);
     for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {

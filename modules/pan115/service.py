@@ -3,7 +3,7 @@ import logging
 import random
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from urllib.parse import quote
 
@@ -110,6 +110,7 @@ class Pan115ResolvedDownload:
     headers: list[str]
     size: int = 0
     pick_code: str = ""
+    source_path: str = ""
 
 
 class QrSessionStore:
@@ -561,12 +562,13 @@ async def resolve_download_entries_from_config(
     video_filter: bool = False,
     min_file_size_mb: float = 300,
     progress_callback=None,
+    skip_file=None,
 ) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
     config = get_pan115_config()
     if not config.get("enabled") or not config.get("cookie"):
         raise ValueError("pan115_not_configured")
     client = Pan115Client(str(config.get("cookie")))
-    return await _resolve_download_entries(client, entries, video_filter, min_file_size_mb, progress_callback)
+    return await _resolve_download_entries(client, entries, video_filter, min_file_size_mb, progress_callback, skip_file)
 
 
 def save_cookie(cookie: str, enabled: bool = True) -> dict[str, Any]:
@@ -759,6 +761,7 @@ async def _resolve_download_entries(
     video_filter: bool,
     min_file_size_mb: float,
     progress_callback=None,
+    skip_file=None,
 ) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
     downloads: list[Pan115ResolvedDownload] = []
     skipped: list[dict[str, Any]] = []
@@ -793,9 +796,14 @@ async def _resolve_download_entries(
                 video_filter,
                 min_file_size_mb,
                 progress_callback,
+                skip_file,
             )
             downloads.extend(child_downloads)
             skipped.extend(child_skipped)
+            continue
+
+        identity = path or pick_code
+        if skip_file and skip_file(identity):
             continue
 
         if (video_filter and not _is_video_file(name)) or size < min_bytes:
@@ -818,7 +826,8 @@ async def _resolve_download_entries(
 
         if progress_callback:
             progress_callback({'phase': 'resolve', 'message': f'正在解析文件：{name}', 'current': name})
-        downloads.append(await client.resolve_direct_download(pick_code, fallback_name=name, fallback_size=size))
+        item = await client.resolve_direct_download(pick_code, fallback_name=name, fallback_size=size)
+        downloads.append(replace(item, source_path=identity))
 
     return downloads, skipped
 

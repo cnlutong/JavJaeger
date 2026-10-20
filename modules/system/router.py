@@ -52,6 +52,28 @@ async def dismiss_background_job(task_id: str, request: Request):
     return {"success": True}
 
 
+@router.post('/api/system/jobs/{task_id}/cancel')
+async def cancel_background_job(task_id: str, request: Request):
+    try:
+        task = background_tasks.cancel(task_id, job_owner(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=404, detail='background_task_not_found')
+    return task
+
+
+@router.post('/api/system/jobs/{task_id}/retry')
+async def retry_background_job(task_id: str, request: Request):
+    try:
+        task = background_tasks.retry(task_id, job_owner(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if task is None:
+        raise HTTPException(status_code=404, detail='background_task_not_found')
+    return task
+
+
 @router.get("/api/system/info")
 async def get_system_info():
     downloaded_movies = await download_history_service.load_records()

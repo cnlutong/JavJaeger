@@ -92,6 +92,40 @@ test('background view follows live logs and phase counts without navigating or d
     assert.ok(!calls.includes('DELETE'));
 });
 
+test('job log controls cancel once, survive refresh and retry only unfinished files without dismissing results', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let task = { task_id: 'files', type: 'file-dispatch', status: 'running', can_cancel: true, can_retry: false, logs: [], updated_at: 'one' };
+    const calls = []; let release;
+    globalThis.fetch = async (url, options = {}) => {
+        calls.push([url, options.method]);
+        if (url.endsWith('/cancel')) {
+            await new Promise(resolve => { release = resolve; });
+            task = { ...task, cancel_requested: true, can_cancel: false, updated_at: 'two' };
+        }
+        if (url.endsWith('/retry')) task = { ...task, status: 'running', can_cancel: true, can_retry: false, cancel_requested: false, updated_at: 'four' };
+        return json(url === '/api/system/jobs' ? { tasks: [task] } : task);
+    };
+    instance.setState({ backgroundJobs: [task] }); instance.renderVals().bg.items[0].go();
+    assert.equal(instance.renderVals().taskLog.canCancel, true);
+    const first = instance.renderVals().taskLog.cancel();
+    await instance.renderVals().taskLog.cancel();
+    assert.equal(calls.filter(([url]) => url.endsWith('/cancel')).length, 1);
+    assert.equal(instance.renderVals().taskLog.busy, true);
+    release(); await first;
+    assert.match(instance.renderVals().taskLog.status, /正在取消/);
+    task = { ...task, status: 'cancelled', can_retry: true, updated_at: 'three', result: { success: false, results: [{ filename: 'a.mp4', success: true }] } };
+    await instance.loadBackgroundJobs();
+    let view = instance.renderVals().taskLog;
+    assert.equal(view.canCancel, false); assert.equal(view.canRetry, true);
+    assert.match(view.status, /取消/);
+    await view.retry();
+    assert.equal(instance.renderVals().taskLog.canRetry, false);
+    assert.equal(instance.renderVals().taskLog.canCancel, true);
+    assert.ok(!calls.some(([, method]) => method === 'DELETE'));
+    const template = adaptTemplate(original, '/logo.jpg');
+    assert.match(template, /taskLog.canCancel/); assert.match(template, /重试未提交项/);
+});
+
 test('deployment header shows the image commit and recorded update time without inventing missing dates', () => {
     const instance = app();
     window.versionInfo = { version: 'git-1234567', revision: '1234567890abcdef1234567890abcdef12345678',

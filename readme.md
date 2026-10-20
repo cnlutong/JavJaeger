@@ -463,6 +463,8 @@ POST   /api/automation/dispatch-jobs
 GET    /api/system/jobs
 GET    /api/system/jobs/{task_id}
 DELETE /api/system/jobs/{task_id}
+POST   /api/system/jobs/{task_id}/cancel
+POST   /api/system/jobs/{task_id}/retry
 POST   /api/movies/search-jobs
 POST   /api/movies/metadata-scrapers/test/jobs
 POST   /api/webdav/download/jobs
@@ -486,6 +488,8 @@ GET    /api/automation/tasks/{task_id}/runs
 搜索补全与全页检索使用 `/api/movies/search-jobs`，资料与磁力并发上限为 4，部分失败仍保留摘要和封面。`GET /api/system/jobs` 只发现当前浏览器会话的任务，支持 ETag / 304；单任务 GET 返回进度、日志和结果，DELETE 仅关闭已结束的任务记录。刷新后页面自动发现这些任务，搜索结果可恢复，完成结果可从顶栏“后台任务”查看。刷新恢复不会触发自动下载；当前页面启用的自动下载仍需用户确认。
 
 顶栏后台任务的“查看”打开日志窗口，每 3 秒更新；关闭窗口会保留任务，完成后可点击“查看结果”继续原流程。服务端任务日志最多保留 300 条，最新日志在前。转码和自动任务没有完整日志时，窗口记录打开期间观察到的阶段变化。进度表示当前阶段：遍历和解析时总量未知，显示活动状态；总量明确后显示已处理数与总数，切换阶段会重新计算。失败或中断不会强制显示 100%；网盘任务记录筛选、解析和提交结果，实际传输进度由 Aria2 或网盘工具提供。
+
+网盘文件派发的日志窗口支持“取消任务”和“重试未提交项”。取消请求先等待当前提交返回，再停止后续操作；已提交的下载继续由 Aria2 处理。重试沿用同一任务记录，按来源和完整文件路径（115 使用文件 ID）跳过已确认成功项，递归目录里的同名文件分别记录。部分失败也会显示重试按钮。每个文件使用固定 GID；提交超时先核对 Aria2，结果仍不明时只核对、不重复添加。任务响应中的 `can_cancel`、`can_retry` 表示当前可用操作，`cancel_requested` 表示等待安全停止；任务结束状态可为 `cancelled`。两个控制接口仅允许所属会话操作，状态冲突返回 409。取消与重试记录同样只保存在本进程内，容器重启后的核对要求不变。
 
 这些临时任务及结果保存在服务器内存中，每个会话最多保留 20 个任务（活动任务受保护），不持久化任务凭据。刷新、关闭网页不影响执行；容器或应用重启会中断任务，已提交到下载工具的资源继续由工具处理。重启后先核对下载历史和工具任务，再手动重试未提交项；页面不会自动重派。稳定的 `APP_SESSION_SECRET` 可保持同一浏览器的会话身份，但不提供跨进程任务恢复。
 

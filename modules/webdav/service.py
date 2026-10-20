@@ -1,17 +1,65 @@
 import asyncio
 import logging
 import os
+import secrets
 from typing import Any
 
 from modules.history.service import download_history_service, local_movie_library_service
 from modules.magnets.service import get_same_source_replacement_magnet_payload
 from modules.pan115 import service as pan115_service
 
-from .clients import Aria2Client, WebDavClient, WebDavFile
+from .clients import Aria2Client, SubmissionUnknown, WebDavClient, WebDavFile
 from modules.common.runtime import run_blocking_io
+from modules.common.tasks import TaskCancelled
 
 
 logger = logging.getLogger(__name__)
+
+
+class FileDispatchJournal:
+    """Private, job-scoped acknowledgements. No URLs, headers or credentials."""
+    def __init__(self):
+        self.rows, self.gids, self.uncertain, self.attempted = {}, {}, set(), set()
+        self.retryable = True
+
+    def done(self, source, path):
+        row = self.rows.get((source, path), {})
+        return bool(row.get('success') or row.get('skipped'))
+
+    def submit(self, aria2, source, path, name, url, options):
+        key = (source, path)
+        if self.done(source, path) or key in self.attempted:
+            return self.rows[key]
+        self.attempted.add(key)
+        gid = self.gids.setdefault(key, f'{secrets.randbelow(2 ** 64 - 1) + 1:016x}')
+        try:
+            gid = aria2.submit_file(url, options, gid, verify_only=key in self.uncertain)
+            row = {'filename': name, 'success': True, 'gid': gid, 'message': '添加成功'}
+            self.uncertain.discard(key)
+        except SubmissionUnknown:
+            self.uncertain.add(key)
+            row = {'filename': name, 'success': False, 'error': 'submission_unknown', 'gid': gid,
+                   'message': '提交结果不明，重试时仅核对 Aria2，不重复提交'}
+        except Exception:
+            row = {'filename': name, 'success': False, 'error': 'download_add_failed', 'message': '添加失败'}
+        self.rows[key] = row
+        return row
+
+    def result(self, results=()):
+        known = {id(row) for row in self.rows.values()}
+        rows = list(self.rows.values()) + [row for row in results if id(row) not in known]
+        failed = sum(not row.get('success') and not row.get('skipped') for row in rows)
+        return {'success': bool(rows) and not failed, 'results': rows, 'retryable': self.retryable,
+                'message': f"文件派发完成：{sum(bool(row.get('success')) for row in rows)} 成功，{failed} 失败，{sum(bool(row.get('skipped')) for row in rows)} 跳过"}
+
+
+def _submit_file(aria2, journal, source, path, name, url, options):
+    if journal is not None:
+        return journal.submit(aria2, source, path, name, url, options)
+    try:
+        return {'filename': name, 'success': True, 'gid': aria2.add_download(url, options), 'message': '添加成功'}
+    except Exception:
+        return {'filename': name, 'success': False, 'error': 'download_add_failed', 'message': '添加失败'}
 
 
 async def dispatch_magnet_downloads_to_aria2(
@@ -101,12 +149,14 @@ async def dispatch_pan115_downloads_to_aria2(
     video_filter: bool,
     min_file_size_mb: float,
     progress_callback=None,
+    journal=None,
 ) -> list[dict[str, Any]]:
     downloads, skipped = await pan115_service.resolve_download_entries_from_config(
         files,
         video_filter=video_filter,
         min_file_size_mb=min_file_size_mb,
         **({'progress_callback': progress_callback} if progress_callback else {}),
+        **({'skip_file': lambda path: journal.done('pan115', path)} if journal else {}),
     )
 
     results: list[dict[str, Any]] = []
@@ -117,12 +167,7 @@ async def dispatch_pan115_downloads_to_aria2(
             options: dict[str, Any] = {"out": item.name, "user-agent": pan115_service.PAN115_DOWNLOAD_USER_AGENT}
             if item.headers:
                 options["header"] = item.headers
-            gid = await asyncio.to_thread(
-                aria2_client.add_download,
-                item.url,
-                options,
-            )
-            results.append({"filename": item.name, "success": True, "gid": gid, "message": "添加成功"})
+            results.append(await run_blocking_io(_submit_file, aria2_client, journal, 'pan115', item.source_path if journal else '', item.name, item.url, options))
         except Exception as exc:
             logger.error("添加 115 文件到 Aria2 失败: %s", exc)
             results.append({"filename": item.name, "success": False, "error": "pan115_aria2_add_failed", "message": "添加失败"})
@@ -194,6 +239,7 @@ def download_folder_recursive(
     video_filter: bool,
     min_file_size_mb: float,
     progress_callback=None,
+    journal=None,
 ) -> list[dict[str, Any]]:
     all_files = get_folder_files_recursive(webdav_client, folder_path, progress_callback)
     eligible_files: list[WebDavFile] = []
@@ -202,6 +248,8 @@ def download_folder_recursive(
     for index, file in enumerate(all_files):
         if progress_callback:
             progress_callback({'phase': 'filter', 'completed': index, 'total': len(all_files), 'current': file.name, 'message': f'正在筛选文件：{file.name}'})
+        if journal and journal.done('webdav', file.path):
+            continue
         if (video_filter and not is_video_file(file.name)) or file.size < min_file_size_mb * 1024 * 1024:
             if progress_callback:
                 progress_callback({'phase': 'filter', 'completed': index + 1, 'total': len(all_files), 'message': f'跳过不符合筛选条件的文件：{file.name}'})
@@ -223,8 +271,7 @@ def download_folder_recursive(
         try:
             download_url = webdav_client._build_download_url(file.path)
             options = webdav_client.build_aria2_options({"out": file.name})
-            gid = aria2_client.add_download(download_url, options)
-            results.append({"filename": file.name, "success": True, "gid": gid, "message": f"已加入 {folder_name}"})
+            results.append(_submit_file(aria2_client, journal, 'webdav', file.path, file.name, download_url, options))
         except Exception:
             results.append({"filename": file.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
         if progress_callback:
@@ -234,7 +281,10 @@ def download_folder_recursive(
     return results + skipped_files
 
 
-async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress_callback=None):
+async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress_callback=None, journal=None):
+    if journal:
+        journal.retryable = True
+        journal.attempted.clear()
     if progress_callback:
         progress_callback({'phase': 'scan', 'message': '正在解析网盘目录，文件总量待确定'})
     results: list[dict[str, Any]] = []
@@ -251,6 +301,7 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
                 payload.video_filter,
                 payload.min_file_size_mb,
                 progress_callback,
+                journal,
             )
             results.extend(pan115_results)
         except ValueError as exc:
@@ -268,6 +319,8 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
         raise ValueError("WebDAV未连接")
 
     for index, file_info in enumerate(webdav_files):
+        if journal and not file_info.is_directory and journal.done('webdav', file_info.path):
+            continue
         if progress_callback and not file_info.is_directory:
             progress_callback({'phase': 'dispatch', 'completed': index, 'total': len(webdav_files), 'current': file_info.name, 'message': f'正在提交：{file_info.name}'})
         try:
@@ -285,6 +338,7 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
                     payload.video_filter,
                     payload.min_file_size_mb,
                     progress_callback,
+                    journal,
                 )
                 results.extend(folder_results)
                 continue
@@ -302,8 +356,7 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
 
             download_url = webdav_client._build_download_url(file_info.path)
             options = webdav_client.build_aria2_options({"out": file_info.name})
-            gid = await run_blocking_io(aria2_client.add_download, download_url, options)
-            results.append({"filename": file_info.name, "success": True, "gid": gid, "message": "添加成功"})
+            results.append(await run_blocking_io(_submit_file, aria2_client, journal, 'webdav', file_info.path, file_info.name, download_url, options))
         except Exception as exc:
             logger.error("添加 WebDAV 下载任务失败: %s", exc)
             results.append({"filename": file_info.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
@@ -313,6 +366,11 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
                 progress_callback({'phase': 'dispatch', 'completed': index + 1, 'total': len(webdav_files), 'current': file_info.name,
                     'message': f'{state}：{file_info.name}（所选项 {index + 1}/{len(webdav_files)}）'})
 
+    if journal:
+        response = journal.result(results)
+        journal.retryable = any(not row.get('success') and not row.get('skipped') for row in response['results'])
+        response['retryable'] = journal.retryable
+        return response
     has_success = any(item.get("success") for item in results)
     has_real_failure = any(not item.get("success") and not item.get("skipped") for item in results)
     counts = {key: sum(bool(item.get(key)) for item in results) for key in ('success', 'skipped')}
@@ -325,12 +383,17 @@ def file_dispatch_runner(webdav_client, aria2_client, payload):
     # A refresh may reconnect and close the browser session's original WebDAV client.
     connection = (webdav_client.base_url, webdav_client.username, webdav_client.password, webdav_client.timeout_seconds) if webdav_client else None
     payload = payload.model_copy(deep=True)
+    journal = FileDispatchJournal()
 
     async def run(progress):
         private_client = WebDavClient(*connection) if connection else None
         try:
-            return await dispatch_files_to_aria2(private_client, aria2_client, payload, progress_callback=progress)
+            return await dispatch_files_to_aria2(private_client, aria2_client, payload, progress_callback=progress, journal=journal)
+        except TaskCancelled as exc:
+            exc.result = journal.result()
+            raise
         finally:
             if private_client:
                 private_client.close()
+    run.can_retry = lambda: journal.retryable
     return run

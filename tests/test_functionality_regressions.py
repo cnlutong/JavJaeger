@@ -313,7 +313,7 @@ def test_selected_folders_recurse_and_filter_each_file_with_a_fractional_minimum
         assert any(event.get('completed') == event.get('total') == 2 and event['phase'] == 'dispatch' for event in events)
     else:
         client = SimpleNamespace(list_directory_all=AsyncMock(side_effect=lambda path: {'items': [{**item, 'id': item['path'], 'kind': 'folder' if item['is_directory'] else 'file'} for item in tree[path]]}),
-            resolve_direct_download=AsyncMock(side_effect=lambda code, **values: SimpleNamespace(name=values['fallback_name'])))
+            resolve_direct_download=AsyncMock(side_effect=lambda code, **values: pan115.Pan115ResolvedDownload(name=values['fallback_name'], url='https://cdn.test/file', headers=[])))
         downloads, skipped = asyncio.run(pan115._resolve_download_entries(client, request.files, request.video_filter, request.min_file_size_mb, events.append))
         assert {item.name for item in downloads} == {'exact.mp4', 'larger.MKV'}
         assert len(skipped) == 2 and client.resolve_direct_download.await_count == 2
