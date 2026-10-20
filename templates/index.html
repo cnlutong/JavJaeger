@@ -21,12 +21,7 @@
 
     <!-- Inject Version Information -->
     <script>
-        window.versionInfo = {
-            version: "{{ version_info.version }}",
-            build_date: "{{ version_info.build_date }}",
-            asset_version: "{{ version_info.asset_version | default(version_info.version) }}",
-            auto_reload_frontend: {{ "true" if version_info.auto_reload_frontend else "false" }},
-        };
+        window.versionInfo = {{ version_info | tojson }};
     </script>
 
     <!-- React Application -->

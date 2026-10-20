@@ -40,6 +40,13 @@ COPY --from=frontend-builder /frontend/static/app.css /app/static/app.css
 
 RUN mkdir -p /app/data /app/actor_images
 
+ARG VCS_REF=""
+ARG BUILD_DATE=""
+ENV JAVJAEGER_REVISION=${VCS_REF} \
+    JAVJAEGER_BUILT_AT=${BUILD_DATE}
+LABEL org.opencontainers.image.revision=${VCS_REF} \
+      org.opencontainers.image.created=${BUILD_DATE}
+
 EXPOSE 5000
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-5000}"]

@@ -84,16 +84,26 @@ NVIDIA GPU 需要宿主机安装 NVIDIA Container Toolkit，并在服务中配�
 
 ### 2. 构建并启动
 
+更新时记录本次源码提交、镜像构建时间和部署时间，再执行构建。时间统一使用 UTC：
+
 ```bash
+export JAVJAEGER_REVISION="$(git rev-parse HEAD)"
+export JAVJAEGER_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export JAVJAEGER_DEPLOYED_AT="$JAVJAEGER_BUILT_AT"
 docker-compose up -d --build
 docker-compose ps
 docker-compose logs --tail=100 javjaeger
 ```
 
+`VCS_REF` 和 `BUILD_DATE` 构建参数写入镜像环境变量及 OCI 标签，即使镜像没有 `.git` 目录也能显示实际提交。`JAVJAEGER_DEPLOYED_AT` 由部署环境传入，记录本次更新的时间；普通容器重启不改变该值。重新部署同一镜像时，只更新部署时间。需要在后续 Compose 重建时复用这些值，可将三个公开值保存在部署环境或 `.env`；执行新版本更新时重新填写。
+
+管理界面左上角显示 `git-<短提交号>` 和带 UTC 时区的更新时间，悬停可查看完整提交号及构建时间；`GET /api/system/info` 的 `version` 对象也返回 `revision`、`built_at` 和 `deployed_at`。未提供提交信息且无法读取 Git 时显示“版本未知”，缺少部署时间时显示“更新时间未记录”，不会用容器启动时间代替更新时间。源码运行会从当前 Git 提交读取版本和提交时间，部署时间仍需显式提供。
+
 验收标准：
 
 - `docker-compose ps` 显示服务处于 running/up 状态。
 - 日志中没有启动异常、依赖导入异常或配置写入异常。
+- 页面和 `/api/system/info` 显示的提交号与目标 Git 提交一致，更新时间与本次部署记录一致。
 
 ### 3. 接口验收
 
@@ -251,6 +261,8 @@ volumes:
 
 ### 3. 构建并启动
 
+先按上方部署 SOP 的“构建并启动”步骤设置版本和时间变量，再运行：
+
 ```bash
 docker-compose up -d --build
 ```
@@ -380,7 +392,7 @@ A: 检查 `config.json` 中对应模块是否同时满足：
 
 ### Q: 我修改了前端代码，为什么容器里页面没变化？
 
-A: 先在宿主机执行：
+A: 按部署 SOP 更新版本和时间变量，再在宿主机执行：
 
 ```bash
 docker-compose up -d --build

@@ -35,7 +35,8 @@ before(async () => {
     const python = process.env.JAVJAEGER_QA_PYTHON || (fs.existsSync(venvPython) ? venvPython : 'python');
     server = spawn(python, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', String(port)], {
         cwd: scratch, windowsHide: true,
-        env: { ...process.env, PYTHONPATH: root, APP_ENV: 'test', JAVJAEGER_CONFIG_PATH: path.join(scratch, 'config.json'), JAVJAEGER_ACTOR_IMAGE_DIR: path.join(scratch, 'data/actor_images'), JAVJAEGER_ENABLE_FRONTEND_AUTO_RELOAD: 'false' },
+        env: { ...process.env, PYTHONPATH: root, APP_ENV: 'test', JAVJAEGER_CONFIG_PATH: path.join(scratch, 'config.json'), JAVJAEGER_ACTOR_IMAGE_DIR: path.join(scratch, 'data/actor_images'), JAVJAEGER_ENABLE_FRONTEND_AUTO_RELOAD: 'false',
+            JAVJAEGER_REVISION: '1234567890abcdef1234567890abcdef12345678', JAVJAEGER_BUILT_AT: '2026-10-20T04:00:00Z', JAVJAEGER_DEPLOYED_AT: '2026-10-20T04:30:00Z' },
         stdio: ['ignore', 'ignore', 'pipe'],
     });
     let startupError;
@@ -147,6 +148,20 @@ async function libraryArtwork(page, state) {
         return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="600"><defs><linearGradient id="g" x2=".6" y2="1"><stop stop-color="${colors[i % colors.length]}"/><stop offset="1" stop-color="#111924"/></linearGradient></defs><rect width="400" height="600" fill="url(#g)"/><circle cx="${110 + i % 3 * 60}" cy="210" r="82" fill="#e3d2ba" opacity=".42"/><path d="M0 440L160 260L280 410L400 340V600H0" fill="#131e29" opacity=".65"/><text x="32" y="70" fill="#fff" opacity=".7" font-family="sans-serif" font-size="14" letter-spacing="5">LAYOUT STUDY</text><text x="32" y="502" fill="#fff" font-family="sans-serif" font-size="36" letter-spacing="2">${['NIGHTFALL', 'STILL WATER', 'AFTER HOURS', 'DISTANT', 'HORIZON', 'BLUE HOUR'][i % 6]}</text><text x="32" y="538" fill="#fff" opacity=".55" font-family="sans-serif" font-size="14">TEST COLLECTION · ${String(i + 1).padStart(3, '0')}</text></svg>` });
     });
 }
+
+test('deployment: image revision and update time render after reload on desktop and mobile', async t => {
+    const page = await openApp(t, 1440);
+    for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        if (width === 390) { await page.reload(); await page.getByRole('button', { name: '管理界面', exact: true }).click(); }
+        const badge = page.getByLabel('部署版本', { exact: true });
+        assert.match(await badge.innerText(), /git-1234567/);
+        assert.match(await badge.innerText(), /更新 2026-10-20 04:30:00 UTC/);
+        assert.match(await badge.getAttribute('title'), /1234567890abcdef1234567890abcdef12345678/);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-deployment-${width}.png`), fullPage: false });
+    }
+});
 
 test('library layout: original sidebar, stats and views retain accessible detail polish', async t => {
     const page = await openApp(t, 1440, async p => {

@@ -5,6 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VCS_REF: ${JAVJAEGER_REVISION:-}
+        BUILD_DATE: ${JAVJAEGER_BUILT_AT:-}
     container_name: javjaeger
     restart: unless-stopped
     ports:
@@ -21,6 +24,7 @@ services:
       - JAVJAEGER_CONFIG_PATH=/app/data/config.json
       # Actor avatars stay outside all media source mounts.
       - JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images
+      - JAVJAEGER_DEPLOYED_AT=${JAVJAEGER_DEPLOYED_AT:-}
       # Strongly recommended in real deployments
       - APP_SESSION_SECRET=change-this-session-secret
     volumes:

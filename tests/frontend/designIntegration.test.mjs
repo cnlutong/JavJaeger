@@ -23,6 +23,24 @@ function app(storage = new Map()) {
     return new (connectDesign(Base))({});
 }
 
+test('deployment header shows the image commit and recorded update time without inventing missing dates', () => {
+    const instance = app();
+    window.versionInfo = { version: 'git-1234567', revision: '1234567890abcdef1234567890abcdef12345678',
+        built_at: '2026-10-20T04:00:00Z', deployed_at: '2026-10-20T04:30:00Z' };
+    let view = instance.renderVals();
+    assert.equal(view.version, 'git-1234567');
+    assert.equal(view.deploymentTime, '更新 2026-10-20 04:30:00 UTC');
+    assert.match(view.sysInfo, /1234567890abcdef1234567890abcdef12345678/);
+    assert.match(view.sysInfo, /2026-10-20T04:00:00Z/);
+    window.versionInfo = {};
+    view = instance.renderVals();
+    assert.equal(view.version, '版本未知');
+    assert.equal(view.deploymentTime, '更新时间未记录');
+    const template = adaptTemplate(original, '/logo.jpg');
+    assert.match(template, /class="jj-deployment"/);
+    assert.match(template, /\{\{ deploymentTime \}\}/);
+});
+
 test('library path settings supply scrape input/output and preserve an existing preview', async () => {
     const instance = app();
     const settings = { source_directory: '/incoming', directories: ['/library', '/library-2'], ignored_paths: [] };

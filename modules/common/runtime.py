@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -167,59 +168,28 @@ class ConfigSaveError(RuntimeError):
 
 
 def get_version_info() -> dict[str, str]:
-    version_info = {
-        "version": "v1.0.0",
-        "build_date": datetime.datetime.now().strftime("%Y-%m-%d"),
-    }
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    try:
-        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    def git(*args):
         try:
-            git_tag = (
-                subprocess.check_output(
-                    ["git", "describe", "--tags", "--abbrev=0"],
-                    stderr=subprocess.DEVNULL,
-                    cwd=repo_root,
-                )
-                .decode("utf-8")
-                .strip()
-            )
-            if git_tag:
-                version_info["version"] = git_tag if git_tag.startswith("v") else f"v{git_tag}"
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            try:
-                git_hash = (
-                    subprocess.check_output(
-                        ["git", "rev-parse", "--short=7", "HEAD"],
-                        stderr=subprocess.DEVNULL,
-                        cwd=repo_root,
-                    )
-                    .decode("utf-8")
-                    .strip()
-                )
-                if git_hash:
-                    version_info["version"] = f"v1.0.0-{git_hash}"
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                logger.warning("Git不可用，使用默认版本信息")
+            return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL, cwd=repo_root, timeout=3).decode("utf-8").strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
 
+    revision = os.getenv("JAVJAEGER_REVISION", "").strip() or git("rev-parse", "HEAD")
+    revision = revision.lower() if re.fullmatch(r"[0-9a-fA-F]{7,64}", revision) else ""
+    timestamps = {}
+    for key, value in {
+        "built_at": os.getenv("JAVJAEGER_BUILT_AT", "").strip() or (git("log", "-1", "--format=%cI") if revision else ""),
+        "deployed_at": os.getenv("JAVJAEGER_DEPLOYED_AT", "").strip(),
+    }.items():
         try:
-            git_date = (
-                subprocess.check_output(
-                    ["git", "log", "-1", "--format=%cd", "--date=short"],
-                    stderr=subprocess.DEVNULL,
-                    cwd=repo_root,
-                )
-                .decode("utf-8")
-                .strip()
-            )
-            if git_date:
-                version_info["build_date"] = git_date
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            logger.warning("无法获取Git提交日期，使用当前日期")
-    except Exception as exc:
-        logger.warning("获取Git版本信息失败: %s", exc)
-
-    return version_info
+            instant = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            timestamps[key] = instant.astimezone(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z") if instant.tzinfo else ""
+        except ValueError:
+            timestamps[key] = ""
+    return {"version": f"git-{revision[:7]}" if revision else "版本未知", "revision": revision,
+            "build_date": timestamps["built_at"][:10], **timestamps}
 
 
 def get_static_asset_version() -> str:

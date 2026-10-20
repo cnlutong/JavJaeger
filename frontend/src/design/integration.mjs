@@ -1428,7 +1428,10 @@ export function connectDesign(Base) {
 
         renderVals() {
             const view = super.renderVals(), st = this.state;
-            view.sysInfo = `JavJaeger ${window.versionInfo?.version || ''}`;
+            const deployment = window.versionInfo || {};
+            view.version = deployment.version || '版本未知';
+            view.deploymentTime = deployment.deployed_at ? `更新 ${deployment.deployed_at.replace('T', ' ').replace('Z', ' UTC')}` : '更新时间未记录';
+            view.sysInfo = `提交 ${deployment.revision || '未知'} · 构建 ${deployment.built_at || '未记录'} · ${view.deploymentTime}`;
             for (const nav of view.nav) nav.badge = nav.label === '转码' ? String(data.TC.filter(task => ['running', 'queued'].includes(task.status)).length || '') : nav.label === '自动模式' ? String(st.tasks.filter(task => task.enabled).length || '') : '';
             view.tools = this.toolStates();
             view.bg.items = data.TC.filter(task => ['running', 'queued'].includes(task.status)).map(task => ({ kind: '转码', name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go('transcode') }));
@@ -1510,7 +1513,6 @@ export function connectDesign(Base) {
                 search.browse.groups = groups.map(group => ({ ...group, items: group.items.filter(item => visible.has(item)) })).filter(group => group.items.length);
                 search.browse.paging = page.paging;
             }
-            view.version = window.versionInfo?.version || '';
             return view;
         }
         magnetRows(code) { return (this.magnets.get(code) || []).map(magnet => ({ ...magnet, date: magnet.shareDate || magnet.date || '', fg: 'var(--fg)', sub: magnet.hasSubtitle || magnet.has_subtitle || magnet.subtitle ? '有' : '无', subFg: DIM, flags: [], dispatch: () => this.confirmDispatch([code], [magnet]) })); }

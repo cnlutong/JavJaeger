@@ -11,6 +11,7 @@ html:has([data-jjtheme="light"]) { color-scheme: light; scrollbar-color: #a2a5b5
 [data-jjtheme] > header { gap: 12px !important; }
 [data-jjtheme] > header > nav { flex: 1 1 auto !important; overflow-x: auto; }
 [data-jjtheme] > header > nav button { flex-shrink: 0; padding: 0 9px !important; }
+.jj-deployment { display: flex; flex-direction: column; gap: 3px; font: 400 10px/1.25 var(--mono); color: var(--dim); white-space: nowrap; }
 .tag { white-space: nowrap; flex-shrink: 0; }
 .seg { flex-shrink: 0; }
 .seg-opt { white-space: nowrap; }

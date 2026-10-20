@@ -537,6 +537,14 @@ html:has([data-jjtheme=light]) {
   flex-shrink: 0;
   padding: 0 9px !important;
 }
+.jj-deployment {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font: 400 10px/1.25 var(--mono);
+  color: var(--dim);
+  white-space: nowrap;
+}
 .tag {
   white-space: nowrap;
   flex-shrink: 0;
