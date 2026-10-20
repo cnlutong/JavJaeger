@@ -1363,6 +1363,65 @@ test('WebDAV file navigation, filtering, dispatch and Aria2 pause/resume/remove 
     assert.ok(calls.some(c => c[0] === 'DELETE'));
 });
 
+test('storage folders stay selectable with custom MB and GB minimums on desktop and mobile', async t => {
+    const sent = [];
+    const entries = [
+        { name: '递归目录', path: '/folder', is_directory: true, size: 0 },
+        { name: 'tiny.mp4', path: '/tiny', size: 100 * 1024 ** 2 },
+        { name: 'medium.mp4', path: '/medium', size: 700 * 1024 ** 2 },
+        { name: 'large.mkv', path: '/large', size: 2 * 1024 ** 3 },
+        { name: 'large.txt', path: '/text', size: 3 * 1024 ** 3 },
+    ];
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/webdav/status', route => route.fulfill({ json: { webdav_connected: true, aria2_connected: true } }));
+        await p.route('**/api/115/status', route => route.fulfill({ json: { connected: true } }));
+        await p.route('**/api/webdav/files?*', route => route.fulfill({ json: { files: entries } }));
+        await p.route('**/api/115/files?*', route => route.fulfill({ json: { count: entries.length, items: entries.map(item => ({ ...item, id: item.path, kind: item.is_directory ? 'folder' : 'file' })) } }));
+        await p.route('**/api/aria2/downloads', route => route.fulfill({ json: { downloads: [] } }));
+        await backgroundRoute(p, '/api/webdav/download/jobs', 'file-dispatch', body => { sent.push(body); return { success: true, message: '后台目录筛选完成', results: [] }; });
+    });
+    await navigate(page, '网盘与下载');
+    await page.locator('aside').getByText('WebDAV', { exact: true }).click();
+    const minimum = page.getByRole('spinbutton', { name: '最小体积', exact: true });
+    const unit = page.getByRole('combobox', { name: '体积单位', exact: true });
+    await page.getByRole('checkbox', { name: '仅显示视频文件', exact: true }).check();
+    await minimum.fill('512');
+    await page.getByText('medium.mp4', { exact: true }).waitFor();
+    assert.equal(await page.getByText('tiny.mp4', { exact: true }).count(), 0);
+    assert.equal(await page.getByText('large.txt', { exact: true }).count(), 0);
+    await unit.selectOption('GB'); await minimum.fill('1.5');
+    await page.getByText('large.mkv', { exact: true }).waitFor();
+    assert.equal(await page.getByText('medium.mp4', { exact: true }).count(), 0);
+    const folder = page.locator('tr').filter({ hasText: '递归目录' });
+    await folder.getByRole('checkbox').check();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-custom-file-size-desktop.png'), animations: 'disabled' });
+    await page.getByRole('button', { name: '发送到 Aria2', exact: true }).click();
+    await page.getByRole('dialog').getByText(/文件夹会递归查找全部子目录/).waitFor();
+    const first = page.waitForResponse(response => response.url().endsWith('/api/webdav/download/jobs'));
+    await approve(page, '发送'); await first;
+    assert.equal(sent[0].min_file_size_mb, 1536);
+    assert.equal(sent[0].video_filter, true); assert.equal(sent[0].files[0].is_directory, true);
+    assert.equal(sent[0].files[0].source_type, 'webdav');
+    await page.locator('aside').getByText('115 网盘', { exact: true }).click();
+    await unit.selectOption('MB'); await minimum.fill('256.5');
+    await folder.getByRole('checkbox').check();
+    await page.getByRole('button', { name: '发送到 Aria2', exact: true }).click();
+    const second = page.waitForResponse(response => response.url().endsWith('/api/webdav/download/jobs'));
+    await approve(page, '发送'); await second;
+    assert.equal(sent[1].min_file_size_mb, 256.5);
+    assert.equal(sent[1].files[0].source_type, 'pan115'); assert.equal(sent[1].files[0].is_directory, true);
+    await folder.getByRole('checkbox').check(); await minimum.fill('-1');
+    await page.getByRole('alert').getByText(/最小体积/).waitFor();
+    assert.equal(await page.getByRole('button', { name: '发送到 Aria2', exact: true }).isDisabled(), true);
+    await minimum.fill('1.5'); await unit.selectOption('GB');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await minimum.scrollIntoViewIfNeeded();
+    const inputBounds = await minimum.boundingBox(), unitBounds = await unit.boundingBox();
+    assert.ok(inputBounds.x >= 0 && unitBounds.x + unitBounds.width <= 390);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-custom-file-size-mobile.png'), animations: 'disabled' });
+});
+
 test('scrape preview handles real conflicts, persists templates and submits chosen resolution', async t => {
     const calls = [];
     const page = await openApp(t, 1440, async p => {

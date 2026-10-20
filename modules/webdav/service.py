@@ -99,7 +99,7 @@ async def dispatch_pan115_downloads_to_aria2(
     aria2_client: Aria2Client,
     files: list[Any],
     video_filter: bool,
-    min_file_size_mb: int,
+    min_file_size_mb: float,
 ) -> list[dict[str, Any]]:
     downloads, skipped = await pan115_service.resolve_download_entries_from_config(
         files,
@@ -183,7 +183,7 @@ def download_folder_recursive(
     folder_path: str,
     folder_name: str,
     video_filter: bool,
-    min_file_size_mb: int,
+    min_file_size_mb: float,
 ) -> list[dict[str, Any]]:
     all_files = get_folder_files_recursive(webdav_client, folder_path)
     eligible_files: list[WebDavFile] = []

@@ -15,7 +15,7 @@ class DownloadItem(BaseModel):
 class AddDownloadsRequest(BaseModel):
     files: List[DownloadItem] = Field(default_factory=list)
     video_filter: bool = False
-    min_file_size_mb: int = 300
+    min_file_size_mb: float = Field(default=300, ge=0, allow_inf_nan=False)
 
 
 class MagnetDownloadRequest(BaseModel):

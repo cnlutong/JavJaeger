@@ -559,7 +559,7 @@ async def list_directory_from_config(cid: str = "0", offset: int = 0, limit: int
 async def resolve_download_entries_from_config(
     entries: list[Any],
     video_filter: bool = False,
-    min_file_size_mb: int = 300,
+    min_file_size_mb: float = 300,
 ) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
     config = get_pan115_config()
     if not config.get("enabled") or not config.get("cookie"):
@@ -756,11 +756,11 @@ async def _resolve_download_entries(
     client: Pan115Client,
     entries: list[Any],
     video_filter: bool,
-    min_file_size_mb: int,
+    min_file_size_mb: float,
 ) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
     downloads: list[Pan115ResolvedDownload] = []
     skipped: list[dict[str, Any]] = []
-    min_bytes = max(0, int(min_file_size_mb or 0)) * 1024 * 1024
+    min_bytes = max(0, min_file_size_mb or 0) * 1024 * 1024
 
     for entry in entries:
         name = str(_entry_value(entry, "name", "") or "")

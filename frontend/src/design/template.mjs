@@ -21,6 +21,13 @@ export function adaptTemplate(source, logo) {
         .replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"')
         .replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"')
         .replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">停止</button>', '<span style="font-size:12px;color:var(--dim)">后台执行中</span>');
+    html = html.replace(/<div class="field"><label>最小体积 min_file_size_mb<\/label>[\s\S]*?<\/select><\/div>/, `
+      <div class="field"><label for="jj-file-min-size">最小体积</label>
+        <div style="display:flex;gap:8px"><input id="jj-file-min-size" class="input" type="number" aria-label="最小体积" min="0" step="any" value="{{ fs.minSize }}" onChange="{{ fs.setMinSize }}" aria-invalid="{{ !!fs.sizeError }}" aria-describedby="jj-file-size-hint" style="min-width:0;flex:1">
+          <select class="input" aria-label="体积单位" value="{{ fs.minUnit }}" onChange="{{ fs.setMinUnit }}" style="width:72px;flex:none"><option>MB</option><option>GB</option></select></div>
+        <span id="jj-file-size-hint" class="jj-path-hint">0 表示不限；1 GB = 1024 MB。文件夹会递归筛选所有子目录中的文件。</span>
+        <sc-if value="{{ fs.sizeError }}"><span role="alert" style="font-size:12px;color:var(--bad)">{{ fs.sizeError }}</span></sc-if>
+      </div>`);
     html = html.replace('<label>扫描目录</label>', '<label>待刮削目录</label>')
         .replace('<label>整理输出目录</label>', '<label>影视库目录</label>')
         .replace('onChange="{{ sc.setScanDir }}"></div>', 'aria-label="待刮削目录" onChange="{{ sc.setScanDir }}"><button class="btn btn-secondary" onClick="{{ sc.browseSource }}">浏览待刮削目录</button></div>')

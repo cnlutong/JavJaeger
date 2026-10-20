@@ -5975,7 +5975,8 @@ class Component extends DCLogic {
           scrapeTemplates: loadLocalScrapeTaskTemplates(),
           pathEdits: {},
           tcOptions: {},
-          fsMinSize: "\u4E0D\u9650",
+          fsMinSize: "0",
+          fsMinUnit: "MB",
           fsVideoOnly: false,
           infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"],
           lbWidths: []
@@ -6033,7 +6034,7 @@ class Component extends DCLogic {
           ["tcPage", ["tcF"]],
           ["scPage", ["scF", "scPhase"]],
           ["scOutcomePage", ["scrapeResult"]],
-          ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize"]],
+          ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize", "fsMinUnit"]],
           ["directoryPage", ["browsePath"]],
           ["dlgPage", ["dlg"]]
         ]) {
@@ -7832,7 +7833,8 @@ class Component extends DCLogic {
         this.setState({ fsAdd: "browse", browserTarget: target, browsePath: result.current_path || "", directories: result.directories || result.entries || [], browseParent: result.parent_path });
       }
       minFileSize() {
-        return { "\u4E0D\u9650": 0, "\u5927\u4E8E 500 MB": 500, "\u5927\u4E8E 2 GB": 2048, "\u5927\u4E8E 8 GB": 8192 }[this.state.fsMinSize] || 0;
+        const value = Number(this.state.fsMinSize || 0) * (this.state.fsMinUnit === "GB" ? 1024 : 1);
+        return Number.isFinite(value) && value >= 0 ? value : null;
       }
       sendFiles(files) {
         if (this.state.fsSrc === "local") {
@@ -7844,7 +7846,11 @@ class Component extends DCLogic {
           return;
         }
         const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
-        this.ask({ title: `\u53D1\u9001 ${files.length} \u4E2A\u6587\u4EF6\u5230 Aria2\uFF1F`, body: "\u4ECE\u5F53\u524D\u7F51\u76D8\u4E0B\u8F7D\u5230\u5DF2\u8FDE\u63A5\u7684 Aria2\u3002", list: files.map((file) => file.name), color: ACC, okText: "\u53D1\u9001", run: () => this.perform(async () => {
+        if (minSize === null) {
+          this.toast("\u6700\u5C0F\u4F53\u79EF\u8BF7\u8F93\u5165\u5927\u4E8E\u6216\u7B49\u4E8E 0 \u7684\u6709\u6548\u6570\u5B57", WARN);
+          return;
+        }
+        this.ask({ title: `\u53D1\u9001 ${files.length} \u9879\u5230 Aria2\uFF1F`, body: `\u6587\u4EF6\u5939\u4F1A\u9012\u5F52\u67E5\u627E\u5168\u90E8\u5B50\u76EE\u5F55\uFF0C\u53EA\u63D0\u4EA4\u7B26\u5408\u7B5B\u9009\u6761\u4EF6\u7684\u6587\u4EF6\u3002\u4EC5\u89C6\u9891\uFF1A${videoFilter ? "\u662F" : "\u5426"}\uFF1B\u6700\u5C0F\u4F53\u79EF\uFF1A${this.state.fsMinSize || 0} ${this.state.fsMinUnit}\uFF080 \u8868\u793A\u4E0D\u9650\uFF09\u3002`, list: files.map((file) => file.name), color: ACC, okText: "\u53D1\u9001", run: () => this.perform(async () => {
           await this.startBackgroundJob("/api/webdav/download/jobs", {
             files: files.map((file) => ({
               ...file,
@@ -7861,10 +7867,11 @@ class Component extends DCLogic {
       }
       vStorage() {
         const st = this.state, connected = st.fsSrc === "local" || (st.fsSrc === "115" ? this.allConnected() : st.connections.webdav_connected);
-        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected);
-        const rows = st.fileRows.filter((file) => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === "folder" || (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= this.minFileSize() * 1024 ** 2));
+        const minimum = this.minFileSize(), sizeError = minimum === null ? "\u6700\u5C0F\u4F53\u79EF\u8BF7\u8F93\u5165\u5927\u4E8E\u6216\u7B49\u4E8E 0 \u7684\u6709\u6548\u6570\u5B57" : "";
+        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected) && !sizeError;
+        const rows = st.fileRows.filter((file) => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === "folder" || (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= (minimum ?? 0) * 1024 ** 2));
         const selectedKeys = new Set(st.fsSel), selected = rows.filter((file) => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
-        const page = this.pageItems(rows, "fsPage", [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize]);
+        const page = this.pageItems(rows, "fsPage", [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit]);
         const taskPage = this.pageItems(tasks, "fsTaskPage", []);
         const directories = this.pageItems([...st.browseParent != null ? [{ name: "..", path: st.browseParent }] : [], ...st.directories], "directoryPage", [st.browsePath]);
         return {
@@ -7886,6 +7893,9 @@ class Component extends DCLogic {
           toggleVideo: () => this.setState({ fsVideoOnly: !st.fsVideoOnly }),
           minSize: st.fsMinSize,
           setMinSize: (event) => this.setState({ fsMinSize: event.target.value }),
+          minUnit: st.fsMinUnit,
+          setMinUnit: (event) => this.setState({ fsMinUnit: event.target.value }),
+          sizeError,
           crumbs: [{ name: "\u6839\u76EE\u5F55 / ", fg: ACC, go: () => this.perform(() => this.loadFiles(st.fsSrc, "")) }, { name: st.directory || "/", fg: DIM, go: () => this.perform(() => this.loadFiles()) }, { name: "\u4E0A\u4E00\u7EA7", fg: ACC, go: () => this.perform(() => {
             const trail = st.directoryTrail || [];
             const parent = st.fsSrc === "115" ? trail.at(-1) || "" : st.directoryParent ?? (st.directory.replace(/[\\/][^\\/]+[\\/]?$/, "") || "/");
@@ -8315,6 +8325,13 @@ class Component extends DCLogic {
   // frontend/src/design/template.mjs
   function adaptTemplate(source, logo) {
     let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(/<span title="\{\{ sysInfo \}\}"[^>]*>v2.4.1<\/span>/, deploymentBadge).replace('animation:jjspin 900ms linear infinite"></span>\u540E\u53F0', 'animation:{{ bg.animation }}"></span>\u540E\u53F0').replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
+    html = html.replace(/<div class="field"><label>最小体积 min_file_size_mb<\/label>[\s\S]*?<\/select><\/div>/, `
+      <div class="field"><label for="jj-file-min-size">\u6700\u5C0F\u4F53\u79EF</label>
+        <div style="display:flex;gap:8px"><input id="jj-file-min-size" class="input" type="number" aria-label="\u6700\u5C0F\u4F53\u79EF" min="0" step="any" value="{{ fs.minSize }}" onChange="{{ fs.setMinSize }}" aria-invalid="{{ !!fs.sizeError }}" aria-describedby="jj-file-size-hint" style="min-width:0;flex:1">
+          <select class="input" aria-label="\u4F53\u79EF\u5355\u4F4D" value="{{ fs.minUnit }}" onChange="{{ fs.setMinUnit }}" style="width:72px;flex:none"><option>MB</option><option>GB</option></select></div>
+        <span id="jj-file-size-hint" class="jj-path-hint">0 \u8868\u793A\u4E0D\u9650\uFF1B1 GB = 1024 MB\u3002\u6587\u4EF6\u5939\u4F1A\u9012\u5F52\u7B5B\u9009\u6240\u6709\u5B50\u76EE\u5F55\u4E2D\u7684\u6587\u4EF6\u3002</span>
+        <sc-if value="{{ fs.sizeError }}"><span role="alert" style="font-size:12px;color:var(--bad)">{{ fs.sizeError }}</span></sc-if>
+      </div>`);
     html = html.replace("<label>\u626B\u63CF\u76EE\u5F55</label>", "<label>\u5F85\u522E\u524A\u76EE\u5F55</label>").replace("<label>\u6574\u7406\u8F93\u51FA\u76EE\u5F55</label>", "<label>\u5F71\u89C6\u5E93\u76EE\u5F55</label>").replace('onChange="{{ sc.setScanDir }}"></div>', 'aria-label="\u5F85\u522E\u524A\u76EE\u5F55" onChange="{{ sc.setScanDir }}"><button class="btn btn-secondary" onClick="{{ sc.browseSource }}">\u6D4F\u89C8\u5F85\u522E\u524A\u76EE\u5F55</button></div>').replace('onChange="{{ sc.setOutDir }}"></div>', 'aria-label="\u5F71\u89C6\u5E93\u76EE\u5F55" onChange="{{ sc.setOutDir }}"><button class="btn btn-secondary" onClick="{{ sc.browseTarget }}">\u6D4F\u89C8\u5F71\u89C6\u5E93\u76EE\u5F55</button><span class="jj-path-hint">\u8BFB\u53D6\u5F85\u522E\u524A\u76EE\u5F55\uFF0C\u6309\u9884\u89C8\u6574\u7406\u5230\u5F71\u89C6\u5E93\u76EE\u5F55\u3002\u672C\u9875\u4FEE\u6539\u4EC5\u7528\u4E8E\u672C\u6B21\u4EFB\u52A1\u3002</span><button class="btn btn-ghost" onClick="{{ sc.configurePaths }}">\u914D\u7F6E\u9ED8\u8BA4\u76EE\u5F55</button></div>').replace('<h5 style="margin:0">\u5F71\u89C6\u5E93\u8DEF\u5F84\u914D\u7F6E</h5>', '<h5 style="margin:0">\u5A92\u4F53\u76EE\u5F55\u914D\u7F6E</h5>').replace('<sc-for list="{{ lb.pathGroups }}"', `<div class="field"><label for="jj-source-directory">\u5F85\u522E\u524A\u76EE\u5F55</label><span class="jj-path-hint">\u4E0B\u8F7D\u5B8C\u6210\u3001\u5C1A\u672A\u6574\u7406\u7684\u539F\u7247\u653E\u5728\u8FD9\u91CC\u3002\u626B\u63CF\u5F71\u89C6\u5E93\u65F6\u4F1A\u8DF3\u8FC7\u6B64\u76EE\u5F55\u3002</span><div class="jj-path-input"><input id="jj-source-directory" class="input" aria-label="\u5F85\u522E\u524A\u76EE\u5F55" value="{{ lb.sourcePath }}" onChange="{{ lb.setSourcePath }}"><button class="btn btn-secondary" onClick="{{ lb.browseSource }}">\u6D4F\u89C8</button></div></div>
         <sc-for list="{{ lb.pathGroups }}"`).replace("\u8DEF\u5F84\u53D8\u66F4\u4E0D\u4F1A\u7ACB\u5373\u626B\u63CF\u3002\u4FDD\u5B58\u540E\u7528\u300C\u626B\u63CF\u5165\u5E93\u300D\u91CD\u65B0\u7D22\u5F15\uFF1B\u88AB\u79FB\u9664\u7684\u8DEF\u5F84\u5176\u5F71\u7247\u8BB0\u5F55\u4F1A\u4FDD\u7559\uFF0C\u76F4\u5230\u6267\u884C\u300C\u6E05\u6D17\u65E0\u6548\u6587\u4EF6\u300D\u3002", "\u4FDD\u5B58\u540E\uFF0C\u672C\u5730\u522E\u524A\u4F1A\u4F7F\u7528\u8FD9\u4E24\u4E2A\u9ED8\u8BA4\u76EE\u5F55\u3002\u751F\u6210\u9884\u89C8\u540E\uFF0C\u786E\u8BA4\u6267\u884C\u624D\u4F1A\u79FB\u52A8\u6587\u4EF6\uFF1B\u626B\u63CF\u5165\u5E93\u53EA\u8BFB\u53D6\u5F71\u89C6\u5E93\u76EE\u5F55\u3002\u4FEE\u6539\u8DEF\u5F84\u4E0D\u4F1A\u5220\u9664\u5DF2\u6709\u7D22\u5F15\u6216\u7ACB\u5373\u626B\u63CF\u3002");
     html = html.replace(">\u5A92\u4F53\u5E93\u8DEF\u5F84</span>", ">\u5F71\u89C6\u5E93\u76EE\u5F55</span>").replace('<button class="btn btn-secondary btn-block" style="font-size:12.5px" onClick="{{ lb.openPaths }}">', '<div class="jj-path-hint">\u5F85\u522E\u524A\u76EE\u5F55<div class="jj-path-value">{{ lb.sourceDirectory }}</div></div><button class="btn btn-ghost" onClick="{{ lb.openScrape }}">\u524D\u5F80\u672C\u5730\u522E\u524A</button><button class="btn btn-secondary btn-block" style="font-size:12.5px" onClick="{{ lb.openPaths }}">').replace('<span style="font-size:11px;color:{{ r.stFg }};width:118px;text-align:right">{{ r.status }}</span>', "").replace("\u9009\u62E9\u6A21\u677F\u5E76\u786E\u8BA4\u626B\u63CF\u76EE\u5F55\u540E\u70B9\u51FB\u300C\u751F\u6210\u9884\u89C8\u300D\u3002", "\u786E\u8BA4\u5F85\u522E\u524A\u76EE\u5F55\u548C\u5F71\u89C6\u5E93\u76EE\u5F55\u540E\u70B9\u51FB\u300C\u751F\u6210\u9884\u89C8\u300D\u3002");

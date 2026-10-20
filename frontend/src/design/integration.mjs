@@ -119,7 +119,7 @@ export function connectDesign(Base) {
                 tcCaps: {}, searchError: '', searchDone: false, loading: false, libraryLoaded: false,
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
                 backgroundJobs: [], autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
-                scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '不限', fsVideoOnly: false,
+                scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '0', fsMinUnit: 'MB', fsVideoOnly: false,
                 infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
             };
             try {
@@ -169,7 +169,7 @@ export function connectDesign(Base) {
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
                 ['historyPage', ['dHf']], ['tcPage', ['tcF']], ['scPage', ['scF', 'scPhase']],
                 ['scOutcomePage', ['scrapeResult']],
-                ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize']], ['directoryPage', ['browsePath']],
+                ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize', 'fsMinUnit']], ['directoryPage', ['browsePath']],
                 ['dlgPage', ['dlg']],
             ]) {
                 if (filters.some(key => key in patch && patch[key] !== this.state[key])) patch[page] = null;
@@ -1415,12 +1415,16 @@ export function connectDesign(Base) {
             const result = await this.request(`/api/system/directories?path=${id(path)}`);
             this.setState({ fsAdd: 'browse', browserTarget: target, browsePath: result.current_path || '', directories: result.directories || result.entries || [], browseParent: result.parent_path });
         }
-        minFileSize() { return { '不限': 0, '大于 500 MB': 500, '大于 2 GB': 2048, '大于 8 GB': 8192 }[this.state.fsMinSize] || 0; }
+        minFileSize() {
+            const value = Number(this.state.fsMinSize || 0) * (this.state.fsMinUnit === 'GB' ? 1024 : 1);
+            return Number.isFinite(value) && value >= 0 ? value : null;
+        }
         sendFiles(files) {
             if (this.state.fsSrc === 'local') { this.toast('本地目录用于浏览，远程文件可发送到 Aria2', WARN); return; }
             if (!files.length || !this.state.connections.aria2_connected) { this.toast('请连接 Aria2 并选择文件或目录', WARN); return; }
             const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
-            this.ask({ title: `发送 ${files.length} 个文件到 Aria2？`, body: '从当前网盘下载到已连接的 Aria2。', list: files.map(file => file.name), color: ACC, okText: '发送', run: () => this.perform(async () => {
+            if (minSize === null) { this.toast('最小体积请输入大于或等于 0 的有效数字', WARN); return; }
+            this.ask({ title: `发送 ${files.length} 项到 Aria2？`, body: `文件夹会递归查找全部子目录，只提交符合筛选条件的文件。仅视频：${videoFilter ? '是' : '否'}；最小体积：${this.state.fsMinSize || 0} ${this.state.fsMinUnit}（0 表示不限）。`, list: files.map(file => file.name), color: ACC, okText: '发送', run: () => this.perform(async () => {
                 await this.startBackgroundJob('/api/webdav/download/jobs', { files: files.map(file => ({ ...file, path: file.path || file.id,
                     is_directory: file.is_directory || file.kind === 'folder', source_type: source === '115' ? 'pan115' : 'webdav' })),
                     video_filter: videoFilter, min_file_size_mb: minSize });
@@ -1430,10 +1434,11 @@ export function connectDesign(Base) {
         }
         vStorage() {
             const st = this.state, connected = st.fsSrc === 'local' || (st.fsSrc === '115' ? this.allConnected() : st.connections.webdav_connected);
-            const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected);
-            const rows = st.fileRows.filter(file => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === 'folder' || ((!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= this.minFileSize() * 1024 ** 2)));
+            const minimum = this.minFileSize(), sizeError = minimum === null ? '最小体积请输入大于或等于 0 的有效数字' : '';
+            const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected) && !sizeError;
+            const rows = st.fileRows.filter(file => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === 'folder' || ((!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= (minimum ?? 0) * 1024 ** 2)));
             const selectedKeys = new Set(st.fsSel), selected = rows.filter(file => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
-            const page = this.pageItems(rows, 'fsPage', [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize]);
+            const page = this.pageItems(rows, 'fsPage', [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit]);
             const taskPage = this.pageItems(tasks, 'fsTaskPage', []);
             const directories = this.pageItems([...(st.browseParent != null ? [{ name: '..', path: st.browseParent }] : []), ...st.directories], 'directoryPage', [st.browsePath]);
             return {
@@ -1441,6 +1446,7 @@ export function connectDesign(Base) {
                 sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.fileRequestVersion = (this.fileRequestVersion || 0) + 1; this.setState({ fsSrc: key, fileRows: [], directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
                 subtitle: st.fsSrc === 'local' ? '服务端本地目录' : '远程目录 · 可发送到 Aria2', offline: !connected, showFiles: connected, goSettings: () => this.setState({ route: 'settings', seTab: st.fsSrc === '115' ? '115 网盘' : 'WebDAV' }),
                 q: st.fsQ, setQ: event => this.setState({ fsQ: event.target.value }), videoOnly: st.fsVideoOnly, toggleVideo: () => this.setState({ fsVideoOnly: !st.fsVideoOnly }), minSize: st.fsMinSize, setMinSize: event => this.setState({ fsMinSize: event.target.value }),
+                minUnit: st.fsMinUnit, setMinUnit: event => this.setState({ fsMinUnit: event.target.value }), sizeError,
                 crumbs: [{ name: '根目录 / ', fg: ACC, go: () => this.perform(() => this.loadFiles(st.fsSrc, '')) }, { name: st.directory || '/', fg: DIM, go: () => this.perform(() => this.loadFiles()) }, { name: '上一级', fg: ACC, go: () => this.perform(() => { const trail = st.directoryTrail || []; const parent = st.fsSrc === '115' ? trail.at(-1) || '' : st.directoryParent ?? (st.directory.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/'); this.setState({ directoryTrail: trail.slice(0, -1) }); return this.loadFiles(st.fsSrc, parent); }) }],
                 dirMeta: `${rows.length} 项`, allSel: rows.length > 0 && selected.length === rows.length, toggleAll: () => this.setState({ fsSel: selected.length === rows.length ? [] : rows.map(file => file.path || file.id) }),
                 rows: page.items.map(file => { const dir = file.is_directory || file.kind === 'folder', key = file.path || file.id; return { ...file, isDir: dir, canSend, type: dir ? '文件夹' : file.kind || '文件', size: size(file.size), date: file.modified || file.modified_time || file.mtime || '—', icon: dir ? 'ph-folder' : 'ph-file', iconFg: dir ? ACC : DIM, fg: dir ? ACC : 'var(--fg)', cursor: dir ? 'pointer' : 'default', sel: selectedKeys.has(key), toggle: () => this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter(value => value !== key) : [...st.fsSel, key] }),

@@ -1332,12 +1332,56 @@ test('audit: hidden automation filter drafts cannot leak into another task', asy
 
 test('audit: remote folder selection is usable and local files cannot dispatch', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
-    instance.setState({ fsSrc: 'local', fileRows: [{ name: 'QA.mp4', path: '/QA.mp4', size: 10 }], fsQ: '', fsVideoOnly: false, fsMinSize: '不限' });
+    instance.setState({ fsSrc: 'local', fileRows: [{ name: 'QA.mp4', path: '/QA.mp4', size: 10 }], fsQ: '', fsVideoOnly: false, fsMinSize: '0' });
     assert.equal(instance.vStorage().rows[0].canSend, false);
     instance.setState({ fsSrc: 'webdav', connections: { webdav_connected: true, aria2_connected: true }, fileRows: [{ name: 'folder', path: '/folder', is_directory: true }] });
     assert.equal(instance.vStorage().rows[0].canSend, true);
     instance.setState({ fsQ: 'absent' });
     assert.equal(instance.vStorage().rows.length, 0);
+});
+
+test('custom MB and GB thresholds preserve folders and freeze recursive download filters', async t => {
+    for (const [unit, amount, megabytes] of [['MB', '1.25', 1.25], ['GB', '1.5', 1536]]) await t.test(unit, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ route: 'storage', fsSrc: 'webdav', connections: { webdav_connected: true, aria2_connected: true }, fsVideoOnly: true,
+            fileRows: [{ name: 'folder', path: '/folder', is_directory: true, size: 0 },
+                { name: 'small.mp4', path: '/small', size: megabytes * 1024 ** 2 - 1 },
+                { name: 'exact.mp4', path: '/exact', size: megabytes * 1024 ** 2 },
+                { name: 'large.txt', path: '/text', size: megabytes * 1024 ** 2 + 1 }] });
+        instance.vStorage().setMinSize({ target: { value: amount } });
+        instance.vStorage().setMinUnit({ target: { value: unit } });
+        assert.equal(instance.minFileSize(), megabytes);
+        let view = instance.vStorage();
+        assert.deepEqual(view.rows.map(row => row.name), ['folder', 'exact.mp4']);
+        view.rows[0].toggle(); instance.vStorage().sendSel();
+        assert.match(instance.state.dlg.body, /递归/);
+        assert.ok(instance.state.dlg.body.includes(amount + ' ' + unit));
+        instance.setState({ fsMinSize: '0', fsMinUnit: 'MB', fsVideoOnly: false });
+        const fixture = mockJobs('file-dispatch', { success: true, results: [] });
+        await instance.state.dlg.run();
+        assert.equal(fixture.calls[0].body.min_file_size_mb, megabytes);
+        assert.equal(fixture.calls[0].body.files[0].is_directory, true);
+        assert.equal(fixture.calls[0].body.video_filter, true);
+    });
+    const template = adaptTemplate(original, '/logo');
+    assert.match(template, /type="number"[^>]*aria-label="最小体积"/);
+    assert.match(template, /aria-label="体积单位"/);
+    assert.doesNotMatch(template, /最小体积 min_file_size_mb/);
+});
+
+test('invalid custom file size cannot silently submit an unrestricted download', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ fsSrc: 'webdav', connections: { webdav_connected: true, aria2_connected: true } });
+    for (const amount of ['-1', 'NaN', 'Infinity']) {
+        instance.setState({ fsMinSize: amount });
+        assert.equal(instance.vStorage().canSend, false);
+        assert.match(instance.vStorage().sizeError, /最小体积/);
+        instance.sendFiles([{ name: 'folder', path: '/folder', is_directory: true }]);
+        assert.match(instance.state.toast.text, /最小体积/);
+    }
+    instance.setState({ fsMinSize: '' });
+    assert.equal(instance.minFileSize(), 0);
+    assert.equal(instance.vStorage().canSend, true);
 });
 
 test('audit: polling refreshes active download and automation views independently', async t => {
