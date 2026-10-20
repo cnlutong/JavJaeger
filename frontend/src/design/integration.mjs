@@ -53,6 +53,7 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
 };
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
 const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask', cleanupTask: 'localLibraryCleanupTask' };
+const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks'];
 const jobFinished = task => task && ['success', 'completed', 'failed'].includes(task.status);
 const informationSummary = task => {
     if (task.status === 'failed') return safeText(task.message, '资料任务失败，请重新检查');
@@ -119,6 +120,8 @@ export function connectDesign(Base) {
             this.libraryByCode = new Map();
             this.latestByActor = new Map();
             this.pendingRequests = new Map();
+            this.taskEtags = new Map();
+            this.taskReadVersions = new Map();
             try {
                 window.localStorage.removeItem('javjaeger.movieMetadata.v1');
                 window.localStorage.removeItem('javjaeger.movieCacheSettings.v1');
@@ -162,32 +165,47 @@ export function connectDesign(Base) {
             } : callback);
         }
 
-        async request(url, method = 'GET', body) {
-            const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body, method === 'GET' ? this._readGeneration : null]);
+        async request(url, method = 'GET', body, conditional = false) {
+            const saved = this.taskEtags.get(url);
+            const validator = conditional && method === 'GET' && saved?.generation === this._readGeneration ? saved.value : null;
+            const key = JSON.stringify([method, url, body instanceof FormData ? [...body.entries()] : body, method === 'GET' ? this._readGeneration : null, conditional, validator]);
             if (this.pendingRequests.has(key)) return this.pendingRequests.get(key);
             if (method !== 'GET') this._readGeneration++;
-            const pending = this.fetchJSON(url, method, body);
+            const pending = this.fetchJSON(url, method, body, validator);
             this.pendingRequests.set(key, pending);
             try { return await pending; } finally { this.pendingRequests.delete(key); if (method !== 'GET') this._readGeneration++; }
         }
 
-        async fetchJSON(url, method, body) {
-            const options = { method };
+        async fetchJSON(url, method, body, validator = null) {
+            const options = { method }, generation = this._readGeneration;
+            const taskList = method === 'GET' && taskListUrls.includes(url);
+            const version = taskList ? (this.taskReadVersions.get(url) || 0) + 1 : 0;
+            if (taskList) this.taskReadVersions.set(url, version);
+            if (taskList) options.cache = 'no-store';
             if (body !== undefined) {
                 if (body instanceof FormData) options.body = body;
                 else { options.headers = { 'Content-Type': 'application/json' }; options.body = JSON.stringify(body); }
             }
+            if (validator) options.headers = { ...options.headers, 'If-None-Match': validator };
             const response = await fetch(url, options);
+            if (response.status === 304 && validator) return null;
             if (!response.ok) {
                 const result = await response.json().catch(() => null), detail = result?.detail;
                 const error = new Error(safeText(detail?.message || (typeof detail === 'string' ? detail : '') || result?.message, `请求失败（HTTP ${response.status}）`));
                 error.status = response.status; error.result = result; throw error;
             }
             const result = await response.json();
+            if (taskList && (generation !== this._readGeneration || version !== this.taskReadVersions.get(url))) return null;
+            if (taskList && !Array.isArray(result?.tasks)) throw new Error('任务列表响应无效，请重试');
             if (result?.success === false || result?.error && !result.status) {
                 const error = new Error(safeText(result.message || result.error));
                 error.result = result;
                 throw error;
+            }
+            if (taskList && generation === this._readGeneration) {
+                const value = response.headers?.get('ETag');
+                if (value) this.taskEtags.set(url, { value, generation });
+                else this.taskEtags.delete(url);
             }
             return result;
         }
@@ -357,17 +375,18 @@ export function connectDesign(Base) {
             data.HISTORY.splice(0, data.HISTORY.length, ...(Array.isArray(history) ? history : history.records || history.history || []));
             this.forceUpdate?.();
         }
-        async loadTasks() {
-            const result = await this.request('/api/automation/tasks');
+        async loadTasks(conditional = false) {
+            const result = await this.request('/api/automation/tasks', 'GET', undefined, conditional);
+            if (result === null) return;
             const tasks = result.tasks || [];
             if (JSON.stringify(tasks) === JSON.stringify(this.state.tasks)) return;
             const running = new Set(this.state.tasks.flatMap(task => (task.runs || []).filter(run => run.status === 'running').map(run => run.id)));
             for (const task of tasks) for (const run of task.runs || []) if (running.has(run.id) && run.status !== 'running') this.toast(`${task.name}：${safeText(run.error || run.message, runStatus(run.status))}`, ['failed', 'partial'].includes(run.status) ? WARN : OK);
             this.setState({ tasks, auTask: tasks.some(task => task.id === this.state.auTask) ? this.state.auTask : tasks[0]?.id || '' });
         }
-        async loadTranscodes(capabilities = false) {
-            const payload = await this.request('/api/movies/transcoding/tasks');
-            const snapshot = JSON.stringify(payload.tasks || []), changed = snapshot !== this._transcodeSnapshot;
+        async loadTranscodes(capabilities = false, conditional = false) {
+            const payload = await this.request('/api/movies/transcoding/tasks', 'GET', undefined, conditional);
+            const snapshot = payload === null ? this._transcodeSnapshot : JSON.stringify(payload.tasks || []), changed = snapshot !== this._transcodeSnapshot;
             this._transcodeSnapshot = snapshot;
             if (changed) {
                 data.TC.splice(0, data.TC.length, ...(payload.tasks || []).map(task => ({ ...task, raw: task,
@@ -521,9 +540,9 @@ export function connectDesign(Base) {
             this._polling = true;
             try {
                 const pending = [];
-                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes()));
+                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes(false, true)));
                 if (this.state.route === 'storage' && this.state.connections.aria2_connected) pending.push(this.perform(() => this.loadAria()));
-                if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) pending.push(this.perform(() => this.loadTasks()));
+                if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) pending.push(this.perform(() => this.loadTasks(true)));
                 pending.push(this.perform(() => this.pollInformation()));
                 for (const [key, prefix] of [['scanTask', '/api/movies/local-library/scan/jobs/'], ['scrapeTask', '/api/movies/local-scrape/jobs/'], ['dispatchTask', '/api/115/download-jobs/'], ['cleanupTask', '/api/movies/local-library/clean-invalid/jobs/']]) {
                     const current = this.state[key];

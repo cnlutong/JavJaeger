@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from .schemas import AutomationTaskCreate, AutomationTaskList, AutomationTaskUpdate
 from .service import AutomationError, automation_service
@@ -13,8 +13,13 @@ def _raise_http_error(error: AutomationError) -> None:
 
 
 @router.get("/tasks", response_model=AutomationTaskList)
-async def list_tasks():
-    return {"tasks": await automation_service.list_tasks()}
+async def list_tasks(request: Request, response: Response):
+    etag, tasks = await automation_service.list_tasks_with_etag(request.headers.get("if-none-match"))
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if tasks is None:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return {"tasks": tasks}
 
 
 @router.post("/tasks")

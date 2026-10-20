@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_ACTOR_IMAGE_DIRECTORY = "data/actor_images"
 
 
+def etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """Use weak comparison for a GET collection's opaque entity tag."""
+    return bool(if_none_match) and any(
+        candidate.strip() == "*" or candidate.strip().removeprefix("W/") == etag
+        for candidate in if_none_match.split(",")
+    )
+
+
 async def run_blocking_io(operation, *args):
     """Finish a filesystem operation before cancellation releases its caller's lock."""
     return await finish_before_cancel(asyncio.to_thread(operation, *args))

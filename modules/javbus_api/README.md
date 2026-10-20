@@ -22,12 +22,15 @@ Local differences:
 - Implemented in Python/FastAPI stack.
 - `imageSize` is currently returned as `None`; JavJaeger does not depend on it.
 - HTML caching, concurrent request coalescing and request throttling are implemented in `client.py`.
-- `metadata_cache.py` persists parsed public movie details and their shared retention
-  policy in `data/movie_metadata_cache.json`. Details are reused across devices and
+- `metadata_cache.py` persists the shared retention policy in
+  `data/movie_metadata_cache.json` and parsed public details in the adjacent
+  `data/movie_metadata_cache.json.entries/` directory. Legacy single-file snapshots
+  migrate on the first write, with the settings file committed after all entries.
+  A normal update atomically replaces one hashed movie JSON file. Details are reused across devices and
   restarts. `GET /api/metadata-cache` returns `settings`, `count` and `size_bytes`;
   `PUT /api/metadata-cache` accepts `{ "mode": "days" | "size", "days": positive_integer,
   "mb": positive_integer }` and immediately prunes the cache. Size mode counts the
-  actual UTF-8 cache file bytes, including settings. Cache I/O failures do not prevent
+  actual UTF-8 bytes of the settings and entry files. Cache I/O failures do not prevent
   live detail retrieval; settings errors are reported to the caller.
 - Default uncached request interval is `0.5` seconds. Override it with
   `javbus.request_interval_seconds` in `config.json` or

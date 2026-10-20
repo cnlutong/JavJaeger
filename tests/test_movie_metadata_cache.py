@@ -18,6 +18,10 @@ HTML = '''<div class="container"><h3>QA-001 Shared title</h3><div class="movie">
 </div></div></div><script>var gid = 123; var uc = 0;</script>'''
 
 
+def cache_files(path):
+    return [path, *path.with_name(path.name + '.entries').glob('*.json')]
+
+
 def test_two_browser_sessions_and_a_restarted_cache_reuse_completed_details(tmp_path, monkeypatch):
     cache_path = tmp_path / 'cache.json'
     api = provider.javbus_api_service
@@ -37,7 +41,7 @@ def test_two_browser_sessions_and_a_restarted_cache_reuse_completed_details(tmp_
     status = second.get('/api/metadata-cache').json()
     assert status['settings'] == {'mode': 'size', 'days': 7, 'mb': 1}
     assert status['count'] == 1
-    assert status['size_bytes'] == cache_path.stat().st_size
+    assert status['size_bytes'] == sum(path.stat().st_size for path in cache_files(cache_path))
     second.close()
     assert fetch.await_count == 1, 'new browsers and a fresh cache instance must not fetch the source again'
     paths = [route.path for route in main.app.routes if hasattr(route, 'path')]
@@ -59,16 +63,17 @@ def test_server_cache_prunes_days_or_actual_utf8_file_bytes_and_keeps_public_met
         assert await cache.get('QA-OLD'), 'size mode does not apply a hidden day limit'
         await cache.put({'id': 'QA-NEW', 'title': '新' * 150000})
         await cache.put({'id': 'QA-LAST', 'title': '末' * 150000})
-        assert path.stat().st_size <= 1024 ** 2
+        assert sum(record.stat().st_size for record in cache_files(path)) <= 1024 ** 2
         assert await cache.get('QA-OLD') is None
         assert await cache.get('QA-NEW')
-        serialized = path.read_text()
+        serialized = ''.join(record.read_text() for record in cache_files(path))
         assert 'must-not-persist' not in serialized and 'in_local_library' not in serialized
         await cache.configure({'mode': 'days', 'days': 1, 'mb': 1})
         monkeypatch.setattr(storage.time, 'time', lambda: now_age + 86400)
         assert await cache.get('QA-NEW') is None
         assert (await cache.status())['count'] == 0
-        assert json.loads(path.read_text())['entries'] == {}
+        assert json.loads(path.read_text())['version'] == 2
+        assert cache_files(path) == [path]
     asyncio.run(exercise())
 
 

@@ -711,6 +711,50 @@ test('performance: 10000 dispatch failures remain paged with full retry and exac
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-dispatch-failures-paged.png'), fullPage: false });
 });
 
+test('performance: conditional polls discover external tasks after idle 304 responses', async t => {
+    let transcodes = [], transcodeTag = '"transcodes-empty"';
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/movies/transcoding/tasks', route => {
+            const unchanged = route.request().headers()['if-none-match'] === transcodeTag;
+            return route.fulfill({ status: unchanged ? 304 : 200, headers: { ETag: transcodeTag },
+                ...(unchanged ? {} : { json: { tasks: transcodes } }) });
+        });
+        await p.route('**/api/movies/transcoding/presets', route => route.fulfill({ json: { gpu_available: false, presets: [] } }));
+    });
+    const isList = (response, suffix, status) => response.request().method() === 'GET'
+        && new URL(response.url()).pathname.endsWith(suffix) && response.status() === status;
+    await navigate(page, '影院模式');
+    await page.waitForResponse(response => isList(response, '/transcoding/tasks', 304));
+    transcodes = [{ id: 'external-tc', movie_id: 'QA-EXTERNAL', movie_title: 'External task', status: 'running', progress: 40 }];
+    transcodeTag = '"transcodes-external"';
+    await page.waitForResponse(response => isList(response, '/transcoding/tasks', 200));
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await page.locator('header nav').getByRole('button', { name: /^转码/ }).click();
+    await page.getByText('QA-EXTERNAL', { exact: true }).waitFor();
+    const manual = page.waitForRequest(request => new URL(request.url()).pathname.endsWith('/transcoding/tasks')
+        && !request.headers()['if-none-match']);
+    await page.getByRole('button', { name: '刷新', exact: true }).click(); await manual;
+    transcodes = [{ ...transcodes[0], status: 'cancelled' }]; transcodeTag = '"transcodes-cancelled"';
+    await page.getByRole('cell', { name: '已取消', exact: true }).waitFor();
+    await navigate(page, '自动模式');
+    await page.waitForResponse(response => isList(response, '/automation/tasks', 304));
+    const created = await fetch(baseURL + '/api/automation/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        name: '跨窗口自动任务', enabled: false, nodes: ['trigger', 'search', 'magnet', 'download'].map(type => ({ id: type, type })), edges: [],
+    }) });
+    assert.equal(created.status, 200);
+    const task = await created.json();
+    t.after(() => fetch(baseURL + '/api/automation/tasks/' + task.id, { method: 'DELETE' }));
+    await page.getByText('跨窗口自动任务', { exact: true }).waitFor();
+    const updated = await fetch(baseURL + '/api/automation/tasks/' + task.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: '跨窗口自动任务已更新' }) });
+    assert.equal(updated.status, 200);
+    await page.getByText('跨窗口自动任务已更新', { exact: true }).waitFor();
+    const deleted = await fetch(baseURL + '/api/automation/tasks/' + task.id, { method: 'DELETE' }); assert.equal(deleted.status, 200);
+    await page.getByText('跨窗口自动任务已更新', { exact: true }).waitFor({ state: 'detached' });
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-conditional-task-polling.png'), fullPage: false });
+});
+
 test('imported runtime renders all original pages with no demo data or errors', async t => {
     const page = await openApp(t);
     for (const name of ['影片检索', '下载派发', '本地刮削', '影视库', '自动模式', '转码', '网盘与下载', '设置']) {
@@ -939,8 +983,12 @@ test('server cache: independent browsers reuse metadata and share retention sett
     assert.equal(await field(first, '缓存清理方式').inputValue(), '按占用空间');
     assert.equal(await field(first, '最多占用空间（MB）').inputValue(), '1');
     const disk = path.join(scratch, 'data/movie_metadata_cache.json');
-    assert.ok(fs.statSync(disk).size <= 1024 ** 2);
-    assert.ok(fs.readFileSync(disk, 'utf8').includes('共享演员'));
+    assert.equal(JSON.parse(fs.readFileSync(disk, 'utf8')).version, 2);
+    const entries = fs.readdirSync(disk + '.entries').filter(name => name.endsWith('.json')).map(name => path.join(disk + '.entries', name));
+    const actualBytes = fs.statSync(disk).size + entries.reduce((sum, entry) => sum + fs.statSync(entry).size, 0);
+    assert.ok(actualBytes <= 1024 ** 2);
+    assert.equal((await (await fetch(cacheURL)).json()).size_bytes, actualBytes);
+    assert.ok(entries.some(entry => fs.readFileSync(entry, 'utf8').includes('共享演员')));
     await first.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-server-cache-desktop.png'), animations: 'disabled' });
     await field(second, '最多占用空间（MB）').fill('0');
     await second.getByRole('button', { name: '保存', exact: true }).click();

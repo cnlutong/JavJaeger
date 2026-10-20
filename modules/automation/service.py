@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from modules.common.runtime import get_aria2_config, run_blocking_io
+from modules.common.runtime import etag_matches, get_aria2_config, run_blocking_io
 from modules.history.service import local_movie_library_service
 from modules.javbus_api import javbus_api_service
 from modules.magnets.service import get_best_magnet_payload
@@ -57,7 +57,10 @@ class AutomationService:
         self._active_runs: dict[str, AutomationRun] = {}
         self._executions: set[asyncio.Task] = set()
         self._cache_signature = None
+        self._cache_loaded = False
         self._cached_tasks: list[AutomationTask] = []
+        self._tasks_nonce = uuid4().hex
+        self._task_revision = 0
 
     async def startup(self) -> None:
         tasks = await self._load_tasks()
@@ -92,8 +95,23 @@ class AutomationService:
         await asyncio.gather(*pending, return_exceptions=True)
 
     async def list_tasks(self) -> list[AutomationTask]:
-        tasks = await self._load_tasks()
-        return sorted(tasks, key=lambda item: item.created_at, reverse=True)
+        _, tasks = await self.list_tasks_with_etag()
+        return tasks
+
+    async def list_tasks_with_etag(self, if_none_match: str | None = None) -> tuple[str, list[AutomationTask] | None]:
+        async with self._lock:
+            readable = await self._refresh_tasks_unlocked()
+            etag = f'"{self._tasks_nonce}-{self._task_revision}"'
+            if readable and etag_matches(if_none_match, etag):
+                return etag, None
+            tasks = await asyncio.to_thread(self._copy_tasks, self._cached_tasks) if readable else []
+            self._merge_active_runs(tasks)
+            # Active runs may advance while cached history is copied in the worker.
+            etag = f'"{self._tasks_nonce}-{self._task_revision}"'
+            return etag, sorted(tasks, key=lambda item: item.created_at, reverse=True)
+
+    def _touch_tasks(self) -> None:
+        self._task_revision += 1
 
     async def get_task(self, task_id: str) -> AutomationTask:
         tasks = await self._load_tasks()
@@ -155,11 +173,13 @@ class AutomationService:
             self._running_task_ids.add(task_id)
         run = AutomationRun(id=uuid4().hex, task_id=task_id, status="running", started_at=self._now(), message="正在检索影片")
         self._active_runs[task_id] = run
+        self._touch_tasks()
         try:
             await self._record_run(task_id, run)
         except BaseException:
             self._running_task_ids.discard(task_id)
             self._active_runs.pop(task_id, None)
+            self._touch_tasks()
             raise
         if background:
             snapshot = run.model_copy(deep=True)
@@ -177,16 +197,19 @@ class AutomationService:
                 run.status = "failed"
                 run.error = "运行已中断，请核对下载历史后重试"
                 run.finished_at = self._now()
+                self._touch_tasks()
             except Exception as exc:
                 logger.error("自动任务运行失败: %s (%s)", task.id, type(exc).__name__)
                 run.status = "failed"
                 run.error = exc.message if isinstance(exc, AutomationError) else "自动任务运行失败，请核对下载历史及连接设置"
                 run.finished_at = self._now()
+                self._touch_tasks()
             await self._record_run(task.id, run)
             return run
         finally:
             self._running_task_ids.discard(task.id)
             self._active_runs.pop(task.id, None)
+            self._touch_tasks()
 
     async def list_runs(self, task_id: str) -> list[AutomationRun]:
         task = await self.get_task(task_id)
@@ -199,9 +222,11 @@ class AutomationService:
 
         movies = await self._search_movies(search_node.config)
         run.found_count = len(movies)
+        self._touch_tasks()
         prepared = []
         for index, movie in enumerate(movies):
             run.message = f"正在匹配磁力 {index + 1}/{len(movies)}"
+            self._touch_tasks()
             movie_id = str(movie.get("id") or movie.get("movie_id") or "").strip()
             if not movie_id:
                 continue
@@ -209,6 +234,7 @@ class AutomationService:
             if search_node.config.get("skip_existing", True) and await self._movie_exists(movie_id):
                 run.skipped_count += 1
                 run.items.append(AutomationRunItem(movie_id=movie_id, title=title, status="skipped", message="already_exists"))
+                self._touch_tasks()
                 continue
 
             magnet = await get_best_magnet_payload(
@@ -223,12 +249,15 @@ class AutomationService:
             if not magnet or not magnet.get("link"):
                 run.skipped_count += 1
                 run.items.append(AutomationRunItem(movie_id=movie_id, title=title, status="no_magnet", message="no_magnet"))
+                self._touch_tasks()
                 continue
             run.magnet_count += 1
+            self._touch_tasks()
             prepared.append({"movie_id": movie_id, "title": title, "magnet": magnet})
 
         if prepared:
             run.message = f"正在提交 {len(prepared)} 个下载任务"
+            self._touch_tasks()
             results = await self._dispatch_downloads(download_node.config, prepared)
             run.dispatched_count = sum(1 for item in results if item.get("success"))
             for index, item in enumerate(prepared):
@@ -258,6 +287,7 @@ class AutomationService:
             run.error = run.error or "没有可派发的下载任务"
         if run.status != "noop":
             run.message = f"发现 {run.found_count}，匹配 {run.magnet_count}，提交 {run.dispatched_count}，跳过 {run.skipped_count}"
+        self._touch_tasks()
         return run
 
     async def _search_movies(self, config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -501,37 +531,57 @@ class AutomationService:
     async def _load_tasks(self) -> list[AutomationTask]:
         async with self._lock:
             tasks = await self._load_tasks_unlocked()
+            self._merge_active_runs(tasks)
+            return tasks
+
+    def _merge_active_runs(self, tasks: list[AutomationTask]) -> None:
         for task in tasks:
             if run := self._active_runs.get(task.id):
                 task.runs = [run.model_copy(deep=True)] + [item for item in task.runs if item.id != run.id]
-        return tasks
 
     async def _load_tasks_unlocked(self) -> list[AutomationTask]:
-        return await asyncio.to_thread(self._read_tasks)
+        if not await self._refresh_tasks_unlocked():
+            return []
+        return await asyncio.to_thread(self._copy_tasks, self._cached_tasks)
 
-    def _read_tasks(self) -> list[AutomationTask]:
+    @staticmethod
+    def _copy_tasks(tasks: list[AutomationTask]) -> list[AutomationTask]:
+        return [task.model_copy(deep=True) for task in tasks]
+
+    async def _refresh_tasks_unlocked(self) -> bool:
+        signature, tasks, readable = await asyncio.to_thread(self._read_task_cache)
+        if not readable:
+            # Failed reads remain visible and retryable rather than becoming a cached 304.
+            self._touch_tasks()
+            return False
+        if tasks is not None:
+            self._cache_signature = signature
+            self._cached_tasks = tasks
+            self._cache_loaded = True
+            self._touch_tasks()
+        return True
+
+    def _read_task_cache(self) -> tuple[Any, list[AutomationTask] | None, bool]:
+        # Return replacements to the event loop; cancellation cannot publish a partial cache.
         try:
             facts = self.storage_path.stat()
         except FileNotFoundError:
-            self._cache_signature = None
-            self._cached_tasks = []
-            return []
+            changed = not self._cache_loaded or self._cache_signature is not None
+            return None, [] if changed else None, True
         signature = (facts.st_mtime_ns, facts.st_size, facts.st_ino)
-        if signature != self._cache_signature:
+        if not self._cache_loaded or signature != self._cache_signature:
             try:
                 data = json.loads(self.storage_path.read_text(encoding="utf-8"))
             except Exception as exc:
                 logger.error("读取自动任务失败: %s", exc)
-                return []
-            self._cached_tasks = [AutomationTask(**item) for item in data.get("tasks", [])]
-            self._cache_signature = signature
-        return [task.model_copy(deep=True) for task in self._cached_tasks]
+                return signature, None, False
+            return signature, [AutomationTask(**item) for item in data.get("tasks", [])], True
+        return signature, None, True
 
     async def _save_tasks_unlocked(self, tasks: list[AutomationTask]) -> None:
         await run_blocking_io(self._write_tasks, tasks)
 
     def _write_tasks(self, tasks: list[AutomationTask]) -> None:
-        self._cache_signature = None
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"tasks": [task.model_dump() for task in tasks]}
         temporary = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")

@@ -23,7 +23,7 @@
 4. 准备强随机 `APP_SESSION_SECRET`，不要使用示例值。
 5. 确认配置文件路径使用可写持久化路径：`JAVJAEGER_CONFIG_PATH=/app/data/config.json`。
 
-影片补全资料和缓存清理设置保存在 `/app/data/movie_metadata_cache.json`，使用同一个 `./data` 挂载即可跨设备共享并在容器更新后保留。备份整个 `data/` 目录时会一并包含此文件；无需为浏览器单独配置缓存。
+影片缓存设置保存在 `/app/data/movie_metadata_cache.json`，公开资料按影片分别保存在 `/app/data/movie_metadata_cache.json.entries/`。旧单文件缓存会在首次写入时迁移；提交新布局前保留旧快照。使用现有 `./data` 挂载即可跨设备共享并在容器更新后保留。备份或手动清除资料缓存时，应同时处理设置文件和条目目录；备份整个 `data/` 会一并包含两者。
 
 封面图片及其独立空间上限保存在 `/app/data/image_cache/`，也使用现有 `./data` 挂载。在「设置 → 图片缓存」设置容量，默认 256 MB，按图片缓存文件的实际大小计量。`GET /api/image-cache` 返回 `settings`、`count` 和 `size_bytes`；`PUT /api/image-cache` 接受 `{"mb": 正整数}`，保存后立即清理超限图片。资料缓存的天数或 MB 设置不受影响。
 

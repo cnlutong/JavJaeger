@@ -75,6 +75,7 @@ Use this as the source-of-truth ownership map.
   - JavBus response schema aligned with `ovnrain/javbus-api`
   - JavBus cache and request throttling
   - shared persistent movie-detail cache and its retention settings
+  - per-movie cache JSON files and migration from legacy cache snapshots
 - `modules/ui/`
   - HTML shell routes
 - `modules/system/`

@@ -481,6 +481,8 @@ class TranscodingService:
         self._capabilities_cache: dict[str, Any] | None = None
         self._capabilities_lock = asyncio.Lock()
         self._last_progress_save_at = 0.0
+        self._tasks_nonce = uuid.uuid4().hex
+        self._task_revision = 0
 
     async def startup(self) -> None:
         async with self._lifecycle_lock:
@@ -514,6 +516,7 @@ class TranscodingService:
                                 interrupted = True
                                 continue
                         self._active_sources.add(self._source_key(Path(task.source_path)))
+                self._task_revision += 1
                 if interrupted:
                     await self._save_unlocked()
             self._workers = [
@@ -557,13 +560,20 @@ class TranscodingService:
             self._started = False
 
     async def list_tasks(self) -> TranscodingTaskList:
+        _, tasks = await self.list_tasks_with_etag()
+        return tasks
+
+    async def list_tasks_with_etag(self, if_none_match: str | None = None) -> tuple[str, TranscodingTaskList | None]:
         await self._ensure_started()
         async with self._lock:
+            etag = f'"{self._tasks_nonce}-{self._task_revision}"'
+            if runtime.etag_matches(if_none_match, etag):
+                return etag, None
             tasks = sorted(self._tasks.values(), key=lambda item: item.created_at, reverse=True)
             counts = {status: 0 for status in ("queued", "running", "completed", "failed", "cancelled")}
             for task in tasks:
                 counts[task.status] = counts.get(task.status, 0) + 1
-            return TranscodingTaskList(
+            return etag, TranscodingTaskList(
                 tasks=[TranscodingTask(**_model_dump(task)) for task in tasks],
                 counts=counts,
                 max_concurrent_tasks=self.max_concurrent_tasks,
@@ -859,6 +869,7 @@ class TranscodingService:
                         pass
                 current.elapsed_seconds = max(0, int(time.monotonic() - started))
                 current.stage = "GPU 正在转码"
+                self._task_revision += 1
                 now = time.monotonic()
                 # Live progress is in memory; share one disk checkpoint across all workers.
                 if now - self._last_progress_save_at >= 5.0:
@@ -1395,6 +1406,7 @@ class TranscodingService:
         self._loaded = True
 
     async def _save_unlocked(self) -> None:
+        self._task_revision += 1
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": 1,

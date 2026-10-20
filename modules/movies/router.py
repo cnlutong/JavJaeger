@@ -1,7 +1,7 @@
 import logging
 import mimetypes
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
 from modules.common import runtime
@@ -296,8 +296,13 @@ async def get_transcoding_presets():
 
 
 @router.get("/api/movies/transcoding/tasks")
-async def list_transcoding_tasks():
-    return await transcoding_service.list_tasks()
+async def list_transcoding_tasks(request: Request, response: Response):
+    etag, tasks = await transcoding_service.list_tasks_with_etag(request.headers.get("if-none-match"))
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if tasks is None:
+        return Response(status_code=304, headers=headers)
+    response.headers.update(headers)
+    return tasks
 
 
 @router.post("/api/movies/transcoding/tasks", status_code=202)

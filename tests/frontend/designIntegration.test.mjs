@@ -180,6 +180,164 @@ test('performance: unchanged task polling does not schedule a render', async () 
     assert.equal(renders, 1);
 });
 
+test('performance: idle task polls revalidate 10000 history entries without parsing or stringifying them', async t => {
+    for (const kind of ['transcode', 'auto']) await t.test(kind, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ route: kind === 'auto' ? 'auto' : 'cinema' });
+        const tasks = kind === 'auto' ? [{ id: 'a', name: 'Fixture', runs: [{ id: 'r', status: 'success',
+            items: Array.from({ length: 10000 }, (_, i) => ({ movie_id: `QA-${i}`, status: 'success' })) }] }]
+            : Array.from({ length: 10000 }, (_, i) => ({ id: `t-${i}`, movie_id: `QA-${i}`, status: 'completed', progress: 100 }));
+        const text = JSON.stringify({ tasks }), tag = `"${kind}-history"`, reads = [];
+        let parses = 0, snapshots = 0, renders = 0;
+        globalThis.fetch = async (url, options) => {
+            reads.push({ url, tag: new Headers(options.headers).get('If-None-Match'), cache: options.cache });
+            const response = new Response(reads.at(-1).tag === tag ? null : text,
+                { status: reads.at(-1).tag === tag ? 304 : 200, headers: { ETag: tag } });
+            const parse = response.json.bind(response);
+            response.json = () => { parses++; return parse(); };
+            return response;
+        };
+        const load = () => kind === 'auto' ? instance.loadTasks() : instance.loadTranscodes();
+        await load();
+        const update = instance.setState.bind(instance);
+        instance.setState = patch => { renders++; update(patch); };
+        instance.forceUpdate = () => { renders++; };
+        const stringify = JSON.stringify;
+        JSON.stringify = function (value, ...options) {
+            if (Array.isArray(value) && (value.length === 10000 || value[0]?.runs?.[0]?.items?.length === 10000)) snapshots++;
+            return stringify(value, ...options);
+        };
+        parses = 0;
+        try {
+            for (let i = 0; i < 3; i++) await instance.poll();
+            t.diagnostic(JSON.stringify({ kind, polls: reads.length - 1, bodyParses: parses, historySnapshots: snapshots, renders }));
+            assert.equal(reads[0].tag, null, 'the initial load remains unconditional');
+            assert.deepEqual(reads.slice(1).map(read => read.tag), [tag, tag, tag], 'polling continues to discover external changes');
+            assert.ok(reads.every(read => read.cache === 'no-store'), 'the browser must expose raw 304 rather than reuse a cached body');
+            assert.equal(parses, 0);
+            assert.equal(snapshots, 0);
+            assert.equal(renders, 0);
+            await load();
+            assert.equal(reads.at(-1).tag, null, 'manual refresh always requests the complete payload');
+            assert.equal(parses, 1);
+        } finally { JSON.stringify = stringify; }
+    });
+});
+
+test('task validators follow external changes and ignore failed or malformed response tokens', async t => {
+    for (const kind of ['transcode', 'auto']) await t.test(kind, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ route: kind === 'auto' ? 'auto' : 'cinema' });
+        let tasks = [], tag = '"empty"', responseMode = 'valid';
+        const reads = [];
+        globalThis.fetch = async (url, options) => {
+            reads.push(new Headers(options.headers).get('If-None-Match'));
+            if (responseMode === 'error') return new Response('{}', { status: 503, headers: { ETag: '"error-token"' } });
+            if (responseMode === 'malformed') return new Response('{', { headers: { ETag: '"malformed-token"' } });
+            if (responseMode === 'null') return new Response('null', { headers: { ETag: '"null-token"' } });
+            if (responseMode === 'wrong-shape') return new Response('{"tasks":42}', { headers: { ETag: '"wrong-shape-token"' } });
+            if (reads.at(-1) === tag) return new Response(null, { status: 304, headers: { ETag: tag } });
+            return new Response(JSON.stringify({ tasks }), { headers: { ETag: tag } });
+        };
+        await (kind === 'auto' ? instance.loadTasks() : instance.loadTranscodes());
+        tasks = kind === 'auto' ? [{ id: 'external', name: 'External', runs: [{ id: 'run', status: 'running', message: 'Progress 40' }] }]
+            : [{ id: 'external', movie_id: 'QA-001', status: 'running', progress: 40 }];
+        tag = '"external-task"';
+        await instance.poll();
+        assert.equal(reads.at(-1), '"empty"');
+        assert.equal(kind === 'auto' ? instance.state.tasks[0].id : instance.constructor.data.TC[0].id, 'external');
+        responseMode = 'error'; await instance.poll();
+        responseMode = 'malformed'; await instance.poll();
+        responseMode = 'null'; await instance.poll();
+        responseMode = 'wrong-shape'; await instance.poll();
+        responseMode = 'valid';
+        tasks = kind === 'auto' ? [{ ...tasks[0], runs: [{ id: 'run', status: 'success', message: 'Complete' }] }]
+            : [{ ...tasks[0], status: 'completed', progress: 100 }];
+        tag = '"completed"'; await instance.poll();
+        assert.ok(reads.slice(-5).every(value => !['"error-token"', '"malformed-token"', '"null-token"', '"wrong-shape-token"'].includes(value)), 'only parsed successful responses supply validators');
+        assert.equal(kind === 'auto' ? instance.state.tasks[0].runs[0].status : instance.constructor.data.TC[0].status, kind === 'auto' ? 'success' : 'completed');
+        tasks = []; tag = '"deleted"'; await instance.poll();
+        assert.equal(kind === 'auto' ? instance.state.tasks.length : instance.constructor.data.TC.length, 0, 'external deletion reaches the next poll');
+        await instance.request('/api/fixture-write', 'POST', { value: true });
+        await instance.poll();
+        assert.equal(reads.at(-1), null, 'a write invalidates validators captured before the mutation');
+    });
+});
+
+test('late task reads cannot overwrite a snapshot validated after a write or manual refresh', async t => {
+    for (const kind of ['transcode', 'auto']) for (const invalidation of ['write', 'manual']) await t.test(`${kind}/${invalidation}`, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ route: kind === 'auto' ? 'auto' : 'cinema' });
+        let release, reads = 0;
+        const payload = id => ({ tasks: [kind === 'auto' ? { id, name: id, runs: [] } : { id, movie_id: id, status: 'completed' }] });
+        const response = id => new Response(JSON.stringify(payload(id)), { headers: { ETag: `"${id}"` } });
+        globalThis.fetch = async (url, options) => {
+            if (options.method === 'POST') return json({ success: true });
+            reads++;
+            if (invalidation === 'manual' && reads === 1) return response('old');
+            if (reads === (invalidation === 'write' ? 1 : 2)) return new Promise(resolve => { release = () => resolve(response('old')); });
+            if (new Headers(options.headers).get('If-None-Match') === '"new"') return new Response(null, { status: 304 });
+            return response('new');
+        };
+        const load = (conditional = false) => kind === 'auto' ? instance.loadTasks(conditional) : instance.loadTranscodes(false, conditional);
+        if (invalidation === 'manual') await load();
+        const old = load(invalidation === 'manual');
+        if (invalidation === 'write') await instance.request('/api/fixture-write', 'POST', { value: true });
+        await load(); release(); await old;
+        assert.equal(kind === 'auto' ? instance.state.tasks[0].id : instance.constructor.data.TC[0].id, 'new', 'an older response cannot roll back the refreshed display');
+        await instance.poll();
+        assert.equal(reads, invalidation === 'write' ? 3 : 4, 'the next poll still revalidates the new snapshot');
+        assert.equal(kind === 'auto' ? instance.state.tasks[0].id : instance.constructor.data.TC[0].id, 'new');
+    });
+});
+
+test('manual task refresh never merges into a pending 304 and capability refresh remains unconditional', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const reads = []; let release;
+    globalThis.fetch = async (url, options) => {
+        const tag = new Headers(options.headers).get('If-None-Match'); reads.push({ url, tag, cache: options.cache });
+        if (url.endsWith('/presets')) return json({ gpu_available: false, presets: [] });
+        if (reads.length === 2) return new Promise(resolve => { release = () => resolve(new Response(null, { status: 304 })); });
+        return new Response('{"tasks":[]}', { headers: { ETag: '"known"' } });
+    };
+    await instance.loadTranscodes();
+    const polling = instance.poll(), refreshing = instance.loadTranscodes(true);
+    await new Promise(resolve => setImmediate(resolve));
+    let settled;
+    try {
+        assert.equal(reads.filter(read => read.url.endsWith('/tasks')).length, 3);
+        assert.equal(reads[1].tag, '"known"');
+        assert.equal(reads[2].tag, null);
+        assert.equal(reads[2].cache, 'no-store');
+    } finally { release(); settled = await Promise.allSettled([polling, refreshing]); }
+    assert.ok(settled.every(result => result.status === 'fulfilled'));
+    assert.ok(reads.some(read => read.url.endsWith('/presets') && read.tag === null));
+    globalThis.fetch = async () => new Response(null, { status: 304 });
+    await assert.rejects(instance.loadTranscodes(), /304/, 'an unconditional 304 is an error, not an empty successful refresh');
+});
+
+test('explicit capability refresh survives a newer task poll discarding its task body', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let reads = 0, capabilityReads = 0, release;
+    globalThis.fetch = async url => {
+        if (url.endsWith('/presets')) {
+            capabilityReads++;
+            return json({ gpu_available: true, presets: [{ id: 'fixture-preset' }] });
+        }
+        reads++;
+        if (reads === 1) return new Response('{"tasks":[{"id":"current","status":"completed"}]}', { headers: { ETag: '"current"' } });
+        if (reads === 2) return new Promise(resolve => { release = () => resolve(new Response('{"tasks":[{"id":"late","status":"completed"}]}')); });
+        return new Response(null, { status: 304 });
+    };
+    await instance.loadTranscodes();
+    const manual = instance.loadTranscodes(true);
+    await instance.loadTranscodes(false, true);
+    release(); await manual;
+    assert.equal(instance.constructor.data.TC[0].id, 'current', 'the superseded task response stays discarded');
+    assert.equal(capabilityReads, 1, 'an explicit capability probe still runs');
+    assert.equal(instance.state.tcCaps.gpu_available, true);
+});
+
 test('performance: slow transcodes do not delay independent background job progress', async () => {
     const instance = app(), requests = [];
     instance.setState({ informationTask: { id: 'info', status: 'running' }, scanTask: { id: 'scan', status: 'running' }, qr: { session_id: 'qr', status: 0 } });
