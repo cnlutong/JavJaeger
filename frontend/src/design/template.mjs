@@ -136,6 +136,21 @@ export function adaptTemplate(source, logo) {
         .replace(/(<sc-if value="{{ d.hasFailed }}">[\s\S]*?)(<table class="table")/, `$1${pager('d.failedPaging', '失败资源分页')}$2`);
     html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager('dlg.paging')}<sc-if value="{{ dlg.hasList }}">`)
         .replace('<sc-for list="{{ bg.items }}"', `${pager('bg.paging')}<sc-for list="{{ bg.items }}"`);
+    html = html.replace('<div style="height:3px;border-radius:2px;background:var(--t08);overflow:hidden"><div style="height:100%;width:{{ b.pct }}%;background:{{ b.fg }}"></div></div>',
+        '<div class="jj-task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ b.ariaNow }}" aria-valuetext="{{ b.ariaText }}"><div class="{{ b.barClass }}" style="width:{{ b.barWidth }}%;background:{{ b.fg }}"></div></div>');
+    html = html.replace('<sc-if value="{{ dlg.open }}">', `
+      <sc-if value="{{ taskLog.open }}"><div class="dialog-backdrop" style="background:var(--ovl)">
+        <div class="dialog elev-lg jj-task-log" role="dialog" aria-modal="true" aria-label="任务日志">
+          <div style="display:flex;align-items:center;gap:12px"><h3 class="dialog-title">{{ taskLog.title }}</h3><button class="btn btn-ghost" aria-label="关闭任务日志" style="margin-left:auto" onClick="{{ taskLog.close }}">关闭</button></div>
+          <span role="status">{{ taskLog.status }}</span><p>{{ taskLog.message }}</p>
+          <div class="jj-task-progress" role="progressbar" aria-label="当前阶段进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ taskLog.progress.ariaNow }}" aria-valuetext="{{ taskLog.progress.ariaText }}">
+            <div class="{{ taskLog.progress.barClass }}" style="width:{{ taskLog.progress.barWidth }}%;background:var(--acc)"></div></div>
+          <p style="font-size:12px;color:var(--dim)">{{ taskLog.progress.phaseText }} · {{ taskLog.progress.pctText }}</p>
+          <span style="font-size:11px;color:var(--dim2)">最新日志在前，最多保留 300 条。进度表示当前阶段；实际下载进度请查看下载工具。</span>
+          <pre role="log" aria-label="实时任务日志" aria-live="polite" aria-atomic="false">{{ taskLog.text }}</pre>
+          <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ taskLog.close }}">关闭日志</button><button class="btn btn-primary" onClick="{{ taskLog.result }}">{{ taskLog.resultText }}</button></div>
+        </div></div></sc-if>
+      <sc-if value="{{ dlg.open }}">`);
     for (const [route, key] of [['dispatch', 'd'], ['transcode', 'tc'], ['scrape', 'sc']]) {
         html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager(key + '.paging')}$2`);
     }

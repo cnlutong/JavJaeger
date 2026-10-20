@@ -5860,6 +5860,14 @@ class Component extends DCLogic {
   var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1" };
   var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks", "/api/system/jobs"];
   var jobFinished = (task) => task && ["success", "completed", "failed"].includes(task.status);
+  var taskProgress = (task) => {
+    const finished = !["running", "queued"].includes(task.status), total = Number(task.total ?? task.total_count ?? 0), completed = Number(task.completed ?? task.completed_count ?? 0);
+    const pct = ["success", "completed", "noop"].includes(task.status) ? 100 : Math.max(0, Math.min(100, Number(task.percent ?? task.progress ?? task.pct ?? (total ? completed / total * 100 : 0)) || 0));
+    const indeterminate = !finished && total <= 0 && !Number(task.progress ?? task.pct);
+    const pctText = finished ? { success: "\u5DF2\u5B8C\u6210", completed: "\u5DF2\u5B8C\u6210", failed: "\u5931\u8D25", interrupted: "\u5DF2\u4E2D\u65AD", cancelled: "\u5DF2\u53D6\u6D88", partial: "\u90E8\u5206\u5B8C\u6210", noop: "\u65E0\u65B0\u589E" }[task.status] || "\u5DF2\u7ED3\u675F" : total > 0 ? `${completed}/${total} \xB7 ${Math.round(pct)}%` : indeterminate ? "\u603B\u91CF\u5F85\u786E\u5B9A" : `${Math.round(pct)}%`;
+    const phaseText = task.stage || { queued: "\u7B49\u5F85\u6267\u884C", scan: "\u904D\u5386\u76EE\u5F55", resolve: "\u89E3\u6790\u6587\u4EF6", filter: "\u7B5B\u9009\u6587\u4EF6", dispatch: "\u63D0\u4EA4\u4E0B\u8F7D", search: "\u68C0\u7D22\u5F71\u7247", enrichment: "\u8865\u5168\u8D44\u6599", testing: "\u6D4B\u8BD5\u6765\u6E90", check: "\u68C0\u67E5\u8D44\u6599", download: "\u4E0B\u8F7D\u8D44\u6599", apply: "\u6574\u7406\u6587\u4EF6", cleanup: "\u6E05\u6D17\u6587\u4EF6" }[task.phase] || task.message || "\u540E\u53F0\u6267\u884C";
+    return { pct, indeterminate, finished, pctText, phaseText, barWidth: indeterminate ? 35 : pct, barClass: indeterminate ? "jj-progress-indeterminate" : "", ariaNow: indeterminate ? void 0 : pct, ariaText: phaseText + " \xB7 " + pctText };
+  };
   var informationSummary = (task) => {
     if (task.status === "failed") return safeText(task.message, "\u8D44\u6599\u4EFB\u52A1\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5");
     if (!jobFinished(task)) return safeText(task.message, "\u540E\u53F0\u8FD0\u884C\u4E2D\uFF0C\u53EF\u79BB\u5F00\u9875\u9762");
@@ -6133,7 +6141,7 @@ class Component extends DCLogic {
         this._keyboard = (event) => {
           if (event.key === "Escape") {
             if (this.state.dlg) this.renderVals().dlg.cancel();
-            else for (const key of ["fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying", "cnDetail"]) {
+            else for (const key of ["taskLog", "fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying", "cnDetail"]) {
               if (this.state[key]) {
                 this.setState({ [key]: null });
                 break;
@@ -6595,6 +6603,46 @@ class Component extends DCLogic {
           })
         });
       }
+      backgroundItem(kind, task, read, result) {
+        const progress = taskProgress(task);
+        return {
+          kind,
+          name: safeText(task.movie_id || task.code || task.message || task.stage, kind),
+          ...progress,
+          meta: progress.phaseText,
+          fg: task.status === "failed" ? WARN : progress.finished ? OK : ACC,
+          go: () => {
+            this.setState({ bgOpen: false, taskLog: { title: kind, read, result, observed: [] } });
+            this.refreshTaskLog();
+          }
+        };
+      }
+      refreshTaskLog() {
+        const monitor = this.state.taskLog, task = monitor?.read();
+        if (!task || task.logs?.length) return;
+        const message = safeText(task.message || task.stage || task.error, "\u7B49\u5F85\u4EFB\u52A1\u4E0A\u62A5\u8FDB\u5EA6"), marker = task.status + taskProgress(task).pctText + message;
+        if (monitor.observed.at(-1)?.marker === marker) return;
+        this.setState({ taskLog: { ...monitor, observed: [...monitor.observed, { time: (/* @__PURE__ */ new Date()).toISOString(), message, marker }].slice(-300) } });
+      }
+      vTaskLog() {
+        const monitor = this.state.taskLog, task = monitor?.read();
+        if (!task) return { open: false };
+        const finished = !["running", "queued"].includes(task.status), logs = task.logs?.length ? task.logs : monitor.observed;
+        return {
+          open: true,
+          title: monitor.title + " \xB7 \u4EFB\u52A1\u65E5\u5FD7",
+          message: safeText(task.message || task.stage, "\u7B49\u5F85\u4EFB\u52A1\u4E0A\u62A5\u8FDB\u5EA6"),
+          status: finished ? taskProgress(task).pctText : "\u8FD0\u884C\u4E2D \xB7 \u6BCF 3 \u79D2\u66F4\u65B0",
+          progress: taskProgress(task),
+          text: logs.slice(-300).reverse().map((line) => `${String(line.time || "").replace("T", " ").slice(0, 19)}  ${safeText(line.message, "\u65E5\u5FD7\u5185\u5BB9\u5DF2\u9690\u85CF")}`).join("\n") || "\u7B49\u5F85\u4EFB\u52A1\u65E5\u5FD7\u2026",
+          close: () => this.setState({ taskLog: null }),
+          resultText: finished ? "\u67E5\u770B\u7ED3\u679C" : "\u524D\u5F80\u4EFB\u52A1\u9875\u9762",
+          result: () => {
+            this.setState({ taskLog: null });
+            monitor.result();
+          }
+        };
+      }
       async finishDispatch(result, tool, preflight = []) {
         const results = [...preflight, ...result.results || []];
         this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool, failedPage: null });
@@ -6643,7 +6691,7 @@ class Component extends DCLogic {
         this._polling = true;
         try {
           const pending = [this.perform(() => this.loadBackgroundJobs())];
-          if (["transcode", "library", "cinema"].includes(this.state.route) || data.TC.some((task) => ["running", "queued"].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes(false, true)));
+          if (["transcode", "library", "cinema"].includes(this.state.route) || data.TC.some((task) => ["running", "queued"].includes(task.status)) || this.state.taskLog?.title === "\u8F6C\u7801") pending.push(this.perform(() => this.loadTranscodes(false, true)));
           if (this.state.route === "storage" && this.state.connections.aria2_connected) pending.push(this.perform(() => this.loadAria()));
           if (this.state.route === "auto" || this.state.tasks.some((task) => task.runs?.some((run) => run.status === "running"))) pending.push(this.perform(() => this.loadTasks(true)));
           pending.push(this.perform(() => this.pollInformation()));
@@ -6704,6 +6752,7 @@ class Component extends DCLogic {
           await Promise.all(pending);
         } finally {
           this._polling = false;
+          if (!this._disposed) this.refreshTaskLog();
         }
       }
       async startJob(key, url, payload, operation = "preview") {
@@ -8096,48 +8145,26 @@ class Component extends DCLogic {
         view.sysInfo = `\u63D0\u4EA4 ${deployment.revision || "\u672A\u77E5"} \xB7 \u6784\u5EFA ${deployment.built_at || "\u672A\u8BB0\u5F55"} \xB7 ${view.deploymentTime}`;
         for (const nav of view.nav) nav.badge = nav.label === "\u8F6C\u7801" ? String(data.TC.filter((task) => ["running", "queued"].includes(task.status)).length || "") : nav.label === "\u81EA\u52A8\u6A21\u5F0F" ? String(st.tasks.filter((task) => task.enabled).length || "") : "";
         view.tools = this.toolStates();
-        view.bg.items = data.TC.filter((task) => ["running", "queued"].includes(task.status)).map((task) => ({ kind: "\u8F6C\u7801", name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go("transcode") }));
-        for (const [key, kind] of [["scanTask", "\u626B\u63CF\u5165\u5E93"], ["scrapeTask", "\u522E\u524A"], ["cleanupTask", "\u6E05\u6D17\u65E0\u6548\u6587\u4EF6"]]) if (st[key]) {
-          const task = st[key], finished = jobFinished(task);
-          view.bg.items.push({
-            kind,
-            name: safeText(task.message, finished ? "\u4EFB\u52A1\u5DF2\u7ED3\u675F\uFF0C\u70B9\u51FB\u67E5\u770B\u7ED3\u679C" : "\u540E\u53F0\u8FD0\u884C\u4E2D"),
-            pct: task.percent || 0,
-            pctText: finished ? task.status === "failed" ? "\u5931\u8D25" : "\u5DF2\u5B8C\u6210" : "",
-            meta: finished ? "\u7ED3\u679C\u4FDD\u7559\uFF0C\u70B9\u51FB\u67E5\u770B\u4E0B\u4E00\u6B65" : "\u670D\u52A1\u7AEF\u540E\u53F0\u6267\u884C",
-            fg: task.status === "failed" ? WARN : finished ? OK : ACC,
-            finished,
-            go: () => this.showBackgroundResult(key)
-          });
+        view.bg.items = data.TC.filter((task) => ["running", "queued"].includes(task.status)).map((task) => this.backgroundItem("\u8F6C\u7801", task.raw || task, () => data.TC.find((item) => item.id === task.id)?.raw || task.raw || task, this.go("transcode")));
+        for (const [key, kind] of [["scanTask", "\u626B\u63CF\u5165\u5E93"], ["scrapeTask", "\u522E\u524A"], ["cleanupTask", "\u6E05\u6D17\u65E0\u6548\u6587\u4EF6"], ["dispatchTask", "115 \u6D3E\u53D1"], ["informationTask", "\u8D44\u6599\u68C0\u67E5\u4E0E\u8865\u5168"]]) if (st[key]) {
+          const task = st[key], title = key === "informationTask" ? task.operation === "check" ? "\u8D44\u6599\u68C0\u67E5" : "\u8D44\u6599\u8865\u5168" : kind;
+          view.bg.items.push(this.backgroundItem(
+            title,
+            task,
+            () => this.state[key] || task,
+            () => key === "informationTask" ? this.showInformationResult() : this.showBackgroundResult(key)
+          ));
         }
-        if (st.dispatchTask) {
-          const job = st.dispatchTask, pct = Math.round(100 * (job.completed_count || 0) / Math.max(1, job.total_count || 1));
-          view.bg.items.push({ kind: "115 \u6D3E\u53D1", name: `\u6279\u6B21 ${job.current_batch || 0}/${job.total_batches || "\u5F85\u8BA1\u7B97"}`, pct, pctText: jobFinished(job) ? "\u67E5\u770B\u7ED3\u679C" : `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} \u9879\u5DF2\u5904\u7406`, fg: job.status === "failed" ? WARN : ACC, finished: jobFinished(job), go: () => this.showBackgroundResult("dispatchTask") });
-        }
-        for (const task of st.tasks) for (const run of task.runs || []) if (run.status === "running") view.bg.items.push({ kind: "\u81EA\u52A8\u4EFB\u52A1", name: task.name, pct: 0, pctText: "", meta: run.message || "\u8FD0\u884C\u4E2D", fg: ACC, go: this.go("auto") });
-        for (const task of st.backgroundJobs) view.bg.items.push({
-          kind: backgroundNames[task.type] || "\u540E\u53F0\u4EFB\u52A1",
-          name: safeText(task.message, jobFinished(task) ? "\u4EFB\u52A1\u5DF2\u7ED3\u675F\uFF0C\u70B9\u51FB\u67E5\u770B\u7ED3\u679C" : "\u670D\u52A1\u7AEF\u540E\u53F0\u6267\u884C"),
-          pct: task.percent || 0,
-          pctText: jobFinished(task) ? "\u67E5\u770B\u7ED3\u679C" : `${task.percent || 0}%`,
-          meta: jobFinished(task) ? "\u7ED3\u679C\u4FDD\u5B58\u5728\u670D\u52A1\u7AEF\uFF0C\u53EF\u5237\u65B0\u540E\u67E5\u770B" : "\u5237\u65B0\u6216\u5173\u95ED\u9875\u9762\u4E0D\u4F1A\u4E2D\u65AD\u6267\u884C",
-          fg: task.status === "failed" ? WARN : ACC,
-          finished: jobFinished(task),
-          go: () => this.showServerJob(task)
-        });
-        const activeCount = view.bg.items.filter((item) => !item.finished).length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
-        if (st.informationTask) {
-          const task = st.informationTask, finished = jobFinished(task);
-          view.bg.items.unshift({
-            kind: task.operation === "check" ? "\u8D44\u6599\u68C0\u67E5" : "\u8D44\u6599\u8865\u5168",
-            name: informationSummary(task),
-            pct: task.percent || 0,
-            pctText: finished ? task.status === "failed" ? "\u5931\u8D25" : task.result?.failed_count ? "\u90E8\u5206\u5B8C\u6210" : "\u5DF2\u5B8C\u6210" : "",
-            meta: finished ? "\u70B9\u51FB\u67E5\u770B\u7ED3\u679C\uFF0C\u7EE7\u7EED\u8865\u5168\u6216\u5904\u7406\u5931\u8D25\u9879" : "\u670D\u52A1\u7AEF\u540E\u53F0\u6267\u884C\uFF0C\u53EF\u79BB\u5F00\u6216\u5237\u65B0\u9875\u9762",
-            fg: task.status === "failed" || task.result?.failed_count ? WARN : finished ? OK : ACC,
-            go: () => this.showInformationResult()
-          });
-        }
+        for (const task of st.tasks) for (const run of task.runs || []) if (run.status === "running")
+          view.bg.items.push(this.backgroundItem("\u81EA\u52A8\u4EFB\u52A1", run, () => this.state.tasks.find((item) => item.id === task.id)?.runs?.find((item) => item.id === run.id) || run, this.go("auto")));
+        for (const task of st.backgroundJobs) view.bg.items.push(this.backgroundItem(
+          backgroundNames[task.type] || "\u540E\u53F0\u4EFB\u52A1",
+          task,
+          () => this.state.backgroundJobs.find((item) => item.task_id === task.task_id) || task,
+          () => this.showServerJob(this.state.backgroundJobs.find((item) => item.task_id === task.task_id) || task)
+        ));
+        const activeCount = view.bg.items.filter((item) => !item.finished).length;
+        view.taskLog = this.vTaskLog();
         view.bg.count = view.bg.items.length;
         view.bg.animation = activeCount ? "jjspin 900ms linear infinite" : "none";
         const background = this.pageItems(view.bg.items, "bgPage", [], 6);
@@ -8383,6 +8410,23 @@ class Component extends DCLogic {
     const pager2 = (key, label = "\u5206\u9875") => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="${label}"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
     html = html.replace('<sc-for list="{{ sc.outcome.rows }}"', `${pager2("sc.outcome.paging", "\u6267\u884C\u7ED3\u679C\u5206\u9875")}<sc-for list="{{ sc.outcome.rows }}"`).replace(/(<sc-if value="{{ d.hasFailed }}">[\s\S]*?)(<table class="table")/, `$1${pager2("d.failedPaging", "\u5931\u8D25\u8D44\u6E90\u5206\u9875")}$2`);
     html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager2("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager2("bg.paging")}<sc-for list="{{ bg.items }}"`);
+    html = html.replace(
+      '<div style="height:3px;border-radius:2px;background:var(--t08);overflow:hidden"><div style="height:100%;width:{{ b.pct }}%;background:{{ b.fg }}"></div></div>',
+      '<div class="jj-task-progress" role="progressbar" aria-label="\u4EFB\u52A1\u8FDB\u5EA6" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ b.ariaNow }}" aria-valuetext="{{ b.ariaText }}"><div class="{{ b.barClass }}" style="width:{{ b.barWidth }}%;background:{{ b.fg }}"></div></div>'
+    );
+    html = html.replace('<sc-if value="{{ dlg.open }}">', `
+      <sc-if value="{{ taskLog.open }}"><div class="dialog-backdrop" style="background:var(--ovl)">
+        <div class="dialog elev-lg jj-task-log" role="dialog" aria-modal="true" aria-label="\u4EFB\u52A1\u65E5\u5FD7">
+          <div style="display:flex;align-items:center;gap:12px"><h3 class="dialog-title">{{ taskLog.title }}</h3><button class="btn btn-ghost" aria-label="\u5173\u95ED\u4EFB\u52A1\u65E5\u5FD7" style="margin-left:auto" onClick="{{ taskLog.close }}">\u5173\u95ED</button></div>
+          <span role="status">{{ taskLog.status }}</span><p>{{ taskLog.message }}</p>
+          <div class="jj-task-progress" role="progressbar" aria-label="\u5F53\u524D\u9636\u6BB5\u8FDB\u5EA6" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ taskLog.progress.ariaNow }}" aria-valuetext="{{ taskLog.progress.ariaText }}">
+            <div class="{{ taskLog.progress.barClass }}" style="width:{{ taskLog.progress.barWidth }}%;background:var(--acc)"></div></div>
+          <p style="font-size:12px;color:var(--dim)">{{ taskLog.progress.phaseText }} \xB7 {{ taskLog.progress.pctText }}</p>
+          <span style="font-size:11px;color:var(--dim2)">\u6700\u65B0\u65E5\u5FD7\u5728\u524D\uFF0C\u6700\u591A\u4FDD\u7559 300 \u6761\u3002\u8FDB\u5EA6\u8868\u793A\u5F53\u524D\u9636\u6BB5\uFF1B\u5B9E\u9645\u4E0B\u8F7D\u8FDB\u5EA6\u8BF7\u67E5\u770B\u4E0B\u8F7D\u5DE5\u5177\u3002</span>
+          <pre role="log" aria-label="\u5B9E\u65F6\u4EFB\u52A1\u65E5\u5FD7" aria-live="polite" aria-atomic="false">{{ taskLog.text }}</pre>
+          <div class="dialog-actions"><button class="btn btn-secondary" onClick="{{ taskLog.close }}">\u5173\u95ED\u65E5\u5FD7</button><button class="btn btn-primary" onClick="{{ taskLog.result }}">{{ taskLog.resultText }}</button></div>
+        </div></div></sc-if>
+      <sc-if value="{{ dlg.open }}">`);
     for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {
       html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager2(key + ".paging")}$2`);
     }

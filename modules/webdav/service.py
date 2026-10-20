@@ -100,15 +100,19 @@ async def dispatch_pan115_downloads_to_aria2(
     files: list[Any],
     video_filter: bool,
     min_file_size_mb: float,
+    progress_callback=None,
 ) -> list[dict[str, Any]]:
     downloads, skipped = await pan115_service.resolve_download_entries_from_config(
         files,
         video_filter=video_filter,
         min_file_size_mb=min_file_size_mb,
+        **({'progress_callback': progress_callback} if progress_callback else {}),
     )
 
     results: list[dict[str, Any]] = []
-    for item in downloads:
+    for index, item in enumerate(downloads):
+        if progress_callback:
+            progress_callback({'phase': 'dispatch', 'completed': index, 'total': len(downloads), 'current': item.name, 'message': f'正在提交：{item.name}'})
         try:
             options: dict[str, Any] = {"out": item.name, "user-agent": pan115_service.PAN115_DOWNLOAD_USER_AGENT}
             if item.headers:
@@ -122,6 +126,9 @@ async def dispatch_pan115_downloads_to_aria2(
         except Exception as exc:
             logger.error("添加 115 文件到 Aria2 失败: %s", exc)
             results.append({"filename": item.name, "success": False, "error": "pan115_aria2_add_failed", "message": "添加失败"})
+        if progress_callback:
+            progress_callback({'phase': 'dispatch', 'completed': index + 1, 'total': len(downloads), 'current': item.name,
+                'message': f"{'已提交' if results[-1]['success'] else '提交失败'}：{item.name}（{index + 1}/{len(downloads)}）"})
 
     return results + [{**item, "skipped": True} for item in skipped]
 
@@ -166,12 +173,14 @@ def is_video_file(filename: str) -> bool:
     return extension in VIDEO_EXTENSIONS
 
 
-def get_folder_files_recursive(webdav_client: WebDavClient, folder_path: str) -> list[WebDavFile]:
+def get_folder_files_recursive(webdav_client: WebDavClient, folder_path: str, progress_callback=None) -> list[WebDavFile]:
     all_files: list[WebDavFile] = []
+    if progress_callback:
+        progress_callback({'phase': 'scan', 'message': f'正在遍历文件夹：{folder_path}', 'current': folder_path})
     files = webdav_client.list_directory(folder_path)
     for file in files:
         if file.is_directory:
-            all_files.extend(get_folder_files_recursive(webdav_client, file.path))
+            all_files.extend(get_folder_files_recursive(webdav_client, file.path, progress_callback))
         else:
             all_files.append(file)
     return all_files
@@ -184,13 +193,18 @@ def download_folder_recursive(
     folder_name: str,
     video_filter: bool,
     min_file_size_mb: float,
+    progress_callback=None,
 ) -> list[dict[str, Any]]:
-    all_files = get_folder_files_recursive(webdav_client, folder_path)
+    all_files = get_folder_files_recursive(webdav_client, folder_path, progress_callback)
     eligible_files: list[WebDavFile] = []
     skipped_files: list[dict[str, Any]] = []
 
-    for file in all_files:
+    for index, file in enumerate(all_files):
+        if progress_callback:
+            progress_callback({'phase': 'filter', 'completed': index, 'total': len(all_files), 'current': file.name, 'message': f'正在筛选文件：{file.name}'})
         if (video_filter and not is_video_file(file.name)) or file.size < min_file_size_mb * 1024 * 1024:
+            if progress_callback:
+                progress_callback({'phase': 'filter', 'completed': index + 1, 'total': len(all_files), 'message': f'跳过不符合筛选条件的文件：{file.name}'})
             skipped_files.append(
                 {
                     "filename": file.name,
@@ -203,7 +217,9 @@ def download_folder_recursive(
         eligible_files.append(file)
 
     results: list[dict[str, Any]] = []
-    for file in eligible_files:
+    for index, file in enumerate(eligible_files):
+        if progress_callback:
+            progress_callback({'phase': 'dispatch', 'completed': index, 'total': len(eligible_files), 'current': file.name, 'message': f'正在提交：{file.name}'})
         try:
             download_url = webdav_client._build_download_url(file.path)
             options = webdav_client.build_aria2_options({"out": file.name})
@@ -211,13 +227,16 @@ def download_folder_recursive(
             results.append({"filename": file.name, "success": True, "gid": gid, "message": f"已加入 {folder_name}"})
         except Exception:
             results.append({"filename": file.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
+        if progress_callback:
+            progress_callback({'phase': 'dispatch', 'completed': index + 1, 'total': len(eligible_files), 'current': file.name,
+                'message': f"{'已提交' if results[-1]['success'] else '提交失败'}：{file.name}（{index + 1}/{len(eligible_files)}）"})
 
     return results + skipped_files
 
 
 async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress_callback=None):
     if progress_callback:
-        progress_callback({'phase': 'dispatch', 'message': '正在解析网盘目录并提交文件，可刷新或离开页面', 'total': len(payload.files)})
+        progress_callback({'phase': 'scan', 'message': '正在解析网盘目录，文件总量待确定'})
     results: list[dict[str, Any]] = []
     local_files = [file_info for file_info in payload.files if file_info.source_type == "local"]
     for file_info in local_files:
@@ -231,6 +250,7 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
                 pan115_files,
                 payload.video_filter,
                 payload.min_file_size_mb,
+                progress_callback,
             )
             results.extend(pan115_results)
         except ValueError as exc:
@@ -247,7 +267,9 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
     if webdav_files and not webdav_client:
         raise ValueError("WebDAV未连接")
 
-    for file_info in webdav_files:
+    for index, file_info in enumerate(webdav_files):
+        if progress_callback and not file_info.is_directory:
+            progress_callback({'phase': 'dispatch', 'completed': index, 'total': len(webdav_files), 'current': file_info.name, 'message': f'正在提交：{file_info.name}'})
         try:
             if not file_info.path:
                 results.append({"filename": file_info.name, "success": False, "message": "文件路径为空"})
@@ -262,6 +284,7 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
                     file_info.name,
                     payload.video_filter,
                     payload.min_file_size_mb,
+                    progress_callback,
                 )
                 results.extend(folder_results)
                 continue
@@ -284,6 +307,11 @@ async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress
         except Exception as exc:
             logger.error("添加 WebDAV 下载任务失败: %s", exc)
             results.append({"filename": file_info.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
+        finally:
+            if progress_callback and not file_info.is_directory:
+                state = '已跳过' if results[-1].get('skipped') else '已提交' if results[-1].get('success') else '提交失败'
+                progress_callback({'phase': 'dispatch', 'completed': index + 1, 'total': len(webdav_files), 'current': file_info.name,
+                    'message': f'{state}：{file_info.name}（所选项 {index + 1}/{len(webdav_files)}）'})
 
     has_success = any(item.get("success") for item in results)
     has_real_failure = any(not item.get("success") and not item.get("skipped") for item in results)

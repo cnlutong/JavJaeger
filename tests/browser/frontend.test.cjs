@@ -179,6 +179,41 @@ async function libraryArtwork(page, state) {
     });
 }
 
+test('background logs update live, restore after refresh and show honest stage progress on desktop and mobile', async t => {
+    let task = { task_id: 'live-files', type: 'file-dispatch', status: 'running', phase: 'scan', percent: 0, total: 0, completed: 0,
+        updated_at: 'one', message: '正在遍历目录，总量待确定', logs: [{ time: '2026-10-20T17:00:00', message: '开始遍历测试目录' }] };
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: [task] } }));
+        await p.route('**/api/system/jobs/live-files', route => route.fulfill({ json: task }));
+    });
+    const openLog = async () => {
+        await page.locator('header').getByRole('button', { name: '后台 1', exact: true }).click();
+        await page.getByRole('dialog', { name: '后台任务', exact: true }).getByRole('button', { name: '查看', exact: true }).click();
+    };
+    await navigate(page, '设置'); await openLog();
+    const dialog = page.getByRole('dialog', { name: '任务日志', exact: true }), log = dialog.getByRole('log');
+    await log.getByText(/开始遍历测试目录/).waitFor();
+    const progress = dialog.getByRole('progressbar', { name: '当前阶段进度' });
+    assert.equal(await progress.getAttribute('aria-valuenow'), null);
+    task = { ...task, phase: 'dispatch', completed: 1, total: 4, percent: 25, updated_at: 'two', message: '已提交 1/4',
+        logs: [...task.logs, { time: '2026-10-20T17:00:03', message: '已提交 a.mp4' }] };
+    await log.getByText(/已提交 a.mp4/).waitFor();
+    assert.equal(await progress.getAttribute('aria-valuenow'), '25', await progress.evaluate(element => element.outerHTML));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-live-task-log-desktop.png'), animations: 'disabled' });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click(); await openLog();
+    await log.getByText(/已提交 a.mp4/).waitFor();
+    task = { ...task, status: 'failed', updated_at: 'three', message: '提交中断，保留已提交结果', logs: [...task.logs, { time: '2026-10-20T17:00:06', message: '提交中断，保留已提交结果' }] };
+    await log.getByText(/提交中断/).waitFor();
+    assert.equal(await progress.getAttribute('aria-valuenow'), '25');
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.locator('.jj-toast').waitFor({ state: 'hidden' });
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-live-task-log-mobile.png'), animations: 'disabled' });
+    await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' });
+    await openLog(); await log.getByText(/提交中断/).waitFor();
+});
+
 test('deployment: cinema and management share the image revision and update time after reload', async t => {
     const page = await openApp(t, 1440);
     for (const width of [1440, 1024, 390]) {
@@ -306,6 +341,7 @@ test('information workflow: background check survives reload and leads to backgr
     await background.getByText('已完成', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-information-completed.png'), fullPage: false, animations: 'disabled' });
     await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByRole('dialog', { name: '任务日志', exact: true }).getByRole('button', { name: '查看结果', exact: true }).click();
     await page.getByText('QA-001：标题', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-information-next-step.png'), fullPage: false, animations: 'disabled' });
     await approve(page, '开始补全');
@@ -319,6 +355,7 @@ test('information workflow: background check survives reload and leads to backgr
     await page.getByText(/资料补全完成：1 成功，0 失败，剩余 0 部待补全；可在后台任务中查看结果/).waitFor();
     await page.locator('header').getByRole('button', { name: /后台/ }).click();
     await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByRole('dialog', { name: '任务日志', exact: true }).getByRole('button', { name: '查看结果', exact: true }).click();
     await approve(page, '完成');
     assert.equal(await page.evaluate(() => sessionStorage.getItem('localLibraryInformationTask')), null);
     assert.equal(await page.locator('.sc-logic-error').count(), 0);
@@ -373,6 +410,7 @@ test('background results: scan failures and cleanup remain reviewable after relo
     const background = page.getByRole('dialog', { name: '后台任务', exact: true });
     await background.getByText('失败', { exact: true }).waitFor();
     await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByRole('dialog', { name: '任务日志', exact: true }).getByRole('button', { name: '查看结果', exact: true }).click();
     await page.getByText('/offline 目录无法访问', { exact: true }).waitFor();
     await approve(page, '查看对应页面');
     await page.getByRole('button', { name: '清洗无效文件', exact: true }).click(); await approve(page, '清洗');
@@ -385,6 +423,7 @@ test('background results: scan failures and cleanup remain reviewable after relo
     await page.locator('header').getByRole('button', { name: /后台/ }).click();
     await background.getByText('已完成', { exact: true }).waitFor();
     await background.getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByRole('dialog', { name: '任务日志', exact: true }).getByRole('button', { name: '查看结果', exact: true }).click();
     await page.getByText('/qa/kept.mp4 探测失败，已保留文件', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-cleanup-result.png'), animations: 'disabled' });
     await approve(page, '查看对应页面');
@@ -1441,6 +1480,7 @@ test('scrape preview handles real conflicts, persists templates and submits chos
     await page.getByRole('button', { name: '管理界面', exact: true }).click();
     await page.locator('header').getByRole('button', { name: /后台/ }).click();
     await page.getByRole('dialog', { name: '后台任务', exact: true }).getByRole('button', { name: '查看', exact: true }).click();
+    await page.getByRole('dialog', { name: '任务日志', exact: true }).getByRole('button', { name: '查看结果', exact: true }).click();
     await page.getByText('/target/QA-001.mkv', { exact: true }).waitFor();
     await page.getByRole('button', { name: '对比源文件', exact: true }).click();
     await page.getByRole('button', { name: '保留此文件', exact: true }).first().click();

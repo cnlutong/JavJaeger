@@ -35,6 +35,51 @@ def test_background_work_survives_its_submitter_and_is_owned_and_bounded():
     asyncio.run(exercise())
 
 
+def test_progress_keeps_phase_counts_and_failure_does_not_claim_completion():
+    async def exercise():
+        manager = BackgroundTaskManager()
+        async def work(progress):
+            progress({'phase': 'dispatch', 'completed': 1, 'total': 4, 'message': '已提交 1/4'})
+            progress({'phase': 'dispatch', 'message': '等待下一项响应'})
+            snapshot = next(iter(manager._tasks.values()))
+            assert (snapshot['completed'], snapshot['total'], snapshot['percent']) == (1, 4, 25)
+            return {'success': False, 'message': '提交中断'}
+        task_id = manager.start_task('file-dispatch', work, owner='a')
+        await asyncio.gather(*manager._running)
+        snapshot = manager.get_task(task_id, 'a')
+        assert snapshot['status'] == 'failed' and snapshot['percent'] == 25
+        assert snapshot['logs'][-1]['message'] == '提交中断'
+    asyncio.run(exercise())
+
+
+def test_folder_resolution_and_aria2_submission_publish_live_file_events():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from modules.pan115 import service as pan115
+    from modules.webdav import service as webdav
+    from modules.webdav.schemas import AddDownloadsRequest
+    events = []
+    client = SimpleNamespace(list_directory_all=AsyncMock(return_value={'items': [
+        {'id': 'video', 'name': 'a.mp4', 'size': 2 * 1024 ** 3, 'pick_code': 'pick'},
+        {'id': 'text', 'name': 'a.txt', 'size': 100, 'pick_code': 'text'}]}),
+        resolve_direct_download=AsyncMock(return_value=SimpleNamespace(name='a.mp4', url='https://cdn.test/signed', headers=[])))
+    async def resolve(files, video_filter, min_file_size_mb, progress_callback=None):
+        return await pan115._resolve_download_entries(client, files, video_filter, min_file_size_mb, progress_callback)
+    async def exercise():
+        from unittest.mock import patch
+        payload = AddDownloadsRequest(files=[{'path': 'folder', 'name': 'root', 'is_directory': True, 'source_type': 'pan115'}], video_filter=True, min_file_size_mb=1536)
+        aria = SimpleNamespace(add_download=lambda *args: 'gid')
+        with patch.object(pan115, 'resolve_download_entries_from_config', resolve):
+            result = await webdav.dispatch_files_to_aria2(None, aria, payload, events.append)
+        assert result['success']
+    asyncio.run(exercise())
+    assert any(event['phase'] == 'scan' and 'root' in event['message'] for event in events)
+    assert any(event['phase'] == 'resolve' and 'a.mp4' in event['message'] for event in events)
+    assert any('跳过' in event['message'] and 'a.txt' in event['message'] for event in events)
+    assert any(event['phase'] == 'dispatch' and event.get('completed') == event.get('total') == 1 for event in events)
+    assert 'https://' not in json.dumps(events)
+
+
 def test_background_errors_do_not_publish_credentials_and_finished_jobs_do_not_evict_running_work():
     async def exercise():
         manager = BackgroundTaskManager(max_tasks=1)

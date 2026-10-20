@@ -67,6 +67,14 @@ const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibrar
 const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发' };
 const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks', '/api/system/jobs'];
 const jobFinished = task => task && ['success', 'completed', 'failed'].includes(task.status);
+const taskProgress = task => {
+    const finished = !['running', 'queued'].includes(task.status), total = Number(task.total ?? task.total_count ?? 0), completed = Number(task.completed ?? task.completed_count ?? 0);
+    const pct = ['success', 'completed', 'noop'].includes(task.status) ? 100 : Math.max(0, Math.min(100, Number(task.percent ?? task.progress ?? task.pct ?? (total ? completed / total * 100 : 0)) || 0));
+    const indeterminate = !finished && total <= 0 && !Number(task.progress ?? task.pct);
+    const pctText = finished ? ({ success: '已完成', completed: '已完成', failed: '失败', interrupted: '已中断', cancelled: '已取消', partial: '部分完成', noop: '无新增' }[task.status] || '已结束') : total > 0 ? `${completed}/${total} · ${Math.round(pct)}%` : indeterminate ? '总量待确定' : `${Math.round(pct)}%`;
+    const phaseText = task.stage || ({ queued: '等待执行', scan: '遍历目录', resolve: '解析文件', filter: '筛选文件', dispatch: '提交下载', search: '检索影片', enrichment: '补全资料', testing: '测试来源', check: '检查资料', download: '下载资料', apply: '整理文件', cleanup: '清洗文件' }[task.phase]) || task.message || '后台执行';
+    return { pct, indeterminate, finished, pctText, phaseText, barWidth: indeterminate ? 35 : pct, barClass: indeterminate ? 'jj-progress-indeterminate' : '', ariaNow: indeterminate ? undefined : pct, ariaText: phaseText + ' · ' + pctText };
+};
 const informationSummary = task => {
     if (task.status === 'failed') return safeText(task.message, '资料任务失败，请重新检查');
     if (!jobFinished(task)) return safeText(task.message, '后台运行中，可离开页面');
@@ -244,7 +252,7 @@ export function connectDesign(Base) {
             this._keyboard = event => {
                 if (event.key === 'Escape') {
                     if (this.state.dlg) this.renderVals().dlg.cancel();
-                    else for (const key of ['fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
+                    else for (const key of ['taskLog', 'fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
                         if (this.state[key]) { this.setState({ [key]: null }); break; }
                     }
                 }
@@ -609,6 +617,32 @@ export function connectDesign(Base) {
             });
         }
 
+        backgroundItem(kind, task, read, result) {
+            const progress = taskProgress(task);
+            return { kind, name: safeText(task.movie_id || task.code || task.message || task.stage, kind), ...progress,
+                meta: progress.phaseText, fg: task.status === 'failed' ? WARN : progress.finished ? OK : ACC,
+                go: () => { this.setState({ bgOpen: false, taskLog: { title: kind, read, result, observed: [] } }); this.refreshTaskLog(); } };
+        }
+
+        refreshTaskLog() {
+            const monitor = this.state.taskLog, task = monitor?.read();
+            if (!task || task.logs?.length) return;
+            const message = safeText(task.message || task.stage || task.error, '等待任务上报进度'), marker = task.status + taskProgress(task).pctText + message;
+            if (monitor.observed.at(-1)?.marker === marker) return;
+            this.setState({ taskLog: { ...monitor, observed: [...monitor.observed, { time: new Date().toISOString(), message, marker }].slice(-300) } });
+        }
+
+        vTaskLog() {
+            const monitor = this.state.taskLog, task = monitor?.read();
+            if (!task) return { open: false };
+            const finished = !['running', 'queued'].includes(task.status), logs = task.logs?.length ? task.logs : monitor.observed;
+            return { open: true, title: monitor.title + ' · 任务日志', message: safeText(task.message || task.stage, '等待任务上报进度'),
+                status: finished ? taskProgress(task).pctText : '运行中 · 每 3 秒更新', progress: taskProgress(task),
+                text: logs.slice(-300).reverse().map(line => `${String(line.time || '').replace('T', ' ').slice(0, 19)}  ${safeText(line.message, '日志内容已隐藏')}`).join('\n') || '等待任务日志…',
+                close: () => this.setState({ taskLog: null }),
+                resultText: finished ? '查看结果' : '前往任务页面', result: () => { this.setState({ taskLog: null }); monitor.result(); } };
+        }
+
         async finishDispatch(result, tool, preflight = []) {
             const results = [...preflight, ...(result.results || [])];
             this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool, failedPage: null });
@@ -646,7 +680,7 @@ export function connectDesign(Base) {
             this._polling = true;
             try {
                 const pending = [this.perform(() => this.loadBackgroundJobs())];
-                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes(false, true)));
+                if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status)) || this.state.taskLog?.title === '转码') pending.push(this.perform(() => this.loadTranscodes(false, true)));
                 if (this.state.route === 'storage' && this.state.connections.aria2_connected) pending.push(this.perform(() => this.loadAria()));
                 if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) pending.push(this.perform(() => this.loadTasks(true)));
                 pending.push(this.perform(() => this.pollInformation()));
@@ -699,7 +733,7 @@ export function connectDesign(Base) {
                 }
                 if (this.state.qr?.session_id) pending.push(this.perform(() => this.pollQr()));
                 await Promise.all(pending);
-            } finally { this._polling = false; }
+            } finally { this._polling = false; if (!this._disposed) this.refreshTaskLog(); }
         }
 
         async startJob(key, url, payload, operation = 'preview') {
@@ -1528,31 +1562,20 @@ export function connectDesign(Base) {
             view.sysInfo = `提交 ${deployment.revision || '未知'} · 构建 ${deployment.built_at || '未记录'} · ${view.deploymentTime}`;
             for (const nav of view.nav) nav.badge = nav.label === '转码' ? String(data.TC.filter(task => ['running', 'queued'].includes(task.status)).length || '') : nav.label === '自动模式' ? String(st.tasks.filter(task => task.enabled).length || '') : '';
             view.tools = this.toolStates();
-            view.bg.items = data.TC.filter(task => ['running', 'queued'].includes(task.status)).map(task => ({ kind: '转码', name: task.code, pct: task.pct, pctText: `${task.pct}%`, meta: task.stage, fg: ACC, go: this.go('transcode') }));
-            for (const [key, kind] of [['scanTask', '扫描入库'], ['scrapeTask', '刮削'], ['cleanupTask', '清洗无效文件']]) if (st[key]) {
-                const task = st[key], finished = jobFinished(task);
-                view.bg.items.push({ kind, name: safeText(task.message, finished ? '任务已结束，点击查看结果' : '后台运行中'), pct: task.percent || 0,
-                    pctText: finished ? task.status === 'failed' ? '失败' : '已完成' : '', meta: finished ? '结果保留，点击查看下一步' : '服务端后台执行', fg: task.status === 'failed' ? WARN : finished ? OK : ACC, finished,
-                    go: () => this.showBackgroundResult(key) });
+            view.bg.items = data.TC.filter(task => ['running', 'queued'].includes(task.status)).map(task =>
+                this.backgroundItem('转码', task.raw || task, () => data.TC.find(item => item.id === task.id)?.raw || task.raw || task, this.go('transcode')));
+            for (const [key, kind] of [['scanTask', '扫描入库'], ['scrapeTask', '刮削'], ['cleanupTask', '清洗无效文件'], ['dispatchTask', '115 派发'], ['informationTask', '资料检查与补全']]) if (st[key]) {
+                const task = st[key], title = key === 'informationTask' ? task.operation === 'check' ? '资料检查' : '资料补全' : kind;
+                view.bg.items.push(this.backgroundItem(title, task, () => this.state[key] || task,
+                    () => key === 'informationTask' ? this.showInformationResult() : this.showBackgroundResult(key)));
             }
-            if (st.dispatchTask) {
-                const job = st.dispatchTask, pct = Math.round(100 * (job.completed_count || 0) / Math.max(1, job.total_count || 1));
-                view.bg.items.push({ kind: '115 派发', name: `批次 ${job.current_batch || 0}/${job.total_batches || '待计算'}`, pct, pctText: jobFinished(job) ? '查看结果' : `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} 项已处理`, fg: job.status === 'failed' ? WARN : ACC, finished: jobFinished(job), go: () => this.showBackgroundResult('dispatchTask') });
-            }
-            for (const task of st.tasks) for (const run of task.runs || []) if (run.status === 'running') view.bg.items.push({ kind: '自动任务', name: task.name, pct: 0, pctText: '', meta: run.message || '运行中', fg: ACC, go: this.go('auto') });
-            for (const task of st.backgroundJobs) view.bg.items.push({ kind: backgroundNames[task.type] || '后台任务',
-                name: safeText(task.message, jobFinished(task) ? '任务已结束，点击查看结果' : '服务端后台执行'),
-                pct: task.percent || 0, pctText: jobFinished(task) ? '查看结果' : `${task.percent || 0}%`,
-                meta: jobFinished(task) ? '结果保存在服务端，可刷新后查看' : '刷新或关闭页面不会中断执行',
-                fg: task.status === 'failed' ? WARN : ACC, finished: jobFinished(task), go: () => this.showServerJob(task) });
-            const activeCount = view.bg.items.filter(item => !item.finished).length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
-            if (st.informationTask) {
-                const task = st.informationTask, finished = jobFinished(task);
-                view.bg.items.unshift({ kind: task.operation === 'check' ? '资料检查' : '资料补全', name: informationSummary(task), pct: task.percent || 0,
-                    pctText: finished ? task.status === 'failed' ? '失败' : task.result?.failed_count ? '部分完成' : '已完成' : '',
-                    meta: finished ? '点击查看结果，继续补全或处理失败项' : '服务端后台执行，可离开或刷新页面', fg: task.status === 'failed' || task.result?.failed_count ? WARN : finished ? OK : ACC,
-                    go: () => this.showInformationResult() });
-            }
+            for (const task of st.tasks) for (const run of task.runs || []) if (run.status === 'running')
+                view.bg.items.push(this.backgroundItem('自动任务', run, () => this.state.tasks.find(item => item.id === task.id)?.runs?.find(item => item.id === run.id) || run, this.go('auto')));
+            for (const task of st.backgroundJobs) view.bg.items.push(this.backgroundItem(backgroundNames[task.type] || '后台任务', task,
+                () => this.state.backgroundJobs.find(item => item.task_id === task.task_id) || task,
+                () => this.showServerJob(this.state.backgroundJobs.find(item => item.task_id === task.task_id) || task)));
+            const activeCount = view.bg.items.filter(item => !item.finished).length;
+            view.taskLog = this.vTaskLog();
             view.bg.count = view.bg.items.length;
             view.bg.animation = activeCount ? 'jjspin 900ms linear infinite' : 'none';
             const background = this.pageItems(view.bg.items, 'bgPage', [], 6);

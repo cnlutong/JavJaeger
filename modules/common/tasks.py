@@ -85,8 +85,10 @@ class BackgroundTaskManager:
             result = await runner(progress)
             task["result"] = result
             task["status"] = "success" if result.get("success") else "failed"
-            task["percent"] = 100
+            if result.get("success"):
+                task["percent"] = 100
             task["message"] = result.get("message") or task.get("message") or "任务完成"
+            self._append_log(task, task["message"])
         except Exception as exc:
             task["status"] = "failed"
             task["error"] = "task_failed"
@@ -114,16 +116,16 @@ class BackgroundTaskManager:
         if "result" in event:
             task["result"] = event["result"]
         now = datetime.datetime.now().isoformat()
-        completed = int(event.get("completed") or 0)
-        total = int(event.get("total") or 0)
+        same_phase = event.get("phase", task["phase"]) == task["phase"]
+        completed = int(event.get("completed", task["completed"] if same_phase else 0) or 0)
+        total = int(event.get("total", task["total"] if same_phase else 0) or 0)
         task["phase"] = event.get("phase") or task["phase"]
         task["completed"] = completed
         task["total"] = total
         task["current"] = str(event.get("current") or "")
         task["message"] = str(event.get("message") or "")
         task["updated_at"] = now
-        if total > 0:
-            task["percent"] = min(99, max(0, round(completed / total * 100)))
+        task["percent"] = min(99, max(0, round(completed / total * 100))) if total > 0 else 0
         self._append_log(task, task["message"])
 
     def _append_log(self, task: dict[str, Any], message: str) -> None:

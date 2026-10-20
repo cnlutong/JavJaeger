@@ -18,6 +18,13 @@ html:has([data-jjtheme="light"]) { color-scheme: light; scrollbar-color: #a2a5b5
 .dialog-backdrop { position: fixed !important; z-index: 100; padding: 16px; }
 .dialog { max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow: auto; }
 .jj-confirm { z-index: 120; }
+.jj-task-log { width: 760px; }
+.jj-task-log pre { height: min(42dvh, 400px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; overflow-anchor: none; padding: 12px; background: var(--surf); border-radius: 6px; font: 12px/1.7 var(--mono); }
+.jj-task-progress { height: 4px; border-radius: 2px; background: var(--t08); overflow: hidden; }
+.jj-task-progress > div { height: 100%; transition: width .2s; }
+.jj-progress-indeterminate { animation: jj-task-progress 1.4s linear infinite; }
+@keyframes jj-task-progress { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+@media (prefers-reduced-motion: reduce) { .jj-progress-indeterminate { animation: none; } }
 .jj-drawer { z-index: 80; max-width: 100vw; max-height: 100dvh; }
 .jj-scrim { z-index: 75; }
 .jj-catalog, .jj-popover { z-index: 80; max-width: calc(100vw - 24px); max-height: calc(100dvh - 80px) !important; overflow: auto; }

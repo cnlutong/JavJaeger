@@ -60,6 +60,38 @@ function mockJobs(type, result, { status = 'success', revision = 'config-1' } = 
     return { calls, jobs };
 }
 
+test('background view follows live logs and phase counts without navigating or dismissing the job', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let task = { task_id: 'files', type: 'file-dispatch', status: 'running', phase: 'scan', total: 0, completed: 0,
+        percent: 0, updated_at: 'one', message: '正在遍历目录', logs: [{ time: '2026-10-20T17:00:00', message: '开始遍历' }] };
+    const calls = [];
+    globalThis.fetch = async (url, options) => { calls.push(options.method); return json(url === '/api/system/jobs' ? { tasks: [task] } : task); };
+    instance.setState({ route: 'settings', backgroundJobs: [task] });
+    instance.renderVals().bg.items[0].go();
+    let view = instance.renderVals();
+    assert.equal(instance.state.route, 'settings');
+    assert.equal(view.taskLog.open, true);
+    assert.match(view.taskLog.text, /开始遍历/);
+    assert.equal(view.taskLog.progress.indeterminate, true);
+    task = { ...task, phase: 'dispatch', completed: 1, total: 4, percent: 25, updated_at: 'two', message: '已提交 1/4',
+        logs: [...task.logs, { time: '2026-10-20T17:00:03', message: '已提交 a.mp4' }] };
+    await instance.loadBackgroundJobs(); view = instance.renderVals();
+    assert.match(view.taskLog.text, /已提交 a.mp4/);
+    assert.equal(view.taskLog.progress.indeterminate, false);
+    assert.match(view.taskLog.progress.pctText, /1\/4/);
+    task = { ...task, status: 'failed', updated_at: 'three', message: '提交中断' };
+    await instance.loadBackgroundJobs(); view = instance.renderVals();
+    assert.equal(view.taskLog.progress.pct, 25);
+    assert.match(view.taskLog.status, /失败/);
+    task = { ...task, status: 'success', percent: 0, total: 0, completed: 0, updated_at: 'four' };
+    await instance.loadBackgroundJobs();
+    assert.equal(instance.renderVals().taskLog.progress.pct, 100);
+    view.taskLog.close();
+    assert.equal(instance.renderVals().taskLog.open, false);
+    assert.equal(instance.state.backgroundJobs.length, 1);
+    assert.ok(!calls.includes('DELETE'));
+});
+
 test('deployment header shows the image commit and recorded update time without inventing missing dates', () => {
     const instance = app();
     window.versionInfo = { version: 'git-1234567', revision: '1234567890abcdef1234567890abcdef12345678',
@@ -543,10 +575,10 @@ test('information check and completion form a background loop that survives page
     const completedReload = new instance.constructor({}); completedReload.loadBackgroundJobs = async () => {}; t.after(() => completedReload.componentWillUnmount());
     completedReload.setState({ route: 'settings' }); completedReload.loadLibrary = async () => {};
     await completedReload.poll();
-    completedReload.renderVals().bg.items[0].go();
+    completedReload.renderVals().bg.items[0].go(); completedReload.renderVals().taskLog.result();
     assert.equal(completedReload.state.dlg.okText, '开始补全', 'finished results also survive a later refresh');
     restored.setState({ infoFields: ['date'] });
-    restored.renderVals().bg.items[0].go();
+    restored.renderVals().bg.items[0].go(); restored.renderVals().taskLog.result();
     assert.equal(restored.state.dlg.okText, '开始补全');
     assert.match(restored.state.dlg.list[0], /QA-001.*标题/);
     await restored.state.dlg.run();
@@ -559,7 +591,7 @@ test('information check and completion form a background loop that survives page
     globalThis.fetch = async () => json({ status: 'success', result: { success: true, updated_count: 1, failed_count: 0,
         information_check: { ...check, incomplete_count: 0, incomplete_records: [] } } });
     await restored.poll();
-    restored.renderVals().bg.items[0].go();
+    restored.renderVals().bg.items[0].go(); restored.renderVals().taskLog.result();
     assert.match(restored.state.dlg.body, /剩余 0/);
     assert.equal(restored.state.dlg.okText, '完成');
     await restored.state.dlg.run();
@@ -575,7 +607,7 @@ test('expired information jobs stay visible and can restart checking', async t =
     globalThis.fetch = async () => new Response('{}', { status: 404 });
     await instance.perform(() => instance.poll());
     assert.equal(instance.state.informationTask.status, 'failed');
-    instance.renderVals().bg.items[0].go();
+    instance.renderVals().bg.items[0].go(); instance.renderVals().taskLog.result();
     assert.match(instance.state.dlg.body, /失效/);
     assert.equal(instance.state.dlg.okText, '重新检查');
     globalThis.fetch = async () => json({ task_id: 'retry' });
@@ -1286,7 +1318,7 @@ test('audit: metadata partial failures do not announce complete success', async 
     await instance.poll();
     assert.match(instance.state.toast.text, /失败/);
     assert.doesNotMatch(instance.state.toast.text, /^影片资料已更新$/);
-    instance.renderVals().bg.items[0].go();
+    instance.renderVals().bg.items[0].go(); instance.renderVals().taskLog.result();
     assert.equal(instance.state.dlg.okText, '继续补全');
     assert.match(instance.state.dlg.list.join(' '), /QA-001.*失败/);
 });
@@ -1591,7 +1623,7 @@ test('audit closure: scan failures preserve the actual per-directory results and
     await instance.poll();
     const scan = instance.renderVals().bg.items.find(item => item.kind === '扫描入库');
     assert.ok(scan, 'finished failures remain in the task center');
-    scan.go();
+    scan.go(); instance.renderVals().taskLog.result();
     assert.match(instance.state.dlg.list.join(' '), /offline.*无法访问/);
 });
 
@@ -1604,7 +1636,7 @@ test('audit closure: cleanup runs in the background and retains its reviewable r
     globalThis.fetch = async () => json({ status: 'success', result: { success: true, message: '已清洗 1 个无效文件',
         deleted_file_count: 1, failed_files: [{ path: '/qa/kept.mp4', message: '无法确认媒体无效，已保留文件' }] } });
     await instance.poll();
-    instance.renderVals().bg.items.find(item => item.kind === '清洗无效文件').go();
+    instance.renderVals().bg.items.find(item => item.kind === '清洗无效文件').go(); instance.renderVals().taskLog.result();
     assert.match(instance.state.dlg.list.join(' '), /kept.mp4.*保留/);
 });
 
@@ -1628,7 +1660,7 @@ test('audit closure: partial file dispatch is recoverable after reload with ever
     instance.sendFiles([{ name: 'folder', path: '/qa', is_directory: true }]); await instance.state.dlg.run();
     assert.equal(fixture.calls[0].url, '/api/webdav/download/jobs');
     const refreshed = app(); t.after(() => refreshed.componentWillUnmount());
-    await refreshed.loadBackgroundJobs(); refreshed.renderVals().bg.items[0].go();
+    await refreshed.loadBackgroundJobs(); refreshed.renderVals().bg.items[0].go(); refreshed.renderVals().taskLog.result();
     assert.match(refreshed.state.dlg.list.join(' '), /sent.mp4.*成功.*failed.mp4.*失败/);
     assert.match(refreshed.state.dlg.body, /1 成功，1 失败/);
 });
@@ -1734,7 +1766,7 @@ test('workflow: 115 jobs remain visible until their partial result is consumed',
     assert.equal(fixture.calls[0].url, '/api/automation/dispatch-jobs');
     await instance.loadBackgroundJobs();
     assert.equal(instance.vDispatch().failed.length, 1);
-    instance.renderVals().bg.items.find(item => /115/.test(item.kind)).go();
+    instance.renderVals().bg.items.find(item => /115/.test(item.kind)).go(); instance.renderVals().taskLog.result();
     assert.match(instance.state.dlg.list[0], /QA-001.*失败/);
     instance.go = () => () => {};
     await instance.state.dlg.run();

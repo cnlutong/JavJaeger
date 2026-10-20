@@ -560,12 +560,13 @@ async def resolve_download_entries_from_config(
     entries: list[Any],
     video_filter: bool = False,
     min_file_size_mb: float = 300,
+    progress_callback=None,
 ) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
     config = get_pan115_config()
     if not config.get("enabled") or not config.get("cookie"):
         raise ValueError("pan115_not_configured")
     client = Pan115Client(str(config.get("cookie")))
-    return await _resolve_download_entries(client, entries, video_filter, min_file_size_mb)
+    return await _resolve_download_entries(client, entries, video_filter, min_file_size_mb, progress_callback)
 
 
 def save_cookie(cookie: str, enabled: bool = True) -> dict[str, Any]:
@@ -757,6 +758,7 @@ async def _resolve_download_entries(
     entries: list[Any],
     video_filter: bool,
     min_file_size_mb: float,
+    progress_callback=None,
 ) -> tuple[list[Pan115ResolvedDownload], list[dict[str, Any]]]:
     downloads: list[Pan115ResolvedDownload] = []
     skipped: list[dict[str, Any]] = []
@@ -773,6 +775,8 @@ async def _resolve_download_entries(
             size = 0
 
         if is_directory:
+            if progress_callback:
+                progress_callback({'phase': 'scan', 'message': f'正在遍历文件夹：{name}', 'current': name})
             child_payload = await client.list_directory_all(path)
             child_downloads, child_skipped = await _resolve_download_entries(
                 client,
@@ -788,12 +792,15 @@ async def _resolve_download_entries(
                 ],
                 video_filter,
                 min_file_size_mb,
+                progress_callback,
             )
             downloads.extend(child_downloads)
             skipped.extend(child_skipped)
             continue
 
         if (video_filter and not _is_video_file(name)) or size < min_bytes:
+            if progress_callback:
+                progress_callback({'phase': 'filter', 'message': f'跳过不符合筛选条件的文件：{name}', 'current': name})
             skipped.append(
                 {
                     "filename": name,
@@ -804,9 +811,13 @@ async def _resolve_download_entries(
             continue
 
         if not pick_code:
+            if progress_callback:
+                progress_callback({'phase': 'resolve', 'message': f'跳过缺少下载标识的文件：{name}', 'current': name})
             skipped.append({"filename": name, "success": False, "message": "115 文件缺少 pick_code"})
             continue
 
+        if progress_callback:
+            progress_callback({'phase': 'resolve', 'message': f'正在解析文件：{name}', 'current': name})
         downloads.append(await client.resolve_direct_download(pick_code, fallback_name=name, fallback_size=size))
 
     return downloads, skipped

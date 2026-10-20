@@ -294,6 +294,7 @@ def test_selected_folders_recurse_and_filter_each_file_with_a_fractional_minimum
     from modules.webdav.schemas import AddDownloadsRequest
     request = AddDownloadsRequest(files=[{'name': 'root', 'path': '/root', 'is_directory': True}], video_filter=True, min_file_size_mb=1.25)
     boundary = int(1.25 * 1024 ** 2)
+    events = []
     def entry(name, path, size=0, folder=False):
         return {'name': name, 'path': path, 'size': size, 'is_directory': folder, 'pick_code': name}
     tree = {
@@ -305,17 +306,20 @@ def test_selected_folders_recurse_and_filter_each_file_with_a_fractional_minimum
         dav = SimpleNamespace(list_directory=Mock(side_effect=lambda path: [WebDavFile(**{key: value for key, value in item.items() if key != 'pick_code'}) for item in tree[path]]),
             _build_download_url=lambda path: 'https://dav.test' + path, build_aria2_options=lambda options: options)
         aria = SimpleNamespace(add_download=Mock(return_value='gid'))
-        results = download_folder_recursive(dav, aria, '/root', 'root', request.video_filter, request.min_file_size_mb)
+        results = download_folder_recursive(dav, aria, '/root', 'root', request.video_filter, request.min_file_size_mb, events.append)
         assert {row['filename'] for row in results if row.get('success')} == {'exact.mp4', 'larger.MKV'}
         assert aria.add_download.call_count == 2
         assert dav.list_directory.call_count == 3
+        assert any(event.get('completed') == event.get('total') == 2 and event['phase'] == 'dispatch' for event in events)
     else:
         client = SimpleNamespace(list_directory_all=AsyncMock(side_effect=lambda path: {'items': [{**item, 'id': item['path'], 'kind': 'folder' if item['is_directory'] else 'file'} for item in tree[path]]}),
             resolve_direct_download=AsyncMock(side_effect=lambda code, **values: SimpleNamespace(name=values['fallback_name'])))
-        downloads, skipped = asyncio.run(pan115._resolve_download_entries(client, request.files, request.video_filter, request.min_file_size_mb))
+        downloads, skipped = asyncio.run(pan115._resolve_download_entries(client, request.files, request.video_filter, request.min_file_size_mb, events.append))
         assert {item.name for item in downloads} == {'exact.mp4', 'larger.MKV'}
         assert len(skipped) == 2 and client.resolve_direct_download.await_count == 2
         assert client.list_directory_all.await_count == 3
+    assert any(event['phase'] == 'scan' and 'deep' in event['message'] for event in events)
+    assert any('跳过' in event['message'] and 'small.mp4' in event['message'] for event in events)
 
 
 @pytest.mark.parametrize('empty_size', ['', None, 0])
