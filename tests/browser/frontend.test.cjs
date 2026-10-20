@@ -179,6 +179,32 @@ async function libraryArtwork(page, state) {
     });
 }
 
+test('background tasks stay newest first across pagination, reopening and reload', async t => {
+    const tasks = Array.from({ length: 8 }, (_, i) => ({ task_id: String(i), type: 'file-dispatch', status: 'failed', message: '排序测试-' + i,
+        created_at: `2026-10-20T${String(9 + i).padStart(2, '0')}:00:00Z`, updated_at: 'initial', logs: [] }));
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks } }));
+        await p.route(/\/api\/system\/jobs\/\d+$/, route => route.fulfill({ json: tasks.find(task => route.request().url().endsWith('/' + task.task_id)) }));
+    });
+    const open = () => page.locator('header').getByRole('button', { name: '后台 8', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '后台任务', exact: true });
+    const names = () => dialog.locator('span[style*="text-overflow"]').allTextContents();
+    await open(); assert.deepEqual(await names(), [7, 6, 5, 4, 3, 2].map(i => '排序测试-' + i));
+    await dialog.getByRole('button', { name: '下一页', exact: true }).click(); assert.deepEqual(await names(), ['排序测试-1', '排序测试-0']);
+    await page.keyboard.press('Escape'); await open(); assert.equal((await names())[0], '排序测试-7');
+    await dialog.getByRole('button', { name: '查看', exact: true }).first().click();
+    await page.getByRole('dialog', { name: '任务日志', exact: true }).getByRole('log').getByText(/排序测试-7/).waitFor();
+    await page.getByRole('button', { name: '关闭日志', exact: true }).click();
+    tasks.reverse(); tasks.find(task => task.task_id === '0').updated_at = '2099-01-01T00:00:00Z';
+    await page.reload({ waitUntil: 'networkidle' }); await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await open(); assert.deepEqual(await names(), [7, 6, 5, 4, 3, 2].map(i => '排序测试-' + i));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-background-order-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await dialog.evaluate(el => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }), 'background menu stays within the mobile viewport');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-background-order-mobile.png'), animations: 'disabled' });
+});
+
 test('background logs update live, restore after refresh and show honest stage progress on desktop and mobile', async t => {
     let task = { task_id: 'live-files', type: 'file-dispatch', status: 'running', phase: 'scan', percent: 0, total: 0, completed: 0,
         updated_at: 'one', message: '正在遍历目录，总量待确定', logs: [{ time: '2026-10-20T17:00:00', message: '开始遍历测试目录' }] };

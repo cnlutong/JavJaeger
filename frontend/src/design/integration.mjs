@@ -183,6 +183,7 @@ export function connectDesign(Base) {
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
                 ['historyPage', ['dHf']], ['tcPage', ['tcF']], ['scPage', ['scF', 'scPhase']],
                 ['scOutcomePage', ['scrapeResult']],
+                ['bgPage', ['bgOpen']],
                 ['fsPage', ['fsQ', 'fsSrc', 'directory', 'fsVideoOnly', 'fsMinSize', 'fsMinUnit', 'fsPageSize']], ['directoryPage', ['browsePath']],
                 ['dlgPage', ['dlg']],
             ]) {
@@ -625,7 +626,9 @@ export function connectDesign(Base) {
 
         backgroundItem(kind, task, read, result) {
             const progress = taskProgress(task);
-            return { kind, name: safeText(task.movie_id || task.code || task.message || task.stage, kind), ...progress,
+            const created = task.created_at ?? task.started_at;
+            const createdAt = (typeof created === 'number' ? created * 1000 : Date.parse(created)) || 0;
+            return { kind, createdAt, name: safeText(task.movie_id || task.code || task.message || task.stage, kind), ...progress,
                 meta: progress.phaseText, fg: ['failed', 'cancelled'].includes(task.status) ? WARN : progress.finished ? OK : ACC,
                 go: () => { this.setState({ bgOpen: false, taskLog: { title: kind, read, result, observed: [] } }); this.refreshTaskLog(); } };
         }
@@ -1620,6 +1623,7 @@ export function connectDesign(Base) {
             view.taskLog = this.vTaskLog();
             view.bg.count = view.bg.items.length;
             view.bg.animation = activeCount ? 'jjspin 900ms linear infinite' : 'none';
+            view.bg.items.sort((a, b) => b.createdAt - a.createdAt);
             const background = this.pageItems(view.bg.items, 'bgPage', [], 6);
             view.bg.items = background.items; view.bg.paging = background.paging;
             const confirmation = this.pageItems(view.dlg.list, 'dlgPage', []);

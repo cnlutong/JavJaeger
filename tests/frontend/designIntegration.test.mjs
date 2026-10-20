@@ -60,6 +60,27 @@ function mockJobs(type, result, { status = 'success', revision = 'config-1' } = 
     return { calls, jobs };
 }
 
+test('background menu sorts all task types by creation time before paging and reopens on newest tasks', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.constructor.data.TC.push({ id: 'transcode', code: 'transcode-old', status: 'running', created_at: '2026-10-20T06:00:00Z' });
+    const jobs = Array.from({ length: 6 }, (_, i) => ({ task_id: String(i), type: 'file-dispatch', status: 'success',
+        message: 'file-' + i, created_at: `2026-10-20T${String(9 + i).padStart(2, '0')}:00:00Z` }));
+    instance.setState({ bgOpen: true, backgroundJobs: [...jobs, { task_id: 'unknown', type: 'search', message: 'no-time', created_at: 'invalid', status: 'failed' }],
+        scanTask: { status: 'running', message: 'scan', created_at: '2026-10-20T10:00:00+02:00', updated_at: '2099-01-01T00:00:00Z' },
+        dispatchTask: { status: 'running', message: '115-dispatch', created_at: Date.parse('2026-10-20T15:00:00Z') / 1000 },
+        tasks: [{ id: 'auto', runs: [{ id: 'run', status: 'running', message: 'automation', started_at: '2026-10-20T16:00:00Z' }] }] });
+    let view = instance.renderVals();
+    assert.deepEqual(view.bg.items.map(item => item.name), ['automation', '115-dispatch', 'file-5', 'file-4', 'file-3', 'file-2']);
+    view.bg.paging.next();
+    assert.deepEqual(instance.renderVals().bg.items.map(item => item.name), ['file-1', 'file-0', 'scan', 'transcode-old', 'no-time']);
+    instance.setState({ bgOpen: false }); instance.setState({ bgOpen: true });
+    assert.equal(instance.renderVals().bg.items[0].name, 'automation');
+    instance.setState({ scanTask: { ...instance.state.scanTask, percent: 90, updated_at: '2099-02-01T00:00:00Z' } });
+    assert.equal(instance.renderVals().bg.items[0].name, 'automation', 'progress updates never promote older tasks');
+    instance.setState({ backgroundJobs: [...jobs].reverse() });
+    assert.equal(instance.renderVals().bg.items[2].name, 'file-5', 'server response order does not change display order');
+});
+
 test('background view follows live logs and phase counts without navigating or dismissing the job', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     let task = { task_id: 'files', type: 'file-dispatch', status: 'running', phase: 'scan', total: 0, completed: 0,

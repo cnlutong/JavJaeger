@@ -6051,6 +6051,7 @@ class Component extends DCLogic {
           ["tcPage", ["tcF"]],
           ["scPage", ["scF", "scPhase"]],
           ["scOutcomePage", ["scrapeResult"]],
+          ["bgPage", ["bgOpen"]],
           ["fsPage", ["fsQ", "fsSrc", "directory", "fsVideoOnly", "fsMinSize", "fsMinUnit", "fsPageSize"]],
           ["directoryPage", ["browsePath"]],
           ["dlgPage", ["dlg"]]
@@ -6614,8 +6615,11 @@ class Component extends DCLogic {
       }
       backgroundItem(kind, task, read, result) {
         const progress = taskProgress(task);
+        const created = task.created_at ?? task.started_at;
+        const createdAt = (typeof created === "number" ? created * 1e3 : Date.parse(created)) || 0;
         return {
           kind,
+          createdAt,
           name: safeText(task.movie_id || task.code || task.message || task.stage, kind),
           ...progress,
           meta: progress.phaseText,
@@ -8237,6 +8241,7 @@ class Component extends DCLogic {
         view.taskLog = this.vTaskLog();
         view.bg.count = view.bg.items.length;
         view.bg.animation = activeCount ? "jjspin 900ms linear infinite" : "none";
+        view.bg.items.sort((a, b) => b.createdAt - a.createdAt);
         const background = this.pageItems(view.bg.items, "bgPage", [], 6);
         view.bg.items = background.items;
         view.bg.paging = background.paging;
