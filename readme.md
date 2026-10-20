@@ -8,7 +8,7 @@ JavJaeger 是一个面向本地自用和私有部署的 JAV 自动化工具。�
 
 - 通过内置 JavBus API-compatible provider 检索影片列表、详情、演员、类别和磁力信息。
 - 按关键词、番号、演员、类别、制作商、发行商、系列等条件筛选影片。
-- 搜索结果先显示摘要，再在后台分批补全演员、制作商等资料。缓存设置保存在服务器的 `data/movie_metadata_cache.json`，公开影片资料按番号分别保存在旁边的 `data/movie_metadata_cache.json.entries/`，所有设备和浏览器共用，容器重启后仍可复用。旧版单文件缓存会在首次写入时自动迁移。在「设置 → 缓存」选择按缓存天数或占用空间（MB）清理，默认保留 30 天；保存后立即清理超限缓存，配置统一保存在服务端。空间模式按设置文件和影片条目文件的实际 UTF-8 字节总和限制容量，优先清理最早缓存的资料。缓存包含公开资料和图片地址，不包含图片文件、磁力或本地入库状态。过期或未缓存的影片自动补全，失败时保留原结果，可打开详情重试。
+- 搜索结果先显示摘要，再由服务器后台补全演员、制作商等资料与磁力；刷新或关闭页面不会中断已创建的任务。缓存设置保存在服务器的 `data/movie_metadata_cache.json`，公开影片资料按番号分别保存在旁边的 `data/movie_metadata_cache.json.entries/`，所有设备和浏览器共用，容器重启后仍可复用。旧版单文件缓存会在首次写入时自动迁移。在「设置 → 缓存」选择按缓存天数或占用空间（MB）清理，默认保留 30 天；保存后立即清理超限缓存，配置统一保存在服务端。空间模式按设置文件和影片条目文件的实际 UTF-8 字节总和限制容量，优先清理最早缓存的资料。缓存包含公开资料和图片地址，不包含图片文件、磁力或本地入库状态。过期或未缓存的影片自动补全，失败时保留原结果，可打开详情重试。
 - 封面图片经图片代理读取后，单独保存在服务端 `data/image_cache/`，换设备、切换封面／列表模式和打开详情时共用。在「设置 → 图片缓存」配置独立的 MB 上限，默认 256 MB；图片数量和实际缓存文件大小单独统计，不占用资料缓存额度。保存后立即清理较久未使用的图片；超过上限的单张图片可显示但不写入缓存，失败响应也不会缓存。图片缓存和设置在容器重启后保留。
 - 在 JavBus、Cilisousuo 和 YHG007 磁力来源之间切换，并支持字幕、4K 排除和批量选择。
 - 将磁力任务派发到 PikPak、115 网盘或 Aria2。
@@ -457,6 +457,14 @@ POST   /api/aria2/pause/{gid}
 POST   /api/aria2/resume/{gid}
 DELETE /api/aria2/remove/{gid}
 
+POST   /api/automation/dispatch-jobs
+GET    /api/system/jobs
+GET    /api/system/jobs/{task_id}
+DELETE /api/system/jobs/{task_id}
+POST   /api/movies/search-jobs
+POST   /api/movies/metadata-scrapers/test/jobs
+POST   /api/webdav/download/jobs
+
 GET    /api/automation/tasks
 POST   /api/automation/tasks
 GET    /api/automation/tasks/{task_id}
@@ -469,7 +477,13 @@ GET    /api/automation/tasks/{task_id}/runs
 
 派发历史的 `download_resources` 保存成功提交的资源，`failed_resources` 保存提交失败的原链接、磁力来源和下载工具。只有成功提交的链接参与去重；失败项可按原资源重试，或通过 `dismiss-failure`（JSON：`{"link":"原资源链接"}`）逐项忽略。成功提交只代表下载服务接收请求，不代表远端文件已经下载完成。
 
-115 页面使用后台 `download-jobs`，每批保存结果和历史，保留原输入顺序；刷新页面后从 sessionStorage 恢复任务 ID。服务重启导致任务失效时先核对下载历史，避免盲目重复提交。自动任务的 `run?background=true` 返回 HTTP 202 与 `running` 记录，通过任务列表或 `/runs` 读取阶段进度；省略参数仍保持同步 API。最终状态区分 `success`、`partial`、`failed`、`noop`（无新下载）。服务启动发现中断的 `running` 记录时标记失败并停用该任务，用户核对历史后可重新启用。
+影片派发（PikPak、115、Aria2）的磁力预检与提交统一由 `/api/automation/dispatch-jobs` 创建后台任务。`magnet_links` 为 `null` 时在服务器检索最佳磁力；提供链接时按确认的资源派发。网盘文件和目录派发使用 `/api/webdav/download/jobs`，任务持有独立 WebDAV 连接，刷新后的重连不会关闭它。刮削源测试使用 `/api/movies/metadata-scrapers/test/jobs`，结果不会自动写入配置；配置变更后旧结果也不会覆盖当前测试建议。以上创建接口均返回 HTTP 202 和 `task_id`。原有同步接口及 115 `download-jobs` 保留兼容。
+
+搜索补全与全页检索使用 `/api/movies/search-jobs`，资料与磁力并发上限为 4，部分失败仍保留摘要和封面。`GET /api/system/jobs` 只发现当前浏览器会话的任务，支持 ETag / 304；单任务 GET 返回进度、日志和结果，DELETE 仅关闭已结束的任务记录。刷新后页面自动发现这些任务，搜索结果可恢复，完成结果可从顶栏“后台任务”查看。刷新恢复不会触发自动下载；当前页面启用的自动下载仍需用户确认。
+
+这些临时任务及结果保存在服务器内存中，每个会话最多保留 20 个任务（活动任务受保护），不持久化任务凭据。刷新、关闭网页不影响执行；容器或应用重启会中断任务，已提交到下载工具的资源继续由工具处理。重启后先核对下载历史和工具任务，再手动重试未提交项；页面不会自动重派。稳定的 `APP_SESSION_SECRET` 可保持同一浏览器的会话身份，但不提供跨进程任务恢复。
+
+自动任务的 `run?background=true` 返回 HTTP 202 与 `running` 记录，通过任务列表或 `/runs` 读取阶段进度；省略参数仍保持同步 API。最终状态区分 `success`、`partial`、`failed`、`noop`（无新下载）。服务启动发现中断的 `running` 记录时标记失败并停用该任务，用户核对历史后可重新启用。
 
 `/api/{path:path}` 是最后注册的代理 catch-all。新增具体 API 时必须放在代理路由之前。
 

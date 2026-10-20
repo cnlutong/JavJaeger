@@ -1345,7 +1345,7 @@ def apply_metadata_scraper_test_results(results: list[dict[str, Any]]) -> dict[s
     }
 
 
-async def test_metadata_scraper_providers(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+async def test_metadata_scraper_providers(payload: dict[str, Any] | None = None, progress_callback=None) -> dict[str, Any]:
     payload = payload or {}
     providers = _selected_test_providers(payload.get("providers"))
     movie_ids = payload.get("movie_ids") if isinstance(payload.get("movie_ids"), dict) else {}
@@ -1357,13 +1357,19 @@ async def test_metadata_scraper_providers(payload: dict[str, Any] | None = None)
 
     config = runtime.get_scrapers_config()
     semaphore = asyncio.Semaphore(concurrent)
+    completed = 0
 
     async def run(provider: str) -> dict[str, Any]:
+        nonlocal completed
         movie_id = _clean_text(movie_ids.get(provider)) or SCRAPER_TEST_MOVIE_IDS.get(provider) or "ABP-123"
         provider_config = config.get(provider) if isinstance(config.get(provider), dict) else {}
         provider_config = {**provider_config, "enabled": True}
         async with semaphore:
-            return await test_metadata_scraper_provider(provider, movie_id, provider_config)
+            result = await test_metadata_scraper_provider(provider, movie_id, provider_config)
+            completed += 1
+            if progress_callback:
+                progress_callback({'completed': completed, 'total': len(providers), 'current': provider, 'message': f'已测试 {completed}/{len(providers)} 个刮削源'})
+            return result
 
     async with http_client_scope():
         async with asyncio.TaskGroup() as group:

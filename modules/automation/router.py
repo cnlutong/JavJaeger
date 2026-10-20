@@ -1,10 +1,26 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from .schemas import AutomationTaskCreate, AutomationTaskList, AutomationTaskUpdate
+from .schemas import AutomationTaskCreate, AutomationTaskList, AutomationTaskUpdate, OneOffDispatchRequest
 from .service import AutomationError, automation_service
+from .service import dispatch_once, freeze_dispatch_credentials
+from modules.common.tasks import submit_background_task
+from modules.webdav.session_state import session_store
 
 
 router = APIRouter(prefix="/api/automation", tags=["automation"])
+
+
+@router.post('/dispatch-jobs', status_code=202)
+async def start_dispatch_job(request: Request, payload: OneOffDispatchRequest):
+    state = await session_store.get_state(request)
+    if payload.tool == 'aria2' and state.aria2_client is None:
+        raise HTTPException(status_code=400, detail='请先连接 Aria2')
+    try:
+        payload = freeze_dispatch_credentials(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    client = state.aria2_client
+    return submit_background_task(request, 'dispatch-' + payload.tool, lambda progress: dispatch_once(payload, client, progress))
 
 
 def _raise_http_error(error: AutomationError) -> None:

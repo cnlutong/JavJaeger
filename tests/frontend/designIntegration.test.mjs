@@ -23,6 +23,43 @@ function app(storage = new Map()) {
     return new (connectDesign(Base))({});
 }
 
+
+function mockSearch(movies, { enriched = movies, magnets = {}, errors = {}, ready = enriched.map(movie => movie.id), complete = true } = {}) {
+    const calls = []; let counter = 0, job;
+    globalThis.fetch = async (url, options = {}) => {
+        const body = options.body && JSON.parse(options.body); calls.push({ url, body });
+        if (url === '/api/movies/search-jobs') {
+            job = { task_id: 'search-' + ++counter, type: 'search', status: complete ? 'success' : 'running', updated_at: String(counter),
+                result: { success: true, movies: enriched, magnets, errors, details_ready: ready,
+                    completed_ids: complete ? enriched.map(movie => movie.id) : [], source: body.source, mode: body.mode, has_next_page: body.has_next_page } };
+            return json({ ...job, status: 'running', updated_at: 'queued', result: null });
+        }
+        if (url === '/api/system/jobs') return json({ tasks: job ? [job] : [] });
+        if (url.startsWith('/api/system/jobs/')) return json(job);
+        if (url.startsWith('/api/movies?') || url.endsWith('/recognize')) return json({ movies, pagination: { hasNextPage: false } });
+        if (url.startsWith('/api/magnets/')) return json(magnets[decodeURIComponent(url.split('/').at(-1).split('?')[0])] || []);
+        return json(enriched.find(movie => movie.id === decodeURIComponent(url.split('/').at(-1))) || {});
+    };
+    return { calls, get job() { return job; } };
+}
+
+
+function mockJobs(type, result, { status = 'success', revision = 'config-1' } = {}) {
+    const calls = [], jobs = [];
+    globalThis.fetch = async (url, options = {}) => {
+        const body = options.body && JSON.parse(options.body); calls.push({ url, body });
+        if (options.method === 'POST') {
+            const job = { task_id: String(jobs.length + 1), type, status, updated_at: 'finished', result: typeof result === 'function' ? result(body) : result };
+            jobs.push(job); return json({ ...job, status: 'running', updated_at: 'queued', result: null });
+        }
+        if (url === '/api/system/jobs') return json({ tasks: jobs, config_revision: revision });
+        if (options.method === 'DELETE') { jobs.splice(jobs.findIndex(job => url.endsWith('/' + job.task_id)), 1); return json({ success: true }); }
+        if (url.startsWith('/api/system/jobs/')) return json(jobs.find(job => url.endsWith('/' + job.task_id)));
+        return json([]);
+    };
+    return { calls, jobs };
+}
+
 test('deployment header shows the image commit and recorded update time without inventing missing dates', () => {
     const instance = app();
     window.versionInfo = { version: 'git-1234567', revision: '1234567890abcdef1234567890abcdef12345678',
@@ -39,6 +76,57 @@ test('deployment header shows the image commit and recorded update time without 
     const template = adaptTemplate(original, '/logo.jpg');
     assert.match(template, /class="jj-deployment"/);
     assert.match(template, /\{\{ deploymentTime \}\}/);
+});
+
+test('background jobs are rediscovered from the server after refresh and keep credentials out of browser job storage', async () => {
+    const instance = app(), sent = [];
+    instance.auth = { username: 'fixture', password: 'private-password' };
+    instance.setState({ route: 'dispatch', tool: 'PikPak' });
+    instance.ask = dialog => dialog.run();
+    globalThis.fetch = async (url, options = {}) => {
+        sent.push({ url, body: options.body ? JSON.parse(options.body) : null });
+        return json(url === '/api/automation/dispatch-jobs' ? { task_id: 'detached', type: 'dispatch-pikpak', status: 'running', updated_at: 'one' }
+            : url === '/api/system/jobs' ? { tasks: [{ task_id: 'detached', type: 'dispatch-pikpak', status: 'running', updated_at: 'one' }] }
+            : { task_id: 'detached', type: 'dispatch-pikpak', status: 'running', updated_at: 'one', message: 'looking up magnets' });
+    };
+    await instance.confirmDispatch(['QA-1']);
+    assert.deepEqual(sent[0].body.movie_ids, ['QA-1']);
+    assert.equal(sent[0].url, '/api/automation/dispatch-jobs');
+    assert.equal(sent[0].body.password, 'private-password');
+    assert.ok(!sent.some(call => call.url === '/api/movies/batch'), 'preflight is part of the detached server workflow');
+    const refreshed = app();
+    await refreshed.loadBackgroundJobs();
+    assert.equal(refreshed.state.backgroundJobs[0].task_id, 'detached');
+    assert.ok(refreshed.renderVals().bg.items.some(item => /PikPak/.test(item.kind)));
+    instance.componentWillUnmount(); refreshed.componentWillUnmount();
+});
+
+test('unchanged background polls do not render and disappeared work fails without replay', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const task = { task_id: 'search', type: 'search', status: 'running', updated_at: '1' };
+    instance.setState({ loading: true, backgroundJobs: [task] });
+    instance._activeSearchJobId = 'search'; instance._searchRestored = true;
+    let tasks = [task], renders = 0;
+    globalThis.fetch = async (url, options) => {
+        assert.equal(options.method, 'GET', 'refresh never replays a task');
+        return json({ tasks });
+    };
+    const update = instance.setState.bind(instance);
+    instance.setState = patch => { renders++; update(patch); };
+    await instance.loadBackgroundJobs();
+    assert.equal(renders, 0);
+    tasks = []; await instance.loadBackgroundJobs();
+    assert.equal(instance.state.backgroundJobs[0].status, 'failed');
+    assert.match(instance.state.searchError, /重启|失效/);
+    assert.equal(instance.state.loading, false);
+    instance.applyServerSearch({ ...task, status: 'failed', message: '检索失败' });
+    assert.equal(instance.state.searchError, '检索失败');
+    const result = { movies: [{ id: 'QA-1' }], mode: 'filter', source: 'javbus', completed_ids: [] };
+    instance.applyServerSearch({ ...task, result });
+    let dispatched = 0; instance.confirmDispatch = () => { dispatched++; }; instance._searchAutoDownload = true;
+    instance.applyServerSearch({ ...task, status: 'failed', result, message: '已中断' });
+    assert.equal(instance.constructor.data.MOVIES[0].detailsLoading, false);
+    assert.equal(dispatched, 0, 'a failed search never auto dispatches partial results');
 });
 
 test('library path settings supply scrape input/output and preserve an existing preview', async () => {
@@ -200,7 +288,7 @@ test('performance: unchanged task polling does not schedule a render', async () 
 
 test('performance: idle task polls revalidate 10000 history entries without parsing or stringifying them', async t => {
     for (const kind of ['transcode', 'auto']) await t.test(kind, async t => {
-        const instance = app(); t.after(() => instance.componentWillUnmount());
+        const instance = app(); instance.loadBackgroundJobs = async () => {}; t.after(() => instance.componentWillUnmount());
         instance.setState({ route: kind === 'auto' ? 'auto' : 'cinema' });
         const tasks = kind === 'auto' ? [{ id: 'a', name: 'Fixture', runs: [{ id: 'r', status: 'success',
             items: Array.from({ length: 10000 }, (_, i) => ({ movie_id: `QA-${i}`, status: 'success' })) }] }]
@@ -244,7 +332,7 @@ test('performance: idle task polls revalidate 10000 history entries without pars
 
 test('task validators follow external changes and ignore failed or malformed response tokens', async t => {
     for (const kind of ['transcode', 'auto']) await t.test(kind, async t => {
-        const instance = app(); t.after(() => instance.componentWillUnmount());
+        const instance = app(); instance.loadBackgroundJobs = async () => {}; t.after(() => instance.componentWillUnmount());
         instance.setState({ route: kind === 'auto' ? 'auto' : 'cinema' });
         let tasks = [], tag = '"empty"', responseMode = 'valid';
         const reads = [];
@@ -284,7 +372,7 @@ test('task validators follow external changes and ignore failed or malformed res
 
 test('late task reads cannot overwrite a snapshot validated after a write or manual refresh', async t => {
     for (const kind of ['transcode', 'auto']) for (const invalidation of ['write', 'manual']) await t.test(`${kind}/${invalidation}`, async t => {
-        const instance = app(); t.after(() => instance.componentWillUnmount());
+        const instance = app(); instance.loadBackgroundJobs = async () => {}; t.after(() => instance.componentWillUnmount());
         instance.setState({ route: kind === 'auto' ? 'auto' : 'cinema' });
         let release, reads = 0;
         const payload = id => ({ tasks: [kind === 'auto' ? { id, name: id, runs: [] } : { id, movie_id: id, status: 'completed' }] });
@@ -310,7 +398,7 @@ test('late task reads cannot overwrite a snapshot validated after a write or man
 });
 
 test('manual task refresh never merges into a pending 304 and capability refresh remains unconditional', async t => {
-    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const instance = app(); instance.loadBackgroundJobs = async () => {}; t.after(() => instance.componentWillUnmount());
     const reads = []; let release;
     globalThis.fetch = async (url, options) => {
         const tag = new Headers(options.headers).get('If-None-Match'); reads.push({ url, tag, cache: options.cache });
@@ -357,7 +445,7 @@ test('explicit capability refresh survives a newer task poll discarding its task
 });
 
 test('performance: slow transcodes do not delay independent background job progress', async () => {
-    const instance = app(), requests = [];
+    const instance = app(), requests = []; instance.loadBackgroundJobs = async () => {};
     instance.setState({ informationTask: { id: 'info', status: 'running' }, scanTask: { id: 'scan', status: 'running' }, qr: { session_id: 'qr', status: 0 } });
     let release;
     globalThis.fetch = async url => {
@@ -425,7 +513,7 @@ test('performance: library refresh reads compact index and only an explicit chec
 });
 
 test('information check and completion form a background loop that survives page refresh', async t => {
-    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const instance = app(); instance.loadBackgroundJobs = async () => {}; t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'library', infoFields: ['title', 'nfo'] });
     const requests = [];
     const check = { success: true, fields: ['title', 'nfo'], total_movies: 2, incomplete_count: 1,
@@ -444,7 +532,7 @@ test('information check and completion form a background loop that survives page
     await instance.vLibrary().runCheck();
     assert.equal(requests.filter(([, o]) => o.method === 'POST').length, 1, 'running jobs cannot be overwritten');
 
-    const restored = new instance.constructor({}); t.after(() => restored.componentWillUnmount());
+    const restored = new instance.constructor({}); restored.loadBackgroundJobs = async () => {}; t.after(() => restored.componentWillUnmount());
     restored.setState({ route: 'settings' }); restored.loadLibrary = async () => {};
     finished = true; await restored.poll();
     assert.equal(restored.state.route, 'settings', 'completion must not interrupt navigation');
@@ -452,7 +540,7 @@ test('information check and completion form a background loop that survives page
     assert.equal(restored.renderVals().bg.count, 1, 'finished result remains actionable');
     assert.equal(restored.renderVals().bg.animation, 'none');
     assert.ok(window.sessionStorage.getItem('localLibraryInformationTask'));
-    const completedReload = new instance.constructor({}); t.after(() => completedReload.componentWillUnmount());
+    const completedReload = new instance.constructor({}); completedReload.loadBackgroundJobs = async () => {}; t.after(() => completedReload.componentWillUnmount());
     completedReload.setState({ route: 'settings' }); completedReload.loadLibrary = async () => {};
     await completedReload.poll();
     completedReload.renderVals().bg.items[0].go();
@@ -495,46 +583,37 @@ test('expired information jobs stay visible and can restart checking', async t =
     assert.equal(instance.state.informationTask.id, 'retry');
 });
 
-test('performance: search shows movies while magnets are still loading', async () => {
-    const instance = app(); instance.setState({ route: 'search', code: 'QA-001' });
-    let release, requested;
-    const magnetStarted = new Promise(resolve => { requested = resolve; });
-    globalThis.fetch = async url => {
-        if (url.startsWith('/api/magnets/')) { requested(); return new Promise(resolve => { release = resolve; }); }
-        return json({ id: 'QA-001', gid: '1', uc: 0 });
-    };
-    const pending = instance.runSearch(); await magnetStarted;
+test('performance: search shows movies while magnets are still loading', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', code: 'QA-001' });
+    const fixture = mockSearch([{ id: 'QA-001', gid: '1', uc: 0 }], { complete: false });
+    await instance.runSearch();
     const view = instance.renderVals().s;
-    release(json([])); await pending;
     assert.equal(view.showGrid || view.showList, true);
     assert.equal(view.rows[0].code, 'QA-001');
+    assert.equal(instance.state.magnetsLoading, true);
+    fixture.job.status = 'success'; fixture.job.updated_at = 'done';
+    await instance.loadBackgroundJobs();
+    assert.equal(instance.state.magnetsLoading, false);
 });
 
 test('performance: incremental search enrichment avoids rescanning every result on each update', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'search', sMode: 'recognize', recogHtml: 'isolated fixture' });
-    const count = 400, movies = Array.from({ length: count }, (_, i) => ({ id: `QA-${i}`, title: `Film ${i}`, gid: String(i), uc: 0 }));
-    const details = new Map(movies.map(movie => [movie.id, movie])), data = instance.constructor.data;
-    let fullResultVisits = 0, updates = 0;
+    const count = 400, movies = Array.from({ length: count }, (_, i) => ({ id: `QA-${i}`, title: `Film ${i}` }));
+    const data = instance.constructor.data; let fullResultVisits = 0;
     for (const method of ['map', 'filter', 'find']) Object.defineProperty(data.MOVIES, method, { configurable: true,
         value(callback, ...args) { return Array.prototype[method].call(this, (...values) => { fullResultVisits++; return callback(...values); }, ...args); },
     });
-    globalThis.fetch = async url => json(url.endsWith('/recognize') ? { movies } : url.includes('/magnets/') ? [] : details.get(url.split('/').at(-1)));
-    instance.forceUpdate = () => { updates++; instance.renderVals(); };
-    await instance.runSearch();
+    mockSearch(movies); await instance.runSearch(); await instance.loadBackgroundJobs();
     const first = instance.renderVals().s;
-    assert.equal(first.rows.length, 60);
-    first.paging.next();
+    assert.equal(first.rows.length, 60); first.paging.next();
     const second = instance.renderVals().s;
     assert.equal(second.rows[0].code, 'QA-60');
     second.selectPage(); assert.equal(instance.state.sel.length, 60);
     await second.rows[0].open();
-    const detail = instance.renderVals().s.d;
-    assert.equal(detail.code, 'QA-60'); assert.equal(detail.title, 'Film 60');
-    detail.dispatchBest(); assert.deepEqual(instance.state.dlg.list, ['QA-60']);
-    instance.clearSearch();
-    assert.equal(instance.renderVals().s.d, null, 'reset removes the previous search detail');
-    assert.ok(updates > 0, 'metadata and magnet progress still publish updates');
+    assert.equal(instance.renderVals().s.d.title, 'Film 60');
+    instance.clearSearch(); assert.equal(instance.renderVals().s.d, null);
     assert.ok(fullResultVisits <= count * 4, `${fullResultVisits} full-result visits while enriching ${count} films`);
 });
 
@@ -542,74 +621,48 @@ test('search enriches every summary in the background and reuses details across 
     for (const src of ['javbus', 'cili', 'yhg']) await t.test(src, async t => {
         const instance = app(); t.after(() => instance.componentWillUnmount());
         instance.setState({ route: 'search', sMode: 'filter', src });
-        const releases = new Map(), summaries = ['QA-001', 'QA-002'].map(id => ({ id, title: id, img: '/api/test-cover', gid: '1', uc: 0 }));
-        t.after(() => { for (const release of releases.values()) release(); });
-        let detailCalls = 0, renders = 0;
-        instance.forceUpdate = () => { renders++; };
-        globalThis.fetch = async url => {
-            if (url.startsWith('/api/movies?')) return json({ movies: summaries });
-            if (url.startsWith('/api/magnets/')) return json([]);
-            detailCalls++;
-            const code = url.split('/').at(-1);
-            await new Promise(resolve => releases.set(code, resolve));
-            return json({ id: code, stars: [{ name: 'Actor ' + code }], producer: { name: 'Background Studio' }, img: null });
-        };
-        const pending = instance.runSearch();
-        await new Promise(resolve => setImmediate(resolve));
-        assert.equal(instance.state.loading, false, 'summaries appear before slow details');
-        assert.equal(instance.renderVals().s.rows.length, 2);
-        assert.equal(detailCalls, 2, 'even summaries with magnet identifiers load full metadata automatically');
-        const before = renders;
-        releases.get('QA-001')();
-        await new Promise(resolve => setImmediate(resolve));
+        const summaries = ['QA-001', 'QA-002'].map(id => ({ id, title: id, img: '/api/test-cover' }));
+        const fixture = mockSearch(summaries, { enriched: summaries.map(movie => ({ ...movie, stars: [{ name: 'Actor ' + movie.id }], producer: { name: 'Background Studio' } })) });
+        await instance.runSearch();
+        assert.equal(instance.state.loading, false); assert.equal(instance.renderVals().s.rows.length, 2);
+        assert.ok(fixture.calls.some(call => call.url === '/api/movies/search-jobs' && call.body.movies.length === 2));
+        await instance.loadBackgroundJobs();
         assert.equal(instance.renderVals().s.rows[0].actorText, 'Actor QA-001');
-        assert.ok(renders > before, 'each movie updates while other metadata is still pending');
-        assert.equal(instance.state.detail, null, 'no detail click is needed');
-        releases.get('QA-002')(); await pending;
+        assert.equal(instance.state.detail, null);
+        const before = fixture.calls.length;
         await instance.renderVals().s.rows[0].open();
         assert.equal(instance.renderVals().s.d.studio, 'Background Studio');
         assert.equal(instance.renderVals().s.d.cover, '/api/test-cover');
-        assert.equal(detailCalls, 2, 'opening enriched details reuses the saved metadata');
+        assert.ok(!fixture.calls.slice(before).some(call => call.url.startsWith('/api/movies/')), 'opening enriched details reuses server job metadata');
     });
 });
 
 test('search metadata always uses the shared backend and never persists in the browser', async t => {
-    const storage = new Map([['javjaeger.movieMetadata.v1', JSON.stringify([['QA-001', { data: { id: 'QA-001', stars: ['Browser-only Actor'] } }]])]]);
+    const storage = new Map([['javjaeger.movieMetadata.v1', 'obsolete']]);
     const instance = app(storage); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'search', sMode: 'filter', src: 'cili' });
-    let calls = 0;
-    globalThis.fetch = async url => {
-        if (url.startsWith('/api/movies?')) return json({ movies: [{ id: 'QA-001', title: 'Summary title', img: '/api/test-cover' }] });
-        if (url.startsWith('/api/magnets/')) return json([]);
-        calls++;
-        return json({ id: 'QA-001', stars: [{ name: 'Shared Actor' }], producer: { name: 'Shared Studio' } });
-    };
-    await instance.runSearch();
-    await instance.renderVals().s.rows[0].open();
-    assert.equal(calls, 1, 'a drawer reuses the result already loaded for this search');
-    assert.equal(instance.renderVals().s.d.studio, 'Shared Studio');
-    await instance.runSearch();
-    assert.equal(calls, 2, 'a new search checks the backend shared cache');
+    const fixture = mockSearch([{ id: 'QA-001', title: 'Summary' }], { enriched: [{ id: 'QA-001', stars: [{ name: 'Shared Actor' }], producer: { name: 'Shared Studio' } }] });
+    await instance.runSearch(); await instance.loadBackgroundJobs();
     const reloaded = app(new Map()); t.after(() => reloaded.componentWillUnmount());
-    reloaded.setState({ route: 'search', code: 'QA-001' });
-    await reloaded.runSearch();
+    reloaded.setState({ route: 'search' }); await reloaded.loadBackgroundJobs();
     assert.equal(reloaded.renderVals().s.rows[0].actorText, 'Shared Actor');
-    assert.equal(calls, 3);
-    assert.equal(storage.has('javjaeger.movieMetadata.v1'), false, 'obsolete browser caches are removed');
+    await reloaded.renderVals().s.rows[0].open();
+    assert.equal(reloaded.renderVals().s.d.studio, 'Shared Studio');
+    assert.equal(fixture.calls.filter(call => call.url === '/api/movies/search-jobs').length, 1);
+    assert.equal(storage.has('javjaeger.movieMetadata.v1'), false);
     assert.doesNotMatch([...storage.values()].join(''), /Shared Actor|Shared Studio/);
 });
 
 test('sparse backend details never replace known data in a fresh summary', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
-    instance.setState({ route: 'search', sMode: 'code', code: 'QA-001', src: 'cili' });
-    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [] : { id: 'QA-001', title: 'Known title' });
-    await instance.runSearch();
-    instance.setState({ sMode: 'filter' });
-    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [] : { movies: [{ id: 'QA-001', stars: ['Fresh Actor'], producer: 'Fresh Studio' }] });
-    await instance.runSearch();
+    instance.setState({ route: 'search', sMode: 'filter', src: 'cili' });
+    const movie = { id: 'QA-001', stars: ['Fresh Actor'], producer: 'Fresh Studio', img: '/api/test-cover' };
+    mockSearch([movie], { enriched: [{ id: movie.id, img: null, title: '' }] });
+    await instance.runSearch(); await instance.loadBackgroundJobs();
     assert.equal(instance.renderVals().s.rows[0].actorText, 'Fresh Actor');
     await instance.renderVals().s.rows[0].open();
     assert.equal(instance.renderVals().s.d.studio, 'Fresh Studio');
+    assert.equal(instance.renderVals().s.d.cover, '/api/test-cover');
 });
 
 test('cache settings are loaded and saved on the server for every browser', async t => {
@@ -693,8 +746,8 @@ test('browser storage failures do not break a completed search', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     window.localStorage.setItem = () => { throw new Error('storage full'); };
     instance.setState({ route: 'search', code: 'QA-001' });
-    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [] : { id: 'QA-001', stars: [{ name: 'Live Actor' }] });
-    await instance.runSearch();
+    mockSearch([{ id: 'QA-001', stars: [{ name: 'Live Actor' }] }]);
+    await instance.runSearch(); await instance.loadBackgroundJobs();
     assert.equal(instance.state.searchError, '');
     assert.equal(instance.renderVals().s.rows[0].actorText, 'Live Actor');
 });
@@ -702,49 +755,30 @@ test('browser storage failures do not break a completed search', async t => {
 test('background metadata failures preserve results and can retry when details open', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'search', sMode: 'recognize', src: 'cili' });
-    let attempts = 0;
-    globalThis.fetch = async url => {
-        if (url.endsWith('/recognize')) return json({ movies: [{ id: 'QA-001', title: 'Known title', img: '/api/test-cover' }] });
-        if (url.startsWith('/api/magnets/')) return json([{ link: 'magnet:test', title: 'QA', size: '1 GB' }]);
-        if (++attempts === 1) return new Response('{}', { status: 503 });
-        return json({ id: 'QA-001', stars: [{ name: 'Recovered Actor' }] });
-    };
-    await instance.runSearch();
+    const movie = { id: 'QA-001', title: 'Known title', img: '/api/test-cover' };
+    mockSearch([movie], { ready: [], errors: { 'QA-001': '资料补全失败，可打开详情重试' }, magnets: { 'QA-001': [{ link: 'magnet:test', title: 'QA', size: '1 GB' }] } });
+    await instance.runSearch(); await instance.loadBackgroundJobs();
     let view = instance.renderVals().s;
-    assert.equal(instance.state.searchError, '');
-    assert.equal(view.rows[0].title, 'Known title');
-    assert.equal(view.rows[0].cover, '/api/test-cover');
-    assert.equal(view.rows[0].noMag, false);
+    assert.equal(instance.state.searchError, ''); assert.equal(view.rows[0].title, 'Known title');
+    assert.equal(view.rows[0].cover, '/api/test-cover'); assert.equal(view.rows[0].noMag, false);
     assert.match(view.rows[0].actorText, /补全失败/);
+    let attempts = 0;
+    globalThis.fetch = async url => { attempts++; return json(url.startsWith('/api/magnets/') ? [] : { id: 'QA-001', stars: [{ name: 'Recovered Actor' }] }); };
     await view.rows[0].open();
-    view = instance.renderVals().s;
-    assert.equal(view.rows[0].actorText, 'Recovered Actor');
-    assert.equal(attempts, 2);
+    assert.equal(instance.renderVals().s.rows[0].actorText, 'Recovered Actor'); assert.equal(attempts, 2);
 });
 
-test('background metadata stops queuing on reset or unmount and ignores stale responses', async t => {
+test('server metadata continues after reset or unmount without repainting stale results', async t => {
     for (const action of ['reset', 'unmount']) await t.test(action, async () => {
-        const instance = app();
-        instance.setState({ route: 'search', sMode: 'filter', src: 'cili' });
-        const releases = []; let details = 0, renders = 0;
-        instance.forceUpdate = () => { renders++; };
-        globalThis.fetch = async url => {
-            if (url.startsWith('/api/movies?')) return json({ movies: Array.from({ length: 8 }, (_, i) => ({ id: 'QA-' + i })) });
-            if (url.startsWith('/api/magnets/')) return json([]);
-            details++;
-            await new Promise(resolve => releases.push(resolve));
-            return json({ id: url.split('/').at(-1), stars: [{ name: 'Stale Actor' }] });
-        };
-        const pending = instance.runSearch();
-        await new Promise(resolve => setImmediate(resolve));
-        assert.equal(details, 4, 'metadata follows the existing concurrency limit');
+        const instance = app(); instance.setState({ route: 'search', sMode: 'filter' });
+        const fixture = mockSearch([{ id: 'QA-1' }], { complete: false });
+        await instance.runSearch();
         if (action === 'reset') instance.clearSearch(); else instance.componentWillUnmount();
-        const before = renders;
-        for (const release of releases) release();
-        await pending;
-        assert.equal(details, 4, 'cancelled searches do not queue more metadata requests');
-        assert.equal(renders, before, 'stale responses never repaint the current page');
+        fixture.job.status = 'success'; fixture.job.updated_at = 'done';
+        fixture.job.result.movies[0] = { id: 'QA-1', stars: ['Stale Actor'] };
+        await instance.loadBackgroundJobs();
         assert.ok(!instance.constructor.data.MOVIES.some(movie => movie.actors.includes('Stale Actor')));
+        assert.ok(!fixture.calls.some(call => call.body?.cancel), 'leaving a page never cancels server work');
         instance.componentWillUnmount();
     });
 });
@@ -776,23 +810,16 @@ test('performance: route gating preserves the shared directory picker', async ()
     assert.equal(instance.renderVals().fs.addForm?.path, '/qa');
 });
 
-test('original search controls load real movie and magnet endpoints', async () => {
-    const instance = app();
-    const requests = [];
-    globalThis.fetch = async (url, options = {}) => {
-        requests.push([String(url), options]);
-        return new Response(JSON.stringify(String(url).startsWith('/api/magnets/')
-            ? [{ title: 'QA-001.mkv', link: 'magnet:?xt=urn:btih:0123456789012345678901234567890123456789', size: '1 GB' }]
-            : { id: 'QA-001', title: 'Real API result', gid: '12', uc: 0, stars: [{ name: 'QA Actor' }] }), { status: 200 });
-    };
+test('original search controls submit complete enrichment inputs to the server', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const fixture = mockSearch([{ id: 'QA-001', title: 'Real API result', gid: '12', uc: 0 }], { magnets: { 'QA-001': dispatchContract.magnets } });
     instance.setState({ route: 'search', sMode: 'code', code: 'QA-001' });
-    await instance.runSearch();
-    const view = instance.renderVals();
-    assert.equal(view.s.rows[0].code, 'QA-001');
-    assert.equal(view.s.rows[0].title, 'Real API result');
-    assert.ok(requests.some(([url]) => url.startsWith('/api/movies/QA-001')));
-    assert.ok(requests.some(([url]) => url.startsWith('/api/magnets/QA-001') && url.includes('gid=12')));
-    assert.ok(!view.s.rows[0].noMag);
+    await instance.runSearch(); await instance.loadBackgroundJobs();
+    assert.equal(instance.renderVals().s.rows[0].title, 'Real API result');
+    assert.ok(fixture.calls.some(call => call.url.startsWith('/api/movies/QA-001')));
+    assert.equal(fixture.calls.find(call => call.url === '/api/movies/search-jobs').body.movies[0].gid, '12');
+    assert.ok(!fixture.calls.some(call => call.url.startsWith('/api/magnets/')), 'batch enrichment belongs to the server');
+    assert.ok(!instance.renderVals().s.rows[0].noMag);
 });
 
 test('failed writes are attempted once and never report success or echo response secrets', async () => {
@@ -826,7 +853,8 @@ test('search dispatch submits the displayed selected magnet and its source', asy
     globalThis.fetch = async (url, options) => { calls.push([url, options.body && JSON.parse(options.body)]); return new Response(JSON.stringify(url === '/api/history' ? [] : { success: true })); };
     instance.confirmDispatch(['QA-001']);
     await instance.state.dlg.run();
-    assert.equal(calls[0][0], '/api/aria2/download-magnets');
+    assert.equal(calls[0][0], '/api/automation/dispatch-jobs');
+    assert.equal(calls[0][1].tool, 'aria2');
     assert.deepEqual(calls[0][1].magnet_links, ['magnet:?xt=urn:btih:selected']);
     assert.deepEqual(calls[0][1].magnet_sources, ['yhg007']);
     instance.componentWillUnmount();
@@ -1182,7 +1210,7 @@ test('performance: catalogue pages retain groups, search and selection', async (
 
 test('performance: large search results page locally and stop rendering when hidden', async () => {
     const instance = app(); instance.setState({ route: 'search', sMode: 'recognize' });
-    globalThis.fetch = async url => json(url.includes('/magnets/') ? [] : { movies: Array.from({ length: 200 }, (_, i) => ({ id: `QA-${i}`, gid: '1', uc: 0 })) });
+    mockSearch(Array.from({ length: 200 }, (_, i) => ({ id: `QA-${i}`, gid: '1', uc: 0 })));
     await instance.runSearch();
     const first = instance.renderVals().s;
     assert.equal(first.rows.length, 60);
@@ -1212,7 +1240,7 @@ test('audit: search errors persist and reset or mode changes invalidate pending 
 test('audit: pagination obeys backend metadata for every magnet source', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     const records = Array.from({ length: 30 }, (_, i) => ({ id: `QA-${i}`, gid: '1', uc: 0 }));
-    globalThis.fetch = async url => json(url.startsWith('/api/magnets') ? [] : { movies: records, pagination: { hasNextPage: false } });
+    mockSearch(records);
     instance.setState({ sMode: 'filter', src: 'yhg' }); await instance.runSearch();
     assert.equal(instance.renderVals().s.showPager, true);
     assert.equal(instance.renderVals().s.nextDisabled, true);
@@ -1237,7 +1265,7 @@ test('audit: cinema resets file index between films and includes every VR resolu
 });
 
 test('audit: metadata partial failures do not announce complete success', async t => {
-    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const instance = app(); instance.loadBackgroundJobs = async () => {}; t.after(() => instance.componentWillUnmount());
     instance.loadLibrary = async () => {};
     instance.setState({ route: 'settings' });
     globalThis.fetch = async () => json({ task_id: 'partial' });
@@ -1270,14 +1298,12 @@ test('audit: preview resets conflict choices and non-organizing apply skips targ
 test('audit: download outcomes expose real failures and failed-batch retry handlers', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'dispatch', tool: 'Aria2', dCodes: 'qa-1 QA-1' });
-    globalThis.fetch = async url => json(url === '/api/history' ? [] : { success: false, results: [{ movie_id: 'QA-1', success: false, message: '添加失败' }] });
+    mockJobs('dispatch-aria2', { success: false, tool: 'aria2', results: [{ movie_id: 'QA-1', success: false, message: '添加失败' }] }, { status: 'failed' });
     instance.confirmDispatch(['QA-1'], [{ movie_id: 'QA-1', link: 'magnet:?xt=urn:btih:qa', source: 'javbus' }]);
-    await instance.state.dlg.run();
+    await instance.state.dlg.run(); await instance.loadBackgroundJobs();
     const view = instance.vDispatch();
-    assert.equal(view.failed.length, 1);
-    assert.equal(typeof view.retryAll, 'function');
-    assert.equal(view.runCount, 1);
-    assert.equal(view.historyCount, 0);
+    assert.equal(view.failed.length, 1); assert.equal(typeof view.retryAll, 'function');
+    assert.equal(view.runCount, 1); assert.equal(view.historyCount, 0);
 });
 
 test('audit: hidden automation filter drafts cannot leak into another task', async t => {
@@ -1363,8 +1389,8 @@ test('audit: automation filter mode and multiline codes match backend contracts'
 test('audit: opening movie details preserves its loaded best magnet', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'search', code: 'QA-1' });
-    globalThis.fetch = async url => json(url.startsWith('/api/magnets/') ? [{ link: 'magnet:test', title: 'QA', size: '1 GB' }] : { id: 'QA-1', gid: '1', uc: 0 });
-    await instance.runSearch(); await instance.renderVals().s.rows[0].open();
+    mockSearch([{ id: 'QA-1', gid: '1', uc: 0 }], { magnets: { 'QA-1': [{ link: 'magnet:test', title: 'QA', size: '1 GB' }] } });
+    await instance.runSearch(); await instance.loadBackgroundJobs(); await instance.renderVals().s.rows[0].open();
     assert.equal(instance.renderVals().s.rows[0].noMag, false);
 });
 
@@ -1374,13 +1400,8 @@ test('search detail updates retain known metadata and covers while syncing backg
     const cover = 'https://covers.example.test/list.jpg', expectedCover = '/api/image-proxy?url=' + encodeURIComponent(cover);
     const summary = { id: 'QA-001', title: 'List title', date: '2026-09-01', img: cover };
     let details = 0;
-    globalThis.fetch = async url => {
-        if (url.startsWith('/api/movies?')) return json({ movies: [summary] });
-        if (url.startsWith('/api/magnets/')) return json([{ link: 'magnet:test', title: 'QA', size: '1 GB' }]);
-        details++;
-        return json({ id: 'QA-001', gid: '1', uc: 0, title: '', img: null, date: null, stars: [{ name: 'Background actor' }], producer: { name: 'Background studio' } });
-    };
-    await instance.runSearch();
+    mockSearch([summary], { enriched: [{ ...summary, stars: [{ name: 'Background actor' }], producer: { name: 'Background studio' } }], magnets: { 'QA-001': [{ link: 'magnet:test', title: 'QA', size: '1 GB' }] } });
+    await instance.runSearch(); await instance.loadBackgroundJobs();
     let view = instance.renderVals().s;
     assert.equal(view.rows[0].actorText, 'Background actor', 'details fetched for magnets immediately enrich the list');
     assert.equal(view.rows[0].cover, expectedCover);
@@ -1404,7 +1425,7 @@ test('search detail updates retain known metadata and covers while syncing backg
     failMagnets = true;
     await view.rows[0].open();
     assert.equal(instance.renderVals().s.rows[0].noMag, false, 'a failed detail refresh does not erase an already loaded best magnet');
-    assert.ok(details >= 1);
+    assert.equal(details, 0, 'opening completed details needs no extra request');
 });
 
 test('audit: automation summaries and GPU diagnostics contain only actual backend state', t => {
@@ -1476,7 +1497,7 @@ test('audit: background scrape resumes after refresh with the exact preview conf
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'scrape', scScanDir: '/qa', scOutDir: '/target', scFolderRule: '{code}', scFileRule: '{code}', scOpts: { scrape: false, organize: true }, scConcurrent: '2' });
     globalThis.fetch = async () => json({ task_id: 'persisted-preview' }); await instance.previewScrape();
-    const restored = new instance.constructor({}); t.after(() => restored.componentWillUnmount());
+    const restored = new instance.constructor({}); restored.loadBackgroundJobs = async () => {}; t.after(() => restored.componentWillUnmount());
     assert.equal(restored.state.scrapeTask?.id, 'persisted-preview'); assert.equal(restored.state.scScanDir, '/qa');
     assert.equal(restored.scrapePreviewConfig, JSON.stringify(restored.scrapePayload()));
     restored.setState({ route: 'scrape' });
@@ -1531,17 +1552,18 @@ test('audit closure: switching to a disconnected source discards an old director
     assert.equal(instance.state.fsSrc, '115'); assert.deepEqual(instance.state.fileRows, []);
 });
 
-test('audit closure: partial file dispatch exposes each outcome and refreshes successful downloads', async t => {
+test('audit closure: partial file dispatch is recoverable after reload with every outcome', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
-    let refreshed = false; instance.loadAria = async () => { refreshed = true; };
     instance.setState({ route: 'storage', fsSrc: 'webdav', connections: { aria2_connected: true }, fsSel: ['/qa'] });
-    globalThis.fetch = async () => json({ success: true, results: [
+    const fixture = mockJobs('file-dispatch', { success: true, message: '文件派发完成：1 成功，1 失败，0 跳过', results: [
         { filename: 'sent.mp4', success: true }, { filename: 'failed.mp4', success: false, message: '添加失败' },
     ] });
     instance.sendFiles([{ name: 'folder', path: '/qa', is_directory: true }]); await instance.state.dlg.run();
-    assert.equal(refreshed, true);
-    assert.match(instance.state.dlg.list.join(' '), /sent.mp4.*成功.*failed.mp4.*失败/);
-    assert.equal(instance.state.dlg.okText, '查看下载任务');
+    assert.equal(fixture.calls[0].url, '/api/webdav/download/jobs');
+    const refreshed = app(); t.after(() => refreshed.componentWillUnmount());
+    await refreshed.loadBackgroundJobs(); refreshed.renderVals().bg.items[0].go();
+    assert.match(refreshed.state.dlg.list.join(' '), /sent.mp4.*成功.*failed.mp4.*失败/);
+    assert.match(refreshed.state.dlg.body, /1 成功，1 失败/);
 });
 
 test('audit closure: backend validation messages are readable but secrets stay hidden', async () => {
@@ -1555,15 +1577,17 @@ test('audit closure: backend validation messages are readable but secrets stay h
 test('audit closure: filtered or empty folders do not silently claim a complete dispatch', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ fsSrc: 'webdav', connections: { aria2_connected: true } });
-    instance.loadAria = async () => {};
-    let results = [{ filename: 'movie.mp4', success: true }, { filename: 'sample.txt', success: false, skipped: true, message: '非视频文件' }];
-    globalThis.fetch = async () => json({ success: Boolean(results.length), results });
-    instance.sendFiles([{ path: '/qa', name: 'qa', is_directory: true }]); await instance.state.dlg.run();
+    const fixture = mockJobs('file-dispatch', { success: true, message: '文件派发完成：1 成功，0 失败，1 跳过', results: [
+        { filename: 'movie.mp4', success: true }, { filename: 'sample.txt', success: false, skipped: true, message: '非视频文件' },
+    ] });
+    instance.sendFiles([{ path: '/qa', name: 'qa', is_directory: true }]); await instance.state.dlg.run(); await instance.loadBackgroundJobs();
+    instance.showServerJob(instance.state.backgroundJobs[0]);
     assert.match(instance.state.dlg.body, /1 成功，0 失败，1 跳过/);
     assert.match(instance.state.dlg.list.join(' '), /sample.txt.*已跳过/);
-    results = [];
-    instance.sendFiles([{ path: '/qa', name: 'qa', is_directory: true }]); await instance.state.dlg.run();
-    assert.match(instance.state.toast.text, /没有新增下载任务/);
+    fixture.jobs[0].result = { success: false, message: '没有新增下载任务', results: [] };
+    fixture.jobs[0].updated_at = 'empty'; fixture.jobs[0].status = 'failed';
+    await instance.loadBackgroundJobs(); instance.showServerJob(instance.state.backgroundJobs[0]);
+    assert.match(instance.state.dlg.body, /没有新增下载任务/);
 });
 
 test('audit: unrelated polling errors do not hide a completed scrape and expired jobs stop retrying', async t => {
@@ -1579,26 +1603,24 @@ test('audit: unrelated polling errors do not hide a completed scrape and expired
 });
 
 
-test('workflow: batch dispatch consumes the backend-verified query contract', async t => {
-    const instance = app(), calls = []; t.after(() => instance.componentWillUnmount());
+test('workflow: batch dispatch passes preflight filters to one detached workflow', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'dispatch', tool: 'Aria2', dCodes: 'QA-001', dNo4k: true });
-    globalThis.fetch = async (url, options) => {
-        calls.push([url, options.body && JSON.parse(options.body)]);
-        return new Response(JSON.stringify(url === '/api/movies/batch' ? dispatchContract.batch : url === '/api/history' ? [] : { success: true, results: [{ movie_id: 'QA-001', success: true }] }));
-    };
+    const fixture = mockJobs('dispatch-aria2', { success: true, results: [] });
     instance.vDispatch().run(); await instance.state.dlg.run();
-    assert.equal(calls[0][0], '/api/movies/batch');
-    assert.equal(calls[0][1].exclude_4k, true);
-    const body = calls.find(([url]) => url === '/api/aria2/download-magnets')?.[1];
-    assert.deepEqual(body?.movie_ids, ['QA-001']);
-    assert.deepEqual(body?.magnet_links, [dispatchContract.magnets[0].link]);
+    assert.equal(fixture.calls.length, 1);
+    assert.equal(fixture.calls[0].url, '/api/automation/dispatch-jobs');
+    assert.equal(fixture.calls[0].body.exclude_4k, true);
+    assert.equal(fixture.calls[0].body.tool, 'aria2');
+    assert.deepEqual(fixture.calls[0].body.movie_ids, ['QA-001']);
+    assert.equal(fixture.calls[0].body.magnet_links, null, 'the server performs preflight and dispatch together');
 });
 
 test('workflow: backend title and producer fields render in the actual design', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'search', code: 'QA-001' });
-    globalThis.fetch = async url => new Response(JSON.stringify(url.startsWith('/api/magnets/') ? dispatchContract.magnets : { id: 'QA-001', title: 'Fixture', gid: '1', uc: '0', producer: { name: 'Fixture Studio' } }));
-    await instance.runSearch(); instance.setState({ detail: 'QA-001' });
+    mockSearch([{ id: 'QA-001', title: 'Fixture', producer: { name: 'Fixture Studio' } }], { magnets: { 'QA-001': dispatchContract.magnets } });
+    await instance.runSearch(); await instance.loadBackgroundJobs(); instance.setState({ detail: 'QA-001' });
     assert.equal(instance.magnetRows('QA-001')[0].name, 'QA-001 fixture');
     assert.equal(instance.renderVals().s.d.studio, 'Fixture Studio');
     assert.doesNotMatch(instance.renderVals().s.rows[0].magText, /undefined/);
@@ -1632,29 +1654,24 @@ test('workflow: persisted failures retry the same resource and original tool', a
     globalThis.fetch = async (url, options) => { calls.push([url, options.body && JSON.parse(options.body)]); return new Response(JSON.stringify(url === '/api/history' ? [] : { success: true, results: [] })); };
     const failed = instance.vDispatch().failed;
     assert.equal(failed.length, 1); failed[0].retry(); await instance.state.dlg.run();
-    assert.equal(calls[0][0], '/api/aria2/download-magnets');
+    assert.equal(calls[0][0], '/api/automation/dispatch-jobs');
+    assert.equal(calls[0][1].tool, 'aria2');
     assert.deepEqual(calls[0][1].magnet_links, ['magnet:retry']);
 });
 
 test('workflow: 115 jobs remain visible until their partial result is consumed', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'dispatch', tool: '115 网盘' });
-    const calls = [];
-    globalThis.fetch = async url => {
-        calls.push(url);
-        return new Response(JSON.stringify(url === '/api/115/download-jobs' ? { job_id: 'job115', status: 'queued' } : url.includes('/download-jobs/') ? { status: 'completed', result: { success: true, results: [{ movie_id: 'QA-001', magnet: 'magnet:fixture', success: false }] } } : []));
-    };
+    const fixture = mockJobs('dispatch-pan115', { success: false, tool: 'pan115', results: [{ movie_id: 'QA-001', magnet: 'magnet:fixture', success: false }] }, { status: 'failed' });
     instance.confirmDispatch(['QA-001'], [{ link: 'magnet:fixture', movie_id: 'QA-001' }]); await instance.state.dlg.run();
-    assert.ok(calls.includes('/api/115/download-jobs'));
-    assert.equal(instance.state.dispatchTask.id, 'job115');
-    assert.ok(window.sessionStorage.getItem('pan115ActiveDispatch'));
-    await instance.perform(() => instance.poll());
+    assert.equal(fixture.calls[0].url, '/api/automation/dispatch-jobs');
+    await instance.loadBackgroundJobs();
     assert.equal(instance.vDispatch().failed.length, 1);
-    assert.ok(window.sessionStorage.getItem('pan115ActiveDispatch'));
-    instance.renderVals().bg.items.find(item => item.kind === '115 派发').go();
+    instance.renderVals().bg.items.find(item => /115/.test(item.kind)).go();
     assert.match(instance.state.dlg.list[0], /QA-001.*失败/);
+    instance.go = () => () => {};
     await instance.state.dlg.run();
-    assert.equal(window.sessionStorage.getItem('pan115ActiveDispatch'), null);
+    assert.equal(instance.state.backgroundJobs.length, 0);
 });
 
 test('audit closure: repeated job starts are rejected while submission is pending', async t => {
@@ -1669,17 +1686,18 @@ test('audit closure: repeated job starts are rejected while submission is pendin
     assert.equal(instance.state.route, 'scrape');
 });
 
-test('audit closure: concurrent source diagnostics preserve both results', async t => {
+test('audit closure: concurrent source diagnostics preserve both results across refresh', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     const settings = { scrapers: { priority: ['javbus', 'jav321'], javbus: {}, jav321: {} } };
     instance.setState({ seTab: '刮削源', settings, settingsDraft: withSecretPlaceholders(settings) });
-    const pending = [];
-    globalThis.fetch = async () => new Promise(resolve => pending.push(resolve));
+    mockJobs('scraper-test', body => ({ success: true, config_revision: 'config-1', results: body.providers.map(provider => ({ provider, success: true })) }));
     const sources = instance.vSettings().sources;
-    const first = sources[0].test(), second = sources[1].test();
-    pending[0](json({ results: [{ provider: 'javbus', success: true }] })); await first;
-    pending[1](json({ results: [{ provider: 'jav321', success: false }] })); await second;
+    await sources[0].test(); await sources[1].test(); await instance.loadBackgroundJobs();
     assert.deepEqual(instance.state.sourcesResult.map(item => item.provider), ['javbus', 'jav321']);
+    const refreshed = app(); t.after(() => refreshed.componentWillUnmount());
+    await refreshed.loadBackgroundJobs();
+    globalThis.fetch = async () => json(settings); await refreshed.loadSettings();
+    assert.equal(refreshed.state.sourcesResult.length, 2, 'initial settings load preserves current diagnostics');
 });
 
 test('audit closure: source results cannot overwrite unsaved settings or survive a configuration reload', async t => {
@@ -1735,4 +1753,12 @@ test('workflow: ignoring a persisted failure removes that exact resource and ref
     await instance.vDispatch().failed[0].skip();
     assert.deepEqual(calls[0], ['/api/history/QA-001/dismiss-failure', { link: 'magnet:ignore' }]);
     assert.equal(instance.vDispatch().failed.length, 0);
+});
+
+test('restoring a historical job never revives failures already dismissed in history', () => {
+    const instance = app();
+    instance.constructor.data.HISTORY.push({ movie_id: 'QA-1', status: 'ignored', failed_resources: [] });
+    instance.setState({ dispatchResult: { results: [{ movie_id: 'QA-1', magnet: 'magnet:ignored', success: false }] } });
+    assert.equal(instance.vDispatch().failed.length, 0);
+    instance.componentWillUnmount();
 });

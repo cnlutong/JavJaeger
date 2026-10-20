@@ -5857,7 +5857,8 @@ class Component extends DCLogic {
   };
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
   var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask", cleanupTask: "localLibraryCleanupTask" };
-  var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks"];
+  var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1" };
+  var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks", "/api/system/jobs"];
   var jobFinished = (task) => task && ["success", "completed", "failed"].includes(task.status);
   var informationSummary = (task) => {
     if (task.status === "failed") return safeText(task.message, "\u8D44\u6599\u4EFB\u52A1\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u68C0\u67E5");
@@ -5964,6 +5965,7 @@ class Component extends DCLogic {
           informationTask: null,
           infoStarting: false,
           tool: "PikPak",
+          backgroundJobs: [],
           autoDraft: null,
           directory: "",
           directories: [],
@@ -5999,6 +6001,9 @@ class Component extends DCLogic {
         }
         this._readGeneration = 0;
         this.requestVersion = 0;
+        this._activeSearchJobId = null;
+        this._searchRestored = false;
+        this._scraperSettings = /* @__PURE__ */ new Map();
         this._disposed = false;
         for (const [key, storageKey] of Object.entries(jobStorage)) {
           try {
@@ -6169,6 +6174,7 @@ class Component extends DCLogic {
         });
         this._dialogObserver.observe(document.body, { childList: true, subtree: true });
         this.perform(async () => {
+          await this.perform(() => this.loadBackgroundJobs());
           await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map((load) => this.perform(load)));
           const config = this.state.clientConfig;
           for (const key of ["webdav", "aria2", "pikpak"]) {
@@ -6210,7 +6216,7 @@ class Component extends DCLogic {
       }
       async loadSettings() {
         const payload = await this.request("/api/system/settings");
-        this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: [] });
+        this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: Object.keys(this.state.settings).length ? [] : this.state.sourcesResult });
       }
       async loadCacheSettings(images = false) {
         const result = await this.request(images ? "/api/image-cache" : "/api/metadata-cache");
@@ -6373,6 +6379,8 @@ class Component extends DCLogic {
       }
       runSearch = async () => {
         const version = ++this.requestVersion, st = { ...this.state };
+        this._searchRestored = true;
+        this._activeSearchJobId = null;
         data.MOVIES.splice(0);
         this.magnets.clear();
         this.searchByCode.clear();
@@ -6385,7 +6393,13 @@ class Component extends DCLogic {
             if (st.sub !== "0") query.set("hasSubtitle", st.sub);
             const count = { "1 \u4EBA": "1", "2 \u4EBA": "2", "3 \u4EBA": "3", "\u2264 2 \u4EBA": "<=2", "\u2264 3 \u4EBA": "<=3", "\u2265 3 \u4EBA": ">=3", "\u2265 4 \u4EBA": ">=4" }[st.actorCount];
             if (count) query.set("actorCountFilter", count);
-            payload = await this.request(`/api/movies${st.fetchMode === "all" ? "/all" : ""}?${query}`);
+            if (st.fetchMode === "all") {
+              const task2 = await this.startBackgroundJob("/api/movies/search-jobs", { ...this.searchJobPayload(st, []), all_pages: true, query: Object.fromEntries(query) });
+              if (version === this.requestVersion && !this._disposed) this._activeSearchJobId = task2.task_id;
+              this._searchAutoDownload = Boolean(st.autoDownload);
+              return;
+            }
+            payload = await this.request(`/api/movies?${query}`);
           } else {
             if (!st.code.trim()) throw new Error("\u8BF7\u586B\u5199\u756A\u53F7");
             payload = { movies: [st.sMode === "magnet" && sourceKey(st.src) !== "javbus" ? { id: st.code.trim() } : await this.request(`/api/movies/${id(st.code.trim())}`)] };
@@ -6397,43 +6411,21 @@ class Component extends DCLogic {
           this.searchByCode = new Map(movies.map((movie) => [movie.code, movie]));
           this.magnets.clear();
           this.setState({ loading: false, magnetsLoading: true, searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage ?? payload.pagination?.nextPage ?? payload.has_next_page ?? movies.length >= 30) });
-          for (let offset = 0; offset < movies.length; offset += 4) {
-            await Promise.all(movies.slice(offset, offset + 4).map(async (movie) => {
-              try {
-                if (st.sMode !== "magnet") {
-                  try {
-                    await this.loadMovieDetails(movie, version);
-                  } catch {
-                  }
-                }
-                if (version !== this.requestVersion || this._disposed) return;
-                const magnets = await this.getMagnets(movie, st.src);
-                if (version !== this.requestVersion || this._disposed) return;
-                this.magnets.set(movie.code, magnets);
-                movie.mag = magnets[0] ? `${magnets[0].name} \xB7 ${magnets[0].size}` : "";
-                movie.magCount = magnets.length;
-              } catch (error) {
-                movie.mag = "";
-                movie.magnetError = safeText(error.message);
-                if (st.sMode === "magnet") throw error;
-              } finally {
-                movie.magnetsLoading = false;
-              }
-            }));
-            if (version !== this.requestVersion || this._disposed) return;
-            this.forceUpdate?.();
-          }
-          if (st.autoDownload && st.sMode !== "magnet") this.confirmDispatch(movies.map((movie) => movie.code));
+          const task = await this.startBackgroundJob("/api/movies/search-jobs", this.searchJobPayload(st, payload.movies || []));
+          if (version === this.requestVersion && !this._disposed) this._activeSearchJobId = task.task_id;
+          this._searchAutoDownload = Boolean(st.autoDownload && st.sMode !== "magnet");
         } catch (error) {
           if (version === this.requestVersion && !this._disposed) {
             this.setState({ searchError: safeText(error.message), searchDone: true });
             this.toast(safeText(error.message), BAD);
           }
         }
-        if (version === this.requestVersion && !this._disposed) this.setState({ loading: false, magnetsLoading: false });
+        if (version === this.requestVersion && !this._disposed) this.setState({ loading: false, magnetsLoading: Boolean(this._activeSearchJobId) });
       };
       clearSearch() {
         ++this.requestVersion;
+        this._activeSearchJobId = null;
+        this._searchRestored = true;
         data.MOVIES.splice(0);
         this.magnets.clear();
         this.searchByCode.clear();
@@ -6450,6 +6442,157 @@ class Component extends DCLogic {
       }
       dispatchOne(movie) {
         return () => this.confirmDispatch([movie.code]);
+      }
+      searchJobPayload(st, movies) {
+        return {
+          movies,
+          source: sourceKey(st.src),
+          mode: st.sMode,
+          sort_by: st.sortBy,
+          sort_order: st.sortOrder,
+          has_subtitle_filter: st.sub === "0" ? null : st.sub,
+          exclude_4k: st.exclude4k,
+          has_next_page: Boolean(this.state.nextPage)
+        };
+      }
+      async startBackgroundJob(url, payload) {
+        const task = await this.request(url, "POST", payload);
+        if (!task.task_id) throw new Error("\u540E\u53F0\u4EFB\u52A1\u672A\u80FD\u521B\u5EFA\uFF0C\u8BF7\u68C0\u67E5\u8FDE\u63A5\u540E\u91CD\u8BD5");
+        if (!this._disposed) this.setState({ backgroundJobs: [...this.state.backgroundJobs.filter((item) => item.task_id !== task.task_id), task] });
+        return task;
+      }
+      applyServerSearch(task) {
+        const result = task.result;
+        if (jobFinished(task) && task.status === "failed") this.setState({ loading: false, magnetsLoading: false, searchError: safeText(task.message, "\u540E\u53F0\u68C0\u7D22\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5") });
+        if (!result?.movies) return;
+        const first = this._appliedSearchTask !== task.task_id;
+        if (first) {
+          this._appliedSearchTask = task.task_id;
+          this._appliedSearchIds = /* @__PURE__ */ new Set();
+        }
+        const completed = new Set(result.completed_ids || []), ready = new Set(result.details_ready || []);
+        const movies = result.movies.map((raw) => {
+          let movie = this.searchByCode.get(raw.id);
+          if (!movie || first || completed.has(raw.id) && !this._appliedSearchIds.has(raw.id)) {
+            const previous = movie?.raw || {};
+            movie = Object.assign(movie || {}, movieView({ ...previous, ...Object.fromEntries(Object.entries(raw).filter(([, value]) => value != null && value !== "")) }));
+            const magnets = (result.magnets?.[movie.code] || []).map((magnet) => ({ ...magnet, name: magnet.title || magnet.name || movie.code, movie_id: movie.code, source: magnet.source || result.source }));
+            this.magnets.set(movie.code, magnets);
+            Object.assign(movie, {
+              mag: magnets[0] ? `${magnets[0].name} \xB7 ${magnets[0].size}` : "",
+              magCount: magnets.length,
+              detailsLoaded: ready.has(movie.code) || movie.detailsLoaded,
+              detailsLoading: !ready.has(movie.code) && !jobFinished(task),
+              magnetsLoading: !completed.has(movie.code) && !jobFinished(task),
+              detailError: result.errors?.[movie.code] || ""
+            });
+            if (completed.has(movie.code)) this._appliedSearchIds.add(movie.code);
+          }
+          if (jobFinished(task)) {
+            movie.detailsLoading = false;
+            movie.magnetsLoading = false;
+          }
+          return movie;
+        });
+        data.MOVIES.splice(0, data.MOVIES.length, ...movies);
+        this.searchByCode = new Map(movies.map((movie) => [movie.code, movie]));
+        this.setState({
+          ...first ? {
+            sMode: result.mode,
+            src: { cilisousuo: "cili", yhg007: "yhg" }[result.source] || result.source,
+            ...["code", "magnet"].includes(result.mode) ? { code: movies[0]?.code || "" } : {}
+          } : {},
+          loading: false,
+          searchDone: true,
+          magnetsLoading: !jobFinished(task),
+          nextPage: Boolean(result.has_next_page)
+        });
+        if (task.status === "success" && this._searchAutoDownload) {
+          this._searchAutoDownload = false;
+          this.confirmDispatch(movies.map((movie) => movie.code));
+        }
+      }
+      async loadBackgroundJobs() {
+        if (this._loadingJobs || this._disposed) return;
+        this._loadingJobs = true;
+        try {
+          const payload = await this.request("/api/system/jobs", "GET", void 0, true);
+          if (!payload) return;
+          const previous = new Map(this.state.backgroundJobs.map((task) => [task.task_id, task]));
+          const jobs = await Promise.all((payload.tasks || []).map(async (summary) => {
+            const old = previous.get(summary.task_id);
+            if (old?.updated_at === summary.updated_at) return old;
+            try {
+              return await this.request("/api/system/jobs/" + id(summary.task_id));
+            } catch (error) {
+              if (error.status === 404) return null;
+              throw error;
+            }
+          }));
+          if (this._disposed) return;
+          const tasks = jobs.filter(Boolean);
+          for (const old of previous.values()) if (!tasks.some((task) => task.task_id === old.task_id)) {
+            if (!jobFinished(old) || old.updated_at === "missing") tasks.push(old.updated_at === "missing" ? old : { ...old, status: "failed", updated_at: "missing", message: "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u6838\u5BF9\u7ED3\u679C\u540E\u91CD\u65B0\u64CD\u4F5C" });
+          }
+          if (tasks.length !== this.state.backgroundJobs.length || tasks.some((task, index) => task !== this.state.backgroundJobs[index])) this.setState({ backgroundJobs: tasks });
+          if (!this._searchRestored) {
+            this._searchRestored = true;
+            this._activeSearchJobId = tasks.filter((task) => task.type === "search").sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).at(-1)?.task_id || null;
+          }
+          for (const task of tasks) {
+            const old = previous.get(task.task_id);
+            if (task.type === "search" && task.task_id === this._activeSearchJobId && (!old || old.updated_at !== task.updated_at)) this.applyServerSearch(task);
+            if (!jobFinished(task) || old && old.updated_at === task.updated_at) continue;
+            if (task.type.startsWith("dispatch-") && task.result) {
+              const tool = toolName(task.result.tool || task.type.slice(9));
+              this.setState({ dispatchResult: task.result, dispatchTool: tool, failedPage: null });
+              if (old && !jobFinished(old)) await this.perform(() => this.finishDispatch(task.result, tool));
+            } else if (task.type === "scraper-test" && task.result) {
+              const settings = this._scraperSettings.get(task.task_id);
+              if ((!settings || settings === this.state.settings) && (!task.result.config_revision || task.result.config_revision === payload.config_revision)) {
+                const names2 = new Set((task.result.results || []).map((row) => row.provider || row.name));
+                this.setState((current) => ({ sourcesResult: [...current.sourcesResult.filter((row) => !names2.has(row.provider || row.name)), ...task.result.results || []] }));
+              }
+            }
+            if (old && !jobFinished(old) && !task.type.startsWith("dispatch-")) this.toast(safeText(task.result?.message || task.message, "\u540E\u53F0\u4EFB\u52A1\u7ED3\u675F\uFF0C\u53EF\u67E5\u770B\u7ED3\u679C"), task.status === "failed" ? WARN : OK);
+          }
+        } finally {
+          this._loadingJobs = false;
+        }
+      }
+      showServerJob(task) {
+        const route = task.type === "search" ? "search" : task.type === "scraper-test" ? "settings" : task.type === "file-dispatch" ? "storage" : "dispatch";
+        const open = () => {
+          if (task.type === "search") {
+            this._activeSearchJobId = task.task_id;
+            this._searchAutoDownload = false;
+            this.applyServerSearch(task);
+          }
+          if (task.type === "scraper-test") this.setState({ seTab: "\u522E\u524A\u6E90" });
+          if (task.type.startsWith("dispatch-") && task.result) this.setState({ dispatchResult: task.result, dispatchTool: toolName(task.result.tool || task.type.slice(9)) });
+          this.go(route)();
+        };
+        if (!jobFinished(task) || task.type === "search") {
+          open();
+          return;
+        }
+        const rows = task.result?.results || [];
+        this.ask({
+          title: (backgroundNames[task.type] || "\u540E\u53F0\u4EFB\u52A1") + "\u7ED3\u679C",
+          body: safeText(task.result?.message || task.message, "\u4EFB\u52A1\u7ED3\u675F"),
+          color: task.status === "failed" ? WARN : ACC,
+          list: rows.map((row) => `${row.filename || row.movie_id || row.provider || ""}\uFF1A${row.skipped ? "\u5DF2\u8DF3\u8FC7" : row.success ? "\u6210\u529F" : "\u5931\u8D25"} ${safeText(row.message || row.error || row.error_message, "")}`),
+          okText: "\u67E5\u770B\u9875\u9762\u5E76\u5173\u95ED\u4EFB\u52A1\u8BB0\u5F55",
+          run: () => this.perform(async () => {
+            try {
+              await this.request("/api/system/jobs/" + id(task.task_id), "DELETE");
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            this.setState({ backgroundJobs: this.state.backgroundJobs.filter((item) => item.task_id !== task.task_id) });
+            open();
+          })
+        });
       }
       async finishDispatch(result, tool, preflight = []) {
         const results = [...preflight, ...result.results || []];
@@ -6470,53 +6613,26 @@ class Component extends DCLogic {
           return;
         }
         const st = { ...this.state, tool: destination || this.state.tool }, chosen = magnets || (st.route === "search" ? codes.flatMap((code) => (this.magnets.get(code) || []).slice(0, 1)) : null);
-        this.ask({
+        return this.ask({
           title: `\u6D3E\u53D1 ${codes.length} \u90E8\u5230 ${st.tool}\uFF1F`,
           color: ACC,
           okText: "\u5F00\u59CB\u6D3E\u53D1",
           body: "\u5C06\u63D0\u4EA4\u771F\u5B9E\u4E0B\u8F7D\u4EFB\u52A1\uFF1B\u672C\u5730\u5DF2\u6709\u5F71\u7247\u4E0E\u5DF2\u5C1D\u8BD5\u94FE\u63A5\u7531\u540E\u7AEF\u68C0\u67E5\u3002",
           list: codes,
           run: () => this.perform(async () => {
-            const tool = toolKey(st.tool);
-            if (tool === "pan115" && this.state.dispatchTask && !["completed", "failed"].includes(this.state.dispatchTask.status)) throw new Error("\u5DF2\u6709 115 \u6D3E\u53D1\u4EFB\u52A1\u8FD0\u884C\u4E2D\uFF0C\u8BF7\u7B49\u5F85\u5B8C\u6210");
-            let entries = chosen, preflight = [];
-            if (!entries) {
-              const payload = await this.request("/api/movies/batch", "POST", {
-                movie_ids: codes,
-                magnet_source: sourceKey(st.route === "dispatch" ? st.dSrc : st.src),
-                has_subtitle_filter: st.route === "dispatch" ? st.dSubOnly ? "true" : null : st.sub === "0" ? null : st.sub,
-                exclude_4k: st.route === "dispatch" ? st.dNo4k : st.exclude4k
-              });
-              entries = [];
-              for (const item of payload.results || []) {
-                if (item.in_local_library) preflight.push({ movie_id: item.movie_id, success: false, skipped: true, reason: "already_exists", message: "\u5F71\u7247\u5DF2\u5728\u672C\u5730\u5E93\u4E2D" });
-                else if (item.best_magnet?.link) entries.push({ ...item.best_magnet, movie_id: item.movie_id });
-                else preflight.push({ movie_id: item.movie_id, success: false, error: item.error || "no_magnet", message: safeText(item.error, "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u78C1\u529B\uFF0C\u8BF7\u8C03\u6574\u6765\u6E90\u6216\u7B5B\u9009\u6761\u4EF6") });
-              }
-            }
-            const usable = entries.filter((item) => item.link || item.magnet_link);
-            if (!usable.length) {
-              if (!preflight.length) preflight = codes.map((movie_id) => ({ movie_id, success: false, error: "no_magnet", message: "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u78C1\u529B" }));
-              await this.finishDispatch({ results: [] }, st.tool, preflight);
-              return;
-            }
-            const body = { magnet_links: usable.map((item) => item.link || item.magnet_link), movie_ids: usable.map((item) => item.movie_id || codes[0]), magnet_sources: usable.map((item) => item.source || sourceKey(st.route === "dispatch" ? st.dSrc : st.src)) };
+            const tool = toolKey(st.tool), entries = chosen?.filter((item) => item.link || item.magnet_link);
+            const body = {
+              tool,
+              movie_ids: entries ? entries.map((item) => item.movie_id || codes[0]) : codes,
+              magnet_links: entries ? entries.map((item) => item.link || item.magnet_link) : null,
+              magnet_sources: entries ? entries.map((item) => item.source || sourceKey(st.route === "dispatch" ? st.dSrc : st.src)) : [],
+              magnet_source: sourceKey(st.route === "dispatch" ? st.dSrc : st.src),
+              has_subtitle_filter: st.route === "dispatch" ? st.dSubOnly ? "true" : null : st.sub === "0" ? null : st.sub,
+              exclude_4k: st.route === "dispatch" ? st.dNo4k : st.exclude4k
+            };
             if (tool === "pikpak" && this.auth && !this.auth.fromConfig) Object.assign(body, { username: this.auth.username, password: this.auth.password });
-            if (tool === "pan115") {
-              const job = await this.request("/api/115/download-jobs", "POST", body);
-              window.sessionStorage.setItem(jobStorage.dispatchTask, JSON.stringify({ taskId: job.job_id, type: "dispatch", preflight }));
-              this.setState({ dispatchTask: { ...job, id: job.job_id, preflight }, dispatchTool: st.tool });
-              this.toast("115 \u6D3E\u53D1\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5728\u540E\u53F0\u4EFB\u52A1\u4E2D\u67E5\u770B\u8FDB\u5EA6", OK);
-              return;
-            }
-            let result;
-            try {
-              result = await this.request(tool === "pikpak" ? "/api/pikpak/download" : "/api/aria2/download-magnets", "POST", body);
-            } catch (error) {
-              if (!error.result?.results) throw error;
-              result = error.result;
-            }
-            await this.finishDispatch(result, st.tool, preflight);
+            await this.startBackgroundJob("/api/automation/dispatch-jobs", body);
+            this.toast("\u78C1\u529B\u68C0\u7D22\u4E0E\u6D3E\u53D1\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5237\u65B0\u6216\u79BB\u5F00\u9875\u9762", OK);
           })
         });
       }
@@ -6524,7 +6640,7 @@ class Component extends DCLogic {
         if (this._polling || this._disposed) return;
         this._polling = true;
         try {
-          const pending = [];
+          const pending = [this.perform(() => this.loadBackgroundJobs())];
           if (["transcode", "library", "cinema"].includes(this.state.route) || data.TC.some((task) => ["running", "queued"].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes(false, true)));
           if (this.state.route === "storage" && this.state.connections.aria2_connected) pending.push(this.perform(() => this.loadAria()));
           if (this.state.route === "auto" || this.state.tasks.some((task) => task.runs?.some((run) => run.status === "running"))) pending.push(this.perform(() => this.loadTasks(true)));
@@ -7354,12 +7470,19 @@ class Component extends DCLogic {
       }
       vDispatch() {
         const st = this.state, codes = [...new Set((st.dScope === "1" ? data.MOVIES.map((movie) => movie.code) : st.dScope === "2" ? st.sel : st.dCodes.split(/[\s,，]+/)).map((code) => code.trim().toUpperCase()).filter(Boolean))];
-        const failureMap = /* @__PURE__ */ new Map();
-        for (const record of data.HISTORY) for (const resource of record.failed_resources || []) {
-          const result = { movie_id: record.movie_id, magnet: resource.link, source: resource.source, tool: toolName(resource.tool), success: false, message: "\u4E0A\u6B21\u6D3E\u53D1\u672A\u6210\u529F\u63D0\u4EA4\uFF0C\u53EF\u91CD\u8BD5\u6B64\u8D44\u6E90" };
-          failureMap.set(`${result.movie_id}:${result.magnet}`, result);
+        const failureMap = /* @__PURE__ */ new Map(), verifiedHistory = /* @__PURE__ */ new Set();
+        for (const record of data.HISTORY) {
+          if (Array.isArray(record.failed_resources)) verifiedHistory.add(record.movie_id);
+          for (const resource of record.failed_resources || []) {
+            const result = { movie_id: record.movie_id, magnet: resource.link, source: resource.source, tool: toolName(resource.tool), success: false, message: "\u4E0A\u6B21\u6D3E\u53D1\u672A\u6210\u529F\u63D0\u4EA4\uFF0C\u53EF\u91CD\u8BD5\u6B64\u8D44\u6E90" };
+            failureMap.set(`${result.movie_id}:${result.magnet}`, result);
+          }
         }
-        for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) failureMap.set(`${result.movie_id}:${result.magnet || ""}`, { ...result, tool: st.dispatchTool });
+        for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) {
+          const key = `${result.movie_id}:${result.magnet || ""}`;
+          if (result.magnet && verifiedHistory.has(result.movie_id) && !failureMap.has(key)) continue;
+          failureMap.set(key, { ...result, tool: st.dispatchTool });
+        }
         const failed = [...failureMap.values()], failures = this.pageItems(failed, "failedPage", []);
         const failedRows = failures.items.map((result) => ({
           code: result.movie_id || "",
@@ -7721,28 +7844,18 @@ class Component extends DCLogic {
         }
         const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
         this.ask({ title: `\u53D1\u9001 ${files.length} \u4E2A\u6587\u4EF6\u5230 Aria2\uFF1F`, body: "\u4ECE\u5F53\u524D\u7F51\u76D8\u4E0B\u8F7D\u5230\u5DF2\u8FDE\u63A5\u7684 Aria2\u3002", list: files.map((file) => file.name), color: ACC, okText: "\u53D1\u9001", run: () => this.perform(async () => {
-          let result;
-          try {
-            result = await this.request("/api/webdav/download", "POST", { files: files.map((file) => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === "folder", source_type: source === "115" ? "pan115" : "webdav" })), video_filter: videoFilter, min_file_size_mb: minSize });
-          } catch (error) {
-            if (!error.result?.results) throw error;
-            result = error.result;
-          }
-          const rows = result.results || [], failed = rows.filter((item) => item.success === false && !item.skipped), successful = rows.filter((item) => item.success), skipped = rows.filter((item) => item.skipped);
-          if (!failed.length) this.setState({ fsSel: [] });
-          await this.perform(() => this.loadAria());
-          if (failed.length || skipped.length) {
-            this.ask({
-              title: "\u7F51\u76D8\u53D1\u9001\u7ED3\u679C",
-              body: `${successful.length} \u6210\u529F\uFF0C${failed.length} \u5931\u8D25\uFF0C${skipped.length} \u8DF3\u8FC7\u3002` + (failed.length ? "\u8BF7\u6309\u660E\u7EC6\u91CD\u8BD5\u5931\u8D25\u6587\u4EF6\uFF0C\u907F\u514D\u91CD\u590D\u53D1\u9001\u6574\u4E2A\u76EE\u5F55\u3002" : "\u90E8\u5206\u6587\u4EF6\u4E0D\u7B26\u5408\u7B5B\u9009\u6761\u4EF6\uFF0C\u8BF7\u67E5\u770B\u660E\u7EC6\u3002"),
-              color: WARN,
-              list: rows.map((item) => `${item.filename}\uFF1A${item.skipped ? "\u5DF2\u8DF3\u8FC7" : item.success ? "\u6210\u529F" : "\u5931\u8D25"} ${safeText(item.message, "")}`),
-              okText: "\u67E5\u770B\u4E0B\u8F7D\u4EFB\u52A1",
-              run: () => this.go("storage")()
-            });
-            return;
-          }
-          this.toast(successful.length ? "\u5DF2\u53D1\u9001\u5230 Aria2" : "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u6587\u4EF6\uFF0C\u6CA1\u6709\u65B0\u589E\u4E0B\u8F7D\u4EFB\u52A1", successful.length ? OK : WARN);
+          await this.startBackgroundJob("/api/webdav/download/jobs", {
+            files: files.map((file) => ({
+              ...file,
+              path: file.path || file.id,
+              is_directory: file.is_directory || file.kind === "folder",
+              source_type: source === "115" ? "pan115" : "webdav"
+            })),
+            video_filter: videoFilter,
+            min_file_size_mb: minSize
+          });
+          this.setState({ fsSel: [] });
+          this.toast("\u7F51\u76D8\u53D1\u9001\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5237\u65B0\u6216\u79BB\u5F00\u9875\u9762", OK);
         }) });
       }
       vStorage() {
@@ -7876,10 +7989,10 @@ class Component extends DCLogic {
         };
         const testSources = (providers2) => this.perform(async () => {
           requireSavedSources();
-          const result = await this.request("/api/movies/metadata-scrapers/test", "POST", { providers: providers2, concurrent: 3, apply_results: false });
-          if (st.settings !== this.state.settings) throw new Error("\u914D\u7F6E\u5DF2\u91CD\u65B0\u8F7D\u5165\uFF0C\u8BF7\u91CD\u65B0\u6D4B\u8BD5\u522E\u524A\u6E90");
-          this.setState((current) => ({ sourcesResult: [...current.sourcesResult.filter((item) => !providers2.includes(item.provider || item.name)), ...result.results || []] }));
-        }, "\u522E\u524A\u6E90\u6D4B\u8BD5\u5DF2\u5B8C\u6210");
+          const job = await this.startBackgroundJob("/api/movies/metadata-scrapers/test/jobs", { providers: providers2, concurrent: 3, apply_results: false });
+          this._scraperSettings.set(job.task_id, st.settings);
+          this.toast("\u522E\u524A\u6E90\u6D4B\u8BD5\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5237\u65B0\u6216\u79BB\u5F00\u9875\u9762", OK);
+        });
         const openTab = (name) => () => {
           this.setState({ seTab: name });
           if (["\u7F13\u5B58", "\u56FE\u7247\u7F13\u5B58"].includes(name)) return this.perform(() => this.loadCacheSettings(name === "\u56FE\u7247\u7F13\u5B58"));
@@ -7990,6 +8103,16 @@ class Component extends DCLogic {
           view.bg.items.push({ kind: "115 \u6D3E\u53D1", name: `\u6279\u6B21 ${job.current_batch || 0}/${job.total_batches || "\u5F85\u8BA1\u7B97"}`, pct, pctText: jobFinished(job) ? "\u67E5\u770B\u7ED3\u679C" : `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} \u9879\u5DF2\u5904\u7406`, fg: job.status === "failed" ? WARN : ACC, finished: jobFinished(job), go: () => this.showBackgroundResult("dispatchTask") });
         }
         for (const task of st.tasks) for (const run of task.runs || []) if (run.status === "running") view.bg.items.push({ kind: "\u81EA\u52A8\u4EFB\u52A1", name: task.name, pct: 0, pctText: "", meta: run.message || "\u8FD0\u884C\u4E2D", fg: ACC, go: this.go("auto") });
+        for (const task of st.backgroundJobs) view.bg.items.push({
+          kind: backgroundNames[task.type] || "\u540E\u53F0\u4EFB\u52A1",
+          name: safeText(task.message, jobFinished(task) ? "\u4EFB\u52A1\u5DF2\u7ED3\u675F\uFF0C\u70B9\u51FB\u67E5\u770B\u7ED3\u679C" : "\u670D\u52A1\u7AEF\u540E\u53F0\u6267\u884C"),
+          pct: task.percent || 0,
+          pctText: jobFinished(task) ? "\u67E5\u770B\u7ED3\u679C" : `${task.percent || 0}%`,
+          meta: jobFinished(task) ? "\u7ED3\u679C\u4FDD\u5B58\u5728\u670D\u52A1\u7AEF\uFF0C\u53EF\u5237\u65B0\u540E\u67E5\u770B" : "\u5237\u65B0\u6216\u5173\u95ED\u9875\u9762\u4E0D\u4F1A\u4E2D\u65AD\u6267\u884C",
+          fg: task.status === "failed" ? WARN : ACC,
+          finished: jobFinished(task),
+          go: () => this.showServerJob(task)
+        });
         const activeCount = view.bg.items.filter((item) => !item.finished).length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
         if (st.informationTask) {
           const task = st.informationTask, finished = jobFinished(task);

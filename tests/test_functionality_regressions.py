@@ -25,7 +25,7 @@ from modules.pan115 import service as pan115
 from modules.pan115.schemas import DownloadRequest as PanRequest
 from modules.history.service import DownloadHistoryService
 from modules.webdav.clients import WebDavClient, Aria2Client, WebDavFile
-from modules.webdav.router import download_folder_recursive
+from modules.webdav.service import download_folder_recursive
 from modules.movies.transcoding import TranscodingService, resolve_transcoding_options, TranscodingOptionsOverride
 from modules.movies.transcoding_schemas import TranscodingTaskCreate
 from modules.movies import workflows

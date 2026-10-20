@@ -1,11 +1,11 @@
 import asyncio
-import secrets
 import time
 from dataclasses import dataclass, field
 
 from fastapi import Request
 
 from .clients import Aria2Client, WebDavClient
+from modules.common.tasks import job_owner
 
 
 @dataclass
@@ -33,10 +33,7 @@ class WebDavSessionStore:
         self._last_cleanup = 0.0
 
     async def get_state(self, request: Request) -> WebDavSessionState:
-        session_id = request.session.get("webdav_session_id")
-        if not session_id:
-            session_id = secrets.token_urlsafe(24)
-            request.session["webdav_session_id"] = session_id
+        session_id = job_owner(request)
 
         async with self._lock:
             now = time.time()

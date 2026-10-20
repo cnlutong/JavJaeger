@@ -7,8 +7,9 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from modules.common.runtime import get_aria2_config, get_webdav_config
 from .clients import Aria2Client, WebDavClient
 from .schemas import AddDownloadsRequest, MagnetDownloadRequest
-from .service import dispatch_magnet_downloads_to_aria2, dispatch_pan115_downloads_to_aria2, download_folder_recursive, is_video_file
+from .service import dispatch_magnet_downloads_to_aria2, dispatch_files_to_aria2, file_dispatch_runner
 from .session_state import session_store
+from modules.common.tasks import submit_background_task
 
 
 logger = logging.getLogger(__name__)
@@ -168,82 +169,25 @@ async def list_files(request: Request, path: str = "/"):
         return {"success": False, "error": "webdav_list_failed", "message": "获取文件列表失败"}
 
 
-@router.post("/api/webdav/download")
+def _check_file_dispatch(state, payload):
+    if not state.aria2_client:
+        raise HTTPException(status_code=400, detail='Aria2未连接')
+    if any(file.source_type not in {'local', 'pan115'} for file in payload.files) and not state.webdav_client:
+        raise HTTPException(status_code=400, detail='WebDAV未连接')
+
+
+@router.post('/api/webdav/download')
 async def add_downloads(request: Request, payload: AddDownloadsRequest):
     state = await session_store.get_state(request)
-    if not state.aria2_client:
-        raise HTTPException(status_code=400, detail="Aria2未连接")
+    _check_file_dispatch(state, payload)
+    return await dispatch_files_to_aria2(state.webdav_client, state.aria2_client, payload)
 
-    results: list[dict[str, Any]] = []
-    local_files = [file_info for file_info in payload.files if file_info.source_type == "local"]
-    for file_info in local_files:
-        results.append({"filename": file_info.name, "success": False, "message": "本地文件不能发送到 Aria2"})
 
-    pan115_files = [file_info for file_info in payload.files if file_info.source_type == "pan115"]
-    if pan115_files:
-        try:
-            pan115_results = await dispatch_pan115_downloads_to_aria2(
-                state.aria2_client,
-                pan115_files,
-                payload.video_filter,
-                payload.min_file_size_mb,
-            )
-            results.extend(pan115_results)
-        except ValueError as exc:
-            results.append({"filename": "115网盘", "success": False, "message": str(exc)})
-        except Exception as exc:
-            logger.error("添加 115 文件到 Aria2 失败: %s", exc)
-            results.append({"filename": "115网盘", "success": False, "error": "pan115_dispatch_failed", "message": "添加失败"})
-
-    webdav_files = [
-        file_info
-        for file_info in payload.files
-        if file_info.source_type not in {"local", "pan115"}
-    ]
-    if webdav_files and not state.webdav_client:
-        raise HTTPException(status_code=400, detail="WebDAV未连接")
-
-    for file_info in webdav_files:
-        try:
-            if not file_info.path:
-                results.append({"filename": file_info.name, "success": False, "message": "文件路径为空"})
-                continue
-
-            if file_info.is_directory:
-                folder_results = await asyncio.to_thread(
-                    download_folder_recursive,
-                    state.webdav_client,
-                    state.aria2_client,
-                    file_info.path,
-                    file_info.name,
-                    payload.video_filter,
-                    payload.min_file_size_mb,
-                )
-                results.extend(folder_results)
-                continue
-
-            if (payload.video_filter and not is_video_file(file_info.name)) or file_info.size < payload.min_file_size_mb * 1024 * 1024:
-                results.append(
-                    {
-                        "filename": file_info.name,
-                        "success": False,
-                        "skipped": True,
-                        "message": f"不符合视频文件筛选条件（非视频文件或小于{payload.min_file_size_mb}MB）",
-                    }
-                )
-                continue
-
-            download_url = state.webdav_client._build_download_url(file_info.path)
-            options = state.webdav_client.build_aria2_options({"out": file_info.name})
-            gid = await asyncio.to_thread(state.aria2_client.add_download, download_url, options)
-            results.append({"filename": file_info.name, "success": True, "gid": gid, "message": "添加成功"})
-        except Exception as exc:
-            logger.error("添加 WebDAV 下载任务失败: %s", exc)
-            results.append({"filename": file_info.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
-
-    has_success = any(item.get("success") for item in results)
-    has_real_failure = any(not item.get("success") and not item.get("skipped") for item in results)
-    return {"success": has_success or (bool(results) and not has_real_failure), "results": results}
+@router.post('/api/webdav/download/jobs', status_code=202)
+async def start_file_download_job(request: Request, payload: AddDownloadsRequest):
+    state = await session_store.get_state(request)
+    _check_file_dispatch(state, payload)
+    return submit_background_task(request, 'file-dispatch', file_dispatch_runner(state.webdav_client, state.aria2_client, payload))
 
 
 @router.get("/api/aria2/status")

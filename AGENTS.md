@@ -65,6 +65,7 @@ Use this as the source-of-truth ownership map.
   - startup and shutdown hooks
 - `modules/common/`
   - shared runtime utilities
+  - process-local background execution, bounded results and session ownership
   - batch-scoped HTTP transport reuse with independent request sessions
   - config
   - version info
@@ -80,6 +81,7 @@ Use this as the source-of-truth ownership map.
   - HTML shell routes
 - `modules/system/`
   - diagnostics and system info APIs
+  - session-owned background task discovery and result APIs
 - `modules/history/`
   - download history persistence and APIs for attempted resource links and sources
   - local movie library persistence used to avoid duplicate downloads
@@ -88,6 +90,7 @@ Use this as the source-of-truth ownership map.
   - durable per-movie update files, snapshot compaction, and actor-index recovery
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
+  - server-side search enrichment and scraper diagnostics jobs
   - background local library scans, information checks, completion and invalid-file cleanup workflows
   - GPU capability detection and hardware-only transcoding task orchestration
   - persisted background FFmpeg transcoding tasks
@@ -102,14 +105,15 @@ Use this as the source-of-truth ownership map.
   - 115 direct download URL resolution for server-side Aria2 dispatch
 - `modules/webdav/`
   - WebDAV browsing
-  - Aria2 dispatch
+  - Aria2 dispatch, including background directory dispatch with private WebDAV connections
   - session-scoped downloader state
 - `modules/automation/`
   - saved automation task persistence
   - trigger scheduling
   - movie discovery orchestration
   - magnet selection orchestration
-  - PikPak or Aria2 download dispatch orchestration
+  - PikPak, 115 or Aria2 download dispatch orchestration
+  - one-off background magnet preflight and dispatch workflows
 - `modules/proxy/`
   - trusted image proxy routing and retrieval
   - shared persistent image cache with an independent MB limit

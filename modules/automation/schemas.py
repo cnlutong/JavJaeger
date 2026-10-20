@@ -8,6 +8,18 @@ NodeType = Literal["trigger", "search", "magnet", "download"]
 RunStatus = Literal["running", "success", "partial", "failed", "noop"]
 
 
+class OneOffDispatchRequest(BaseModel):
+    tool: Literal["pikpak", "pan115", "aria2"]
+    movie_ids: list[str] = Field(default_factory=list)
+    magnet_links: list[str] | None = None
+    magnet_sources: list[str] = Field(default_factory=list)
+    magnet_source: Literal["javbus", "cilisousuo", "yhg007"] = "javbus"
+    has_subtitle_filter: str | None = None
+    exclude_4k: bool = False
+    username: str | None = Field(default=None, repr=False)
+    password: str | None = Field(default=None, repr=False)
+
+
 class AutomationTrigger(BaseModel):
     type: TriggerType = "auto"
     scheduled_time: str | None = None

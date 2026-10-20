@@ -64,7 +64,8 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
 };
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
 const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask', cleanupTask: 'localLibraryCleanupTask' };
-const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks'];
+const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发' };
+const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks', '/api/system/jobs'];
 const jobFinished = task => task && ['success', 'completed', 'failed'].includes(task.status);
 const informationSummary = task => {
     if (task.status === 'failed') return safeText(task.message, '资料任务失败，请重新检查');
@@ -117,7 +118,7 @@ export function connectDesign(Base) {
                 settings: {}, settingsDraft: {}, cacheSettings: null, cacheDraft: null, imageCacheSettings: null, imageCacheDraft: null, connections: {}, clientConfig: {}, tasks: [], fileRows: [],
                 tcCaps: {}, searchError: '', searchDone: false, loading: false, libraryLoaded: false,
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
-                autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
+                backgroundJobs: [], autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
                 scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '不限', fsVideoOnly: false,
                 infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
             };
@@ -140,6 +141,9 @@ export function connectDesign(Base) {
             } catch {}
             this._readGeneration = 0;
             this.requestVersion = 0;
+            this._activeSearchJobId = null;
+            this._searchRestored = false;
+            this._scraperSettings = new Map();
             this._disposed = false;
             for (const [key, storageKey] of Object.entries(jobStorage)) {
                 try {
@@ -271,6 +275,8 @@ export function connectDesign(Base) {
             });
             this._dialogObserver.observe(document.body, { childList: true, subtree: true });
             this.perform(async () => {
+                // Establish the shared session cookie before parallel downloader requests.
+                await this.perform(() => this.loadBackgroundJobs());
                 await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map(load => this.perform(load)));
                 const config = this.state.clientConfig;
                 for (const key of ['webdav', 'aria2', 'pikpak']) {
@@ -309,7 +315,7 @@ export function connectDesign(Base) {
         }
         async loadSettings() {
             const payload = await this.request('/api/system/settings');
-            this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: [] });
+            this.setState({ settings: payload, settingsDraft: withSecretPlaceholders(payload), sourcesResult: Object.keys(this.state.settings).length ? [] : this.state.sourcesResult });
         }
         async loadCacheSettings(images = false) {
             const result = await this.request(images ? '/api/image-cache' : '/api/metadata-cache');
@@ -446,6 +452,7 @@ export function connectDesign(Base) {
 
         runSearch = async () => {
             const version = ++this.requestVersion, st = { ...this.state };
+            this._searchRestored = true; this._activeSearchJobId = null;
             data.MOVIES.splice(0); this.magnets.clear(); this.searchByCode.clear();
             this.setState({ loading: true, sel: [], detail: null, searchError: '', searchDone: false, nextPage: false, searchPage: null });
             try {
@@ -456,7 +463,13 @@ export function connectDesign(Base) {
                     if (st.sub !== '0') query.set('hasSubtitle', st.sub);
                     const count = { '1 人': '1', '2 人': '2', '3 人': '3', '≤ 2 人': '<=2', '≤ 3 人': '<=3', '≥ 3 人': '>=3', '≥ 4 人': '>=4' }[st.actorCount];
                     if (count) query.set('actorCountFilter', count);
-                    payload = await this.request(`/api/movies${st.fetchMode === 'all' ? '/all' : ''}?${query}`);
+                    if (st.fetchMode === 'all') {
+                        const task = await this.startBackgroundJob('/api/movies/search-jobs', { ...this.searchJobPayload(st, []), all_pages: true, query: Object.fromEntries(query) });
+                        if (version === this.requestVersion && !this._disposed) this._activeSearchJobId = task.task_id;
+                        this._searchAutoDownload = Boolean(st.autoDownload);
+                        return;
+                    }
+                    payload = await this.request(`/api/movies?${query}`);
                 } else {
                     if (!st.code.trim()) throw new Error('请填写番号');
                     payload = { movies: [st.sMode === 'magnet' && sourceKey(st.src) !== 'javbus' ? { id: st.code.trim() } : await this.request(`/api/movies/${id(st.code.trim())}`)] };
@@ -468,40 +481,134 @@ export function connectDesign(Base) {
                 this.searchByCode = new Map(movies.map(movie => [movie.code, movie]));
                 this.magnets.clear();
                 this.setState({ loading: false, magnetsLoading: true, searchDone: true, nextPage: Boolean(payload.pagination?.hasNextPage ?? payload.pagination?.nextPage ?? payload.has_next_page ?? movies.length >= 30) });
-                // Keep the existing four-request ceiling while loading results in order.
-                for (let offset = 0; offset < movies.length; offset += 4) {
-                    await Promise.all(movies.slice(offset, offset + 4).map(async movie => {
-                        try {
-                            if (st.sMode !== 'magnet') {
-                                try { await this.loadMovieDetails(movie, version); }
-                                catch { /* Keep the summary and magnet lookup available if metadata fails. */ }
-                            }
-                            if (version !== this.requestVersion || this._disposed) return;
-                            const magnets = await this.getMagnets(movie, st.src);
-                            if (version !== this.requestVersion || this._disposed) return;
-                            this.magnets.set(movie.code, magnets);
-                            movie.mag = magnets[0] ? `${magnets[0].name} · ${magnets[0].size}` : '';
-                            movie.magCount = magnets.length;
-                        } catch (error) { movie.mag = ''; movie.magnetError = safeText(error.message); if (st.sMode === 'magnet') throw error; }
-                        finally { movie.magnetsLoading = false; }
-                    }));
-                    if (version !== this.requestVersion || this._disposed) return;
-                    this.forceUpdate?.();
-                }
-                if (st.autoDownload && st.sMode !== 'magnet') this.confirmDispatch(movies.map(movie => movie.code));
+                const task = await this.startBackgroundJob('/api/movies/search-jobs', this.searchJobPayload(st, payload.movies || []));
+                if (version === this.requestVersion && !this._disposed) this._activeSearchJobId = task.task_id;
+                this._searchAutoDownload = Boolean(st.autoDownload && st.sMode !== 'magnet');
             } catch (error) {
                 if (version === this.requestVersion && !this._disposed) { this.setState({ searchError: safeText(error.message), searchDone: true }); this.toast(safeText(error.message), BAD); }
             }
-            if (version === this.requestVersion && !this._disposed) this.setState({ loading: false, magnetsLoading: false });
+            if (version === this.requestVersion && !this._disposed) this.setState({ loading: false, magnetsLoading: Boolean(this._activeSearchJobId) });
         };
         clearSearch() {
             ++this.requestVersion;
+            this._activeSearchJobId = null; this._searchRestored = true;
             data.MOVIES.splice(0); this.magnets.clear(); this.searchByCode.clear();
             this.setState({ loading: false, magnetsLoading: false, searchDone: false, searchError: '', nextPage: false, sel: [], detail: null });
         }
         visible() { return this.state.sMode === 'magnet' ? [] : data.MOVIES; }
         setSrc(src) { return () => { this.setState({ src }); if (this.state.searchDone || this.state.loading) void this.runSearch(); }; }
         dispatchOne(movie) { return () => this.confirmDispatch([movie.code]); }
+
+        searchJobPayload(st, movies) {
+            return { movies, source: sourceKey(st.src), mode: st.sMode, sort_by: st.sortBy, sort_order: st.sortOrder,
+                has_subtitle_filter: st.sub === '0' ? null : st.sub, exclude_4k: st.exclude4k, has_next_page: Boolean(this.state.nextPage) };
+        }
+
+        async startBackgroundJob(url, payload) {
+            const task = await this.request(url, 'POST', payload);
+            if (!task.task_id) throw new Error('后台任务未能创建，请检查连接后重试');
+            if (!this._disposed) this.setState({ backgroundJobs: [...this.state.backgroundJobs.filter(item => item.task_id !== task.task_id), task] });
+            return task;
+        }
+
+        applyServerSearch(task) {
+            const result = task.result;
+            if (jobFinished(task) && task.status === 'failed') this.setState({ loading: false, magnetsLoading: false, searchError: safeText(task.message, '后台检索失败，请重试') });
+            if (!result?.movies) return;
+            const first = this._appliedSearchTask !== task.task_id;
+            if (first) { this._appliedSearchTask = task.task_id; this._appliedSearchIds = new Set(); }
+            const completed = new Set(result.completed_ids || []), ready = new Set(result.details_ready || []);
+            const movies = result.movies.map(raw => {
+                let movie = this.searchByCode.get(raw.id);
+                if (!movie || first || completed.has(raw.id) && !this._appliedSearchIds.has(raw.id)) {
+                    const previous = movie?.raw || {};
+                    movie = Object.assign(movie || {}, movieView({ ...previous, ...Object.fromEntries(Object.entries(raw).filter(([, value]) => value != null && value !== '')) }));
+                    const magnets = (result.magnets?.[movie.code] || []).map(magnet => ({ ...magnet, name: magnet.title || magnet.name || movie.code, movie_id: movie.code, source: magnet.source || result.source }));
+                    this.magnets.set(movie.code, magnets);
+                    Object.assign(movie, { mag: magnets[0] ? `${magnets[0].name} · ${magnets[0].size}` : '', magCount: magnets.length,
+                        detailsLoaded: ready.has(movie.code) || movie.detailsLoaded, detailsLoading: !ready.has(movie.code) && !jobFinished(task),
+                        magnetsLoading: !completed.has(movie.code) && !jobFinished(task), detailError: result.errors?.[movie.code] || '' });
+                    if (completed.has(movie.code)) this._appliedSearchIds.add(movie.code);
+                }
+                if (jobFinished(task)) { movie.detailsLoading = false; movie.magnetsLoading = false; }
+                return movie;
+            });
+            data.MOVIES.splice(0, data.MOVIES.length, ...movies);
+            this.searchByCode = new Map(movies.map(movie => [movie.code, movie]));
+            this.setState({ ...(first ? { sMode: result.mode, src: ({ cilisousuo: 'cili', yhg007: 'yhg' }[result.source] || result.source),
+                    ...(['code', 'magnet'].includes(result.mode) ? { code: movies[0]?.code || '' } : {}) } : {}),
+                loading: false, searchDone: true, magnetsLoading: !jobFinished(task), nextPage: Boolean(result.has_next_page) });
+            if (task.status === 'success' && this._searchAutoDownload) {
+                this._searchAutoDownload = false;
+                this.confirmDispatch(movies.map(movie => movie.code));
+            }
+        }
+
+        async loadBackgroundJobs() {
+            if (this._loadingJobs || this._disposed) return;
+            this._loadingJobs = true;
+            try {
+                const payload = await this.request('/api/system/jobs', 'GET', undefined, true);
+                if (!payload) return;
+                const previous = new Map(this.state.backgroundJobs.map(task => [task.task_id, task]));
+                const jobs = await Promise.all((payload.tasks || []).map(async summary => {
+                    const old = previous.get(summary.task_id);
+                    if (old?.updated_at === summary.updated_at) return old;
+                    try { return await this.request('/api/system/jobs/' + id(summary.task_id)); }
+                    catch (error) { if (error.status === 404) return null; throw error; }
+                }));
+                if (this._disposed) return;
+                const tasks = jobs.filter(Boolean);
+                for (const old of previous.values()) if (!tasks.some(task => task.task_id === old.task_id)) {
+                    if (!jobFinished(old) || old.updated_at === 'missing') tasks.push(old.updated_at === 'missing' ? old : { ...old, status: 'failed', updated_at: 'missing', message: '后台任务已失效，服务可能已重启，请核对结果后重新操作' });
+                }
+                if (tasks.length !== this.state.backgroundJobs.length || tasks.some((task, index) => task !== this.state.backgroundJobs[index])) this.setState({ backgroundJobs: tasks });
+                if (!this._searchRestored) {
+                    this._searchRestored = true;
+                    this._activeSearchJobId = tasks.filter(task => task.type === 'search').sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).at(-1)?.task_id || null;
+                }
+                for (const task of tasks) {
+                    const old = previous.get(task.task_id);
+                    if (task.type === 'search' && task.task_id === this._activeSearchJobId && (!old || old.updated_at !== task.updated_at)) this.applyServerSearch(task);
+                    if (!jobFinished(task) || old && old.updated_at === task.updated_at) continue;
+                    if (task.type.startsWith('dispatch-') && task.result) {
+                        const tool = toolName(task.result.tool || task.type.slice(9));
+                        this.setState({ dispatchResult: task.result, dispatchTool: tool, failedPage: null });
+                        if (old && !jobFinished(old)) await this.perform(() => this.finishDispatch(task.result, tool));
+                    } else if (task.type === 'scraper-test' && task.result) {
+                        const settings = this._scraperSettings.get(task.task_id);
+                        if ((!settings || settings === this.state.settings) && (!task.result.config_revision || task.result.config_revision === payload.config_revision)) {
+                            const names = new Set((task.result.results || []).map(row => row.provider || row.name));
+                            this.setState(current => ({ sourcesResult: [...current.sourcesResult.filter(row => !names.has(row.provider || row.name)), ...(task.result.results || [])] }));
+                        }
+                    }
+                    if (old && !jobFinished(old) && !task.type.startsWith('dispatch-')) this.toast(safeText(task.result?.message || task.message, '后台任务结束，可查看结果'), task.status === 'failed' ? WARN : OK);
+                }
+            } finally { this._loadingJobs = false; }
+        }
+
+        showServerJob(task) {
+            const route = task.type === 'search' ? 'search' : task.type === 'scraper-test' ? 'settings' : task.type === 'file-dispatch' ? 'storage' : 'dispatch';
+            const open = () => {
+                if (task.type === 'search') { this._activeSearchJobId = task.task_id; this._searchAutoDownload = false; this.applyServerSearch(task); }
+                if (task.type === 'scraper-test') this.setState({ seTab: '刮削源' });
+                if (task.type.startsWith('dispatch-') && task.result) this.setState({ dispatchResult: task.result, dispatchTool: toolName(task.result.tool || task.type.slice(9)) });
+                this.go(route)();
+            };
+            if (!jobFinished(task) || task.type === 'search') { open(); return; }
+            const rows = task.result?.results || [];
+            this.ask({ title: (backgroundNames[task.type] || '后台任务') + '结果', body: safeText(task.result?.message || task.message, '任务结束'),
+                color: task.status === 'failed' ? WARN : ACC,
+                list: rows.map(row => `${row.filename || row.movie_id || row.provider || ''}：${row.skipped ? '已跳过' : row.success ? '成功' : '失败'} ${safeText(row.message || row.error || row.error_message, '')}`),
+                okText: '查看页面并关闭任务记录', run: () => this.perform(async () => {
+                    try { await this.request('/api/system/jobs/' + id(task.task_id), 'DELETE'); }
+                    catch (error) { if (error.status !== 404) throw error; }
+                    this.setState({ backgroundJobs: this.state.backgroundJobs.filter(item => item.task_id !== task.task_id) });
+                    open();
+                }),
+            });
+        }
+
         async finishDispatch(result, tool, preflight = []) {
             const results = [...preflight, ...(result.results || [])];
             this.setState({ dispatchResult: { ...result, results }, dispatchTool: tool, failedPage: null });
@@ -515,39 +622,19 @@ export function connectDesign(Base) {
             codes = [...new Set(codes.map(code => String(code).trim().toUpperCase()).filter(Boolean))];
             if (!codes.length) { this.toast('请选择影片或填写番号', WARN); return; }
             const st = { ...this.state, tool: destination || this.state.tool }, chosen = magnets || (st.route === 'search' ? codes.flatMap(code => (this.magnets.get(code) || []).slice(0, 1)) : null);
-            this.ask({ title: `派发 ${codes.length} 部到 ${st.tool}？`, color: ACC, okText: '开始派发',
+            return this.ask({ title: `派发 ${codes.length} 部到 ${st.tool}？`, color: ACC, okText: '开始派发',
                 body: '将提交真实下载任务；本地已有影片与已尝试链接由后端检查。', list: codes,
                 run: () => this.perform(async () => {
-                    const tool = toolKey(st.tool);
-                    if (tool === 'pan115' && this.state.dispatchTask && !['completed', 'failed'].includes(this.state.dispatchTask.status)) throw new Error('已有 115 派发任务运行中，请等待完成');
-                    let entries = chosen, preflight = [];
-                    if (!entries) {
-                        const payload = await this.request('/api/movies/batch', 'POST', { movie_ids: codes,
-                            magnet_source: sourceKey(st.route === 'dispatch' ? st.dSrc : st.src), has_subtitle_filter: st.route === 'dispatch' ? (st.dSubOnly ? 'true' : null) : st.sub === '0' ? null : st.sub, exclude_4k: st.route === 'dispatch' ? st.dNo4k : st.exclude4k });
-                        entries = [];
-                        for (const item of payload.results || []) {
-                            if (item.in_local_library) preflight.push({ movie_id: item.movie_id, success: false, skipped: true, reason: 'already_exists', message: '影片已在本地库中' });
-                            else if (item.best_magnet?.link) entries.push({ ...item.best_magnet, movie_id: item.movie_id });
-                            else preflight.push({ movie_id: item.movie_id, success: false, error: item.error || 'no_magnet', message: safeText(item.error, '没有符合条件的磁力，请调整来源或筛选条件') });
-                        }
-                    }
-                    const usable = entries.filter(item => item.link || item.magnet_link);
-                    if (!usable.length) {
-                        if (!preflight.length) preflight = codes.map(movie_id => ({ movie_id, success: false, error: 'no_magnet', message: '没有符合条件的磁力' }));
-                        await this.finishDispatch({ results: [] }, st.tool, preflight); return;
-                    }
-                    const body = { magnet_links: usable.map(item => item.link || item.magnet_link), movie_ids: usable.map(item => item.movie_id || codes[0]), magnet_sources: usable.map(item => item.source || sourceKey(st.route === 'dispatch' ? st.dSrc : st.src)) };
+                    const tool = toolKey(st.tool), entries = chosen?.filter(item => item.link || item.magnet_link);
+                    const body = { tool, movie_ids: entries ? entries.map(item => item.movie_id || codes[0]) : codes,
+                        magnet_links: entries ? entries.map(item => item.link || item.magnet_link) : null,
+                        magnet_sources: entries ? entries.map(item => item.source || sourceKey(st.route === 'dispatch' ? st.dSrc : st.src)) : [],
+                        magnet_source: sourceKey(st.route === 'dispatch' ? st.dSrc : st.src),
+                        has_subtitle_filter: st.route === 'dispatch' ? (st.dSubOnly ? 'true' : null) : st.sub === '0' ? null : st.sub,
+                        exclude_4k: st.route === 'dispatch' ? st.dNo4k : st.exclude4k };
                     if (tool === 'pikpak' && this.auth && !this.auth.fromConfig) Object.assign(body, { username: this.auth.username, password: this.auth.password });
-                    if (tool === 'pan115') {
-                        const job = await this.request('/api/115/download-jobs', 'POST', body);
-                        window.sessionStorage.setItem(jobStorage.dispatchTask, JSON.stringify({ taskId: job.job_id, type: 'dispatch', preflight }));
-                        this.setState({ dispatchTask: { ...job, id: job.job_id, preflight }, dispatchTool: st.tool });
-                        this.toast('115 派发已在后台启动，可在后台任务中查看进度', OK); return;
-                    }
-                    let result;
-                    try { result = await this.request(tool === 'pikpak' ? '/api/pikpak/download' : '/api/aria2/download-magnets', 'POST', body); }
-                    catch (error) { if (!error.result?.results) throw error; result = error.result; }
-                    await this.finishDispatch(result, st.tool, preflight);
+                    await this.startBackgroundJob('/api/automation/dispatch-jobs', body);
+                    this.toast('磁力检索与派发已在后台启动，可刷新或离开页面', OK);
                 }),
             });
         }
@@ -556,7 +643,7 @@ export function connectDesign(Base) {
             if (this._polling || this._disposed) return;
             this._polling = true;
             try {
-                const pending = [];
+                const pending = [this.perform(() => this.loadBackgroundJobs())];
                 if (['transcode', 'library', 'cinema'].includes(this.state.route) || data.TC.some(task => ['running', 'queued'].includes(task.status))) pending.push(this.perform(() => this.loadTranscodes(false, true)));
                 if (this.state.route === 'storage' && this.state.connections.aria2_connected) pending.push(this.perform(() => this.loadAria()));
                 if (this.state.route === 'auto' || this.state.tasks.some(task => task.runs?.some(run => run.status === 'running'))) pending.push(this.perform(() => this.loadTasks(true)));
@@ -1144,12 +1231,19 @@ export function connectDesign(Base) {
 
         vDispatch() {
             const st = this.state, codes = [...new Set((st.dScope === '1' ? data.MOVIES.map(movie => movie.code) : st.dScope === '2' ? st.sel : st.dCodes.split(/[\s,，]+/)).map(code => code.trim().toUpperCase()).filter(Boolean))];
-            const failureMap = new Map();
-            for (const record of data.HISTORY) for (const resource of record.failed_resources || []) {
-                const result = { movie_id: record.movie_id, magnet: resource.link, source: resource.source, tool: toolName(resource.tool), success: false, message: '上次派发未成功提交，可重试此资源' };
-                failureMap.set(`${result.movie_id}:${result.magnet}`, result);
+            const failureMap = new Map(), verifiedHistory = new Set();
+            for (const record of data.HISTORY) {
+                if (Array.isArray(record.failed_resources)) verifiedHistory.add(record.movie_id);
+                for (const resource of record.failed_resources || []) {
+                    const result = { movie_id: record.movie_id, magnet: resource.link, source: resource.source, tool: toolName(resource.tool), success: false, message: '上次派发未成功提交，可重试此资源' };
+                    failureMap.set(`${result.movie_id}:${result.magnet}`, result);
+                }
             }
-            for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) failureMap.set(`${result.movie_id}:${result.magnet || ''}`, { ...result, tool: st.dispatchTool });
+            for (const result of st.dispatchResult?.results || []) if (result.success === false && !result.skipped) {
+                const key = `${result.movie_id}:${result.magnet || ''}`;
+                if (result.magnet && verifiedHistory.has(result.movie_id) && !failureMap.has(key)) continue;
+                failureMap.set(key, { ...result, tool: st.dispatchTool });
+            }
             const failed = [...failureMap.values()], failures = this.pageItems(failed, 'failedPage', []);
             const failedRows = failures.items.map(result => ({ code: result.movie_id || '', reason: safeText(result.message || result.error), tool: result.tool, time: '', raw: result,
                 noRetry: !result.movie_id, retry: () => this.confirmDispatch([result.movie_id], result.magnet ? [{ link: result.magnet, movie_id: result.movie_id, source: result.source }] : undefined, result.tool),
@@ -1325,19 +1419,11 @@ export function connectDesign(Base) {
             if (!files.length || !this.state.connections.aria2_connected) { this.toast('请连接 Aria2 并选择文件或目录', WARN); return; }
             const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
             this.ask({ title: `发送 ${files.length} 个文件到 Aria2？`, body: '从当前网盘下载到已连接的 Aria2。', list: files.map(file => file.name), color: ACC, okText: '发送', run: () => this.perform(async () => {
-                let result;
-                try { result = await this.request('/api/webdav/download', 'POST', { files: files.map(file => ({ ...file, path: file.path || file.id, is_directory: file.is_directory || file.kind === 'folder', source_type: source === '115' ? 'pan115' : 'webdav' })), video_filter: videoFilter, min_file_size_mb: minSize }); }
-                catch (error) { if (!error.result?.results) throw error; result = error.result; }
-                const rows = result.results || [], failed = rows.filter(item => item.success === false && !item.skipped), successful = rows.filter(item => item.success), skipped = rows.filter(item => item.skipped);
-                if (!failed.length) this.setState({ fsSel: [] });
-                await this.perform(() => this.loadAria());
-                if (failed.length || skipped.length) {
-                    this.ask({ title: '网盘发送结果', body: `${successful.length} 成功，${failed.length} 失败，${skipped.length} 跳过。` + (failed.length ? '请按明细重试失败文件，避免重复发送整个目录。' : '部分文件不符合筛选条件，请查看明细。'), color: WARN,
-                        list: rows.map(item => `${item.filename}：${item.skipped ? '已跳过' : item.success ? '成功' : '失败'} ${safeText(item.message, '')}`),
-                        okText: '查看下载任务', run: () => this.go('storage')() });
-                    return;
-                }
-                this.toast(successful.length ? '已发送到 Aria2' : '没有符合条件的文件，没有新增下载任务', successful.length ? OK : WARN);
+                await this.startBackgroundJob('/api/webdav/download/jobs', { files: files.map(file => ({ ...file, path: file.path || file.id,
+                    is_directory: file.is_directory || file.kind === 'folder', source_type: source === '115' ? 'pan115' : 'webdav' })),
+                    video_filter: videoFilter, min_file_size_mb: minSize });
+                this.setState({ fsSel: [] });
+                this.toast('网盘发送已在后台启动，可刷新或离开页面', OK);
             }) });
         }
         vStorage() {
@@ -1404,10 +1490,10 @@ export function connectDesign(Base) {
             };
             const testSources = providers => this.perform(async () => {
                 requireSavedSources();
-                const result = await this.request('/api/movies/metadata-scrapers/test', 'POST', { providers, concurrent: 3, apply_results: false });
-                if (st.settings !== this.state.settings) throw new Error('配置已重新载入，请重新测试刮削源');
-                this.setState(current => ({ sourcesResult: [...current.sourcesResult.filter(item => !providers.includes(item.provider || item.name)), ...(result.results || [])] }));
-            }, '刮削源测试已完成');
+                const job = await this.startBackgroundJob('/api/movies/metadata-scrapers/test/jobs', { providers, concurrent: 3, apply_results: false });
+                this._scraperSettings.set(job.task_id, st.settings);
+                this.toast('刮削源测试已在后台启动，可刷新或离开页面', OK);
+            });
             const openTab = name => () => { this.setState({ seTab: name }); if (['缓存', '图片缓存'].includes(name)) return this.perform(() => this.loadCacheSettings(name === '图片缓存')); };
             return {
                 saveDisabled: st.seTab === '配置概览' || isCache && !cacheSaved,
@@ -1446,6 +1532,11 @@ export function connectDesign(Base) {
                 view.bg.items.push({ kind: '115 派发', name: `批次 ${job.current_batch || 0}/${job.total_batches || '待计算'}`, pct, pctText: jobFinished(job) ? '查看结果' : `${pct}%`, meta: `${job.completed_count || 0}/${job.total_count || 0} 项已处理`, fg: job.status === 'failed' ? WARN : ACC, finished: jobFinished(job), go: () => this.showBackgroundResult('dispatchTask') });
             }
             for (const task of st.tasks) for (const run of task.runs || []) if (run.status === 'running') view.bg.items.push({ kind: '自动任务', name: task.name, pct: 0, pctText: '', meta: run.message || '运行中', fg: ACC, go: this.go('auto') });
+            for (const task of st.backgroundJobs) view.bg.items.push({ kind: backgroundNames[task.type] || '后台任务',
+                name: safeText(task.message, jobFinished(task) ? '任务已结束，点击查看结果' : '服务端后台执行'),
+                pct: task.percent || 0, pctText: jobFinished(task) ? '查看结果' : `${task.percent || 0}%`,
+                meta: jobFinished(task) ? '结果保存在服务端，可刷新后查看' : '刷新或关闭页面不会中断执行',
+                fg: task.status === 'failed' ? WARN : ACC, finished: jobFinished(task), go: () => this.showServerJob(task) });
             const activeCount = view.bg.items.filter(item => !item.finished).length + Number(Boolean(st.informationTask && !jobFinished(st.informationTask)));
             if (st.informationTask) {
                 const task = st.informationTask, finished = jobFinished(task);

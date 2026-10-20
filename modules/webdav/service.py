@@ -8,6 +8,7 @@ from modules.magnets.service import get_same_source_replacement_magnet_payload
 from modules.pan115 import service as pan115_service
 
 from .clients import Aria2Client, WebDavClient, WebDavFile
+from modules.common.runtime import run_blocking_io
 
 
 logger = logging.getLogger(__name__)
@@ -212,3 +213,96 @@ def download_folder_recursive(
             results.append({"filename": file.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
 
     return results + skipped_files
+
+
+async def dispatch_files_to_aria2(webdav_client, aria2_client, payload, progress_callback=None):
+    if progress_callback:
+        progress_callback({'phase': 'dispatch', 'message': '正在解析网盘目录并提交文件，可刷新或离开页面', 'total': len(payload.files)})
+    results: list[dict[str, Any]] = []
+    local_files = [file_info for file_info in payload.files if file_info.source_type == "local"]
+    for file_info in local_files:
+        results.append({"filename": file_info.name, "success": False, "message": "本地文件不能发送到 Aria2"})
+
+    pan115_files = [file_info for file_info in payload.files if file_info.source_type == "pan115"]
+    if pan115_files:
+        try:
+            pan115_results = await dispatch_pan115_downloads_to_aria2(
+                aria2_client,
+                pan115_files,
+                payload.video_filter,
+                payload.min_file_size_mb,
+            )
+            results.extend(pan115_results)
+        except ValueError as exc:
+            results.append({"filename": "115网盘", "success": False, "message": str(exc)})
+        except Exception as exc:
+            logger.error("添加 115 文件到 Aria2 失败: %s", exc)
+            results.append({"filename": "115网盘", "success": False, "error": "pan115_dispatch_failed", "message": "添加失败"})
+
+    webdav_files = [
+        file_info
+        for file_info in payload.files
+        if file_info.source_type not in {"local", "pan115"}
+    ]
+    if webdav_files and not webdav_client:
+        raise ValueError("WebDAV未连接")
+
+    for file_info in webdav_files:
+        try:
+            if not file_info.path:
+                results.append({"filename": file_info.name, "success": False, "message": "文件路径为空"})
+                continue
+
+            if file_info.is_directory:
+                folder_results = await run_blocking_io(
+                    download_folder_recursive,
+                    webdav_client,
+                    aria2_client,
+                    file_info.path,
+                    file_info.name,
+                    payload.video_filter,
+                    payload.min_file_size_mb,
+                )
+                results.extend(folder_results)
+                continue
+
+            if (payload.video_filter and not is_video_file(file_info.name)) or file_info.size < payload.min_file_size_mb * 1024 * 1024:
+                results.append(
+                    {
+                        "filename": file_info.name,
+                        "success": False,
+                        "skipped": True,
+                        "message": f"不符合视频文件筛选条件（非视频文件或小于{payload.min_file_size_mb}MB）",
+                    }
+                )
+                continue
+
+            download_url = webdav_client._build_download_url(file_info.path)
+            options = webdav_client.build_aria2_options({"out": file_info.name})
+            gid = await run_blocking_io(aria2_client.add_download, download_url, options)
+            results.append({"filename": file_info.name, "success": True, "gid": gid, "message": "添加成功"})
+        except Exception as exc:
+            logger.error("添加 WebDAV 下载任务失败: %s", exc)
+            results.append({"filename": file_info.name, "success": False, "error": "download_add_failed", "message": "添加失败"})
+
+    has_success = any(item.get("success") for item in results)
+    has_real_failure = any(not item.get("success") and not item.get("skipped") for item in results)
+    counts = {key: sum(bool(item.get(key)) for item in results) for key in ('success', 'skipped')}
+    failed = sum(not item.get('success') and not item.get('skipped') for item in results)
+    message = f"文件派发完成：{counts['success']} 成功，{failed} 失败，{counts['skipped']} 跳过" if results else '没有新增下载任务，请检查目录和筛选条件'
+    return {"success": has_success or (bool(results) and not has_real_failure), "results": results, "message": message}
+
+
+def file_dispatch_runner(webdav_client, aria2_client, payload):
+    # A refresh may reconnect and close the browser session's original WebDAV client.
+    connection = (webdav_client.base_url, webdav_client.username, webdav_client.password, webdav_client.timeout_seconds) if webdav_client else None
+    payload = payload.model_copy(deep=True)
+
+    async def run(progress):
+        private_client = WebDavClient(*connection) if connection else None
+        try:
+            return await dispatch_files_to_aria2(private_client, aria2_client, payload, progress_callback=progress)
+        finally:
+            if private_client:
+                private_client.close()
+    return run

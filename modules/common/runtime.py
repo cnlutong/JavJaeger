@@ -201,6 +201,13 @@ def get_static_asset_version() -> str:
         return datetime.datetime.now().strftime("%Y%m%d%H%M%S")
 
 
+def get_config_revision() -> str:
+    try:
+        return str(os.stat(CONFIG_PATH).st_mtime_ns)
+    except OSError:
+        return ''
+
+
 def _parse_bool_env(value: str | None) -> bool:
     return str(value).lower() in {"1", "true", "yes", "on", "y"}
 

@@ -285,11 +285,15 @@ async def get_movies_payload(request: Request) -> dict[str, Any]:
 
 
 async def get_all_movies_payload(request: Request) -> dict[str, Any]:
-    actor_count_filter = request.query_params.get("actorCountFilter")
-    exclude_vr = _parse_bool_query(request.query_params.get("excludeVr"))
-    has_subtitle_filter = _normalize_subtitle_filter(request.query_params.get("hasSubtitle"))
-    filter_conditions = _parse_filter_conditions(request.query_params)
-    query_params = _build_list_query_params(request.query_params, filter_conditions)
+    return await get_all_movies_for_query(request.query_params)
+
+
+async def get_all_movies_for_query(input_params: Any) -> dict[str, Any]:
+    actor_count_filter = input_params.get("actorCountFilter")
+    exclude_vr = _parse_bool_query(input_params.get("excludeVr"))
+    has_subtitle_filter = _normalize_subtitle_filter(input_params.get("hasSubtitle"))
+    filter_conditions = _parse_filter_conditions(input_params)
+    query_params = _build_list_query_params(input_params, filter_conditions)
     query_params.pop("page", None)
     query_params.pop("excludeVr", None)
 

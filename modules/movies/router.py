@@ -22,6 +22,8 @@ from .local_library import (
 )
 from .local_scrape import apply_local_scrape, delete_local_scrape_files, preview_local_scrape
 from .local_scrape_tasks import local_scrape_task_manager
+from modules.common.tasks import submit_background_task
+from .background import enrich_search, test_scrapers
 from .schemas import (
     LocalLibraryInformationDownloadRequest,
     LocalLibraryScanRequest,
@@ -33,6 +35,7 @@ from .schemas import (
     MetadataScraperTestRequest,
     MovieCodeDownloadRequest,
     MovieRecognitionRequest,
+    SearchEnrichmentRequest,
 )
 from .metadata_scrapers import apply_metadata_scraper_test_results, test_metadata_scraper_providers
 from .transcoding import TranscodingError, transcoding_service
@@ -55,6 +58,16 @@ from .workflows import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["movies"])
+
+
+@router.post('/api/movies/search-jobs', status_code=202)
+async def start_search_job(request: Request, payload: SearchEnrichmentRequest):
+    return submit_background_task(request, 'search', lambda progress: enrich_search(payload, progress), exclusive=False)
+
+
+@router.post('/api/movies/metadata-scrapers/test/jobs', status_code=202)
+async def start_scraper_test_job(request: Request, payload: MetadataScraperTestRequest):
+    return submit_background_task(request, 'scraper-test', lambda progress: test_scrapers(payload.model_dump(), progress), exclusive=False)
 
 
 def _transcoding_http_error(exc: TranscodingError) -> HTTPException:

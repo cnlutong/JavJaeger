@@ -1,6 +1,28 @@
-from typing import Optional
+from typing import Optional, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class SearchMovieSummary(BaseModel):
+    id: str
+    title: str | None = ''
+    img: str | None = ''
+    date: str | None = ''
+    gid: str | int | None = None
+    uc: str | int | None = None
+
+
+class SearchEnrichmentRequest(BaseModel):
+    movies: list[SearchMovieSummary] = Field(default_factory=list)
+    source: Literal['javbus', 'cilisousuo', 'yhg007'] = 'javbus'
+    mode: Literal['code', 'filter', 'recognize', 'magnet'] = 'filter'
+    has_subtitle_filter: str | None = None
+    exclude_4k: bool = False
+    sort_by: str = 'size'
+    sort_order: str = 'desc'
+    all_pages: bool = False
+    query: dict[str, str] = Field(default_factory=dict)
+    has_next_page: bool = False
 
 
 class MovieRecognitionRequest(BaseModel):

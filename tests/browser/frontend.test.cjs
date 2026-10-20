@@ -101,6 +101,36 @@ const movie = (id = 'QA-001') => ({ id, title: `QA 测试影片 ${id}`, gid: '12
 const dispatchContract = require('../fixtures/dispatch-contract.json');
 const magnet = { ...dispatchContract.magnets[0], source: 'javbus' };
 
+
+// The fake worker lives in Node, so a page reload cannot cancel its work or results.
+const jobRegistries = new WeakMap();
+async function backgroundRoute(page, url, kind, run) {
+    let registry = jobRegistries.get(page);
+    if (!registry) {
+        registry = { jobs: [], version: 0 }; jobRegistries.set(page, registry);
+        await page.route('**/api/system/jobs**', route => {
+            const id = new URL(route.request().url()).pathname.split('/')[4];
+            const job = registry.jobs.find(item => item.task_id === id);
+            if (route.request().method() === 'DELETE') { registry.jobs = registry.jobs.filter(item => item !== job); return route.fulfill({ json: { success: true } }); }
+            return route.fulfill({ status: id && !job ? 404 : 200, json: id ? job || {} : { tasks: registry.jobs.map(({ result, ...summary }) => summary) } });
+        });
+    }
+    await page.route('**' + url, async route => {
+        const body = route.request().postDataJSON();
+        const job = { task_id: String(++registry.version), type: typeof kind === 'function' ? kind(body) : kind,
+            status: 'running', percent: 0, created_at: new Date().toISOString(), updated_at: String(registry.version), message: '后台任务运行中', result: null };
+        registry.jobs.push(job);
+        await route.fulfill({ status: 202, json: job });
+        Promise.resolve().then(() => run(body, result => { job.result = result; job.updated_at = String(++registry.version); })).then(result => {
+            Object.assign(job, { result, status: result.success === false ? 'failed' : 'success', percent: 100, message: result.message || '后台任务完成', updated_at: String(++registry.version) });
+        }).catch(() => Object.assign(job, { status: 'failed', message: '后台任务失败', updated_at: String(++registry.version) }));
+    });
+}
+function searchSnapshot(body, movies = body.movies, { magnets = true, ready = movies.map(movie => movie.id) } = {}) {
+    return { success: true, movies, mode: body.mode, source: body.source, details_ready: ready, completed_ids: ready,
+        magnets: Object.fromEntries(ready.map(id => [id, magnets ? [{ ...magnet, source: body.source }] : []])), has_next_page: body.has_next_page };
+}
+
 async function libraryFixture(page, count = 4) {
     const state = { requests: [], settings: { source_directory: '/qa-incoming', directories: ['/qa'], ignored_paths: [] }, records: Array.from({ length: count }, (_, i) => ({
         movie_id: `QA-${String(i + 1).padStart(3, '0')}`, title: `QA 测试影片 ${i + 1}`, date: `2026-09-${String(i + 1).padStart(2, '0')}`,
@@ -664,6 +694,7 @@ test('performance: delayed magnets and GPU probes never delay opening results or
     const caps = new Promise(resolve => { releaseCaps = resolve; });
     t.after(() => { releaseMagnets(); releaseCaps(); });
     const page = await openApp(t, 1440, async p => {
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', async body => { await magnets; return searchSnapshot(body); });
         await libraryFixture(p);
         await p.route('**/api/movies/QA-001', route => route.fulfill({ json: movie() }));
         await p.route('**/api/magnets/**', async route => { await magnets; await route.fulfill({ json: [magnet] }); });
@@ -843,6 +874,7 @@ test('original search controls use actual movie, magnet, filter and recognition 
     const cover = 'https://covers.example.test/search.svg';
     let detailRequests = 0;
     const page = await openApp(t, 1440, async p => {
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', body => { calls.push(body); return searchSnapshot(body, body.movies.map(seed => ({ ...movie(seed.id), ...seed, img: cover, producer: { name: 'QA Detail Studio' } }))); });
         await p.route('**/api/movies?*', route => { calls.push(route.request().url()); return route.fulfill({ json: { movies: [movie()] } }); });
         await p.route('**/api/movies/QA-*', route => { calls.push(route.request().url()); detailRequests++; return route.fulfill({ json: { ...movie(), img: cover, producer: { name: 'QA Detail Studio' } } }); });
         await p.route('**/api/magnets/**', route => { calls.push(route.request().url()); return route.fulfill({ json: [magnet] }); });
@@ -853,7 +885,7 @@ test('original search controls use actual movie, magnet, filter and recognition 
     await field(page, '番号').fill('QA-001');
     await page.getByRole('button', { name: '查询番号', exact: true }).click();
     await page.getByText('QA 测试影片 QA-001', { exact: true }).waitFor();
-    assert.ok(calls.some(url => typeof url === 'string' && url.includes('gid=123')));
+    assert.ok(calls.some(body => body.movies?.[0]?.gid === '123'));
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-design-search.png'), fullPage: true });
     const expectedCover = '/api/image-proxy?url=' + encodeURIComponent(cover);
     assert.equal(await page.locator('main img').getAttribute('src'), expectedCover);
@@ -900,6 +932,16 @@ test('search: summaries appear first and background metadata fills rows before d
     t.after(() => releaseDetails());
     let detailCalls = 0;
     const page = await openApp(t, 1440, async p => {
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', async (body, publish) => {
+            const movies = body.movies.map(seed => ({ ...seed })), ready = [];
+            await Promise.all(movies.map(async (seed, index) => {
+                detailCalls++;
+                if (seed.id === 'QA-001') await gate;
+                movies[index] = { ...seed, stars: [{ name: '后台演员 ' + seed.id }], producer: { name: '后台制作商 ' + seed.id } };
+                ready.push(seed.id); publish(searchSnapshot(body, [...movies], { ready: [...ready] }));
+            }));
+            return searchSnapshot(body, movies);
+        });
         await p.route('**/api/movies?*', route => route.fulfill({ json: { movies: ['QA-001', 'QA-002'].map(id => ({ id, title: 'Summary ' + id, img: '/api/test-cover', gid: '123', uc: 0 })) } }));
         await p.route('**/api/movies/QA-*', async route => {
             detailCalls++;
@@ -913,7 +955,7 @@ test('search: summaries appear first and background metadata fills rows before d
     await navigate(page, '影片检索');
     await field(page, '磁力来源').selectOption('Cilisousuo');
     await page.getByRole('button', { name: '标签筛选', exact: true }).click();
-    const started = page.waitForRequest(request => request.url().endsWith('/api/movies/QA-001'), { timeout: 3000 });
+    const started = page.waitForRequest(request => request.url().endsWith('/api/movies/search-jobs'), { timeout: 3000 });
     await page.getByRole('button', { name: '开始筛选', exact: true }).click();
     await page.getByText('Summary QA-001', { exact: true }).waitFor();
     await started;
@@ -922,6 +964,12 @@ test('search: summaries appear first and background metadata fills rows before d
     await row.getByText('资料补全中…', { exact: true }).waitFor();
     await page.getByText('后台演员 QA-002', { exact: true }).waitFor();
     assert.equal(await page.locator('.jj-drawer').count(), 0, 'metadata loads without opening details');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '影片检索');
+    await page.locator('label').filter({ has: page.locator('input[name="jj-view"]') }).filter({ hasText: '列表' }).click();
+    await page.getByText('后台演员 QA-002', { exact: true }).waitFor();
+    assert.equal(detailCalls, 2, 'reload discovers the existing worker without submitting again');
     releaseDetails();
     await row.getByText('后台演员 QA-001', { exact: true }).waitFor();
     assert.equal(await row.locator('img').getAttribute('src'), '/api/test-cover');
@@ -953,7 +1001,7 @@ test('search: summaries appear first and background metadata fills rows before d
     await page.getByText('后台演员 QA-001', { exact: true }).waitFor();
     await page.locator('main').getByRole('button', { name: '详情', exact: true }).click();
     await page.locator('.jj-drawer').getByText('后台制作商 QA-001', { exact: true }).waitFor();
-    assert.equal(detailCalls, 7, 'the drawer reuses the backend result from the direct search');
+    assert.equal(detailCalls, 8, 'the drawer reuses the backend result from the direct search');
     await page.locator('.jj-drawer').evaluate(node => Promise.all(node.getAnimations().map(animation => animation.finished)));
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-metadata-cache-restored.png'), fullPage: false });
 });
@@ -1015,6 +1063,7 @@ test('server cache: independent browsers reuse metadata and share retention sett
     });
     assert.ok((await put(settingsURL, { javbus: { base_url: `http://127.0.0.1:${upstream.address().port}`, proxy: '', request_interval_seconds: 0 } })).ok);
     const setup = async p => {
+        await p.route('**/api/movies/search-jobs', route => route.continue());
         await p.route('**/api/magnets/**', route => route.fulfill({ json: [] }));
         await p.route('**/api/metadata-cache', route => route.continue());
     };
@@ -1077,6 +1126,7 @@ test('server cache: independent browsers reuse metadata and share retention sett
 test('image cache: covers render across browsers and the separate MB limit persists and prunes', async t => {
     const cover = 'https://www.javbus.com/qa-cache/shared-cover.svg';
     const setup = async p => {
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', body => searchSnapshot(body, body.movies, { magnets: false }));
         await p.route('**/api/movies/QA-IMAGE', route => route.fulfill({ json: { ...movie('QA-IMAGE'), img: cover } }));
         await p.route('**/api/magnets/**', route => route.fulfill({ json: [] }));
         await p.route('**/api/image-cache', route => route.continue());
@@ -1231,8 +1281,11 @@ test('settings connect PikPak with session-only secrets, dispatch and show write
     const writes = []; let fail = true;
     const page = await openApp(t, 1440, async p => {
         await p.route('**/api/pikpak/login', route => { writes.push(route.request().postDataJSON()); return route.fulfill({ json: { success: true } }); });
-        await p.route('**/api/pikpak/download', route => { writes.push(route.request().postDataJSON()); return route.fulfill({ status: fail ? 500 : 200, json: fail ? { password: 'never-echo-response-secret' } : { success: true, results: [{ success: true }] } }); });
-        await p.route('**/api/movies/batch', route => { writes.push(route.request().postDataJSON()); return route.fulfill({ json: dispatchContract.batch }); });
+        await backgroundRoute(p, '/api/automation/dispatch-jobs', body => 'dispatch-' + body.tool, body => {
+            writes.push(body); return { success: true, tool: body.tool, results: [{ movie_id: 'QA-001', success: true }] };
+        });
+        await p.route('**/api/automation/dispatch-jobs', route => fail
+            ? route.fulfill({ status: 500, json: { password: 'never-echo-response-secret' } }) : route.fallback());
     });
     await navigate(page, '设置');
     await page.locator('aside').getByRole('button', { name: /^PikPak/ }).click();
@@ -1252,7 +1305,7 @@ test('settings connect PikPak with session-only secrets, dispatch and show write
     fail = false;
     await page.getByRole('button', { name: /^派发 [0-9]+ 个番号$/ }).click(); await approve(page, '开始派发');
     await page.getByText('下载任务已提交', { exact: true }).waitFor();
-    assert.equal(writes.filter(body => body.magnet_links).length, 2);
+    assert.equal(writes.filter(body => body.tool === 'pikpak').length, 1);
 });
 
 test('automation creates, edits four nodes, saves, runs and deletes real tasks', async t => {
@@ -1287,10 +1340,11 @@ test('automation creates, edits four nodes, saves, runs and deletes real tasks',
 test('WebDAV file navigation, filtering, dispatch and Aria2 pause/resume/remove use session APIs', async t => {
     const calls = [];
     const page = await openApp(t, 1440, async p => {
+        await backgroundRoute(p, '/api/webdav/download/jobs', 'file-dispatch', body => { calls.push(['POST', '/api/webdav/download/jobs', body]); return { success: true, message: '已发送到 Aria2', results: [{ filename: 'QA.mp4', success: true }] }; });
         await p.route('**/api/webdav/status', r => r.fulfill({ json: { webdav_connected: true, aria2_connected: true } }));
         await p.route('**/api/webdav/files?*', r => r.fulfill({ json: { success: true, files: [{ name: 'folder', path: '/folder', is_directory: true }, { name: 'QA.mp4', path: '/QA.mp4', size: 1024 ** 3, is_directory: false }] } }));
         await p.route('**/api/aria2/downloads', r => r.fulfill({ json: { success: true, downloads: [{ gid: 'qa-gid', name: 'QA-download', status: 'active', totalLength: 100, completedLength: 50, downloadSpeed: 10 }] } }));
-        for (const url of ['**/api/webdav/download', '**/api/aria2/pause/*', '**/api/aria2/resume/*', '**/api/aria2/remove/*']) await p.route(url, r => { calls.push([r.request().method(), new URL(r.request().url()).pathname, r.request().postDataJSON()]); return r.fulfill({ json: { success: true, results: [{ success: true }] } }); });
+        for (const url of ['**/api/aria2/pause/*', '**/api/aria2/resume/*', '**/api/aria2/remove/*']) await p.route(url, r => { calls.push([r.request().method(), new URL(r.request().url()).pathname, r.request().postDataJSON()]); return r.fulfill({ json: { success: true, results: [{ success: true }] } }); });
     });
     await navigate(page, '网盘与下载');
     await page.locator('aside').getByText('WebDAV', { exact: true }).click();
@@ -1445,6 +1499,7 @@ test('audit: every rendered page button has an action and dynamic panels have ac
 test('audit: filter catalogue, source switching, pagination, HTML recognition, selection and reset', async t => {
     const calls = [];
     const page = await openApp(t, 1440, async p => {
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', body => { calls.push(body); return searchSnapshot(body); });
         await p.route('**/api/movies?*', r => { calls.push(new URL(r.request().url())); return r.fulfill({ json: { movies: [movie()], pagination: { hasNextPage: new URL(r.request().url()).searchParams.get('page') === '1' } } }); });
         await p.route('**/api/movies/all?*', r => { calls.push(new URL(r.request().url())); return r.fulfill({ json: { movies: [movie()] } }); });
         await p.route('**/api/movies/recognize', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { movies: [movie()] } }); });
@@ -1463,7 +1518,7 @@ test('audit: filter catalogue, source switching, pagination, HTML recognition, s
     await field(page, '磁力来源').selectOption('YHG007');
     await page.getByRole('button', { name: '下一页', exact: true }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === '下一页' && button.disabled));
-    assert.ok(calls.some(url => url.searchParams?.get('source') === 'yhg007'));
+    assert.ok(calls.some(url => url.source === 'yhg007'));
     assert.ok(calls.some(url => url.searchParams?.get('page') === '2'));
     await page.getByRole('button', { name: '全选本页', exact: true }).click();
     await page.getByRole('button', { name: '加入自动任务', exact: true }).click();
@@ -1482,9 +1537,11 @@ test('audit: filter catalogue, source switching, pagination, HTML recognition, s
 test('audit: failed batch retry, ignore and history check/clear form a complete workflow', async t => {
     let attempts = 0, cleared = false;
     const page = await openApp(t, 1440, async p => {
-        await p.route('**/api/movies/batch', r => r.fulfill({ json: dispatchContract.batch }));
-        await p.route('**/api/pikpak/download', r => { attempts++; return r.fulfill({ json: { success: false, results: [{ movie_id: 'QA-001', success: false, message: attempts === 1 ? '测试连接失败' : '测试连接失败（重试）' }] } }); });
+        await backgroundRoute(p, '/api/automation/dispatch-jobs', body => 'dispatch-' + body.tool, body => {
+            attempts++; return { success: false, tool: body.tool, results: [{ movie_id: 'QA-001', magnet: magnet.link, success: false, message: attempts === 1 ? '测试连接失败' : '测试连接失败（重试）' }] };
+        });
         await p.route('**/api/history', r => { if (r.request().method() === 'DELETE') cleared = true; return r.fulfill({ json: r.request().method() === 'GET' ? (cleared ? [] : [{ movie_id: 'QA-001', download_resources: [{ link: magnet.link, source: 'javbus' }] }]) : { success: true } }); });
+        await p.route('**/api/history/*/dismiss-failure', r => r.fulfill({ json: { success: true } }));
         await p.route('**/api/history/check-local-library', r => r.fulfill({ json: { success: true, records: [{ movie_id: 'QA-001', needs_reselect: true, in_local_library: false }] } }));
     });
     await navigate(page, '下载派发');
@@ -1495,6 +1552,7 @@ test('audit: failed batch retry, ignore and history check/clear form a complete 
     await page.getByText('测试连接失败（重试）', { exact: true }).waitFor();
     assert.equal(attempts, 2);
     await page.getByRole('button', { name: '忽略此项', exact: true }).click();
+    await page.getByText('已忽略该失败项', { exact: true }).waitFor();
     assert.equal(await page.getByText('上一批派发部分失败', { exact: true }).count(), 0);
     await page.getByRole('button', { name: '核对本地库', exact: true }).click();
     await page.getByText('未入库 1', { exact: true }).waitFor();
@@ -1597,7 +1655,7 @@ test('audit: provider fields, order, enablement, tests and reset/save operate on
     const calls = [];
     const page = await openApp(t, 1440, async p => {
         await p.route('**/api/system/settings', r => { if (r.request().method() === 'PUT') { stored = r.request().postDataJSON(); calls.push(stored); } return r.fulfill({ json: stored }); });
-        await p.route('**/api/movies/metadata-scrapers/test', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { results: r.request().postDataJSON().providers.map(provider => ({ provider, success: true, duration_ms: 3 })) } }); });
+        await backgroundRoute(p, '/api/movies/metadata-scrapers/test/jobs', 'scraper-test', body => { calls.push(body); return { success: true, results: body.providers.map(provider => ({ provider, success: true, duration_ms: 3 })) }; });
         await p.route('**/api/movies/metadata-scrapers/apply-test-results', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { success: true } }); });
     });
     await navigate(page, '设置'); await page.locator('aside').getByRole('button', { name: /^刮削源/ }).click();
@@ -1656,7 +1714,7 @@ test('audit: 115 folders load every page, navigate back and dispatch with the so
             return r.fulfill({ json: { items, count: url.searchParams.get('cid') === '10' ? 1 : 2 } });
         });
         await p.route('**/api/aria2/downloads', r => r.fulfill({ json: { downloads: [] } }));
-        await p.route('**/api/webdav/download', r => { calls.push(r.request().postDataJSON()); return r.fulfill({ json: { success: true, results: [{ success: true }] } }); });
+        await backgroundRoute(p, '/api/webdav/download/jobs', 'file-dispatch', body => { calls.push(body); return { success: true, message: '已发送到 Aria2', results: [{ success: true }] }; });
     });
     await navigate(page, '网盘与下载'); await page.locator('aside').getByText('115 网盘', { exact: true }).click();
     await page.getByText('第二页目录', { exact: true }).waitFor();
@@ -1670,15 +1728,15 @@ test('audit: 115 folders load every page, navigate back and dispatch with the so
 test('workflow: real 115 job failure survives reload and can be ignored without marking downloaded', async t => {
     const page = await openApp(t, 1440, async p => {
         await p.route('**/api/movies/batch', r => r.fulfill({ json: dispatchContract.batch }));
-        await p.route('**/api/115/download-jobs**', r => r.continue());
+        await p.route('**/api/automation/dispatch-jobs', r => r.continue({ postData: JSON.stringify({ ...r.request().postDataJSON(), magnet_links: [magnet.link], magnet_sources: ['javbus'] }) }));
         await p.route('**/api/history**', r => r.continue());
     });
     await navigate(page, '下载派发');
     await page.locator('input[name="jj-tool"]').nth(1).check();
     await page.locator('textarea').fill('QA-001');
-    const submitted = page.waitForResponse(r => r.url().endsWith('/api/115/download-jobs') && r.request().method() === 'POST');
+    const submitted = page.waitForResponse(r => r.url().endsWith('/api/automation/dispatch-jobs') && r.request().method() === 'POST');
     await page.getByRole('button', { name: '派发 1 个番号', exact: true }).click(); await approve(page, '开始派发');
-    const job = await (await submitted).json(); assert.ok(job.job_id);
+    const job = await (await submitted).json(); assert.ok(job.task_id);
     await page.getByRole('button', { name: '忽略此项', exact: true }).waitFor();
     await page.reload({ waitUntil: 'networkidle' });
     await page.getByRole('button', { name: '管理界面', exact: true }).click(); await navigate(page, '下载派发');
@@ -1692,5 +1750,8 @@ test('workflow: real 115 job failure survives reload and can be ignored without 
     assert.equal(await page.getByRole('button', { name: '忽略此项', exact: true }).count(), 0);
     const downloaded = await (await page.request.get(baseURL + '/api/downloaded-movies/QA-001')).json();
     assert.equal(downloaded.is_downloaded, false);
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click(); await navigate(page, '下载派发');
+    assert.equal(await page.getByRole('button', { name: '忽略此项', exact: true }).count(), 0, 'restoring a job keeps ignored failures dismissed');
     await page.request.delete(baseURL + '/api/history');
 });

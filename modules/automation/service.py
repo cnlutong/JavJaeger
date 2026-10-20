@@ -7,12 +7,15 @@ from typing import Any
 from uuid import uuid4
 
 from modules.common.runtime import etag_matches, get_aria2_config, run_blocking_io
-from modules.history.service import local_movie_library_service
+from modules.history.service import local_movie_library_service, download_history_service
 from modules.javbus_api import javbus_api_service
 from modules.magnets.service import get_best_magnet_payload
 from modules.movies.service import filter_movies_by_detail_conditions
+from modules.movies.workflows import get_batch_movies_payload
+from modules.movies.schemas import BatchMoviesRequest
 from modules.pikpak.schemas import DownloadRequest
 from modules.pikpak.service import download as pikpak_download
+from modules.pikpak.service import resolve_credentials
 from modules.pan115.schemas import DownloadRequest as Pan115DownloadRequest
 from modules.pan115.service import download as pan115_download
 from modules.webdav.clients import Aria2Client
@@ -25,6 +28,7 @@ from .schemas import (
     AutomationTask,
     AutomationTaskCreate,
     AutomationTaskUpdate,
+    OneOffDispatchRequest,
 )
 
 
@@ -32,6 +36,68 @@ logger = logging.getLogger(__name__)
 DEFAULT_AUTOMATION_PATH = "data/automation_tasks.json"
 REQUIRED_NODE_TYPES = {"trigger", "search", "magnet", "download"}
 RUN_HISTORY_LIMIT = 50
+
+
+def freeze_dispatch_credentials(payload: OneOffDispatchRequest) -> OneOffDispatchRequest:
+    payload = payload.model_copy(deep=True)
+    if payload.tool == 'pikpak':
+        credentials = resolve_credentials(payload.username, payload.password)
+        payload.username, payload.password = credentials.username, credentials.password
+    return payload
+
+
+async def dispatch_once(payload: OneOffDispatchRequest, aria2_client, progress) -> dict[str, Any]:
+    """Keep magnet selection and the already-confirmed dispatch in one server job."""
+    movie_ids, links, sources = payload.movie_ids, payload.magnet_links, payload.magnet_sources
+    preflight = []
+    if links is None:
+        progress({'phase': 'magnets', 'message': '正在检索磁力，刷新页面不会中断派发', 'total': len(movie_ids)})
+        selected = await get_batch_movies_payload(BatchMoviesRequest(movie_ids=movie_ids, magnet_source=payload.magnet_source,
+            has_subtitle_filter=payload.has_subtitle_filter, exclude_4k=payload.exclude_4k))
+        if selected.get('success') is False and not selected.get('results'):
+            return {'success': False, 'tool': payload.tool, 'message': '磁力检索失败，请检查来源后重试', 'results': []}
+        links, movie_ids, sources = [], [], []
+        for item in selected.get('results', []):
+            code, magnet = item.get('movie_id'), item.get('best_magnet') or {}
+            if item.get('in_local_library'):
+                preflight.append({'movie_id': code, 'success': False, 'skipped': True, 'reason': 'already_exists'})
+            elif magnet.get('link'):
+                movie_ids.append(code); links.append(magnet['link']); sources.append(magnet.get('source') or payload.magnet_source)
+            else:
+                preflight.append({'movie_id': code, 'success': False, 'error': item.get('error') or 'no_magnet', 'message': '没有符合条件的磁力'})
+    progress({'phase': 'dispatch', 'message': '正在向下载工具提交资源', 'total': len(links)})
+    submitted = []
+    try:
+        if not links:
+            result = {'success': not any(not item.get('skipped') for item in preflight), 'results': []}
+        elif payload.tool == 'pikpak':
+            result = await pikpak_download(DownloadRequest(movie_ids=movie_ids, magnet_links=links, magnet_sources=sources,
+                username=payload.username, password=payload.password))
+        elif payload.tool == 'pan115':
+            async def report(event):
+                nonlocal submitted
+                submitted = event.get('results', [])
+                progress({'phase': 'dispatch', 'message': f"115 派发：{event.get('completed_count', 0)}/{event.get('total_count', len(links))}",
+                    'completed': event.get('completed_count', 0), 'total': event.get('total_count', len(links))})
+            result = await pan115_download(Pan115DownloadRequest(movie_ids=movie_ids, magnet_links=links, magnet_sources=sources), progress_callback=report)
+        else:
+            rows = await dispatch_magnet_downloads_to_aria2(aria2_client, links, movie_ids, sources)
+            result = {'success': any(row.get('success') or row.get('skipped') for row in rows), 'results': rows}
+    except Exception:
+        previous = {(row.get('movie_id'), row.get('original_magnet') or row.get('magnet')): row for row in submitted}
+        rows = []
+        for index, link in enumerate(links):
+            code = movie_ids[index] if index < len(movie_ids) else ''
+            rows.append(previous.get((code, link)) or {'movie_id': code, 'magnet': link,
+                'source': sources[index] if index < len(sources) else payload.magnet_source,
+                'success': False, 'error': 'dispatch_interrupted', 'message': '派发中断，请核对下载工具与历史后重试'})
+        result = {'success': False, 'results': rows}
+        await download_history_service.record_dispatch_results([row for row in rows if not row.get('success') and not row.get('skipped')], payload.tool)
+    result = {**result, 'tool': payload.tool, 'results': preflight + result.get('results', [])}
+    failed = sum(item.get('success') is False and not item.get('skipped') for item in result['results'])
+    skipped = sum(bool(row.get('skipped')) for row in result['results'])
+    result['message'] = f"派发完成：{sum(bool(row.get('success')) for row in result['results'])} 成功，{failed} 失败，{skipped} 跳过"
+    return result
 
 
 class AutomationError(ValueError):
