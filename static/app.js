@@ -7854,6 +7854,7 @@ class Component extends DCLogic {
           await this.startBackgroundJob("/api/webdav/download/jobs", {
             files: files.map((file) => ({
               ...file,
+              size: file.size || 0,
               path: file.path || file.id,
               is_directory: file.is_directory || file.kind === "folder",
               source_type: source === "115" ? "pan115" : "webdav"

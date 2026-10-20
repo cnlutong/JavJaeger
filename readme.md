@@ -479,6 +479,8 @@ GET    /api/automation/tasks/{task_id}/runs
 
 派发历史的 `download_resources` 保存成功提交的资源，`failed_resources` 保存提交失败的原链接、磁力来源和下载工具。只有成功提交的链接参与去重；失败项可按原资源重试，或通过 `dismiss-failure`（JSON：`{"link":"原资源链接"}`）逐项忽略。成功提交只代表下载服务接收请求，不代表远端文件已经下载完成。
 
+`GET /api/115/files` 对未提供体积的条目返回 `size: 0`。下载请求中的 `files[].size` 为整数字节数；文件夹用 0，筛选时以递归查到的文件体积为准。
+
 影片派发（PikPak、115、Aria2）的磁力预检与提交统一由 `/api/automation/dispatch-jobs` 创建后台任务。`magnet_links` 为 `null` 时在服务器检索最佳磁力；提供链接时按确认的资源派发。网盘文件和目录派发使用 `/api/webdav/download/jobs`，任务持有独立 WebDAV 连接，刷新后的重连不会关闭它。刮削源测试使用 `/api/movies/metadata-scrapers/test/jobs`，结果不会自动写入配置；配置变更后旧结果也不会覆盖当前测试建议。以上创建接口均返回 HTTP 202 和 `task_id`。原有同步接口及 115 `download-jobs` 保留兼容。
 
 搜索补全与全页检索使用 `/api/movies/search-jobs`，资料与磁力并发上限为 4，部分失败仍保留摘要和封面。`GET /api/system/jobs` 只发现当前浏览器会话的任务，支持 ETag / 304；单任务 GET 返回进度、日志和结果，DELETE 仅关闭已结束的任务记录。刷新后页面自动发现这些任务，搜索结果可恢复，完成结果可从顶栏“后台任务”查看。刷新恢复不会触发自动下载；当前页面启用的自动下载仍需用户确认。

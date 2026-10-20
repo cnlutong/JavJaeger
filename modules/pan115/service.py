@@ -654,7 +654,7 @@ def _normalize_directory_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "parent_id": str(item.get("pid") or ""),
                 "name": str(item.get("n") or ""),
                 "kind": "folder" if is_folder else str(item.get("ico") or "file"),
-                "size": item.get("s") or "",
+                "size": item.get("s") or 0,
                 "pick_code": "" if is_folder else str(item.get("pc") or item.get("pick_code") or ""),
             }
         )

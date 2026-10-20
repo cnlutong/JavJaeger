@@ -1369,6 +1369,19 @@ test('custom MB and GB thresholds preserve folders and freeze recursive download
     assert.doesNotMatch(template, /最小体积 min_file_size_mb/);
 });
 
+test('115 folders with empty sizes from an already loaded listing submit zero bytes', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ fsSrc: '115', connections: { aria2_connected: true }, fsMinSize: '1.5', fsMinUnit: 'GB' });
+    for (const size of ['', null, undefined]) {
+        instance.sendFiles([{ id: 'folder', name: 'folder', kind: 'folder', size }]);
+        const fixture = mockJobs('file-dispatch', { success: true, results: [] });
+        await instance.state.dlg.run();
+        assert.equal(fixture.calls[0].body.files[0].size, 0);
+        assert.equal(fixture.calls[0].body.files[0].is_directory, true);
+        assert.equal(fixture.calls[0].body.min_file_size_mb, 1536);
+    }
+});
+
 test('invalid custom file size cannot silently submit an unrestricted download', t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ fsSrc: 'webdav', connections: { webdav_connected: true, aria2_connected: true } });

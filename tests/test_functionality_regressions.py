@@ -318,6 +318,15 @@ def test_selected_folders_recurse_and_filter_each_file_with_a_fractional_minimum
         assert client.list_directory_all.await_count == 3
 
 
+@pytest.mark.parametrize('empty_size', ['', None, 0])
+def test_pan115_folder_listing_can_be_submitted_to_the_download_api(empty_size):
+    from modules.webdav.schemas import AddDownloadsRequest
+    folder = pan115._normalize_directory_payload({'data': [{'cid': 'folder', 'fc': '0', 'n': 'folder', 's': empty_size}]})['items'][0]
+    assert folder['size'] == 0
+    payload = AddDownloadsRequest(files=[{**folder, 'path': folder['id'], 'is_directory': True, 'source_type': 'pan115'}], min_file_size_mb=1536)
+    assert payload.files[0].size == 0 and payload.files[0].is_directory
+
+
 @pytest.mark.parametrize('minimum', [-1, float('nan'), float('inf')])
 def test_file_download_minimum_rejects_negative_or_nonfinite_values(minimum):
     from modules.webdav.schemas import AddDownloadsRequest

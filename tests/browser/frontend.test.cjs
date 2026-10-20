@@ -1769,7 +1769,7 @@ test('audit: 115 folders load every page, navigate back and dispatch with the so
         await p.route('**/api/115/status', r => r.fulfill({ json: { connected: true } }));
         await p.route('**/api/115/files?*', r => {
             const url = new URL(r.request().url()); calls.push(url.searchParams.get('cid'));
-            const items = url.searchParams.get('cid') === '10' ? [{ id: '20', name: 'QA.mp4', kind: 'file', size: 1024 ** 3, pick_code: 'qa-pick' }] : Number(url.searchParams.get('offset')) ? [{ id: '11', name: '第二页目录', kind: 'folder' }] : [{ id: '10', name: '测试目录', kind: 'folder' }];
+            const items = url.searchParams.get('cid') === '10' ? [{ id: '20', name: 'QA.mp4', kind: 'file', size: 1024 ** 3, pick_code: 'qa-pick' }] : Number(url.searchParams.get('offset')) ? [{ id: '11', name: '第二页目录', kind: 'folder', size: '' }] : [{ id: '10', name: '测试目录', kind: 'folder', size: '' }];
             return r.fulfill({ json: { items, count: url.searchParams.get('cid') === '10' ? 1 : 2 } });
         });
         await p.route('**/api/aria2/downloads', r => r.fulfill({ json: { downloads: [] } }));
@@ -1782,6 +1782,15 @@ test('audit: 115 folders load every page, navigate back and dispatch with the so
     await page.getByText('已发送到 Aria2', { exact: true }).waitFor();
     assert.equal(calls.find(body => body.files)?.files[0].source_type, 'pan115');
     await page.getByText('上一级', { exact: true }).click(); await page.getByText('测试目录', { exact: true }).waitFor();
+    await page.locator('tr').filter({ hasText: '测试目录' }).getByRole('checkbox').check();
+    await page.getByRole('spinbutton', { name: '最小体积', exact: true }).fill('1.5');
+    await page.getByRole('combobox', { name: '体积单位', exact: true }).selectOption('GB');
+    await page.getByRole('button', { name: '发送到 Aria2', exact: true }).click();
+    const submitted = page.waitForResponse(response => response.url().endsWith('/api/webdav/download/jobs'));
+    await approve(page, '发送'); await submitted;
+    const folder = calls.filter(body => body.files).at(-1);
+    assert.equal(folder.files[0].is_directory, true); assert.equal(folder.files[0].size, 0);
+    assert.equal(folder.min_file_size_mb, 1536);
 });
 
 test('workflow: real 115 job failure survives reload and can be ignored without marking downloaded', async t => {

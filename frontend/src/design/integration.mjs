@@ -1425,7 +1425,7 @@ export function connectDesign(Base) {
             const source = this.state.fsSrc, videoFilter = this.state.fsVideoOnly, minSize = this.minFileSize();
             if (minSize === null) { this.toast('最小体积请输入大于或等于 0 的有效数字', WARN); return; }
             this.ask({ title: `发送 ${files.length} 项到 Aria2？`, body: `文件夹会递归查找全部子目录，只提交符合筛选条件的文件。仅视频：${videoFilter ? '是' : '否'}；最小体积：${this.state.fsMinSize || 0} ${this.state.fsMinUnit}（0 表示不限）。`, list: files.map(file => file.name), color: ACC, okText: '发送', run: () => this.perform(async () => {
-                await this.startBackgroundJob('/api/webdav/download/jobs', { files: files.map(file => ({ ...file, path: file.path || file.id,
+                await this.startBackgroundJob('/api/webdav/download/jobs', { files: files.map(file => ({ ...file, size: file.size || 0, path: file.path || file.id,
                     is_directory: file.is_directory || file.kind === 'folder', source_type: source === '115' ? 'pan115' : 'webdav' })),
                     video_filter: videoFilter, min_file_size_mb: minSize });
                 this.setState({ fsSel: [] });
