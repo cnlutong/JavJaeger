@@ -19,7 +19,7 @@ from modules.javbus_api import javbus_api_service
 logger = logging.getLogger(__name__)
 
 
-def _write_library_json(path: Path, payload: dict[str, Any], permissions_from: Path | None = None) -> None:
+def _write_library_json(path: Path, payload: dict[str, Any] | list[dict[str, Any]], permissions_from: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     created = False
@@ -158,37 +158,31 @@ class DownloadHistoryService:
         self._loaded = False
         self._lock = asyncio.Lock()
 
+    def _load_records(self) -> None:
+        path = Path(self.file_path)
+        records = {}
+        if path.exists():
+            with path.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+            source_records = (data.get("movies") or data.get("records") or []) if isinstance(data, dict) else data
+            if isinstance(source_records, list):
+                for record in source_records:
+                    if not isinstance(record, dict):
+                        continue
+                    normalized = _normalize_history_record(record)
+                    if normalized:
+                        records[normalized["movie_id"]] = normalized
+            logger.info("已加载 %s 条下载记录", len(records))
+        else:
+            _write_library_json(path, [])
+            logger.info("已创建空的下载记录文件: %s", self.file_path)
+        self._cache = records
+        self._loaded = True
+
     async def load_records(self) -> list[dict[str, Any]]:
         async with self._lock:
-            if self._loaded:
-                return list(self._cache.values())
-
-            parent_dir = os.path.dirname(self.file_path)
-            if parent_dir:
-                os.makedirs(parent_dir, exist_ok=True)
-            if os.path.exists(self.file_path):
-                with open(self.file_path, "r", encoding="utf-8") as file:
-                    data = json.load(file)
-                    if isinstance(data, dict):
-                        source_records = data.get("movies") or data.get("records") or []
-                    else:
-                        source_records = data
-                    self._cache = {}
-                    if isinstance(source_records, list):
-                        for record in source_records:
-                            if not isinstance(record, dict):
-                                continue
-                            normalized = _normalize_history_record(record)
-                            if normalized:
-                                self._cache[normalized["movie_id"]] = normalized
-                    logger.info("已加载 %s 条下载记录", len(self._cache))
-            else:
-                with open(self.file_path, "w", encoding="utf-8") as file:
-                    json.dump([], file, ensure_ascii=False, indent=2)
-                self._cache = {}
-                logger.info("已创建空的下载记录文件: %s", self.file_path)
-
-            self._loaded = True
+            if not self._loaded:
+                await run_blocking_io(self._load_records)
             return list(self._cache.values())
 
     async def get_history(self) -> list[dict[str, Any]]:
@@ -202,13 +196,7 @@ class DownloadHistoryService:
 
     async def clear(self) -> dict[str, Any]:
         async with self._lock:
-            parent_dir = os.path.dirname(self.file_path)
-            if parent_dir:
-                os.makedirs(parent_dir, exist_ok=True)
-            with open(self.file_path, "w", encoding="utf-8") as file:
-                json.dump([], file, ensure_ascii=False)
-            self._cache.clear()
-            self._loaded = True
+            await run_blocking_io(self._commit_records, {})
         return {"success": True, "message": "历史记录已清空"}
 
     async def is_movie_downloaded(self, movie_id: str) -> bool:
@@ -256,13 +244,7 @@ class DownloadHistoryService:
             return []
         return _extract_download_resources(record)
 
-    async def save_movies(
-        self,
-        movie_ids: list[str],
-        magnet_links: list[str] | None = None,
-        magnet_sources: list[str] | None = None,
-    ) -> None:
-        await self._ensure_loaded()
+    async def _fetch_movie_metadata(self, movie_ids: list[str]) -> dict[str, dict[str, Any]]:
         metadata = {}
         for raw_movie_id in movie_ids:
             movie_id = _normalize_movie_id(raw_movie_id)
@@ -273,69 +255,79 @@ class DownloadHistoryService:
             except Exception as exc:
                 logger.error("Failed to load movie metadata for %s: %s", movie_id, exc)
                 metadata[movie_id] = {}
+        return metadata
+
+    async def save_movies(
+        self,
+        movie_ids: list[str],
+        magnet_links: list[str] | None = None,
+        magnet_sources: list[str] | None = None,
+    ) -> None:
+        await self._ensure_loaded()
+        metadata = await self._fetch_movie_metadata(movie_ids)
         async with self._lock:
-            current_time = datetime.datetime.now().isoformat()
+            await run_blocking_io(self._save_movies, movie_ids, magnet_links, magnet_sources, metadata)
 
-            for index, raw_movie_id in enumerate(movie_ids):
-                movie_id = _normalize_movie_id(raw_movie_id)
-                if not movie_id:
-                    continue
+    def _copy_records(self, movie_ids) -> dict[str, dict[str, Any]]:
+        records = dict(self._cache)
+        for movie_id in dict.fromkeys(_normalize_movie_id(raw_movie_id) for raw_movie_id in movie_ids):
+            if movie_id in records:
+                records[movie_id] = copy.deepcopy(records[movie_id])
+        return records
 
-                movie_data = metadata[movie_id] or {}
+    def _merge_movies(self, records, movie_ids, magnet_links, magnet_sources, metadata, current_time) -> None:
+        for index, raw_movie_id in enumerate(movie_ids):
+            movie_id = _normalize_movie_id(raw_movie_id)
+            if not movie_id:
+                continue
 
-                record = self._cache.get(
-                    movie_id,
-                    {
-                        "movie_id": movie_id,
-                        "download_time": current_time,
-                    },
+            movie_data = metadata[movie_id] or {}
+
+            record = records.get(
+                movie_id, {"movie_id": movie_id, "download_time": current_time},
+            )
+            record["movie_id"] = movie_id
+            record.setdefault("download_time", current_time)
+            record["updated_at"] = current_time
+            record["title"] = movie_data.get("title", "")
+            record["date"] = movie_data.get("date", "")
+
+            stars = movie_data.get("stars", [])
+            record["stars"] = [star.get("name", "") for star in stars] if isinstance(stars, list) else []
+
+            genres = movie_data.get("genres", [])
+            record["genres"] = [genre.get("name", "") for genre in genres] if isinstance(genres, list) else []
+
+            record["img"] = movie_data.get("img", "")
+            download_resources = _extract_download_resources(record)
+            resource_indexes = {
+                _normalize_download_link_key(resource.get("link")): resource
+                for resource in download_resources
+                if _normalize_download_link_key(resource.get("link"))
+            }
+            if magnet_links is not None and index < len(magnet_links):
+                link = str(magnet_links[index] or "").strip()
+                link_key = _normalize_download_link_key(link)
+                source = (
+                    _normalize_magnet_source(magnet_sources[index])
+                    if magnet_sources is not None and index < len(magnet_sources)
+                    else ""
                 )
-                record["movie_id"] = movie_id
-                record.setdefault("download_time", current_time)
-                record["updated_at"] = current_time
-                record["title"] = movie_data.get("title", "")
-                record["date"] = movie_data.get("date", "")
+                if link_key and link_key not in resource_indexes:
+                    resource = {"link": link, "source": source}
+                    download_resources.append(resource)
+                    resource_indexes[link_key] = resource
+                elif link_key and source and not resource_indexes[link_key].get("source"):
+                    resource_indexes[link_key]["source"] = source
+            record["download_resources"] = download_resources
+            record["download_links"] = [resource["link"] for resource in download_resources]
+            records[movie_id] = record
 
-                stars = movie_data.get("stars", [])
-                record["stars"] = [star.get("name", "") for star in stars] if isinstance(stars, list) else []
-
-                genres = movie_data.get("genres", [])
-                record["genres"] = [genre.get("name", "") for genre in genres] if isinstance(genres, list) else []
-
-                record["img"] = movie_data.get("img", "")
-                download_resources = _extract_download_resources(record)
-                resource_indexes = {
-                    _normalize_download_link_key(resource.get("link")): resource
-                    for resource in download_resources
-                    if _normalize_download_link_key(resource.get("link"))
-                }
-                if magnet_links is not None and index < len(magnet_links):
-                    link = str(magnet_links[index] or "").strip()
-                    link_key = _normalize_download_link_key(link)
-                    source = (
-                        _normalize_magnet_source(magnet_sources[index])
-                        if magnet_sources is not None and index < len(magnet_sources)
-                        else ""
-                    )
-                    if link_key and link_key not in resource_indexes:
-                        resource = {"link": link, "source": source}
-                        download_resources.append(resource)
-                        resource_indexes[link_key] = resource
-                    elif link_key and source and not resource_indexes[link_key].get("source"):
-                        resource_indexes[link_key]["source"] = source
-                record["download_resources"] = download_resources
-                record["download_links"] = [resource["link"] for resource in download_resources]
-                self._cache[movie_id] = record
-
-            downloaded_movies = list(self._cache.values())
-            downloaded_movies.sort(key=lambda item: item.get("download_time", ""), reverse=True)
-            parent_dir = os.path.dirname(self.file_path)
-            if parent_dir:
-                os.makedirs(parent_dir, exist_ok=True)
-            with open(self.file_path, "w", encoding="utf-8") as file:
-                json.dump(downloaded_movies, file, ensure_ascii=False, indent=2)
-
-            logger.info("保存下载记录: %s", movie_ids)
+    def _save_movies(self, movie_ids, magnet_links, magnet_sources, metadata) -> None:
+        records = self._copy_records(movie_ids)
+        self._merge_movies(records, movie_ids, magnet_links, magnet_sources, metadata, datetime.datetime.now().isoformat())
+        self._commit_records(records, sort=True)
+        logger.info("保存下载记录: %s", movie_ids)
 
     async def record_dispatch_results(self, results: list[dict[str, Any]], tool: str) -> None:
         """Keep submission failures retryable; only accepted resources block redispatch."""
@@ -343,38 +335,54 @@ class DownloadHistoryService:
         if not attempted:
             return
         submitted = [item for item in attempted if item.get("success")]
-        if submitted:
-            await self.save_movies([item["movie_id"] for item in submitted], [item["magnet"] for item in submitted], [item.get("source") or "" for item in submitted])
         await self._ensure_loaded()
+        metadata = await self._fetch_movie_metadata([item["movie_id"] for item in submitted])
         async with self._lock:
-            now = datetime.datetime.now().isoformat()
-            for item in attempted:
-                movie_id = _normalize_movie_id(item["movie_id"])
-                record = self._cache.setdefault(movie_id, {"movie_id": movie_id, "download_time": now, "download_resources": [], "download_links": []})
-                key = _normalize_download_link_key(item["magnet"])
-                failed = [resource for resource in record.get("failed_resources", []) if _normalize_download_link_key(resource.get("link")) != key]
-                if not item.get("success"):
-                    failed.append({"link": item["magnet"], "source": _normalize_magnet_source(item.get("source")), "tool": tool, "error": "dispatch_failed", "updated_at": now})
-                record.update(failed_resources=failed, status="failed" if failed else "submitted", download_tool=tool, updated_at=now)
-            self._save_unlocked()
+            await run_blocking_io(self._record_dispatch_results, attempted, submitted, metadata, tool)
 
-    def _save_unlocked(self) -> None:
-        path = Path(self.file_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(list(self._cache.values()), ensure_ascii=False, indent=2), encoding="utf-8")
-        temporary.replace(path)
+    def _record_dispatch_results(self, attempted, submitted, metadata, tool) -> None:
+        records = self._copy_records(item["movie_id"] for item in attempted)
+        now = datetime.datetime.now().isoformat()
+        self._merge_movies(records, [item["movie_id"] for item in submitted], [item["magnet"] for item in submitted],
+                           [item.get("source") or "" for item in submitted], metadata, now)
+        for item in attempted:
+            movie_id = _normalize_movie_id(item["movie_id"])
+            record = records.get(movie_id, {"movie_id": movie_id, "download_time": now,
+                                            "download_resources": [], "download_links": []})
+            key = _normalize_download_link_key(item["magnet"])
+            failed = [resource for resource in record.get("failed_resources", []) if _normalize_download_link_key(resource.get("link")) != key]
+            if not item.get("success"):
+                failed.append({"link": item["magnet"], "source": _normalize_magnet_source(item.get("source")), "tool": tool, "error": "dispatch_failed", "updated_at": now})
+            record.update(failed_resources=failed, status="failed" if failed else "submitted", download_tool=tool, updated_at=now)
+            records[movie_id] = record
+        self._commit_records(records)
+
+    def _commit_records(self, records: dict[str, dict[str, Any]], sort: bool = False) -> None:
+        # ponytail: keep one full snapshot per batch; add per-movie updates only if write volume warrants it.
+        values = list(records.values())
+        if sort:
+            values.sort(key=lambda item: item.get("download_time", ""), reverse=True)
+        _write_library_json(Path(self.file_path), values)
+        self._cache = records
+        self._loaded = True
+
+    def _dismiss_failure(self, movie_id: str, link: str) -> None:
+        movie_id = _normalize_movie_id(movie_id)
+        record = self._cache.get(movie_id)
+        key = _normalize_download_link_key(link)
+        if record and any(_normalize_download_link_key(item.get("link")) == key for item in record.get("failed_resources", [])):
+            record = copy.deepcopy(record)
+            record["failed_resources"] = [item for item in record.get("failed_resources", []) if _normalize_download_link_key(item.get("link")) != key]
+            record["status"] = "failed" if record["failed_resources"] else "submitted" if _extract_download_resources(record) else "ignored"
+            record["updated_at"] = datetime.datetime.now().isoformat()
+            records = dict(self._cache)
+            records[movie_id] = record
+            self._commit_records(records)
 
     async def dismiss_failure(self, movie_id: str, link: str) -> dict[str, Any]:
         await self._ensure_loaded()
         async with self._lock:
-            record = self._cache.get(_normalize_movie_id(movie_id))
-            key = _normalize_download_link_key(link)
-            if record and any(_normalize_download_link_key(item.get("link")) == key for item in record.get("failed_resources", [])):
-                record["failed_resources"] = [item for item in record.get("failed_resources", []) if _normalize_download_link_key(item.get("link")) != key]
-                record["status"] = "failed" if record["failed_resources"] else "submitted" if _extract_download_resources(record) else "ignored"
-                record["updated_at"] = datetime.datetime.now().isoformat()
-                self._save_unlocked()
+            await run_blocking_io(self._dismiss_failure, movie_id, link)
         return {"success": True}
 
     async def get_downloaded_movie_ids(self) -> dict[str, Any]:
@@ -386,21 +394,26 @@ class DownloadHistoryService:
         }
 
     async def get_downloaded_movie_status(self, movie_id: str) -> dict[str, Any]:
+        await self._ensure_loaded()
         normalized = _normalize_movie_id(movie_id)
+        record = self._cache.get(normalized)
+        resources = _extract_download_resources(record) if record else []
         return {
             "success": True,
             "movie_id": normalized,
-            "is_downloaded": await self.is_movie_downloaded(normalized),
-            "download_links": await self.get_downloaded_magnet_links(normalized),
-            "download_resources": await self.get_downloaded_magnet_resources(normalized),
+            "is_downloaded": bool(record and (resources or "failed_resources" not in record)),
+            "download_links": [resource["link"] for resource in resources],
+            "download_resources": resources,
         }
 
     async def check_against_local_library(self, library_service: Any | None = None) -> dict[str, Any]:
         records = await self.get_history()
         service = library_service or local_movie_library_service
         library_records = await service.load_records()
-        local_movie_ids = {_normalize_movie_id(movie_id) for movie_id in library_records.keys()}
+        return await run_blocking_io(self._check_against_local_library, records, list(library_records))
 
+    def _check_against_local_library(self, records: list[dict[str, Any]], movie_ids: list[str]) -> dict[str, Any]:
+        local_movie_ids = {_normalize_movie_id(movie_id) for movie_id in movie_ids}
         checked_records: list[dict[str, Any]] = []
         for record in records:
             movie_id = _normalize_movie_id(record.get("movie_id"))

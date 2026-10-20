@@ -406,6 +406,53 @@ test('library columns: spacious defaults, resizing, persistence and reset', asyn
     assert.deepEqual(consoleIssues, [], 'column controls have no console errors or accessibility warnings');
 });
 
+test('performance: 10000 cinema facet options stay lazy, paged and searchable by keyboard', async t => {
+    let state;
+    const page = await openApp(t, 1440, async p => {
+        state = await libraryFixture(p, 10000);
+        state.records.forEach((record, i) => { record.stars = [`Actor ${i}`]; record.series = `Series ${i}`; });
+    });
+    await navigate(page, '影院模式');
+    await page.getByRole('button', { name: '全部影片', exact: true }).click();
+    const filters = page.locator('.jj-cinema-filters'), options = filters.locator('button[aria-pressed]');
+    assert.equal(await options.count(), 0, 'collapsed filters contain no option DOM');
+    const summary = filters.locator('summary');
+    await summary.focus(); await page.keyboard.press('Enter');
+    const actors = filters.getByRole('group', { name: '演员筛选', exact: true });
+    await actors.getByRole('button', { name: 'Actor 0 1', exact: true }).waitFor();
+    assert.ok(await options.count() <= 300, 'each of five groups contains at most 60 option buttons');
+    assert.ok(await filters.locator('button').count() <= 310, 'pagination controls also stay bounded');
+    t.diagnostic(JSON.stringify({ records: 10000, collapsedOptions: 0, expandedOptions: await options.count(), expandedButtons: await filters.locator('button').count() }));
+    await actors.getByRole('button', { name: '下一页', exact: true }).click();
+    await actors.getByRole('button', { name: 'Actor 60 1', exact: true }).waitFor();
+    const actorSearch = actors.getByRole('searchbox', { name: '搜索演员选项', exact: true });
+    await actorSearch.fill('Actor 9999');
+    const lastActor = actors.getByRole('button', { name: 'Actor 9999 1', exact: true });
+    await lastActor.focus(); await page.keyboard.press('Space');
+    const series = filters.getByRole('group', { name: '系列筛选', exact: true });
+    await series.getByRole('searchbox', { name: '搜索系列选项', exact: true }).fill('Series 9999');
+    await series.getByRole('button', { name: 'Series 9999 1', exact: true }).click();
+    assert.equal(await page.locator('.jj-cinema-wall .jj-cinema-card').count(), 1);
+    assert.match(await page.locator('.jj-cinema-wall').innerText(), /QA-10000/);
+    await summary.focus(); await page.keyboard.press('Space');
+    await options.first().waitFor({ state: 'detached' });
+    assert.equal(await options.count(), 0);
+    assert.equal(await page.locator('.jj-cinema-active-filters button[aria-label^="移除"]').count(), 2);
+    await page.getByRole('button', { name: '清空 2 个条件', exact: true }).click();
+    await summary.focus(); await page.keyboard.press('Enter');
+    await actors.getByRole('button', { name: 'Actor 0 1', exact: true }).waitFor();
+    assert.equal(await actorSearch.inputValue(), '');
+    await actors.getByRole('button', { name: '下一页', exact: true }).click();
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    state.records = state.records.slice(0, 80).map((record, i) => ({ ...record, stars: [`New Actor ${i}`] }));
+    await page.getByRole('button', { name: '刷新影视库', exact: true }).click();
+    await page.getByText('80', { exact: true }).first().waitFor();
+    await navigate(page, '影院模式');
+    await actors.getByRole('button', { name: 'New Actor 0 1', exact: true }).waitFor();
+    assert.ok(await options.count() <= 300);
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-cinema-facets-paged.png'), fullPage: false });
+});
+
 test('cinema redesign: shelves, search, detail and playback preserve the browsing context', async t => {
     const page = await openApp(t, 1440, async p => {
         const state = await libraryFixture(p, 125);

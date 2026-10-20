@@ -31,7 +31,15 @@ export function adaptDesignScript(script) {
         .replace('actors: CN_ACTORS.map((a) => {', 'actors: (showActors ? CN_ACTORS : []).map((a) => {')
         .replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, 'const latest = this.latestByActor.get(a.name);')
         .replace('let wallRows = LIB\n', `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();\n    let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))\n`)
-        .replace('filterGroups: dims.map((d) => ({', 'filterGroups: (isWall ? dims : []).map((d) => ({')
+        .replace('filterGroups: dims.map((d) => ({', `filterGroups: (isWall && st.cnFiltersOpen ? dims : []).map((d) => {
+        const query = (st.cnFacetQueries[d.key] || '').trim().toLowerCase();
+        const options = query ? d.options.filter(option => String(option).toLowerCase().includes(query)) : d.options;
+        const facetPage = this.pageItems(options, 'cnFacetPage_' + d.key, [query, st.cnActor, this._facetRevision]);
+        return {
+        query: st.cnFacetQueries[d.key] || '', paging: facetPage.paging, empty: !options.length,
+        setQuery: event => this.setState({ cnFacetQueries: { ...st.cnFacetQueries, [d.key]: event.target.value } }),`)
+        .replace('items: d.options.map((o) => {', 'items: facetPage.items.map((o) => {')
+        .replace('      })),\n      sorts:', '      }; }),\n      sorts:')
         .replace('const o = st.scOpts;', 'const o = st.scOpts, skipped = new Set(st.scSkip);')
         .replaceAll('st.scSkip.includes(', 'skipped.has(')
         .replace('LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length', 'this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0')
@@ -102,7 +110,7 @@ export function connectDesign(Base) {
             super(props);
             const session = loadPikPakSession();
             this.auth = session.credentials;
-            this.state = { ...this.state, theme: loadAppTheme(), route: 'cinema', cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '',
+            this.state = { ...this.state, theme: loadAppTheme(), route: 'cinema', cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {},
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbSource: '', lbPaths: [], lbExcludes: [], auTask: '',
@@ -325,6 +333,7 @@ export function connectDesign(Base) {
             this.libraryByCode = new Map(data.LIB.map(movie => [movie.code, movie]));
             this.latestByActor.clear();
             this._cinemaCounts = null;
+            this._facetRevision = (this._facetRevision || 0) + 1;
             for (const movie of data.LIB) for (const actor of movie.actors) {
                 if (!this.latestByActor.has(actor) || movie.date > this.latestByActor.get(actor).date) this.latestByActor.set(actor, movie);
             }
@@ -733,6 +742,8 @@ export function connectDesign(Base) {
             const browse = filters => this.setState({ cnTab: '全部影片', cnActor: null, cnDetail: null, cnQ: '', cnF: { ...clearFacets(), ...filters } });
             const controls = {
                 query: st.cnQ, hasQuery: Boolean(st.cnQ), hasLibrary: Boolean(data.LIB.length),
+                filtersOpen: st.cnFiltersOpen,
+                toggleFilters: event => { const open = event.currentTarget.open; if (open !== this.state.cnFiltersOpen) this.setState({ cnFiltersOpen: open }); },
                 setQuery: event => this.setState({ cnQ: event.target.value, cnTab: '全部影片', cnActor: null }),
                 clearQuery: () => this.setState({ cnQ: '' }), browseAll: () => browse(),
                 closeDetail: () => this.setState({ cnDetail: null }), detailOpen: Boolean(st.cnDetail || st.cnPlaying), playing: Boolean(st.cnPlaying),
@@ -767,7 +778,7 @@ export function connectDesign(Base) {
             view.wallTitle = view.actorHeader?.name || (st.cnQ.trim() ? '搜索结果' : '全部影片');
             view.wallMeta = st.cnQ.trim() ? `命中 ${view.wall.length} 部 · “${st.cnQ.trim()}”` : view.wallMeta;
             view.emptyTitle = '没有符合条件的影片'; view.emptyBody = '试试其他关键词，或移除筛选条件。'; view.clearText = '清空条件';
-            view.clearFilters = () => this.setState({ cnQ: '', cnF: clearFacets() });
+            view.clearFilters = () => this.setState({ cnQ: '', cnF: clearFacets(), cnFacetQueries: {}, ...Object.fromEntries(data.FILTER_DIMS.map(dim => ['cnFacetPage_' + dim.key, null])) });
             view.activeFilters = data.FILTER_DIMS.flatMap(dim => (view.actorHeader && dim.key === 'actor' ? [] : st.cnF[dim.key]).map(value => ({ text: `${dim.name} · ${value}`, remove: () => this.setState({ cnF: { ...st.cnF, [dim.key]: st.cnF[dim.key].filter(item => item !== value) } }) })));
             for (const group of view.filterGroups) {
                 const dim = data.FILTER_DIMS.find(dim => dim.name === group.name);

@@ -1498,8 +1498,9 @@ def test_download_magnets_to_aria2_routes_success_and_failures(monkeypatch):
     async def fake_is_magnet_downloaded(movie_id, magnet_link):
         return magnet_link == "magnet:tried"
 
-    async def fake_save_movies(movie_ids, magnet_links=None, magnet_sources=None):
-        saved_downloads.extend(zip(movie_ids, magnet_links or [], magnet_sources or []))
+    async def fake_record_dispatch_results(results, tool):
+        assert tool == "aria2"
+        saved_downloads.extend((item["movie_id"], item["magnet"], item.get("source") or "") for item in results if item.get("success"))
 
     async def fake_get_same_source_replacement_magnet_payload(movie_id, magnet_link, magnet_source=None):
         fallback_calls.append((movie_id, magnet_link, magnet_source))
@@ -1508,7 +1509,7 @@ def test_download_magnets_to_aria2_routes_success_and_failures(monkeypatch):
     monkeypatch.setattr(webdav_router, "session_store", FakeSessionStore())
     monkeypatch.setattr(webdav_service.local_movie_library_service, "is_movie_present", fake_is_movie_present)
     monkeypatch.setattr(webdav_service.download_history_service, "is_magnet_downloaded", fake_is_magnet_downloaded)
-    monkeypatch.setattr(webdav_service.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(webdav_service.download_history_service, "record_dispatch_results", fake_record_dispatch_results)
     monkeypatch.setattr(
         webdav_service,
         "get_same_source_replacement_magnet_payload",
@@ -1901,8 +1902,9 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
     async def fake_is_magnet_downloaded(movie_id, magnet_link):
         return magnet_link == "magnet:tried"
 
-    async def fake_save_movies(movie_ids, magnet_links=None, magnet_sources=None):
-        saved_downloads.extend(zip(movie_ids, magnet_links or [], magnet_sources or []))
+    async def fake_record_dispatch_results(results, tool):
+        assert tool == "pan115"
+        saved_downloads.extend((item["movie_id"], item["magnet"], item.get("source") or "") for item in results if item.get("success"))
 
     async def fake_get_same_source_replacement_magnet_payload(movie_id, magnet_link, magnet_source=None):
         fallback_calls.append((movie_id, magnet_link, magnet_source))
@@ -1911,7 +1913,7 @@ def test_pan115_download_dispatches_magnets_and_records_successes(monkeypatch):
     monkeypatch.setattr(pan115_service_module, "Pan115Client", fake_client)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_is_magnet_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_is_movie_present)
-    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "record_dispatch_results", fake_record_dispatch_results)
     monkeypatch.setattr(
         pan115_service_module,
         "get_same_source_replacement_magnet_payload",
@@ -1975,8 +1977,9 @@ def test_pan115_download_batches_large_dispatches_with_configured_pause(monkeypa
     async def fake_magnet_not_downloaded(_movie_id, _magnet_link):
         return False
 
-    async def fake_save_movies(movie_ids, magnet_links=None, magnet_sources=None):
-        saved_ids.extend(movie_ids)
+    async def fake_record_dispatch_results(results, tool):
+        assert tool == "pan115"
+        saved_ids.extend(item["movie_id"] for item in results if item.get("success"))
 
     async def fake_sleep(seconds):
         sleeps.append(seconds)
@@ -1986,7 +1989,7 @@ def test_pan115_download_batches_large_dispatches_with_configured_pause(monkeypa
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_magnet_not_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
-    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "record_dispatch_results", fake_record_dispatch_results)
     monkeypatch.setattr(
         pan115_service_module,
         "get_pan115_config",
@@ -2039,7 +2042,8 @@ def test_pan115_download_deduplicates_links_and_applies_jitter(monkeypatch):
     async def fake_magnet_not_downloaded(_movie_id, _magnet_link):
         return False
 
-    async def fake_save_movies(_movie_ids, magnet_links=None, magnet_sources=None):
+    async def fake_record_dispatch_results(_results, tool):
+        assert tool == "pan115"
         return None
 
     async def fake_sleep(seconds):
@@ -2051,7 +2055,7 @@ def test_pan115_download_deduplicates_links_and_applies_jitter(monkeypatch):
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_magnet_not_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
-    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "record_dispatch_results", fake_record_dispatch_results)
     monkeypatch.setattr(
         pan115_service_module,
         "get_pan115_config",
@@ -2099,7 +2103,8 @@ def test_pan115_download_retries_failed_batches_with_backoff(monkeypatch):
     async def fake_magnet_not_downloaded(_movie_id, _magnet_link):
         return False
 
-    async def fake_save_movies(_movie_ids, magnet_links=None, magnet_sources=None):
+    async def fake_record_dispatch_results(_results, tool):
+        assert tool == "pan115"
         return None
 
     async def fake_sleep(seconds):
@@ -2110,7 +2115,7 @@ def test_pan115_download_retries_failed_batches_with_backoff(monkeypatch):
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_movie_downloaded", fake_not_exists)
     monkeypatch.setattr(pan115_service_module.download_history_service, "is_magnet_downloaded", fake_magnet_not_downloaded)
     monkeypatch.setattr(pan115_service_module.local_movie_library_service, "is_movie_present", fake_not_exists)
-    monkeypatch.setattr(pan115_service_module.download_history_service, "save_movies", fake_save_movies)
+    monkeypatch.setattr(pan115_service_module.download_history_service, "record_dispatch_results", fake_record_dispatch_results)
     monkeypatch.setattr(
         pan115_service_module,
         "get_pan115_config",

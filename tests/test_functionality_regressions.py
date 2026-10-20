@@ -245,7 +245,7 @@ def test_115_partial_batches_keep_success_history_and_report_every_input(monkeyp
     monkeypatch.setattr(pan115.local_movie_library_service, "is_movie_present", AsyncMock(return_value=False))
     monkeypatch.setattr(pan115.download_history_service, "is_magnet_downloaded", AsyncMock(return_value=False))
     save = AsyncMock()
-    monkeypatch.setattr(pan115.download_history_service, "save_movies", save)
+    monkeypatch.setattr(pan115.download_history_service, "record_dispatch_results", save)
     chunks = AsyncMock(side_effect=[[{"success": True}], pan115.Pan115Error("fixture_failure", "fixture failure")])
     monkeypatch.setattr(pan115, "_dispatch_chunk_with_retries", chunks)
     result = asyncio.run(pan115.download(PanRequest(magnet_links=["magnet:a", "magnet:b"], movie_ids=["QA-001", "QA-002"])))
@@ -253,7 +253,10 @@ def test_115_partial_batches_keep_success_history_and_report_every_input(monkeyp
     assert result["failed_count"] == 1
     assert [item["movie_id"] for item in result["results"]] == ["QA-001", "QA-002"]
     assert [item["magnet"] for item in result["results"]] == ["magnet:a", "magnet:b"]
-    assert save.call_args.args[0] == ["QA-001"]
+    recorded = [item for call in save.await_args_list for item in call.args[0]]
+    assert all(call.args[1] == "pan115" for call in save.await_args_list)
+    assert [item["movie_id"] for item in recorded if item.get("success")] == ["QA-001"]
+    assert [item["movie_id"] for item in recorded if not item.get("success")] == ["QA-002"]
 
 
 def test_webdav_keeps_service_root_and_resolves_absolute_and_relative_hrefs(monkeypatch):

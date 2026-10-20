@@ -5825,7 +5825,13 @@ class Component extends DCLogic {
     const libraryPage = this.pageItems(rows, 'lbPage', [st.lbQ, st.lbActor, st.lbStudio, st.lbRes, st.lbM, st.lbSubOnly, st.lbMissing, st.lbSort]);
     const dm = LIB.find((r) => r.code === st.lbDetail);`).replace("rows: rows.map((r) => ({\n        code: r.code, title: r.title, meta:", "paging: libraryPage.paging,\n      rows: libraryPage.items.map((r) => ({\n        code: r.code, title: r.title, meta:").replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, "const shelvesByTab = {};\n\n    const chips").replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, "wall: wallRows,\n      heroTitleSize:").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const dm = MOVIES.find((m) => m.code === st.detail);", "const dm = this.searchByCode.get(st.detail);").replace("const magReady = list.filter((m) => m.mag).length;", "const magReady = 0;").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();
     let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))
-`).replace("filterGroups: dims.map((d) => ({", "filterGroups: (isWall ? dims : []).map((d) => ({").replace("const o = st.scOpts;", "const o = st.scOpts, skipped = new Set(st.scSkip);").replaceAll("st.scSkip.includes(", "skipped.has(").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
+`).replace("filterGroups: dims.map((d) => ({", `filterGroups: (isWall && st.cnFiltersOpen ? dims : []).map((d) => {
+        const query = (st.cnFacetQueries[d.key] || '').trim().toLowerCase();
+        const options = query ? d.options.filter(option => String(option).toLowerCase().includes(query)) : d.options;
+        const facetPage = this.pageItems(options, 'cnFacetPage_' + d.key, [query, st.cnActor, this._facetRevision]);
+        return {
+        query: st.cnFacetQueries[d.key] || '', paging: facetPage.paging, empty: !options.length,
+        setQuery: event => this.setState({ cnFacetQueries: { ...st.cnFacetQueries, [d.key]: event.target.value } }),`).replace("items: d.options.map((o) => {", "items: facetPage.items.map((o) => {").replace("      })),\n      sorts:", "      }; }),\n      sorts:").replace("const o = st.scOpts;", "const o = st.scOpts, skipped = new Set(st.scSkip);").replaceAll("st.scSkip.includes(", "skipped.has(").replace("LIB.filter((m) => (!actorWall || m.actors.includes(st.cnActor)) && d.test(m, o)).length", "this.cinemaCounts(actorWall ? st.cnActor : null).get(d.key).get(o) || 0").replace("gb(b.size) - gb(a.size)", "Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0)");
   }
   var ACC = "var(--acc)";
   var OK = "var(--ok)";
@@ -5916,6 +5922,8 @@ class Component extends DCLogic {
           cnDetail: null,
           cnDetailFile: 0,
           cnQ: "",
+          cnFiltersOpen: false,
+          cnFacetQueries: {},
           code: "",
           sMode: "code",
           fValue: "",
@@ -6228,6 +6236,7 @@ class Component extends DCLogic {
         this.libraryByCode = new Map(data.LIB.map((movie) => [movie.code, movie]));
         this.latestByActor.clear();
         this._cinemaCounts = null;
+        this._facetRevision = (this._facetRevision || 0) + 1;
         for (const movie of data.LIB) for (const actor of movie.actors) {
           if (!this.latestByActor.has(actor) || movie.date > this.latestByActor.get(actor).date) this.latestByActor.set(actor, movie);
         }
@@ -6732,6 +6741,11 @@ class Component extends DCLogic {
           query: st.cnQ,
           hasQuery: Boolean(st.cnQ),
           hasLibrary: Boolean(data.LIB.length),
+          filtersOpen: st.cnFiltersOpen,
+          toggleFilters: (event) => {
+            const open2 = event.currentTarget.open;
+            if (open2 !== this.state.cnFiltersOpen) this.setState({ cnFiltersOpen: open2 });
+          },
           setQuery: (event) => this.setState({ cnQ: event.target.value, cnTab: "\u5168\u90E8\u5F71\u7247", cnActor: null }),
           clearQuery: () => this.setState({ cnQ: "" }),
           browseAll: () => browse(),
@@ -6781,7 +6795,7 @@ class Component extends DCLogic {
         view.emptyTitle = "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247";
         view.emptyBody = "\u8BD5\u8BD5\u5176\u4ED6\u5173\u952E\u8BCD\uFF0C\u6216\u79FB\u9664\u7B5B\u9009\u6761\u4EF6\u3002";
         view.clearText = "\u6E05\u7A7A\u6761\u4EF6";
-        view.clearFilters = () => this.setState({ cnQ: "", cnF: clearFacets() });
+        view.clearFilters = () => this.setState({ cnQ: "", cnF: clearFacets(), cnFacetQueries: {}, ...Object.fromEntries(data.FILTER_DIMS.map((dim) => ["cnFacetPage_" + dim.key, null])) });
         view.activeFilters = data.FILTER_DIMS.flatMap((dim) => (view.actorHeader && dim.key === "actor" ? [] : st.cnF[dim.key]).map((value) => ({ text: `${dim.name} \xB7 ${value}`, remove: () => this.setState({ cnF: { ...st.cnF, [dim.key]: st.cnF[dim.key].filter((item) => item !== value) } }) })));
         for (const group of view.filterGroups) {
           const dim = data.FILTER_DIMS.find((dim2) => dim2.name === group.name);
@@ -8157,7 +8171,7 @@ class Component extends DCLogic {
     <sc-if value="{{ cn.showWall }}"><section class="jj-cinema-browse">
       <sc-if value="{{ cn.actorHeader }}"><button class="btn btn-ghost jj-cinema-back" onClick="{{ cn.backToActors }}">${icon("arrow-left")} \u5168\u90E8\u6F14\u5458</button></sc-if>
       <div class="jj-cinema-section-heading"><div><h1>{{ cn.wallTitle }}</h1><p role="status">{{ cn.wallMeta }}</p></div><sc-if value="{{ cn.hasLibrary }}"><label class="jj-cinema-sort">\u6392\u5E8F<select class="input" aria-label="\u5F71\u9662\u6392\u5E8F" value="{{ cn.sort }}" onChange="{{ cn.setSort }}"><sc-for list="{{ cn.sorts }}" as="o"><option>{{ o.name }}</option></sc-for></select></label></sc-if></div>
-      <sc-if value="{{ cn.hasLibrary }}"><details class="jj-cinema-filters"><summary>${icon("sliders-horizontal")} \u7B5B\u9009\u5F71\u7247 <span>{{ cn.filterCount }}</span></summary><div><sc-for list="{{ cn.filterGroups }}" as="g"><div class="jj-cinema-filter-group"><strong>{{ g.name }}</strong><div><sc-for list="{{ g.items }}" as="o"><button aria-pressed="{{ o.on }}" onClick="{{ o.toggle }}">{{ o.name }} <small>{{ o.count }}</small></button></sc-for></div></div></sc-for></div></details></sc-if>
+      <sc-if value="{{ cn.hasLibrary }}"><details class="jj-cinema-filters" open="{{ cn.filtersOpen }}" onToggle="{{ cn.toggleFilters }}"><summary>${icon("sliders-horizontal")} \u7B5B\u9009\u5F71\u7247 <span>{{ cn.filterCount }}</span></summary><sc-if value="{{ cn.filtersOpen }}"><div><sc-for list="{{ cn.filterGroups }}" as="g"><div class="jj-cinema-filter-group" role="group" aria-label="{{ g.name }}\u7B5B\u9009"><strong>{{ g.name }}</strong><div><input class="input" type="search" aria-label="\u641C\u7D22{{ g.name }}\u9009\u9879" placeholder="\u641C\u7D22{{ g.name }}\u9009\u9879" value="{{ g.query }}" onChange="{{ g.setQuery }}" style="flex-basis:100%;width:min(100%,240px)"><sc-for list="{{ g.items }}" as="o"><button aria-pressed="{{ o.on }}" onClick="{{ o.toggle }}">{{ o.name }} <small>{{ o.count }}</small></button></sc-for><sc-if value="{{ g.empty }}"><span role="status">\u6CA1\u6709\u5339\u914D\u9009\u9879</span></sc-if><div style="flex-basis:100%">${pager("g.paging")}</div></div></div></sc-for></div></sc-if></details></sc-if>
       <sc-if value="{{ cn.hasFilters }}"><div class="jj-cinema-active-filters"><sc-for list="{{ cn.activeFilters }}" as="f"><button class="btn btn-secondary" aria-label="\u79FB\u9664 {{ f.text }}" onClick="{{ f.remove }}">{{ f.text }} ${icon("x")}</button></sc-for><button class="btn btn-ghost" onClick="{{ cn.clearFilters }}">\u6E05\u7A7A {{ cn.filterCount }} \u4E2A\u6761\u4EF6</button></div></sc-if>
       <sc-if value="{{ cn.wallEmpty }}"><div class="jj-cinema-empty">${icon("film-strip")}<h2>{{ cn.emptyTitle }}</h2><p>{{ cn.emptyBody }}</p><button class="btn btn-secondary" onClick="{{ cn.clearFilters }}">{{ cn.clearText }}</button></div></sc-if>
       <div class="jj-cinema-wall">${cards("cn.wall")}</div>${pager("cn.paging")}
