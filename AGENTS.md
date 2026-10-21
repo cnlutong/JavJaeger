@@ -103,6 +103,7 @@ Use this as the source-of-truth ownership map.
   - 115 QR/Cookie login
   - 115 Cookie-based offline download dispatch
   - 115 direct download URL resolution for server-side Aria2 dispatch
+  - 115 file and folder deletion, including batch deletion and account-scoped directory cache invalidation
 - `modules/webdav/`
   - WebDAV browsing
   - Aria2 dispatch, including background directory dispatch with private WebDAV connections

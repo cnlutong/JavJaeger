@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from pydantic import BaseModel, Field
 
 
@@ -15,3 +17,7 @@ class QrCodeStartRequest(BaseModel):
 class CookieSaveRequest(BaseModel):
     cookie: str
     enabled: bool = True
+
+
+class DeleteFilesRequest(BaseModel):
+    ids: list[Annotated[str, Field(strict=True, pattern=r"^[1-9][0-9]*$")]] = Field(min_length=1)

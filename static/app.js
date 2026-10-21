@@ -5995,6 +5995,7 @@ class Component extends DCLogic {
           fsVideoOnly: false,
           fsPageSize: 60,
           fsLoading: false,
+          fsDeleting: false,
           infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"],
           lbWidths: []
         };
@@ -7994,10 +7995,57 @@ class Component extends DCLogic {
           this.toast("\u7F51\u76D8\u53D1\u9001\u5DF2\u5728\u540E\u53F0\u542F\u52A8\uFF0C\u53EF\u5237\u65B0\u6216\u79BB\u5F00\u9875\u9762", OK);
         }) });
       }
+      deleteFiles(files) {
+        if (this.state.fsSrc !== "115" || !this.allConnected() || this.state.fsLoading || this._deletingFiles || !files.length) return;
+        const ids = [...new Set(files.map((file) => String(file.id || "")))];
+        if (ids.some((value) => !/^[1-9]\d*$/.test(value))) {
+          this.toast("\u6587\u4EF6\u6807\u8BC6\u65E0\u6548\uFF0C\u8BF7\u5237\u65B0\u76EE\u5F55\u540E\u91CD\u8BD5", BAD);
+          return;
+        }
+        const directory = this.state.directory;
+        this.ask({
+          title: `\u5220\u9664 ${ids.length} \u9879 115 \u7F51\u76D8\u6587\u4EF6\u6216\u6587\u4EF6\u5939\uFF1F`,
+          body: "\u5C06\u4ECE 115 \u7F51\u76D8\u5220\u9664\u4E0B\u5217\u9879\u76EE\u3002\u6587\u4EF6\u5939\u5185\u7684\u5168\u90E8\u6587\u4EF6\u548C\u5B50\u6587\u4EF6\u5939\u4E5F\u4F1A\u5220\u9664\uFF0C\u4E0D\u53D7\u201C\u4EC5\u89C6\u9891\u201D\u548C\u4F53\u79EF\u7B5B\u9009\u9650\u5236\uFF0C\u8BF7\u6838\u5BF9\u5217\u8868\u3002",
+          list: files.map((file) => file.name),
+          color: BAD,
+          okText: "\u5220\u9664",
+          run: () => {
+            if (this._deletingFiles || this.state.fsLoading || this.state.fsSrc !== "115" || this.state.directory !== directory || !this.allConnected()) return;
+            const version = this.fileRequestVersion;
+            this._deletingFiles = true;
+            this.setState({ fsDeleting: true });
+            return this.perform(async () => {
+              try {
+                await this.request("/api/115/files", "DELETE", { ids });
+              } catch {
+                throw new Error("115 \u5220\u9664\u672A\u786E\u8BA4\u5B8C\u6210\uFF0C\u8BF7\u5237\u65B0\u76EE\u5F55\u6838\u5BF9\u540E\u91CD\u8BD5");
+              }
+              if (!this._disposed && this.fileRequestVersion === version && this.state.fsSrc === "115" && this.state.directory === directory) {
+                const deleted = new Set(ids);
+                this.setState((state) => ({
+                  fileRows: state.fileRows.filter((file) => !deleted.has(String(file.id))),
+                  fsSel: state.fsSel.filter((key) => !deleted.has(String(key)))
+                }));
+                try {
+                  await this.loadFiles("115", directory, true);
+                } catch {
+                  this.toast("\u5DF2\u5220\u9664\uFF0C\u4F46\u76EE\u5F55\u5237\u65B0\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u5237\u65B0", WARN);
+                  return;
+                }
+              }
+              if (!this._disposed) this.toast(`\u5DF2\u4ECE 115 \u7F51\u76D8\u5220\u9664 ${ids.length} \u9879`, OK);
+            }).finally(() => {
+              this._deletingFiles = false;
+              if (!this._disposed) this.setState({ fsDeleting: false });
+            });
+          }
+        });
+      }
       vStorage() {
         const st = this.state, connected = st.fsSrc === "local" || (st.fsSrc === "115" ? this.allConnected() : st.connections.webdav_connected);
         const minimum = this.minFileSize(), sizeError = minimum === null ? "\u6700\u5C0F\u4F53\u79EF\u8BF7\u8F93\u5165\u5927\u4E8E\u6216\u7B49\u4E8E 0 \u7684\u6709\u6548\u6570\u5B57" : "";
-        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected) && !sizeError && !st.fsLoading;
+        const busy = st.fsLoading || st.fsDeleting, canDelete = st.fsSrc === "115" && connected && !busy;
+        const canSend = st.fsSrc !== "local" && connected && Boolean(st.connections.aria2_connected) && !sizeError && !busy;
         const rows = st.fileRows.filter((file) => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === "folder" || (!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= (minimum ?? 0) * 1024 ** 2));
         const selectedKeys = new Set(st.fsSel), selected = rows.filter((file) => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
         const page = this.pageItems(rows, "fsPage", [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit, st.fsPageSize], st.fsPageSize);
@@ -8008,9 +8056,13 @@ class Component extends DCLogic {
           paging: page.paging,
           taskPaging: taskPage.paging,
           directoryPaging: directories.paging,
-          loading: st.fsLoading,
+          loading: busy,
           pageSize: st.fsPageSize,
           pageSizes: filePageSizes.map((value) => ({ value })),
+          showDelete: st.fsSrc === "115",
+          canDelete,
+          deleteDisabled: !canDelete || !selected.length,
+          deleteSel: () => this.deleteFiles(selected),
           setPageSize: (event) => {
             const count = Number(event.target.value);
             if (!filePageSizes.includes(count)) return;
@@ -8021,7 +8073,7 @@ class Component extends DCLogic {
             this.setState({ fsPageSize: count });
           },
           refreshFiles: () => {
-            if (this.state.fsLoading) return;
+            if (this.state.fsLoading || this._deletingFiles) return;
             return this.perform(async () => {
               if (await this.loadFiles(st.fsSrc, st.directory, true)) this.toast("\u76EE\u5F55\u5DF2\u5237\u65B0", OK);
             });
@@ -8052,14 +8104,14 @@ class Component extends DCLogic {
           }) }],
           dirMeta: st.fsLoading ? "\u6B63\u5728\u8BFB\u53D6\u76EE\u5F55\u2026" : `\u672C\u9875 ${page.items.length} \u9879 \xB7 \u76EE\u5F55\u7B5B\u9009\u7ED3\u679C ${rows.length} \u9879`,
           allSel,
-          selectionDisabled: st.fsLoading || rows.length === 0,
+          selectionDisabled: busy || rows.length === 0,
           pageSelectText: allSel ? "\u53D6\u6D88\u672C\u9875\u9009\u62E9" : "\u5168\u9009\u672C\u9875",
           directorySelectText: `\u5168\u9009\u672C\u76EE\u5F55\uFF08${rows.length} \u9879\uFF09`,
           selectDirectory: () => {
-            if (!this.state.fsLoading) this.setState({ fsSel: rows.map((file) => file.path || file.id) });
+            if (!this.state.fsLoading && !this._deletingFiles) this.setState({ fsSel: rows.map((file) => file.path || file.id) });
           },
           toggleAll: () => {
-            if (!this.state.fsLoading) this.setState({ fsSel: allSel ? st.fsSel.filter((key) => !pageKeys.has(key)) : [.../* @__PURE__ */ new Set([...st.fsSel, ...pageKeys])] });
+            if (!this.state.fsLoading && !this._deletingFiles) this.setState({ fsSel: allSel ? st.fsSel.filter((key) => !pageKeys.has(key)) : [.../* @__PURE__ */ new Set([...st.fsSel, ...pageKeys])] });
           },
           rows: page.items.map((file) => {
             const dir = file.is_directory || file.kind === "folder", key = file.path || file.id;
@@ -8067,6 +8119,9 @@ class Component extends DCLogic {
               ...file,
               isDir: dir,
               canSend,
+              canDelete: canDelete && /^[1-9]\d*$/.test(String(file.id)),
+              selectionDisabled: busy,
+              remove: () => this.deleteFiles([file]),
               type: dir ? "\u6587\u4EF6\u5939" : file.kind || "\u6587\u4EF6",
               size: size(file.size),
               date: file.modified || file.modified_time || file.mtime || "\u2014",
@@ -8075,7 +8130,9 @@ class Component extends DCLogic {
               fg: dir ? ACC : "var(--fg)",
               cursor: dir ? "pointer" : "default",
               sel: selectedKeys.has(key),
-              toggle: () => this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter((value) => value !== key) : [...st.fsSel, key] }),
+              toggle: () => {
+                if (!this.state.fsLoading && !this._deletingFiles) this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter((value) => value !== key) : [...st.fsSel, key] });
+              },
               open: () => {
                 if (dir) {
                   this.setState({ directoryTrail: [...st.directoryTrail || [], st.directory] });
@@ -8467,7 +8524,7 @@ class Component extends DCLogic {
 
   // frontend/src/design/template.mjs
   function adaptTemplate(source, logo) {
-    let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(/<span title="\{\{ sysInfo \}\}"[^>]*>v2.4.1<\/span>/, deploymentBadge).replace('animation:jjspin 900ms linear infinite"></span>\u540E\u53F0', 'animation:{{ bg.animation }}"></span>\u540E\u53F0').replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
+    let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(/<span title="\{\{ sysInfo \}\}"[^>]*>v2.4.1<\/span>/, deploymentBadge).replace('animation:jjspin 900ms linear infinite"></span>\u540E\u53F0', 'animation:{{ bg.animation }}"></span>\u540E\u53F0').replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'disabled="{{ f.selectionDisabled }}" onChange="{{ f.toggle }}"').replace('onClick="{{ f.send }}">\u53D1\u9001</button>', 'onClick="{{ f.send }}">\u53D1\u9001</button><sc-if value="{{ fs.showDelete }}"><button class="btn btn-secondary" style="font-size:11.5px;padding:3px 7px;color:var(--bad);margin-left:4px" disabled="{{ !f.canDelete }}" onClick="{{ f.remove }}">\u5220\u9664</button></sc-if>').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
     html = html.replace(/<div class="field"><label>最小体积 min_file_size_mb<\/label>[\s\S]*?<\/select><\/div>/, `
       <div class="field"><label for="jj-file-min-size">\u6700\u5C0F\u4F53\u79EF</label>
         <div style="display:flex;gap:8px"><input id="jj-file-min-size" class="input" type="number" aria-label="\u6700\u5C0F\u4F53\u79EF" min="0" step="any" value="{{ fs.minSize }}" onChange="{{ fs.setMinSize }}" aria-invalid="{{ !!fs.sizeError }}" aria-describedby="jj-file-size-hint" style="min-width:0;flex:1">
@@ -8552,6 +8609,7 @@ class Component extends DCLogic {
           <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.toggleAll }}">{{ fs.pageSelectText }}</button>
           <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.selectDirectory }}">{{ fs.directorySelectText }}</button>
           <button class="btn btn-secondary" disabled="{{ fs.loading }}" onClick="{{ fs.refreshFiles }}">\u5237\u65B0\u76EE\u5F55</button>
+          <sc-if value="{{ fs.showDelete }}"><button class="btn btn-secondary" style="color:var(--bad)" disabled="{{ fs.deleteDisabled }}" onClick="{{ fs.deleteSel }}">\u5220\u9664\u6240\u9009</button></sc-if>
           <span class="jj-path-hint">\u672C\u76EE\u5F55\u5168\u9009\u5305\u542B\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\u7684\u6240\u6709\u5206\u9875\uFF1B\u9009\u62E9\u6587\u4EF6\u5939\u540E\uFF0C\u4E0B\u8F7D\u65F6\u9012\u5F52\u5904\u7406\u3002</span>
         </div>${pager2("fs.paging", "\u7F51\u76D8\u6587\u4EF6\u5206\u9875")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
     html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-ghost" onClick="{{ lb.configureCheck }}">\u68C0\u67E5\u9879\u8BBE\u7F6E</button><button class="btn btn-secondary" disabled="{{ lb.checkBusy }}" onClick="{{ lb.openCheck }}">').replace('onClick="{{ lb.runCheck }}"', 'disabled="{{ lb.checkBusy }}" onClick="{{ lb.runCheck }}"').replace('\u52FE\u9009\u8981\u68C0\u67E5\u7684\u8D44\u6599\uFF0C\u4F5C\u4E3A <code style="font-family:var(--mono);font-size:11.5px;color:var(--accs)">fields</code> \u53C2\u6570\u63D0\u4EA4\uFF1B\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002', "\u9009\u62E9\u68C0\u67E5\u5185\u5BB9\uFF0C\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002\u68C0\u67E5\u5728\u540E\u53F0\u8FD0\u884C\uFF0C\u5B8C\u6210\u540E\u53EF\u4ECE\u540E\u53F0\u4EFB\u52A1\u67E5\u770B\u7ED3\u679C\u5E76\u5F00\u59CB\u8865\u5168\u3002").replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');

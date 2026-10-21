@@ -1542,6 +1542,88 @@ test('storage separates page selection from directory selection and keeps other 
     assert.equal(instance.vStorage().allSel, false);
 });
 
+test('115 deletion confirms the exact file and folder selection before one batch request', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const files = [{ id: '11', name: 'movie.mp4', size: 1 }, { id: '22', name: 'folder', kind: 'folder' }, { id: '33', name: 'keep.mp4', size: 1 }];
+    instance.setState({ route: 'storage', fsSrc: '115', directory: '10', fileRows: files, fsSel: ['11', '22'], connections: { pan115: true } });
+    const calls = []; let release;
+    globalThis.fetch = async (url, options) => {
+        calls.push({ url, method: options.method, body: options.body && JSON.parse(options.body) });
+        if (options.method === 'DELETE') { await new Promise(resolve => { release = resolve; }); return json({ success: true, deleted_ids: ['11', '22'] }); }
+        return json({ items: [files[2]], count: 1 });
+    };
+    instance.vStorage().deleteSel();
+    assert.deepEqual(instance.state.dlg.list, ['movie.mp4', 'folder']);
+    assert.match(instance.state.dlg.body, /文件夹.*全部/);
+    assert.match(instance.state.dlg.body, /筛选/);
+    assert.equal(calls.length, 0);
+    instance.renderVals().dlg.cancel();
+    assert.equal(calls.length, 0);
+    instance.vStorage().deleteSel();
+    const confirm = instance.state.dlg.run, pending = confirm();
+    await confirm();
+    assert.equal(instance.vStorage().canDelete, false);
+    assert.equal(instance.vStorage().selectionDisabled, true);
+    assert.equal(calls.length, 1, 'ignore a repeated confirmation while pending');
+    release(); await pending;
+    assert.deepEqual(calls[0], { url: '/api/115/files', method: 'DELETE', body: { ids: ['11', '22'] } });
+    assert.match(calls[1].url, /cid=10.*refresh=true/);
+    assert.deepEqual(instance.state.fsSel, []);
+    assert.deepEqual(instance.state.fileRows, [files[2]]);
+    assert.equal(instance.vStorage().canDelete, true, 'deleting does not need Aria2');
+});
+
+test('115 deletion rejects other sources and invalid IDs and preserves a failed selection', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; throw new Error('upstream failed'); };
+    const file = { id: '11', name: 'movie.mp4', size: 1 };
+    instance.setState({ route: 'storage', fsSrc: '115', directory: '10', fileRows: [file], fsSel: ['11'], connections: { pan115: true } });
+    instance.vStorage().rows[0].remove(); await instance.state.dlg.run();
+    assert.deepEqual(instance.state.fileRows, [file]); assert.deepEqual(instance.state.fsSel, ['11']);
+    assert.equal(instance.vStorage().canDelete, true);
+    assert.match(instance.state.toast.text, /未确认|失败/);
+    for (const source of ['local', 'webdav']) {
+        instance.setState({ fsSrc: source, dlg: null }); instance.deleteFiles([file]);
+        assert.equal(instance.vStorage().showDelete, false); assert.equal(instance.state.dlg, null);
+    }
+    instance.setState({ fsSrc: '115', dlg: null });
+    for (const id of ['0', '', '/folder', '1e3']) instance.deleteFiles([{ ...file, id }]);
+    assert.equal(instance.state.dlg, null); assert.equal(calls, 1);
+});
+
+test('an in-flight 115 deletion never replaces a newly opened source or directory', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const file = { id: '11', name: 'movie.mp4', size: 1 };
+    instance.setState({ route: 'storage', fsSrc: '115', directory: '10', fileRows: [file], fsSel: ['11'], connections: { pan115: true } });
+    let release; const calls = [];
+    globalThis.fetch = async url => { calls.push(url); await new Promise(resolve => { release = resolve; }); return json({ success: true, deleted_ids: ['11'] }); };
+    instance.vStorage().rows[0].remove(); const pending = instance.state.dlg.run();
+    const replacement = [{ path: '/local.mp4', name: 'local.mp4', size: 1 }];
+    instance.setState({ fsSrc: 'local', directory: '/', fileRows: replacement, fsSel: ['/local.mp4'] });
+    release(); await pending;
+    assert.deepEqual(instance.state.fileRows, replacement); assert.deepEqual(instance.state.fsSel, ['/local.mp4']);
+    assert.deepEqual(calls, ['/api/115/files']);
+});
+
+test('115 deletion does not interrupt a folder navigation whose listing is still pending', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'storage', fsSrc: '115', directory: '10', connections: { pan115: true },
+        fileRows: [{ id: '11', name: 'movie.mp4', size: 1 }, { id: '22', name: 'folder', kind: 'folder' }] });
+    let finishDelete, finishNavigation;
+    globalThis.fetch = async (url, options) => {
+        if (options.method === 'DELETE') { await new Promise(resolve => { finishDelete = resolve; }); return json({ success: true, deleted_ids: ['11'] }); }
+        if (new URL(url, 'http://test').searchParams.get('cid') === '22') await new Promise(resolve => { finishNavigation = resolve; });
+        return json({ items: [], count: 0 });
+    };
+    instance.vStorage().rows[0].remove(); const deletion = instance.state.dlg.run();
+    const navigation = instance.vStorage().rows[1].open();
+    assert.equal(instance.state.directory, '10', 'the old path remains until navigation finishes');
+    finishDelete(); await deletion;
+    finishNavigation(); await navigation;
+    assert.equal(instance.state.directory, '22', 'deletion must not cancel the newer navigation');
+});
+
 test('storage page size is remembered, validated and resets the page without losing selection', t => {
     const storage = new Map(), instance = app(storage); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'storage', fileRows: Array.from({ length: 83 }, (_, i) => ({ path: '/' + i, name: String(i), size: 1 })) });

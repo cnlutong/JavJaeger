@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException
 
-from .schemas import CookieSaveRequest, DownloadRequest, QrCodeStartRequest
+from .schemas import CookieSaveRequest, DeleteFilesRequest, DownloadRequest, QrCodeStartRequest
 from .service import (
     Pan115Error,
     create_qrcode_session,
+    delete_files_from_config,
     download,
     get_download_job,
     get_qrcode_session_status,
@@ -101,3 +102,13 @@ async def pan115_files(cid: str = "0", offset: int = 0, limit: int = 100, refres
         raise HTTPException(status_code=400, detail=exc.code) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail="pan115_files_failed") from exc
+
+
+@router.delete("/api/115/files")
+async def pan115_delete_files(request: DeleteFilesRequest):
+    try:
+        return await delete_files_from_config(request.ids)
+    except Pan115Error as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="pan115_delete_failed") from exc

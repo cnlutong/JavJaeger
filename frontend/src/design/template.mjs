@@ -17,7 +17,8 @@ export function adaptTemplate(source, logo) {
         .replace('{{ e.meta }}</span>\n            </div>', '{{ e.meta }}</span>\n            </button>')
         .replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"')
         .replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"')
-        .replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'onChange="{{ f.toggle }}"')
+        .replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'disabled="{{ f.selectionDisabled }}" onChange="{{ f.toggle }}"')
+        .replace('onClick="{{ f.send }}">发送</button>', 'onClick="{{ f.send }}">发送</button><sc-if value="{{ fs.showDelete }}"><button class="btn btn-secondary" style="font-size:11.5px;padding:3px 7px;color:var(--bad);margin-left:4px" disabled="{{ !f.canDelete }}" onClick="{{ f.remove }}">删除</button></sc-if>')
         .replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"')
         .replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"')
         .replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">停止</button>', '<span style="font-size:12px;color:var(--dim)">后台执行中</span>');
@@ -161,6 +162,7 @@ export function adaptTemplate(source, logo) {
           <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.toggleAll }}">{{ fs.pageSelectText }}</button>
           <button class="btn btn-secondary" disabled="{{ fs.selectionDisabled }}" onClick="{{ fs.selectDirectory }}">{{ fs.directorySelectText }}</button>
           <button class="btn btn-secondary" disabled="{{ fs.loading }}" onClick="{{ fs.refreshFiles }}">刷新目录</button>
+          <sc-if value="{{ fs.showDelete }}"><button class="btn btn-secondary" style="color:var(--bad)" disabled="{{ fs.deleteDisabled }}" onClick="{{ fs.deleteSel }}">删除所选</button></sc-if>
           <span class="jj-path-hint">本目录全选包含当前筛选结果的所有分页；选择文件夹后，下载时递归处理。</span>
         </div>${pager('fs.paging', '网盘文件分页')}$2`)
         .replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager('fs.taskPaging')}$2`)

@@ -1970,6 +1970,92 @@ test('115 directory paging distinguishes this page from all pages and refreshes 
     await navigate(page, '网盘与下载'); assert.equal(await perPage.inputValue(), '50');
 });
 
+test('115 file deletion confirms names, preserves cross-page selection and handles failures without Aria2', async t => {
+    let entries = Array.from({ length: 22 }, (_, i) => ({ id: String(i + 101), name: i === 0 ? '批量删除目录' : i === 1 ? '单项删除.mp4' : `保留-${i}.mp4`, kind: i === 0 ? 'folder' : 'file', size: 1024 }));
+    const deletions = [], listings = [];
+    let failDelete = false, holdDelete = false, releaseDelete;
+    const page = await openApp(t, 1440, async p => {
+        await p.route('**/api/webdav/status', r => r.fulfill({ json: { webdav_connected: true, aria2_connected: false } }));
+        await p.route('**/api/115/status', r => r.fulfill({ json: { connected: true } }));
+        await p.route('**/api/system/files?*', r => r.fulfill({ json: { entries: [{ name: 'local-only.mp4', path: '/local-only.mp4', size: 1024 }] } }));
+        await p.route('**/api/webdav/files?*', r => r.fulfill({ json: { files: [{ name: 'webdav-only.mp4', path: '/webdav-only.mp4', size: 1024 }] } }));
+        await p.route('**/api/115/files**', async route => {
+            const request = route.request();
+            if (request.method() === 'DELETE') {
+                const body = request.postDataJSON(); deletions.push(body);
+                if (holdDelete) await new Promise(resolve => { releaseDelete = resolve; });
+                if (failDelete) return route.fulfill({ status: 400, json: { detail: '删除测试失败，请重试' } });
+                entries = entries.filter(entry => !body.ids.includes(entry.id));
+                return route.fulfill({ json: { success: true, deleted_ids: body.ids } });
+            }
+            const query = new URL(request.url()).searchParams, offset = Number(query.get('offset'));
+            listings.push({ refresh: query.get('refresh'), offset });
+            return route.fulfill({ json: { cid: '0', count: entries.length, items: entries.slice(offset, offset + 200) } });
+        });
+    });
+    await navigate(page, '网盘与下载');
+    const table = page.getByRole('table').filter({ has: page.getByRole('checkbox', { name: '全选本页', exact: true }) });
+    const row = name => table.locator('tr').filter({ hasText: name });
+    const batch = page.getByRole('button', { name: '删除所选', exact: true });
+    for (const [source, name] of [['服务端本地', 'local-only.mp4'], ['WebDAV', 'webdav-only.mp4']]) {
+        await page.locator('aside').getByText(source, { exact: true }).click();
+        await table.getByText(name, { exact: true }).waitFor();
+        assert.equal(await table.getByRole('button', { name: '删除', exact: true }).count(), 0);
+        assert.equal(await batch.count(), 0, `${source} has no cloud deletion action`);
+    }
+    await page.locator('aside').getByText('115 网盘', { exact: true }).click();
+    await row('单项删除.mp4').getByRole('button', { name: '删除', exact: true }).waitFor();
+    await row('单项删除.mp4').getByRole('checkbox').check();
+    assert.equal(await batch.isEnabled(), true, 'deletion does not need Aria2');
+    await row('单项删除.mp4').getByRole('button', { name: '删除', exact: true }).click();
+    const dialog = page.locator('.jj-confirm');
+    await dialog.getByText('单项删除.mp4', { exact: true }).waitFor();
+    assert.equal(deletions.length, 0, 'opening confirmation does not delete');
+    await dialog.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(deletions.length, 0, 'cancelling does not delete');
+    assert.equal(await row('单项删除.mp4').getByRole('checkbox').isChecked(), true);
+    await row('单项删除.mp4').getByRole('button', { name: '删除', exact: true }).click(); await approve(page, '删除');
+    await row('单项删除.mp4').waitFor({ state: 'hidden' });
+    assert.deepEqual(deletions, [{ ids: ['102'] }]);
+    assert.equal(listings.at(-1).refresh, 'true', 'successful deletion reloads uncached entries');
+    assert.equal(await page.locator('.jj-selection').count(), 0, 'deleted selection is cleared');
+
+    await page.getByRole('combobox', { name: '网盘每页数量', exact: true }).selectOption('20');
+    await row('批量删除目录').getByRole('checkbox').check();
+    const pager = page.getByRole('navigation', { name: '网盘文件分页', exact: true });
+    await pager.getByRole('button', { name: '下一页', exact: true }).click();
+    await row('保留-21.mp4').getByRole('checkbox').check();
+    await page.getByText(/已选 2 个文件/).waitFor(); await batch.click();
+    await dialog.getByText('批量删除目录', { exact: true }).waitFor();
+    await dialog.getByText('保留-21.mp4', { exact: true }).waitFor();
+    await dialog.getByText(/文件夹.*子/).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-115-delete-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await dialog.getByRole('dialog').evaluate(el => { const bounds = el.getBoundingClientRect(); return bounds.left >= 0 && bounds.right <= innerWidth; }), 'confirmation fits a mobile viewport');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-115-delete-mobile.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    holdDelete = true;
+    const submitted = page.waitForRequest(request => request.method() === 'DELETE' && request.url().endsWith('/api/115/files'));
+    await approve(page, '删除'); await submitted; await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await batch.isDisabled(), true, 'batch deletion cannot be submitted twice');
+    assert.equal(await row('保留-21.mp4').getByRole('button', { name: '删除', exact: true }).isDisabled(), true);
+    assert.deepEqual(deletions[1], { ids: ['101', '122'] }, 'one request includes selected file and folder across pages');
+    releaseDelete();
+    await row('保留-2.mp4').waitFor();
+    assert.equal(await page.locator('.jj-selection').count(), 0);
+    assert.equal(await table.getByText('批量删除目录', { exact: true }).count(), 0);
+    assert.equal(await table.getByText('保留-21.mp4', { exact: true }).count(), 0);
+    assert.equal(deletions.length, 2);
+
+    holdDelete = false; failDelete = true;
+    await row('保留-2.mp4').getByRole('checkbox').check(); await batch.click(); await approve(page, '删除');
+    await page.getByText('115 删除未确认完成，请刷新目录核对后重试', { exact: true }).waitFor();
+    assert.equal(await row('保留-2.mp4').getByRole('checkbox').isChecked(), true, 'failed deletion keeps the item selected');
+    assert.equal(await batch.isEnabled(), true, 'failed deletion can be retried');
+    assert.equal(deletions.length, 3);
+});
+
 test('audit: 115 folders load every page, navigate back and dispatch with the source identity', async t => {
     const calls = [];
     const page = await openApp(t, 1440, async p => {

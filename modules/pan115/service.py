@@ -32,6 +32,7 @@ PAN115_STATUS_CHECK_URL = "https://my.115.com/?ct=guide&ac=status"
 PAN115_OFFLINE_SPACE_URL = "https://115.com/"
 PAN115_WEB_OFFLINE_URL = "https://115.com/web/lixian/"
 PAN115_FILE_LIST_URL = "https://webapi.115.com/files"
+PAN115_FILE_DELETE_URL = "https://webapi.115.com/rb/delete"
 PAN115_DOWNLOAD_USER_AGENT = "JavJaeger/1.0"
 PAN115_LOGIN_APPS = {"web", "android", "ios", "tv", "alipaymini", "wechatmini", "qandroid"}
 PAN115_DEFAULT_BATCH_SIZE = 20
@@ -167,6 +168,14 @@ qr_session_store = QrSessionStore()
 class Pan115DirectoryCache:
     def __init__(self) -> None:
         self._items: dict[tuple[str, str, int, int], tuple[float, dict[str, Any]]] = {}
+        self._revisions: dict[str, int] = {}
+
+    def revision(self, user_id: str) -> int:
+        return self._revisions.get(user_id, 0)
+
+    def invalidate(self, user_id: str) -> None:
+        self._revisions[user_id] = self.revision(user_id) + 1
+        self._items = {key: value for key, value in self._items.items() if key[0] != user_id}
 
     def get(self, key: tuple[str, str, int, int], ttl_seconds: float) -> dict[str, Any] | None:
         if ttl_seconds <= 0:
@@ -186,6 +195,8 @@ class Pan115DirectoryCache:
 
 
 directory_cache = Pan115DirectoryCache()
+# ponytail: serialize deletion across accounts; use per-account locks if throughput matters.
+delete_lock = asyncio.Lock()
 
 
 class Pan115Client:
@@ -277,6 +288,7 @@ class Pan115Client:
         cached = directory_cache.get(cache_key, cache_ttl_seconds)
         if cached is not None:
             return cached
+        revision = directory_cache.revision(self.user_id)
 
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(
@@ -303,8 +315,28 @@ class Pan115Client:
         if not _is_success_payload(payload):
             raise Pan115Error("pan115_directory_list_failed", "115 directory list failed")
         result = _normalize_directory_payload(payload)
-        directory_cache.set(cache_key, result)
+        if revision == directory_cache.revision(self.user_id):
+            directory_cache.set(cache_key, result)
         return result
+
+    async def delete_files(self, ids: list[str]) -> dict[str, Any]:
+        deleted_ids = list(dict.fromkeys(ids))
+        async with delete_lock:
+            directory_cache.invalidate(self.user_id)
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.post(
+                        PAN115_FILE_DELETE_URL,
+                        data={f"fid[{index}]": file_id for index, file_id in enumerate(deleted_ids)},
+                        headers=self._headers(),
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                if not _is_success_payload(payload):
+                    raise Pan115Error("pan115_delete_failed", "115 file deletion failed")
+                return {"success": True, "deleted_ids": deleted_ids}
+            finally:
+                directory_cache.invalidate(self.user_id)
 
     async def list_directory_all(
         self,
@@ -558,6 +590,13 @@ async def list_directory_from_config(cid: str = "0", offset: int = 0, limit: int
         **({'cache_ttl_seconds': 0} if refresh else {}))
 
 
+async def delete_files_from_config(ids: list[str]) -> dict[str, Any]:
+    config = get_pan115_config()
+    if not config.get("enabled") or not config.get("cookie"):
+        raise Pan115Error("pan115_not_configured", "115 is not configured")
+    return await Pan115Client(str(config["cookie"])).delete_files(ids)
+
+
 async def resolve_download_entries_from_config(
     entries: list[Any],
     video_filter: bool = False,
@@ -654,7 +693,7 @@ def _normalize_directory_payload(payload: dict[str, Any]) -> dict[str, Any]:
         is_folder = "cid" in item and str(item.get("fc")) == "0"
         entries.append(
             {
-                "id": str(item.get("cid") or item.get("fid") or ""),
+                "id": str((item.get("cid") if is_folder else item.get("fid")) or ""),
                 "parent_id": str(item.get("pid") or ""),
                 "name": str(item.get("n") or ""),
                 "kind": "folder" if is_folder else str(item.get("ico") or "file"),

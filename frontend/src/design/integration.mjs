@@ -134,7 +134,7 @@ export function connectDesign(Base) {
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
                 backgroundJobs: [], autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
                 scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '0', fsMinUnit: 'MB', fsVideoOnly: false,
-                fsPageSize: 60, fsLoading: false,
+                fsPageSize: 60, fsLoading: false, fsDeleting: false,
                 infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
             };
             try {
@@ -1525,10 +1525,37 @@ export function connectDesign(Base) {
                 this.toast('网盘发送已在后台启动，可刷新或离开页面', OK);
             }) });
         }
+        deleteFiles(files) {
+            if (this.state.fsSrc !== '115' || !this.allConnected() || this.state.fsLoading || this._deletingFiles || !files.length) return;
+            const ids = [...new Set(files.map(file => String(file.id || '')))];
+            if (ids.some(value => !/^[1-9]\d*$/.test(value))) { this.toast('文件标识无效，请刷新目录后重试', BAD); return; }
+            const directory = this.state.directory;
+            this.ask({ title: `删除 ${ids.length} 项 115 网盘文件或文件夹？`,
+                body: '将从 115 网盘删除下列项目。文件夹内的全部文件和子文件夹也会删除，不受“仅视频”和体积筛选限制，请核对列表。',
+                list: files.map(file => file.name), color: BAD, okText: '删除', run: () => {
+                    if (this._deletingFiles || this.state.fsLoading || this.state.fsSrc !== '115' || this.state.directory !== directory || !this.allConnected()) return;
+                    const version = this.fileRequestVersion;
+                    this._deletingFiles = true;
+                    this.setState({ fsDeleting: true });
+                    return this.perform(async () => {
+                        try { await this.request('/api/115/files', 'DELETE', { ids }); }
+                        catch { throw new Error('115 删除未确认完成，请刷新目录核对后重试'); }
+                        if (!this._disposed && this.fileRequestVersion === version && this.state.fsSrc === '115' && this.state.directory === directory) {
+                            const deleted = new Set(ids);
+                            this.setState(state => ({ fileRows: state.fileRows.filter(file => !deleted.has(String(file.id))),
+                                fsSel: state.fsSel.filter(key => !deleted.has(String(key))) }));
+                            try { await this.loadFiles('115', directory, true); }
+                            catch { this.toast('已删除，但目录刷新失败，请手动刷新', WARN); return; }
+                        }
+                        if (!this._disposed) this.toast(`已从 115 网盘删除 ${ids.length} 项`, OK);
+                    }).finally(() => { this._deletingFiles = false; if (!this._disposed) this.setState({ fsDeleting: false }); });
+                } });
+        }
         vStorage() {
             const st = this.state, connected = st.fsSrc === 'local' || (st.fsSrc === '115' ? this.allConnected() : st.connections.webdav_connected);
             const minimum = this.minFileSize(), sizeError = minimum === null ? '最小体积请输入大于或等于 0 的有效数字' : '';
-            const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected) && !sizeError && !st.fsLoading;
+            const busy = st.fsLoading || st.fsDeleting, canDelete = st.fsSrc === '115' && connected && !busy;
+            const canSend = st.fsSrc !== 'local' && connected && Boolean(st.connections.aria2_connected) && !sizeError && !busy;
             const rows = st.fileRows.filter(file => (!st.fsQ || file.name.toLowerCase().includes(st.fsQ.toLowerCase())) && (file.is_directory || file.kind === 'folder' || ((!st.fsVideoOnly || /\.(mp4|mkv|avi|wmv|mov|m4v|ts|flv|webm|3gp|3g2|asf|rm|rmvb|vob|mts|m2ts|divx|xvid|ogv|f4v|mpg|mpeg|m1v|m2v|mpe|mpv|mp2|mpa|mpu|mpg2)$/i.test(file.name)) && Number(file.size) >= (minimum ?? 0) * 1024 ** 2)));
             const selectedKeys = new Set(st.fsSel), selected = rows.filter(file => selectedKeys.has(file.path || file.id)), tasks = st.ariaTasks || [];
             const page = this.pageItems(rows, 'fsPage', [st.fsQ, st.fsSrc, st.directory, st.fsVideoOnly, st.fsMinSize, st.fsMinUnit, st.fsPageSize], st.fsPageSize);
@@ -1537,11 +1564,12 @@ export function connectDesign(Base) {
             const directories = this.pageItems([...(st.browseParent != null ? [{ name: '..', path: st.browseParent }] : []), ...st.directories], 'directoryPage', [st.browsePath]);
             return {
                 paging: page.paging, taskPaging: taskPage.paging, directoryPaging: directories.paging,
-                loading: st.fsLoading, pageSize: st.fsPageSize, pageSizes: filePageSizes.map(value => ({ value })),
+                loading: busy, pageSize: st.fsPageSize, pageSizes: filePageSizes.map(value => ({ value })),
+                showDelete: st.fsSrc === '115', canDelete, deleteDisabled: !canDelete || !selected.length, deleteSel: () => this.deleteFiles(selected),
                 setPageSize: event => { const count = Number(event.target.value); if (!filePageSizes.includes(count)) return;
                     try { window.localStorage.setItem(filePageSizeKey, String(count)); } catch {}
                     this.setState({ fsPageSize: count }); },
-                refreshFiles: () => { if (this.state.fsLoading) return; return this.perform(async () => {
+                refreshFiles: () => { if (this.state.fsLoading || this._deletingFiles) return; return this.perform(async () => {
                     if (await this.loadFiles(st.fsSrc, st.directory, true)) this.toast('目录已刷新', OK);
                 }); },
                 sources: [['local', '服务端本地', true], ['webdav', 'WebDAV', st.connections.webdav_connected], ['115', '115 网盘', this.allConnected()]].map(([key, name, up]) => ({ key, name, status: up ? '可用' : '未连接', dot: up ? OK : DIM2, stFg: up ? OK : DIM2, meta: '', op: 1, cursor: 'pointer', needsCfg: key !== 'local', bg: key === st.fsSrc ? 'rgba(145,132,217,.08)' : 'transparent', ring: key === st.fsSrc ? ACC : 'var(--t09)', config: () => this.setState({ route: 'settings', seTab: name }), pick: () => { this.fileRequestVersion = (this.fileRequestVersion || 0) + 1; this.setState({ fsSrc: key, fileRows: [], fsSel: [], fsLoading: false, directory: '', directoryTrail: [] }); if (up) this.perform(() => this.loadFiles(key, '')); } })),
@@ -1550,11 +1578,11 @@ export function connectDesign(Base) {
                 minUnit: st.fsMinUnit, setMinUnit: event => this.setState({ fsMinUnit: event.target.value }), sizeError,
                 crumbs: [{ name: '根目录 / ', fg: ACC, go: () => this.perform(() => this.loadFiles(st.fsSrc, '')) }, { name: st.directory || '/', fg: DIM, go: () => this.perform(() => this.loadFiles()) }, { name: '上一级', fg: ACC, go: () => this.perform(() => { const trail = st.directoryTrail || []; const parent = st.fsSrc === '115' ? trail.at(-1) || '' : st.directoryParent ?? (st.directory.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/'); this.setState({ directoryTrail: trail.slice(0, -1) }); return this.loadFiles(st.fsSrc, parent); }) }],
                 dirMeta: st.fsLoading ? '正在读取目录…' : `本页 ${page.items.length} 项 · 目录筛选结果 ${rows.length} 项`, allSel,
-                selectionDisabled: st.fsLoading || rows.length === 0, pageSelectText: allSel ? '取消本页选择' : '全选本页',
+                selectionDisabled: busy || rows.length === 0, pageSelectText: allSel ? '取消本页选择' : '全选本页',
                 directorySelectText: `全选本目录（${rows.length} 项）`,
-                selectDirectory: () => { if (!this.state.fsLoading) this.setState({ fsSel: rows.map(file => file.path || file.id) }); },
-                toggleAll: () => { if (!this.state.fsLoading) this.setState({ fsSel: allSel ? st.fsSel.filter(key => !pageKeys.has(key)) : [...new Set([...st.fsSel, ...pageKeys])] }); },
-                rows: page.items.map(file => { const dir = file.is_directory || file.kind === 'folder', key = file.path || file.id; return { ...file, isDir: dir, canSend, type: dir ? '文件夹' : file.kind || '文件', size: size(file.size), date: file.modified || file.modified_time || file.mtime || '—', icon: dir ? 'ph-folder' : 'ph-file', iconFg: dir ? ACC : DIM, fg: dir ? ACC : 'var(--fg)', cursor: dir ? 'pointer' : 'default', sel: selectedKeys.has(key), toggle: () => this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter(value => value !== key) : [...st.fsSel, key] }),
+                selectDirectory: () => { if (!this.state.fsLoading && !this._deletingFiles) this.setState({ fsSel: rows.map(file => file.path || file.id) }); },
+                toggleAll: () => { if (!this.state.fsLoading && !this._deletingFiles) this.setState({ fsSel: allSel ? st.fsSel.filter(key => !pageKeys.has(key)) : [...new Set([...st.fsSel, ...pageKeys])] }); },
+                rows: page.items.map(file => { const dir = file.is_directory || file.kind === 'folder', key = file.path || file.id; return { ...file, isDir: dir, canSend, canDelete: canDelete && /^[1-9]\d*$/.test(String(file.id)), selectionDisabled: busy, remove: () => this.deleteFiles([file]), type: dir ? '文件夹' : file.kind || '文件', size: size(file.size), date: file.modified || file.modified_time || file.mtime || '—', icon: dir ? 'ph-folder' : 'ph-file', iconFg: dir ? ACC : DIM, fg: dir ? ACC : 'var(--fg)', cursor: dir ? 'pointer' : 'default', sel: selectedKeys.has(key), toggle: () => { if (!this.state.fsLoading && !this._deletingFiles) this.setState({ fsSel: selectedKeys.has(key) ? st.fsSel.filter(value => value !== key) : [...st.fsSel, key] }); },
                     open: () => { if (dir) { this.setState({ directoryTrail: [...(st.directoryTrail || []), st.directory] }); return this.perform(() => this.loadFiles(st.fsSrc, key)); } }, send: () => this.sendFiles([file]) }; }),
                 selCount: st.route === 'storage' ? selected.length : 0, selSize: size(selected.reduce((sum, file) => sum + Number(file.size || 0), 0)), clearSel: () => this.setState({ fsSel: [] }), sendSel: () => this.sendFiles(selected), canSend,
                 refreshAria: () => this.perform(() => this.loadAria()), ariaConnected: st.connections.aria2_connected, ariaDown: !st.connections.aria2_connected, ariaStatus: st.connections.aria2_connected ? '已连接' : '未连接', ariaDot: st.connections.aria2_connected ? OK : DIM2, ariaFg: DIM, ariaMeta: `${tasks.length} 个任务`, connectAria: () => this.perform(() => this.connect('aria2', true), 'Aria2 已连接'), jobs115: null,
