@@ -5823,7 +5823,7 @@ class Component extends DCLogic {
     return script.replace("r.res === '720p' : r.res === st.lbRes", "(parseInt(r.res) > 0 && parseInt(r.res) <= 720) : r.res === st.lbRes").replace("const dm = LIB.find((r) => r.code === st.lbDetail);", `const sortField = st.lbSort.startsWith('\u53D1\u884C') ? 'date' : st.lbSort.startsWith('\u756A\u53F7') ? 'code' : st.lbSort.includes('\u4F53\u79EF') ? 'total_size' : 'added';
     rows.sort((a, b) => sortField === 'total_size' ? Number(b.raw.total_size || 0) - Number(a.raw.total_size || 0) : sortField === 'code' ? a.code.localeCompare(b.code) : String(b[sortField]).localeCompare(String(a[sortField])));
     const libraryPage = this.pageItems(rows, 'lbPage', [st.lbQ, st.lbActor, st.lbStudio, st.lbRes, st.lbM, st.lbSubOnly, st.lbMissing, st.lbSort]);
-    const dm = LIB.find((r) => r.code === st.lbDetail);`).replace("rows: rows.map((r) => ({\n        code: r.code, title: r.title, meta:", "paging: libraryPage.paging,\n      rows: libraryPage.items.map((r) => ({\n        code: r.code, title: r.title, meta:").replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, "const shelvesByTab = {};\n\n    const chips").replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, "wall: wallRows,\n      heroTitleSize:").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const dm = MOVIES.find((m) => m.code === st.detail);", "const dm = this.searchByCode.get(st.detail);").replace("const magReady = list.filter((m) => m.mag).length;", "const magReady = 0;").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();
+    const dm = LIB.find((r) => r.code === st.lbDetail);`).replace("rows: rows.map((r) => ({\n        code: r.code, title: r.title, meta:", "paging: libraryPage.paging,\n      rows: libraryPage.items.map((r) => ({\n        code: r.code, title: r.title, meta:").replace(/const shelvesByTab = \{[\s\S]*?\n    \};\n\n    const chips/, "const shelvesByTab = {};\n\n    const chips").replace(/wall: wallRows\.map\(\(m\) => \{[\s\S]*?\n      \}\),\n      heroTitleSize:/, "wall: wallRows,\n      heroTitleSize:").replace("const list = this.visible();", "const list = st.route === 'search' ? this.visible() : [];").replace("const dm = MOVIES.find((m) => m.code === st.detail);", "const dm = this.searchByCode.get(st.detail);").replace("const magReady = list.filter((m) => m.mag).length;", "const magReady = 0;").replace("const rows = list.map((m) => {", "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {").replace("actors: CN_ACTORS.map((a) => {", "actors: (showActors ? CN_ACTORS : []).map((a) => {").replace("tabs: ['\u63A8\u8350', '\u5168\u90E8\u5F71\u7247', '\u7CFB\u5217', '\u6F14\u5458', 'VR']", "tabs: ['\u63A8\u8350', '\u5168\u90E8\u5F71\u7247', '\u6807\u7B7E', '\u6F14\u5458', 'VR']").replaceAll("actor: [], series: [], studio: [], res: [], flag: []", "actor: [], studio: [], res: [], flag: []").replace("const isWall = st.cnTab === '\u5168\u90E8\u5F71\u7247' || actorWall;", "const isWall = st.cnTab === '\u5168\u90E8\u5F71\u7247' || actorWall || (st.cnTab === '\u6807\u7B7E' && st.cnTagWall);").replace("st.cnF[d.key].some((v) => d.test(m, v))", "(d.key === 'flag' && st.cnTagMode === 'and' ? st.cnF[d.key].every((v) => d.test(m, v)) : st.cnF[d.key].some((v) => d.test(m, v)))").replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, "const latest = this.latestByActor.get(a.name);").replace("let wallRows = LIB\n", `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();
     let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))
 `).replace("filterGroups: dims.map((d) => ({", `filterGroups: (isWall && st.cnFiltersOpen ? dims : []).map((d) => {
         const query = (st.cnFacetQueries[d.key] || '').trim().toLowerCase();
@@ -5923,11 +5923,13 @@ class Component extends DCLogic {
       constructor(props) {
         super(props);
         const session = loadPikPakSession();
+        const libraryLink = String(window.location?.hash || "").match(/^#library(?:\/([A-Za-z0-9_-]+))?$/);
         this.auth = session.credentials;
         this.state = {
           ...this.state,
           theme: loadAppTheme(),
-          route: "cinema",
+          route: libraryLink ? "library" : "cinema",
+          lbDetail: libraryLink?.[1] || null,
           cnHero: "",
           cnPlaying: null,
           cnDetail: null,
@@ -5935,6 +5937,9 @@ class Component extends DCLogic {
           cnQ: "",
           cnFiltersOpen: false,
           cnFacetQueries: {},
+          cnTagQ: "",
+          cnTagWall: false,
+          cnTagMode: "or",
           code: "",
           sMode: "code",
           fValue: "",
@@ -6043,7 +6048,7 @@ class Component extends DCLogic {
         const patch = typeof update === "function" ? update(this.state) : { ...update };
         for (const [page, filters] of [
           ["lbPage", ["lbQ", "lbActor", "lbStudio", "lbRes", "lbM", "lbSubOnly", "lbMissing", "lbSort"]],
-          ["cnPage", ["cnTab", "cnActor", "cnF", "cnSort", "cnQ"]],
+          ["cnPage", ["cnTab", "cnActor", "cnF", "cnSort", "cnQ", "cnTagMode"]],
           ["cnShelfPage", ["cnTab"]],
           ["catalogPage", ["browse", "browseQ"]],
           ["searchPage", ["sMode", "code", "page", "fList"]],
@@ -6058,7 +6063,7 @@ class Component extends DCLogic {
         ]) {
           if (filters.some((key) => key in patch && patch[key] !== this.state[key])) patch[page] = null;
         }
-        const cinemaNavigation = this.state.route === "cinema" && ["cnTab", "cnActor", "cnQ", "cnF", "cnSort", "cnPage", "cnShelfPage", "cnActorPage"].some((key) => key in patch && patch[key] !== this.state[key]);
+        const cinemaNavigation = this.state.route === "cinema" && ["cnTab", "cnActor", "cnQ", "cnF", "cnSort", "cnPage", "cnShelfPage", "cnActorPage", "cnTagWall", "cnTagPage"].some((key) => key in patch && patch[key] !== this.state[key]);
         super.setState(patch, cinemaNavigation ? () => {
           document.querySelector(".jj-cinema-content")?.scrollTo({ top: 0 });
           callback?.();
@@ -6266,7 +6271,7 @@ class Component extends DCLogic {
           if (!this.latestByActor.has(actor) || movie.date > this.latestByActor.get(actor).date) this.latestByActor.set(actor, movie);
         }
         data.CN_ACTORS.splice(0, data.CN_ACTORS.length, ...(actors.actors || []).map((actor) => ({ ...actor, count: actor.movie_count, size: size(actor.total_size), noAvatar: !actor.avatar_url })));
-        const dims = [["actor", "\u6F14\u5458", "actors"], ["series", "\u7CFB\u5217", "series"], ["studio", "\u5236\u4F5C\u5546", "studio"], ["res", "\u5206\u8FA8\u7387", "res"], ["flag", "\u6807\u8BB0", "tags"]];
+        const dims = [["actor", "\u6F14\u5458", "actors"], ["studio", "\u5236\u4F5C\u5546", "studio"], ["res", "\u5206\u8FA8\u7387", "res"], ["flag", "\u6807\u7B7E", "tags"]];
         data.FILTER_DIMS.splice(0, data.FILTER_DIMS.length, ...dims.map(([key, name, field]) => ({
           key,
           name,
@@ -6901,7 +6906,7 @@ class Component extends DCLogic {
         const counts = new Map(data.FILTER_DIMS.map((dim) => [dim.key, /* @__PURE__ */ new Map()]));
         for (const movie of data.LIB) {
           if (actor && !movie.actors.includes(actor)) continue;
-          for (const [key, field] of [["actor", "actors"], ["series", "series"], ["studio", "studio"], ["res", "res"], ["flag", "tags"]]) {
+          for (const [key, field] of [["actor", "actors"], ["studio", "studio"], ["res", "res"], ["flag", "tags"]]) {
             for (const value of new Set(Array.isArray(movie[field]) ? movie[field] : [movie[field]])) {
               const group = counts.get(key);
               group.set(value, (group.get(value) || 0) + 1);
@@ -6935,7 +6940,7 @@ class Component extends DCLogic {
       }
       vCinema() {
         const st = this.state;
-        const clearFacets = () => ({ actor: [], series: [], studio: [], res: [], flag: [] });
+        const clearFacets = () => ({ actor: [], studio: [], res: [], flag: [] });
         const browse = (filters) => this.setState({ cnTab: "\u5168\u90E8\u5F71\u7247", cnActor: null, cnDetail: null, cnQ: "", cnF: { ...clearFacets(), ...filters } });
         const controls = {
           query: st.cnQ,
@@ -6979,23 +6984,50 @@ class Component extends DCLogic {
           unavailable: !(movie.raw.files || []).some((file) => file.exists !== false),
           open: () => open(movie.code)
         });
-        view.tabs = view.tabs.map((tab) => ({ ...tab, current: tab.name === st.cnTab ? "page" : void 0, pick: () => this.setState({ cnTab: tab.name, cnActor: null, cnQ: "" }) }));
+        view.tabs = view.tabs.map((tab) => ({ ...tab, current: tab.name === st.cnTab ? "page" : void 0, pick: () => this.setState({ cnTab: tab.name, cnActor: null, cnQ: "", cnTagWall: false }) }));
         const hero = this.libraryByCode.get(view.hero.code);
         Object.assign(view.hero, presentation(hero));
         view.hero.playText = view.hero.unavailable ? "\u6587\u4EF6\u7F3A\u5931" : "\u64AD\u653E";
         view.showHero = st.cnTab === "\u63A8\u8350";
+        view.showTags = st.cnTab === "\u6807\u7B7E" && !st.cnTagWall;
+        if (view.showTags) view.showShelves = false;
+        view.tagHeader = st.cnTab === "\u6807\u7B7E" && st.cnTagWall;
+        view.tagMode = st.cnTagMode;
+        view.setTagMode = (event) => {
+          if (["or", "and"].includes(event.target.value)) this.setState({ cnTagMode: event.target.value });
+        };
+        view.tagQuery = st.cnTagQ;
+        view.setTagQuery = (event) => this.setState({ cnTagQ: event.target.value });
+        view.tagSelectedCount = st.cnF.flag.length;
+        view.clearTagSelection = () => this.setState({ cnF: { ...st.cnF, flag: [] }, cnTagQ: "", cnTagMode: "or", cnTagPage: null });
+        view.showTagResults = () => this.setState({ cnTagWall: true });
+        view.backToTags = () => this.setState({ cnTagWall: false });
+        if (view.showTags) {
+          const query = st.cnTagQ.trim().toLowerCase(), counts = this.cinemaCounts(null).get("flag");
+          const options = data.FILTER_DIMS.find((dim) => dim.key === "flag").options.filter((name) => !query || name.toLowerCase().includes(query));
+          const tags = this.pageItems(options, "cnTagPage", [query, this._facetRevision]);
+          view.tags = tags.items.map((name) => ({
+            name,
+            count: String(counts.get(name) || 0),
+            on: st.cnF.flag.includes(name),
+            toggle: () => this.setState({ cnF: { ...st.cnF, flag: st.cnF.flag.includes(name) ? st.cnF.flag.filter((value) => value !== name) : [...st.cnF.flag, name] } })
+          }));
+          view.tagPaging = tags.paging;
+          view.tagsEmpty = !options.length;
+          view.tagsMeta = `${counts.size} \u4E2A\u6807\u7B7E \xB7 \u5DF2\u9009 ${st.cnF.flag.length} \u4E2A`;
+        }
         view.play = () => this.playCinema(hero.code);
         view.info = () => open(hero.code);
         view.transcode = () => this.openTranscode(hero.code);
         view.libMeta = `${data.LIB.length} \u90E8`;
         view.sort = st.cnSort;
         view.setSort = (event) => this.setState({ cnSort: event.target.value });
-        view.wallTitle = view.actorHeader?.name || (st.cnQ.trim() ? "\u641C\u7D22\u7ED3\u679C" : "\u5168\u90E8\u5F71\u7247");
+        view.wallTitle = view.actorHeader?.name || (view.tagHeader ? "\u6807\u7B7E\u5F71\u7247" : st.cnQ.trim() ? "\u641C\u7D22\u7ED3\u679C" : "\u5168\u90E8\u5F71\u7247");
         view.wallMeta = st.cnQ.trim() ? `\u547D\u4E2D ${view.wall.length} \u90E8 \xB7 \u201C${st.cnQ.trim()}\u201D` : view.wallMeta;
         view.emptyTitle = "\u6CA1\u6709\u7B26\u5408\u6761\u4EF6\u7684\u5F71\u7247";
         view.emptyBody = "\u8BD5\u8BD5\u5176\u4ED6\u5173\u952E\u8BCD\uFF0C\u6216\u79FB\u9664\u7B5B\u9009\u6761\u4EF6\u3002";
         view.clearText = "\u6E05\u7A7A\u6761\u4EF6";
-        view.clearFilters = () => this.setState({ cnQ: "", cnF: clearFacets(), cnFacetQueries: {}, ...Object.fromEntries(data.FILTER_DIMS.map((dim) => ["cnFacetPage_" + dim.key, null])) });
+        view.clearFilters = () => this.setState({ cnQ: "", cnF: clearFacets(), cnFacetQueries: {}, cnTagQ: "", cnTagMode: "or", cnTagPage: null, ...Object.fromEntries(data.FILTER_DIMS.map((dim) => ["cnFacetPage_" + dim.key, null])) });
         view.activeFilters = data.FILTER_DIMS.flatMap((dim) => (view.actorHeader && dim.key === "actor" ? [] : st.cnF[dim.key]).map((value) => ({ text: `${dim.name} \xB7 ${value}`, remove: () => this.setState({ cnF: { ...st.cnF, [dim.key]: st.cnF[dim.key].filter((item) => item !== value) } }) })));
         for (const group of view.filterGroups) {
           const dim = data.FILTER_DIMS.find((dim2) => dim2.name === group.name);
@@ -7053,24 +7085,24 @@ class Component extends DCLogic {
           const recent = [...data.LIB].sort((a, b) => b.added.localeCompare(a.added));
           view.shelves = [shelf("\u6700\u8FD1\u5165\u5E93", recent), shelf("\u9AD8\u6E05\u6536\u85CF", recent.filter((movie) => parseInt(movie.res) >= 1080), { res: [...new Set(recent.filter((movie) => parseInt(movie.res) >= 1080).map((movie) => movie.res))] }), shelf("VR \u5F71\u5385", recent.filter((movie) => movie.vr), { flag: ["VR"] })].filter((shelf2) => shelf2.items.length);
         }
-        if (["\u7CFB\u5217", "VR"].includes(st.cnTab)) {
-          const vr = st.cnTab === "VR", groups = /* @__PURE__ */ new Map();
+        if (st.cnTab === "VR") {
+          const groups = /* @__PURE__ */ new Map();
           for (const movie of data.LIB) {
-            if (vr ? !movie.vr : movie.series === "\u2014") continue;
-            const key = vr ? movie.res : movie.series;
+            if (!movie.vr) continue;
+            const key = movie.res;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(movie);
           }
-          view.shelves = [...groups].map(([key, movies]) => shelf(vr ? `VR ${key}` : key, movies, vr ? { res: [key], flag: ["VR"] } : { series: [key] }));
+          view.shelves = [...groups].map(([key, movies]) => shelf(`VR ${key}`, movies, { res: [key], flag: ["VR"] }));
         }
-        view.sectionTitle = st.cnTab === "\u7CFB\u5217" ? "\u7CFB\u5217\u6536\u85CF" : st.cnTab === "VR" ? "VR \u5F71\u5385" : "";
+        view.sectionTitle = st.cnTab === "VR" ? "VR \u5F71\u5385" : "";
         view.sectionMeta = `${view.shelves.length} \u4E2A\u5206\u533A`;
         view.shelvesEmpty = !view.shelves.length;
-        view.sectionEmpty = st.cnTab === "VR" ? "\u6682\u65E0 VR \u5F71\u7247" : "\u6682\u65E0\u7CFB\u5217\u6536\u85CF";
+        view.sectionEmpty = st.cnTab === "VR" ? "\u6682\u65E0 VR \u5F71\u7247" : "\u6682\u65E0\u5F71\u7247";
         const shelves = this.pageItems(view.shelves, "cnShelfPage", [st.cnTab], 6);
         view.shelves = shelves.items;
         view.shelfPaging = shelves.paging;
-        const wall = this.pageItems(view.wall, "cnPage", [st.cnTab, st.cnActor, st.cnF, st.cnSort, st.cnQ]);
+        const wall = this.pageItems(view.wall, "cnPage", [st.cnTab, st.cnActor, st.cnF, st.cnSort, st.cnQ, st.cnTagMode]);
         view.wall = wall.items.map((row) => card(this.libraryByCode.get(row.code)));
         view.paging = wall.paging;
         const actors = this.pageItems(view.actors, "cnActorPage", []);
@@ -8387,6 +8419,7 @@ class Component extends DCLogic {
 </button></sc-for>`;
   var pager = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
   var backdrop = (key) => `<sc-if value="{{ ${key}.backdrop }}"><img class="jj-cinema-backdrop" src="{{ ${key}.backdrop }}" alt="" onError="{{ cn.imageError }}"></sc-if>`;
+  var tagMode = '<label class="jj-cinema-sort">\u6807\u7B7E\u7EC4\u5408<select class="input" aria-label="\u6807\u7B7E\u7EC4\u5408" value="{{ cn.tagMode }}" onChange="{{ cn.setTagMode }}"><option value="or">\u5339\u914D\u4EFB\u4E00\u6807\u7B7E</option><option value="and">\u5339\u914D\u5168\u90E8\u6807\u7B7E</option></select></label>';
   var cinemaTemplate = `<sc-if value="{{ at.cinema }}"><div class="jj-cinema">
   <header class="jj-cinema-bar" aria-hidden="{{ cn.detailOpen }}">
     <div class="jj-cinema-identity"><span class="jj-cinema-brand">JavJaeger</span>${deploymentBadge}</div>
@@ -8408,11 +8441,18 @@ class Component extends DCLogic {
       <sc-if value="{{ cn.shelvesEmpty }}"><div class="jj-cinema-empty">${icon("film-strip")}<h2>{{ cn.sectionEmpty }}</h2><p>\u626B\u63CF\u6216\u8865\u5168\u5F71\u7247\u8D44\u6599\u540E\uFF0C\u5728\u8FD9\u91CC\u6D4F\u89C8\u4F60\u7684\u6536\u85CF\u3002</p><button class="btn btn-secondary" onClick="{{ cn.browseAll }}">\u6D4F\u89C8\u5168\u90E8\u5F71\u7247</button></div></sc-if>
     </div></sc-if>
     <sc-if value="{{ cn.showActors }}"><section class="jj-cinema-browse"><div class="jj-cinema-section-heading"><div><h1>\u6F14\u5458</h1><p>{{ cn.actorsMeta }}</p></div></div><div class="jj-cinema-actors"><sc-for list="{{ cn.actors }}" as="a"><button class="jj-cinema-actor" onClick="{{ a.open }}"><span class="jj-cinema-avatar">{{ a.initial }}<sc-if value="{{ a.avatarUrl }}"><img src="{{ a.avatarUrl }}" alt="" loading="lazy" onError="{{ cn.imageError }}"></sc-if></span><strong>{{ a.name }}</strong><span>{{ a.count }}</span></button></sc-for></div>${pager("cn.actorPaging")}<sc-if value="{{ cn.actorsEmpty }}"><div class="jj-cinema-empty"><h2>\u6682\u65E0\u6F14\u5458\u4FE1\u606F</h2><p>\u8865\u5168\u5F71\u7247\u8D44\u6599\u540E\uFF0C\u6F14\u5458\u4F1A\u51FA\u73B0\u5728\u8FD9\u91CC\u3002</p></div></sc-if></section></sc-if>
+    <sc-if value="{{ cn.showTags }}"><section class="jj-cinema-browse" aria-label="\u6807\u7B7E\u76EE\u5F55"><div class="jj-cinema-section-heading"><div><h1>\u6807\u7B7E</h1><p role="status">{{ cn.tagsMeta }}</p></div></div>
+      <div class="jj-cinema-tag-tools"><input class="input" type="search" aria-label="\u641C\u7D22\u6807\u7B7E" placeholder="\u641C\u7D22\u6807\u7B7E" value="{{ cn.tagQuery }}" onChange="{{ cn.setTagQuery }}">${tagMode}<button class="btn btn-primary" onClick="{{ cn.showTagResults }}">\u67E5\u770B\u5F71\u7247</button><button class="btn btn-ghost" onClick="{{ cn.clearTagSelection }}">\u6E05\u7A7A\u6807\u7B7E\u9009\u62E9</button></div>
+      <div class="jj-cinema-tag-directory"><sc-for list="{{ cn.tags }}" as="g"><button aria-pressed="{{ g.on }}" onClick="{{ g.toggle }}"><strong>{{ g.name }}</strong><span>{{ g.count }} \u90E8</span></button></sc-for></div>${pager("cn.tagPaging")}
+      <sc-if value="{{ cn.tagsEmpty }}"><div class="jj-cinema-empty"><h2>\u6CA1\u6709\u5339\u914D\u7684\u6807\u7B7E</h2><p>\u8BD5\u8BD5\u5176\u4ED6\u5173\u952E\u8BCD\uFF0C\u6216\u5728\u5F71\u89C6\u5E93\u4E2D\u8865\u5168\u6807\u7B7E\u8D44\u6599\u3002</p></div></sc-if>
+    </section></sc-if>
     <sc-if value="{{ cn.showWall }}"><section class="jj-cinema-browse">
       <sc-if value="{{ cn.actorHeader }}"><button class="btn btn-ghost jj-cinema-back" onClick="{{ cn.backToActors }}">${icon("arrow-left")} \u5168\u90E8\u6F14\u5458</button></sc-if>
+      <sc-if value="{{ cn.tagHeader }}"><button class="btn btn-ghost jj-cinema-back" onClick="{{ cn.backToTags }}">${icon("arrow-left")} \u5168\u90E8\u6807\u7B7E</button></sc-if>
       <div class="jj-cinema-section-heading"><div><h1>{{ cn.wallTitle }}</h1><p role="status">{{ cn.wallMeta }}</p></div><sc-if value="{{ cn.hasLibrary }}"><label class="jj-cinema-sort">\u6392\u5E8F<select class="input" aria-label="\u5F71\u9662\u6392\u5E8F" value="{{ cn.sort }}" onChange="{{ cn.setSort }}"><sc-for list="{{ cn.sorts }}" as="o"><option>{{ o.name }}</option></sc-for></select></label></sc-if></div>
       <sc-if value="{{ cn.hasLibrary }}"><details class="jj-cinema-filters" open="{{ cn.filtersOpen }}" onToggle="{{ cn.toggleFilters }}"><summary>${icon("sliders-horizontal")} \u7B5B\u9009\u5F71\u7247 <span>{{ cn.filterCount }}</span></summary><sc-if value="{{ cn.filtersOpen }}"><div><sc-for list="{{ cn.filterGroups }}" as="g"><div class="jj-cinema-filter-group" role="group" aria-label="{{ g.name }}\u7B5B\u9009"><strong>{{ g.name }}</strong><div><input class="input" type="search" aria-label="\u641C\u7D22{{ g.name }}\u9009\u9879" placeholder="\u641C\u7D22{{ g.name }}\u9009\u9879" value="{{ g.query }}" onChange="{{ g.setQuery }}" style="flex-basis:100%;width:min(100%,240px)"><sc-for list="{{ g.items }}" as="o"><button aria-pressed="{{ o.on }}" onClick="{{ o.toggle }}">{{ o.name }} <small>{{ o.count }}</small></button></sc-for><sc-if value="{{ g.empty }}"><span role="status">\u6CA1\u6709\u5339\u914D\u9009\u9879</span></sc-if><div style="flex-basis:100%">${pager("g.paging")}</div></div></div></sc-for></div></sc-if></details></sc-if>
       <sc-if value="{{ cn.hasFilters }}"><div class="jj-cinema-active-filters"><sc-for list="{{ cn.activeFilters }}" as="f"><button class="btn btn-secondary" aria-label="\u79FB\u9664 {{ f.text }}" onClick="{{ f.remove }}">{{ f.text }} ${icon("x")}</button></sc-for><button class="btn btn-ghost" onClick="{{ cn.clearFilters }}">\u6E05\u7A7A {{ cn.filterCount }} \u4E2A\u6761\u4EF6</button></div></sc-if>
+      <sc-if value="{{ cn.hasLibrary }}"><div class="jj-cinema-tag-tools">${tagMode}</div></sc-if>
       <sc-if value="{{ cn.wallEmpty }}"><div class="jj-cinema-empty">${icon("film-strip")}<h2>{{ cn.emptyTitle }}</h2><p>{{ cn.emptyBody }}</p><button class="btn btn-secondary" onClick="{{ cn.clearFilters }}">{{ cn.clearText }}</button></div></sc-if>
       <div class="jj-cinema-wall">${cards("cn.wall")}</div>${pager("cn.paging")}
     </section></sc-if>

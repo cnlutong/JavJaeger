@@ -196,6 +196,13 @@ input, select, textarea { min-width: 0; }
 .jj-cinema-filter-group small { margin-left: 4px; opacity: .65; }
 .jj-cinema-active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 22px; }
 .jj-cinema-active-filters .btn { min-height: 30px; font-size: 12px; }
+.jj-cinema-tag-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+.jj-cinema-tag-tools > input { flex: 1 1 220px; min-width: 0; max-width: 360px; }
+.jj-cinema-tag-directory { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.jj-cinema-tag-directory > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; min-width: 0; min-height: 58px; padding: 12px 16px; border: 1px solid var(--ring); border-radius: 7px; background: var(--surf); color: var(--fg); }
+.jj-cinema-tag-directory strong { overflow-wrap: anywhere; font-size: 14px; font-weight: 500; }
+.jj-cinema-tag-directory span { flex: none; color: var(--dim); font-size: 12px; }
+.jj-cinema-tag-directory > button[aria-pressed="true"] { background: #59cbe81a; border-color: var(--acc); color: var(--acc); }
 .jj-cinema-actors { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 28px; }
 .jj-cinema-actor { border: 0; background: none; color: var(--fg); display: flex; flex-direction: column; align-items: center; min-width: 0; gap: 8px; }
 .jj-cinema-avatar { display: grid; place-items: center; position: relative; width: 100%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; background: var(--surf2); font-size: 36px; color: var(--dim); }

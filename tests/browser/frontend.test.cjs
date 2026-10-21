@@ -574,7 +574,7 @@ test('performance: 10000 cinema facet options stay lazy, paged and searchable by
     let state;
     const page = await openApp(t, 1440, async p => {
         state = await libraryFixture(p, 10000);
-        state.records.forEach((record, i) => { record.stars = [`Actor ${i}`]; record.series = `Series ${i}`; });
+        state.records.forEach((record, i) => { record.stars = [`Actor ${i}`]; record.genres = [`Tag ${i}`]; });
     });
     await navigate(page, '影院模式');
     await page.getByRole('button', { name: '全部影片', exact: true }).click();
@@ -584,7 +584,7 @@ test('performance: 10000 cinema facet options stay lazy, paged and searchable by
     await summary.focus(); await page.keyboard.press('Enter');
     const actors = filters.getByRole('group', { name: '演员筛选', exact: true });
     await actors.getByRole('button', { name: 'Actor 0 1', exact: true }).waitFor();
-    assert.ok(await options.count() <= 300, 'each of five groups contains at most 60 option buttons');
+    assert.ok(await options.count() <= 300, 'each of four groups contains at most 60 option buttons');
     assert.ok(await filters.locator('button').count() <= 310, 'pagination controls also stay bounded');
     t.diagnostic(JSON.stringify({ records: 10000, collapsedOptions: 0, expandedOptions: await options.count(), expandedButtons: await filters.locator('button').count() }));
     await actors.getByRole('button', { name: '下一页', exact: true }).click();
@@ -593,9 +593,9 @@ test('performance: 10000 cinema facet options stay lazy, paged and searchable by
     await actorSearch.fill('Actor 9999');
     const lastActor = actors.getByRole('button', { name: 'Actor 9999 1', exact: true });
     await lastActor.focus(); await page.keyboard.press('Space');
-    const series = filters.getByRole('group', { name: '系列筛选', exact: true });
-    await series.getByRole('searchbox', { name: '搜索系列选项', exact: true }).fill('Series 9999');
-    await series.getByRole('button', { name: 'Series 9999 1', exact: true }).click();
+    const tags = filters.getByRole('group', { name: '标签筛选', exact: true });
+    await tags.getByRole('searchbox', { name: '搜索标签选项', exact: true }).fill('Tag 9999');
+    await tags.getByRole('button', { name: 'Tag 9999 1', exact: true }).click();
     assert.equal(await page.locator('.jj-cinema-wall .jj-cinema-card').count(), 1);
     assert.match(await page.locator('.jj-cinema-wall').innerText(), /QA-10000/);
     await summary.focus(); await page.keyboard.press('Space');
@@ -615,6 +615,45 @@ test('performance: 10000 cinema facet options stay lazy, paged and searchable by
     await actors.getByRole('button', { name: 'New Actor 0 1', exact: true }).waitFor();
     assert.ok(await options.count() <= 300);
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-cinema-facets-paged.png'), fullPage: false });
+});
+
+test('cinema tags: directory selection, AND/OR results and detail return share one filter state', async t => {
+    const page = await openApp(t, 1440, async p => {
+        const state = await libraryFixture(p, 4);
+        state.records.forEach((record, index) => { record.genres = [['剧情', '中文字幕'], ['剧情'], ['中文字幕'], ['动作']][index]; });
+    });
+    assert.equal(await page.title(), 'JavJaeger');
+    assert.ok(page.url().startsWith(baseURL));
+    await navigate(page, '影院模式');
+    assert.equal(await page.getByRole('button', { name: '系列', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '标签', exact: true }).click();
+    const directory = page.getByRole('region', { name: '标签目录', exact: true });
+    await directory.getByRole('button', { name: '剧情 2 部', exact: true }).focus();
+    await page.keyboard.press('Space');
+    await directory.getByRole('button', { name: '中文字幕 2 部', exact: true }).click();
+    await directory.getByRole('combobox', { name: '标签组合', exact: true }).selectOption('and');
+    await directory.getByRole('button', { name: '查看影片', exact: true }).click();
+    assert.equal(await page.locator('.jj-cinema-wall .jj-cinema-card').count(), 1);
+    assert.match(await page.locator('.jj-cinema-wall').innerText(), /QA-001/);
+    await page.locator('.jj-cinema-wall .jj-cinema-card').first().click();
+    await page.getByRole('dialog', { name: '影片详情', exact: true }).waitFor();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.getByRole('combobox', { name: '标签组合', exact: true }).inputValue(), 'and');
+    await page.getByRole('button', { name: '全部标签', exact: true }).click();
+    assert.equal(await directory.locator('button[aria-pressed="true"]').count(), 2);
+    await directory.getByRole('searchbox', { name: '搜索标签', exact: true }).fill('剧情');
+    assert.equal(await directory.locator('.jj-cinema-tag-directory > button').count(), 1);
+    await directory.getByRole('combobox', { name: '标签组合', exact: true }).selectOption('or');
+    await directory.getByRole('button', { name: '查看影片', exact: true }).click();
+    assert.equal(await page.locator('.jj-cinema-wall .jj-cinema-card').count(), 3);
+    await page.getByRole('button', { name: '全部标签', exact: true }).click();
+    await directory.getByRole('button', { name: '清空标签选择', exact: true }).click();
+    assert.equal(await directory.locator('button[aria-pressed="true"]').count(), 0);
+    assert.equal(await directory.getByRole('searchbox', { name: '搜索标签', exact: true }).inputValue(), '');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-cinema-tags-desktop.png'), fullPage: false });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await directory.evaluate(node => node.scrollWidth <= node.clientWidth + 1), true, 'tag controls and long options fit the mobile viewport');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-cinema-tags-mobile.png'), fullPage: false });
 });
 
 test('cinema redesign: shelves, search, detail and playback preserve the browsing context', async t => {
@@ -689,7 +728,7 @@ test('cinema redesign: shelves, search, detail and playback preserve the browsin
     await page.keyboard.press('Enter');
     await detail.waitFor(); await page.keyboard.press('Escape');
     assert.equal(await content.evaluate(node => node.scrollTop), beforeDetail, 'closing details preserves the poster wall position');
-    await page.getByRole('button', { name: '系列', exact: true }).click();
+    await page.getByRole('button', { name: '标签', exact: true }).click();
     assert.equal(await content.evaluate(node => node.scrollTop), 0, 'switching sections starts at the section heading');
     await page.getByRole('button', { name: '全部影片', exact: true }).click();
     await page.getByRole('button', { name: '下一页', exact: true }).click();
@@ -760,7 +799,7 @@ test('performance: 10000 movies and 50 TB keep navigation, paging and input resp
         state = await libraryFixture(p, 10000);
         state.records.forEach((record, i) => {
             record.stars = [`QA Actor ${i % 2000}`];
-            record.series = `QA Series ${i % 1000}`;
+            record.genres = [`QA Tag ${i % 1000}`];
             record.total_size = record.files[0].size = 5000000000;
         });
     });
@@ -788,9 +827,10 @@ test('performance: 10000 movies and 50 TB keep navigation, paging and input resp
     await page.getByRole('button', { name: '下一页', exact: true }).click();
     await page.getByText('第 2 / 167 页 · 共 10000 项', { exact: true }).waitFor();
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-performance-cinema.png'), fullPage: false });
-    await page.getByRole('button', { name: '系列', exact: true }).click();
-    assert.equal(await page.getByRole('button', { name: '查看全部', exact: true }).count(), 6);
-    await page.getByRole('button', { name: '查看全部', exact: true }).first().click();
+    await page.getByRole('button', { name: '标签', exact: true }).click();
+    assert.equal(await page.locator('.jj-cinema-tag-directory > button').count(), 60);
+    await page.locator('.jj-cinema-tag-directory > button').first().click();
+    await page.getByRole('button', { name: '查看影片', exact: true }).click();
     await page.getByText(/命中 10 部/).waitFor();
     assert.equal(state.records.reduce((sum, record) => sum + record.total_size, 0), 50000000000000);
     assert.equal(state.requests.filter(request => request.path.endsWith('/scan/jobs')).length, 0);

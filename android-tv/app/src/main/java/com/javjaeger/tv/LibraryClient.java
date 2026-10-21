@@ -60,6 +60,33 @@ public final class LibraryClient {
         } catch (JSONException | IllegalArgumentException exception) { throw invalidResponse(); }
     }
 
+    public List<CinemaLibrary.Actor> loadActors() throws IOException {
+        JSONObject payload = read("/api/movies/local-library/actors?compact=true");
+        try {
+            JSONArray records = payload.getJSONArray("actors");
+            List<CinemaLibrary.Actor> actors = new ArrayList<>();
+            for (int index = 0; index < records.length(); index++) actors.add(CinemaLibrary.Actor.fromJson(records.getJSONObject(index)));
+            return actors;
+        } catch (JSONException | IllegalArgumentException exception) { throw invalidResponse(); }
+    }
+
+    public String actorAvatarUrl(CinemaLibrary.Actor actor) {
+        if (actor == null || !actor.avatarAvailable || !CinemaLibrary.Actor.validKey(actor.key)) return "";
+        return baseUrl + "/api/movies/local-library/actors/" + encode(actor.key).replace("+", "%20") + "/avatar";
+    }
+
+    public String deploymentLabel() throws IOException {
+        JSONObject version = read("/api/system/info").optJSONObject("version");
+        if (version == null) return "版本未知 · 更新时间未记录";
+        String label = version.optString("version", "");
+        if (!label.matches("git-[0-9a-fA-F]{7,64}")) label = "版本未知";
+        String deployed = version.optString("deployed_at", ""), built = version.optString("built_at", "");
+        String instant = deployed.isEmpty() ? built : deployed;
+        String time = instant.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+                ? (deployed.isEmpty() ? "构建 " : "更新 ") + instant.replace("T", " ").replace("Z", " UTC") : "更新时间未记录";
+        return label + " · " + time;
+    }
+
     public String posterUrl(String id) {
         requireMovieId(id);
         return baseUrl + "/api/movies/local-library/poster/" + id;
@@ -68,8 +95,20 @@ public final class LibraryClient {
     public String posterUrl(Movie movie) {
         if (movie == null) throw new IllegalArgumentException("影片信息无效。");
         if (movie.artworkSource.isEmpty()) return posterUrl(movie.id);
-        if (movie.artworkSource.startsWith("/")) return baseUrl + movie.artworkSource;
-        try { return baseUrl + "/api/image-proxy?url=" + URLEncoder.encode(movie.artworkSource, "UTF-8"); }
+        return artworkUrl(movie.artworkSource);
+    }
+
+    public String backdropUrl(Movie movie) {
+        if (movie == null) throw new IllegalArgumentException("影片信息无效。");
+        return movie.backdropSource.isEmpty() ? posterUrl(movie) : artworkUrl(movie.backdropSource);
+    }
+
+    private String artworkUrl(String source) {
+        return source.startsWith("/") ? baseUrl + source : baseUrl + "/api/image-proxy?url=" + encode(source);
+    }
+
+    private static String encode(String value) {
+        try { return URLEncoder.encode(value, "UTF-8"); }
         catch (UnsupportedEncodingException impossible) { throw new AssertionError(impossible); }
     }
 

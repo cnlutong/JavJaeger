@@ -13,16 +13,29 @@ class DCLogic {
     constructor(props) { this.props = props; }
     setState(patch) { this.state = { ...this.state, ...patch }; }
 }
-function app(storage = new Map()) {
+function app(storage = new Map(), hash = '') {
     globalThis.window = {
         localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k) },
         sessionStorage: { getItem: k => storage.get('session:' + k) ?? null, setItem: (k, v) => storage.set('session:' + k, v), removeItem: k => storage.delete('session:' + k) },
-        versionInfo: { version: 'test' },
+        versionInfo: { version: 'test' }, location: { hash },
     };
     const Base = new Function('DCLogic', script + designDataExports + '\nreturn Component;')(DCLogic);
     return new (connectDesign(Base))({});
 }
 
+
+test('TV management links open only the local library and a strictly validated movie detail', () => {
+    for (const [hash, id] of [['#library', null], ['#library/QA-001', 'QA-001'], ['#library/Abc_123', 'Abc_123']]) {
+        const instance = app(new Map(), hash);
+        assert.equal(instance.state.route, 'library'); assert.equal(instance.state.lbDetail, id);
+        instance.componentWillUnmount();
+    }
+    for (const hash of ['', '#settings', '#library/', '#library/QA-1/extra', '#library/QA%2F001', '#library/QA-1?token=fixture', '#library/<script>', '#library/javascript:alert(1)']) {
+        const instance = app(new Map(), hash);
+        assert.equal(instance.state.route, 'cinema', hash); assert.equal(instance.state.lbDetail, null);
+        instance.componentWillUnmount();
+    }
+});
 
 function mockSearch(movies, { enriched = movies, magnets = {}, errors = {}, ready = enriched.map(movie => movie.id), complete = true } = {}) {
     const calls = []; let counter = 0, job;
@@ -1063,7 +1076,7 @@ test('performance: 10000 failed resources page before formatting and preserve cr
 const localRecord = (code, overrides = {}) => ({ movie_id: code, title: code, files: [{ path: `/${code}.mp4`, size: 100 }], stars: [], genres: [], total_size: 100, ...overrides });
 test('performance: cinema facets stay lazy and bounded while all 10000 options remain reachable', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
-    const records = Array.from({ length: 10000 }, (_, i) => localRecord(`QA-${i}`, { stars: [`Actor ${i}`], series: `Series ${i}`, media_info: { height: 1080 } }));
+    const records = Array.from({ length: 10000 }, (_, i) => localRecord(`QA-${i}`, { stars: [`Actor ${i}`], genres: [`Tag ${i}`], media_info: { height: 1080 } }));
     await loadRecords(instance, records);
     instance.setState({ route: 'cinema', cnTab: '全部影片' });
     let formatted = 0;
@@ -1098,11 +1111,11 @@ test('performance: cinema facets stay lazy and bounded while all 10000 options r
     instance.vCinema().filterGroups.find(group => group.name === '演员').items[0].toggle();
     view = instance.vCinema();
     assert.equal(view.wall.length, 2, 'conditions in the same group retain OR semantics across searches');
-    view.filterGroups.find(group => group.name === '系列').setQuery({ target: { value: 'Series 9999' } });
-    instance.vCinema().filterGroups.find(group => group.name === '系列').items[0].toggle();
+    view.filterGroups.find(group => group.name === '标签').setQuery({ target: { value: 'Tag 9999' } });
+    instance.vCinema().filterGroups.find(group => group.name === '标签').items[0].toggle();
     view = instance.vCinema();
     assert.deepEqual(view.wall.map(movie => movie.code), ['QA-9999']);
-    assert.equal(view.activeFilters.length, 3, 'actor and series conditions retain AND semantics');
+    assert.equal(view.activeFilters.length, 3, 'actor and tag conditions retain AND semantics');
     view.toggleFilters({ currentTarget: { open: false } });
     formatted = 0; view = instance.vCinema();
     assert.deepEqual(view.filterGroups, []); assert.equal(formatted, 0);
@@ -1282,15 +1295,91 @@ test('performance: 10000-film library and cinema format only the visible page', 
     });
 });
 
-test('performance: series shelves are bounded and can open every film in a series', async () => {
-    const instance = app();
-    await loadRecords(instance, Array.from({ length: 240 }, (_, i) => localRecord(`QA-${i}`, { series: `Series ${i % 10}` })));
-    instance.setState({ route: 'cinema', cnTab: '系列' });
-    const view = instance.vCinema();
-    assert.ok(view.shelves.length <= 6);
-    assert.ok(view.shelves.every(shelf => shelf.items.length <= 12));
-    view.shelves[0].openAll();
-    assert.equal(instance.vCinema().wall.length, 24);
+test('cinema: tags replace series and combine through the existing facet state', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    await loadRecords(instance, [
+        localRecord('QA-BOTH', { genres: ['剧情', '中文字幕', '剧情'], series: '详情仍保留系列' }),
+        localRecord('QA-PLOT', { genres: ['剧情'] }), localRecord('QA-SUB', { genres: ['中文字幕'] }),
+        localRecord('QA-OTHER', { genres: ['动作'] }),
+    ]);
+    let view = instance.vCinema();
+    assert.deepEqual(view.tabs.map(tab => tab.name), ['推荐', '全部影片', '标签', '演员', 'VR']);
+    view.tabs.find(tab => tab.name === '标签').pick(); view = instance.vCinema();
+    assert.equal(view.showTags, true); assert.equal(view.showShelves, false); assert.equal(view.showWall, false);
+    assert.equal(view.tags.find(tag => tag.name === '剧情').count, '2', 'duplicate metadata tags count each movie once');
+    view.tags.find(tag => tag.name === '剧情').toggle();
+    instance.vCinema().tags.find(tag => tag.name === '中文字幕').toggle();
+    view = instance.vCinema(); assert.equal(view.tagSelectedCount, 2);
+    assert.deepEqual(instance.state.cnF.flag, ['剧情', '中文字幕']);
+    view.showTagResults(); view = instance.vCinema();
+    assert.equal(view.showWall, true); assert.equal(view.tagHeader, true);
+    assert.deepEqual(view.wall.map(movie => movie.code), ['QA-BOTH', 'QA-PLOT', 'QA-SUB']);
+    view.setTagMode({ target: { value: 'and' } }); view = instance.vCinema();
+    assert.deepEqual(view.wall.map(movie => movie.code), ['QA-BOTH']);
+    view.toggleFilters({ currentTarget: { open: true } }); view = instance.vCinema();
+    assert.ok(!view.filterGroups.some(group => group.name === '系列'));
+    assert.equal(view.filterGroups.find(group => group.name === '标签').items.filter(item => item.on).length, 2);
+    view.wall[0].open(); view = instance.vCinema();
+    assert.ok(view.detail.fields.some(field => field.name === '系列' && field.value === '详情仍保留系列'));
+    view.closeDetail(); view = instance.vCinema();
+    assert.equal(instance.state.cnTab, '标签'); assert.equal(view.tagMode, 'and');
+    view.backToTags(); view = instance.vCinema();
+    assert.equal(view.showTags, true); assert.equal(view.tagSelectedCount, 2);
+    view.clearFilters(); view = instance.vCinema();
+    assert.equal(view.tagSelectedCount, 0); assert.equal(view.tagMode, 'or');
+    const template = adaptTemplate(original, '/logo.jpg');
+    assert.match(template, /aria-label="搜索标签"/); assert.match(template, /aria-label="标签组合"/);
+    assert.match(template, /cn\.backToTags/);
+});
+
+test('performance: tag directory pages and searches all 10000 tags without losing selections', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    await loadRecords(instance, Array.from({ length: 10000 }, (_, i) => localRecord(`QA-${i}`, { genres: [`Tag ${i}`] })));
+    instance.setState({ cnTab: '标签' });
+    let view = instance.vCinema();
+    assert.equal(view.tags.length, 60); assert.match(view.tagPaging.text, /共 10000 项/);
+    view.tags[0].toggle(); instance.vCinema().tagPaging.next(); view = instance.vCinema();
+    assert.equal(view.tags[0].name, 'Tag 60');
+    view.setTagQuery({ target: { value: 'Tag 9999' } }); view = instance.vCinema();
+    assert.deepEqual(view.tags.map(tag => tag.name), ['Tag 9999']);
+    view.tags[0].toggle(); view.showTagResults(); view = instance.vCinema();
+    assert.deepEqual(view.wall.map(movie => movie.code), ['QA-0', 'QA-9999']);
+    view.backToTags(); view = instance.vCinema();
+    assert.equal(view.tagQuery, 'Tag 9999'); assert.equal(view.tagSelectedCount, 2);
+    view.setTagQuery({ target: { value: 'no matching tag' } });
+    assert.equal(instance.vCinema().tagsEmpty, true);
+    instance.vCinema().clearFilters(); view = instance.vCinema();
+    assert.equal(view.tagQuery, ''); assert.equal(view.tags[0].name, 'Tag 0');
+});
+
+test('cinema: clearing tag selections preserves other facets and the movie search', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    await loadRecords(instance, [localRecord('QA-001', { stars: ['Alice'], studio: 'Studio A', genres: ['剧情'], media_info: { height: 1080 } })]);
+    instance.setState({ cnTab: '标签', cnQ: 'QA', cnTagQ: '剧情', cnTagMode: 'and',
+        cnF: { actor: ['Alice'], studio: ['Studio A'], res: ['1080p'], flag: ['剧情'] } });
+    instance.vCinema().clearTagSelection();
+    assert.deepEqual(instance.state.cnF, { actor: ['Alice'], studio: ['Studio A'], res: ['1080p'], flag: [] });
+    assert.equal(instance.state.cnQ, 'QA');
+    assert.equal(instance.state.cnTagQ, ''); assert.equal(instance.state.cnTagMode, 'or');
+    const template = adaptTemplate(original, '/logo.jpg');
+    assert.match(template, /onClick="\{\{ cn\.clearTagSelection \}\}">清空标签选择/);
+});
+
+test('cinema: an inherited AND mode does not add old labels to VR or detail tag navigation', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    await loadRecords(instance, [localRecord('QA-VR-PLOT', { genres: ['剧情', 'VR'], media_info: { height: 1080 } }),
+        localRecord('QA-VR-SUB', { genres: ['中文字幕', 'VR'], media_info: { height: 2160 } }),
+        localRecord('QA-BOTH', { genres: ['剧情', '中文字幕'] })]);
+    instance.setState({ cnTab: '推荐', cnTagMode: 'and', cnF: { actor: [], studio: [], res: [], flag: ['剧情', '中文字幕'] } });
+    instance.vCinema().shelves.find(shelf => shelf.name === 'VR 影厅').openAll();
+    assert.deepEqual(instance.state.cnF.flag, ['VR']);
+    let view = instance.vCinema();
+    assert.deepEqual(view.wall.map(movie => movie.code).sort(), ['QA-VR-PLOT', 'QA-VR-SUB']);
+    view.wall.find(movie => movie.code === 'QA-VR-PLOT').open();
+    instance.vCinema().detail.tags.find(tag => tag.name === '剧情').open();
+    assert.deepEqual(instance.state.cnF.flag, ['剧情']);
+    view = instance.vCinema();
+    assert.deepEqual(view.wall.map(movie => movie.code).sort(), ['QA-BOTH', 'QA-VR-PLOT']);
 });
 
 test('performance: catalogue pages retain groups, search and selection', async () => {

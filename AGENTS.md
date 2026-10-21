@@ -122,9 +122,10 @@ Use this as the source-of-truth ownership map.
 - `frontend/src/`
   - editable frontend source
 - `android-tv/`
-  - standalone native Android TV client: server selection, read-only library browsing, search, details and playback
+  - standalone native Android TV client matching cinema navigation, hero/shelves, actor/tag/VR browsing, combined filters, sorting, paging, details and playback
   - depends only on Android/Media3 and existing server HTTP APIs; never imports backend or browser implementation
   - stores only a credential-free server address; downloading, scraping and library management remain server-owned
+  - management links open the existing browser UI through `#library[/MOVIE-ID]`
 - `frontend/src/design/`
   - original Claude Design HTML, runtime, design system and logo
   - `integration.mjs` connects original view controls to existing APIs

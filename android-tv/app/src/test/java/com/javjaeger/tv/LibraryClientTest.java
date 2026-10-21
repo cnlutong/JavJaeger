@@ -171,6 +171,26 @@ public class LibraryClientTest {
         assertEquals("/api/movies/local-library?compact=true", requested.get());
     }
 
+    @Test public void actorAvatarsAndBackdropsStayOnValidatedServerEndpoints() throws Exception {
+        body.set("{\"success\":true,\"actors\":[{\"key\":\"演员 A\",\"name\":\"演员\",\"movie_count\":2,\"total_size\":1024,"
+                + "\"avatar_url\":\"/api/movies/local-library/actors/演员 A/avatar\"},{\"key\":\"bob\",\"name\":\"Bob\",\"avatar_url\":\"https://evil.test/avatar\"}]}");
+        LibraryClient client = new LibraryClient(address + "/base");
+        List<CinemaLibrary.Actor> actors = client.loadActors();
+        assertEquals("/base/api/movies/local-library/actors?compact=true", requested.get());
+        assertEquals("演员", actors.get(0).name);
+        assertEquals(2, actors.get(0).count);
+        assertEquals(1024, actors.get(0).totalSize);
+        assertEquals(address + "/base/api/movies/local-library/actors/%E6%BC%94%E5%91%98%20A/avatar", client.actorAvatarUrl(actors.get(0)));
+        assertEquals("", client.actorAvatarUrl(actors.get(1)));
+        Movie movie = Movie.fromJson(new org.json.JSONObject("{\"movie_id\":\"QA-001\",\"backdrop_url\":\"https://cdn.example/back.jpg\"}"));
+        assertEquals(address + "/base/api/image-proxy?url=https%3A%2F%2Fcdn.example%2Fback.jpg", client.backdropUrl(movie));
+        body.set("{\"version\":{\"version\":\"git-abc1234\",\"deployed_at\":\"2026-10-21T10:00:00Z\"},\"hostname\":\"private-host\"}");
+        assertEquals("git-abc1234 · 更新 2026-10-21 10:00:00 UTC", client.deploymentLabel());
+        assertEquals("/base/api/system/info", requested.get());
+        body.set("{\"version\":{\"version\":\"secret password\",\"built_at\":\"not-a-date\"}}");
+        assertEquals("版本未知 · 更新时间未记录", client.deploymentLabel());
+    }
+
     @Test public void boundsServerResponsesAtSixteenMebibytes() throws Exception {
         char[] large = new char[16 * 1024 * 1024 + 1];
         java.util.Arrays.fill(large, 'x');

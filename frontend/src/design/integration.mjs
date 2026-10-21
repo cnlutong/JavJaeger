@@ -29,6 +29,10 @@ export function adaptDesignScript(script) {
         .replace('const magReady = list.filter((m) => m.mag).length;', 'const magReady = 0;')
         .replace('const rows = list.map((m) => {', "const rows = this.pageItems(list, 'searchPage', []).items.map((m) => {")
         .replace('actors: CN_ACTORS.map((a) => {', 'actors: (showActors ? CN_ACTORS : []).map((a) => {')
+        .replace("tabs: ['推荐', '全部影片', '系列', '演员', 'VR']", "tabs: ['推荐', '全部影片', '标签', '演员', 'VR']")
+        .replaceAll('actor: [], series: [], studio: [], res: [], flag: []', 'actor: [], studio: [], res: [], flag: []')
+        .replace("const isWall = st.cnTab === '全部影片' || actorWall;", "const isWall = st.cnTab === '全部影片' || actorWall || (st.cnTab === '标签' && st.cnTagWall);")
+        .replace('st.cnF[d.key].some((v) => d.test(m, v))', "(d.key === 'flag' && st.cnTagMode === 'and' ? st.cnF[d.key].every((v) => d.test(m, v)) : st.cnF[d.key].some((v) => d.test(m, v)))")
         .replace(/const films = LIB.filter\(\(m\) => m.actors.includes\(a.name\)\);\s*const latest = films.slice\(\).sort\(\(x, y\) => y.date.localeCompare\(x.date\)\)\[0\];/, 'const latest = this.latestByActor.get(a.name);')
         .replace('let wallRows = LIB\n', `const cinemaQuery = (st.cnQ || '').trim().toLowerCase();\n    let wallRows = (isWall ? LIB : []).filter(m => !cinemaQuery || [m.code, m.title, ...m.actors].join(' ').toLowerCase().includes(cinemaQuery))\n`)
         .replace('filterGroups: dims.map((d) => ({', `filterGroups: (isWall && st.cnFiltersOpen ? dims : []).map((d) => {
@@ -119,8 +123,9 @@ export function connectDesign(Base) {
         constructor(props) {
             super(props);
             const session = loadPikPakSession();
+            const libraryLink = String(window.location?.hash || '').match(/^#library(?:\/([A-Za-z0-9_-]+))?$/);
             this.auth = session.credentials;
-            this.state = { ...this.state, theme: loadAppTheme(), route: 'cinema', cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {},
+            this.state = { ...this.state, theme: loadAppTheme(), route: libraryLink ? 'library' : 'cinema', lbDetail: libraryLink?.[1] || null, cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {}, cnTagQ: '', cnTagWall: false, cnTagMode: 'or',
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbSource: '', lbPaths: [], lbExcludes: [], auTask: '',
@@ -177,7 +182,7 @@ export function connectDesign(Base) {
             const patch = typeof update === 'function' ? update(this.state) : { ...update };
             for (const [page, filters] of [
                 ['lbPage', ['lbQ', 'lbActor', 'lbStudio', 'lbRes', 'lbM', 'lbSubOnly', 'lbMissing', 'lbSort']],
-                ['cnPage', ['cnTab', 'cnActor', 'cnF', 'cnSort', 'cnQ']],
+                ['cnPage', ['cnTab', 'cnActor', 'cnF', 'cnSort', 'cnQ', 'cnTagMode']],
                 ['cnShelfPage', ['cnTab']],
                 ['catalogPage', ['browse', 'browseQ']],
                 ['searchPage', ['sMode', 'code', 'page', 'fList']],
@@ -189,7 +194,7 @@ export function connectDesign(Base) {
             ]) {
                 if (filters.some(key => key in patch && patch[key] !== this.state[key])) patch[page] = null;
             }
-            const cinemaNavigation = this.state.route === 'cinema' && ['cnTab', 'cnActor', 'cnQ', 'cnF', 'cnSort', 'cnPage', 'cnShelfPage', 'cnActorPage'].some(key => key in patch && patch[key] !== this.state[key]);
+            const cinemaNavigation = this.state.route === 'cinema' && ['cnTab', 'cnActor', 'cnQ', 'cnF', 'cnSort', 'cnPage', 'cnShelfPage', 'cnActorPage', 'cnTagWall', 'cnTagPage'].some(key => key in patch && patch[key] !== this.state[key]);
             super.setState(patch, cinemaNavigation ? () => {
                 document.querySelector('.jj-cinema-content')?.scrollTo({ top: 0 });
                 callback?.();
@@ -359,7 +364,7 @@ export function connectDesign(Base) {
                 if (!this.latestByActor.has(actor) || movie.date > this.latestByActor.get(actor).date) this.latestByActor.set(actor, movie);
             }
             data.CN_ACTORS.splice(0, data.CN_ACTORS.length, ...(actors.actors || []).map(actor => ({ ...actor, count: actor.movie_count, size: size(actor.total_size), noAvatar: !actor.avatar_url })));
-            const dims = [['actor', '演员', 'actors'], ['series', '系列', 'series'], ['studio', '制作商', 'studio'], ['res', '分辨率', 'res'], ['flag', '标记', 'tags']];
+            const dims = [['actor', '演员', 'actors'], ['studio', '制作商', 'studio'], ['res', '分辨率', 'res'], ['flag', '标签', 'tags']];
             data.FILTER_DIMS.splice(0, data.FILTER_DIMS.length, ...dims.map(([key, name, field]) => ({ key, name,
                 options: [...new Set(data.LIB.flatMap(movie => movie[field]))].filter(value => value && value !== '—'),
                 test: (movie, value) => Array.isArray(movie[field]) ? movie[field].includes(value) : movie[field] === value,
@@ -853,7 +858,7 @@ export function connectDesign(Base) {
             const counts = new Map(data.FILTER_DIMS.map(dim => [dim.key, new Map()]));
             for (const movie of data.LIB) {
                 if (actor && !movie.actors.includes(actor)) continue;
-                for (const [key, field] of [['actor', 'actors'], ['series', 'series'], ['studio', 'studio'], ['res', 'res'], ['flag', 'tags']]) {
+                for (const [key, field] of [['actor', 'actors'], ['studio', 'studio'], ['res', 'res'], ['flag', 'tags']]) {
                     for (const value of new Set(Array.isArray(movie[field]) ? movie[field] : [movie[field]])) {
                         const group = counts.get(key);
                         group.set(value, (group.get(value) || 0) + 1);
@@ -884,7 +889,7 @@ export function connectDesign(Base) {
 
         vCinema() {
             const st = this.state;
-            const clearFacets = () => ({ actor: [], series: [], studio: [], res: [], flag: [] });
+            const clearFacets = () => ({ actor: [], studio: [], res: [], flag: [] });
             const browse = filters => this.setState({ cnTab: '全部影片', cnActor: null, cnDetail: null, cnQ: '', cnF: { ...clearFacets(), ...filters } });
             const controls = {
                 query: st.cnQ, hasQuery: Boolean(st.cnQ), hasLibrary: Boolean(data.LIB.length),
@@ -910,21 +915,42 @@ export function connectDesign(Base) {
                 caption: [movie.code, movie.date.slice(0, 4)].filter(Boolean).join(' · '),
                 unavailable: !(movie.raw.files || []).some(file => file.exists !== false), open: () => open(movie.code),
             });
-            view.tabs = view.tabs.map(tab => ({ ...tab, current: tab.name === st.cnTab ? 'page' : undefined, pick: () => this.setState({ cnTab: tab.name, cnActor: null, cnQ: '' }) }));
+            view.tabs = view.tabs.map(tab => ({ ...tab, current: tab.name === st.cnTab ? 'page' : undefined, pick: () => this.setState({ cnTab: tab.name, cnActor: null, cnQ: '', cnTagWall: false }) }));
             const hero = this.libraryByCode.get(view.hero.code);
             Object.assign(view.hero, presentation(hero));
             view.hero.playText = view.hero.unavailable ? '文件缺失' : '播放';
             view.showHero = st.cnTab === '推荐';
+            view.showTags = st.cnTab === '标签' && !st.cnTagWall;
+            if (view.showTags) view.showShelves = false;
+            view.tagHeader = st.cnTab === '标签' && st.cnTagWall;
+            view.tagMode = st.cnTagMode;
+            view.setTagMode = event => { if (['or', 'and'].includes(event.target.value)) this.setState({ cnTagMode: event.target.value }); };
+            view.tagQuery = st.cnTagQ;
+            view.setTagQuery = event => this.setState({ cnTagQ: event.target.value });
+            view.tagSelectedCount = st.cnF.flag.length;
+            view.clearTagSelection = () => this.setState({ cnF: { ...st.cnF, flag: [] }, cnTagQ: '', cnTagMode: 'or', cnTagPage: null });
+            view.showTagResults = () => this.setState({ cnTagWall: true });
+            view.backToTags = () => this.setState({ cnTagWall: false });
+            if (view.showTags) {
+                const query = st.cnTagQ.trim().toLowerCase(), counts = this.cinemaCounts(null).get('flag');
+                const options = data.FILTER_DIMS.find(dim => dim.key === 'flag').options.filter(name => !query || name.toLowerCase().includes(query));
+                const tags = this.pageItems(options, 'cnTagPage', [query, this._facetRevision]);
+                view.tags = tags.items.map(name => ({ name, count: String(counts.get(name) || 0), on: st.cnF.flag.includes(name),
+                    toggle: () => this.setState({ cnF: { ...st.cnF, flag: st.cnF.flag.includes(name) ? st.cnF.flag.filter(value => value !== name) : [...st.cnF.flag, name] } }),
+                }));
+                view.tagPaging = tags.paging; view.tagsEmpty = !options.length;
+                view.tagsMeta = `${counts.size} 个标签 · 已选 ${st.cnF.flag.length} 个`;
+            }
             view.play = () => this.playCinema(hero.code);
             view.info = () => open(hero.code);
             view.transcode = () => this.openTranscode(hero.code);
             view.libMeta = `${data.LIB.length} 部`;
             view.sort = st.cnSort;
             view.setSort = event => this.setState({ cnSort: event.target.value });
-            view.wallTitle = view.actorHeader?.name || (st.cnQ.trim() ? '搜索结果' : '全部影片');
+            view.wallTitle = view.actorHeader?.name || (view.tagHeader ? '标签影片' : st.cnQ.trim() ? '搜索结果' : '全部影片');
             view.wallMeta = st.cnQ.trim() ? `命中 ${view.wall.length} 部 · “${st.cnQ.trim()}”` : view.wallMeta;
             view.emptyTitle = '没有符合条件的影片'; view.emptyBody = '试试其他关键词，或移除筛选条件。'; view.clearText = '清空条件';
-            view.clearFilters = () => this.setState({ cnQ: '', cnF: clearFacets(), cnFacetQueries: {}, ...Object.fromEntries(data.FILTER_DIMS.map(dim => ['cnFacetPage_' + dim.key, null])) });
+            view.clearFilters = () => this.setState({ cnQ: '', cnF: clearFacets(), cnFacetQueries: {}, cnTagQ: '', cnTagMode: 'or', cnTagPage: null, ...Object.fromEntries(data.FILTER_DIMS.map(dim => ['cnFacetPage_' + dim.key, null])) });
             view.activeFilters = data.FILTER_DIMS.flatMap(dim => (view.actorHeader && dim.key === 'actor' ? [] : st.cnF[dim.key]).map(value => ({ text: `${dim.name} · ${value}`, remove: () => this.setState({ cnF: { ...st.cnF, [dim.key]: st.cnF[dim.key].filter(item => item !== value) } }) })));
             for (const group of view.filterGroups) {
                 const dim = data.FILTER_DIMS.find(dim => dim.name === group.name);
@@ -963,23 +989,23 @@ export function connectDesign(Base) {
                 const recent = [...data.LIB].sort((a, b) => b.added.localeCompare(a.added));
                 view.shelves = [shelf('最近入库', recent), shelf('高清收藏', recent.filter(movie => parseInt(movie.res) >= 1080), { res: [...new Set(recent.filter(movie => parseInt(movie.res) >= 1080).map(movie => movie.res))] }), shelf('VR 影厅', recent.filter(movie => movie.vr), { flag: ['VR'] })].filter(shelf => shelf.items.length);
             }
-            if (['系列', 'VR'].includes(st.cnTab)) {
-                const vr = st.cnTab === 'VR', groups = new Map();
+            if (st.cnTab === 'VR') {
+                const groups = new Map();
                 for (const movie of data.LIB) {
-                    if (vr ? !movie.vr : movie.series === '—') continue;
-                    const key = vr ? movie.res : movie.series;
+                    if (!movie.vr) continue;
+                    const key = movie.res;
                     if (!groups.has(key)) groups.set(key, []);
                     groups.get(key).push(movie);
                 }
-                view.shelves = [...groups].map(([key, movies]) => shelf(vr ? `VR ${key}` : key, movies, vr ? { res: [key], flag: ['VR'] } : { series: [key] }));
+                view.shelves = [...groups].map(([key, movies]) => shelf(`VR ${key}`, movies, { res: [key], flag: ['VR'] }));
             }
-            view.sectionTitle = st.cnTab === '系列' ? '系列收藏' : st.cnTab === 'VR' ? 'VR 影厅' : '';
+            view.sectionTitle = st.cnTab === 'VR' ? 'VR 影厅' : '';
             view.sectionMeta = `${view.shelves.length} 个分区`;
             view.shelvesEmpty = !view.shelves.length;
-            view.sectionEmpty = st.cnTab === 'VR' ? '暂无 VR 影片' : '暂无系列收藏';
+            view.sectionEmpty = st.cnTab === 'VR' ? '暂无 VR 影片' : '暂无影片';
             const shelves = this.pageItems(view.shelves, 'cnShelfPage', [st.cnTab], 6);
             view.shelves = shelves.items; view.shelfPaging = shelves.paging;
-            const wall = this.pageItems(view.wall, 'cnPage', [st.cnTab, st.cnActor, st.cnF, st.cnSort, st.cnQ]);
+            const wall = this.pageItems(view.wall, 'cnPage', [st.cnTab, st.cnActor, st.cnF, st.cnSort, st.cnQ, st.cnTagMode]);
             view.wall = wall.items.map(row => card(this.libraryByCode.get(row.code))); view.paging = wall.paging;
             const actors = this.pageItems(view.actors, 'cnActorPage', []);
             view.actors = actors.items; view.actorPaging = actors.paging;

@@ -18,28 +18,33 @@ final class ImageLoader {
     private static final int MAX_BYTES = 8 * 1024 * 1024;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ThreadPoolExecutor workers = new ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(24), new ThreadPoolExecutor.DiscardOldestPolicy());
+            new ArrayBlockingQueue<>(128), new ThreadPoolExecutor.DiscardOldestPolicy());
     private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(12 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getAllocationByteCount(); }
     };
     private volatile boolean closed;
 
     void load(String posterUrl, ImageView image) {
-        image.setTag(posterUrl);
-        Bitmap cached = cache.get(posterUrl);
+        load(posterUrl, image, 480, 720);
+    }
+
+    void load(String posterUrl, ImageView image, int maxWidth, int maxHeight) {
+        String key = posterUrl + "#" + maxWidth + "x" + maxHeight;
+        image.setTag(key);
+        Bitmap cached = cache.get(key);
         image.setImageBitmap(cached);
         if (closed || cached != null) return;
         workers.execute(() -> {
-            Bitmap bitmap = fetch(posterUrl);
+            Bitmap bitmap = fetch(posterUrl, maxWidth, maxHeight);
             if (closed || bitmap == null) return;
-            cache.put(posterUrl, bitmap);
+            cache.put(key, bitmap);
             main.post(() -> {
-                if (!closed && posterUrl.equals(image.getTag())) image.setImageBitmap(bitmap);
+                if (!closed && key.equals(image.getTag())) image.setImageBitmap(bitmap);
             });
         });
     }
 
-    private Bitmap fetch(String posterUrl) {
+    private Bitmap fetch(String posterUrl, int maxWidth, int maxHeight) {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(posterUrl).openConnection();
@@ -62,7 +67,7 @@ final class ImageLoader {
             BitmapFactory.decodeByteArray(data, 0, data.length, options);
             if (options.outWidth <= 0 || options.outHeight <= 0) return null;
             options.inSampleSize = 1;
-            while (options.outWidth / options.inSampleSize > 640 || options.outHeight / options.inSampleSize > 960) options.inSampleSize *= 2;
+            while (options.outWidth / options.inSampleSize > maxWidth || options.outHeight / options.inSampleSize > maxHeight) options.inSampleSize *= 2;
             options.inJustDecodeBounds = false;
             options.inPreferredConfig = Bitmap.Config.RGB_565;
             return BitmapFactory.decodeByteArray(data, 0, data.length, options);
@@ -72,6 +77,8 @@ final class ImageLoader {
             if (connection != null) connection.disconnect();
         }
     }
+
+    void clearPending() { workers.getQueue().clear(); }
 
     void close() {
         closed = true;
