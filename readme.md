@@ -1,16 +1,39 @@
-# JavJaeger
+<p align="center">
+  <img src="frontend/src/design/static/logo.jpg" width="88" height="88" alt="JavJaeger 项目头像">
+</p>
 
-JavJaeger 是面向个人收藏与私有部署的 JAV 影片管理与自动化工具，提供 **网页管理、网页影院和原生 Android TV 客户端**。从影片检索、磁力选择和下载派发，到本地刮削、影视库管理与播放，可以按需要使用其中的环节。
+<h1 align="center">JavJaeger</h1>
 
-已有收藏可直接扫描入库，补全封面、演员和标签，再通过浏览器或电视浏览和播放。
+<p align="center">
+  <strong>发现影片，整理收藏，在网页与电视上观看。</strong><br>
+  影片检索 · 下载派发 · 刮削整理 · 私有影视库 · 网页影院 · Android TV
+</p>
 
-[快速开始](#快速开始) · [网页影院](#网页影院与海报浏览) · [Android TV 安装与使用](#android-tv在电视上观看) · [影视库管理](#影视库扫描与管理) · [下载 TV 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.2.0)
+<p align="center">
+  <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License"></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.2.0"><img src="https://img.shields.io/badge/Android_TV-v0.2.0_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.2.0 测试版"></a>
+</p>
+
+<p align="center">
+  <a href="#功能一览">功能一览</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#网页影院与海报浏览">网页影院</a> ·
+  <a href="#android-tv在电视上观看">Android TV</a> ·
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.2.0"><strong>下载 APK</strong></a>
+</p>
 
 ![影院模式的完整推荐首页](docs/screenshots/cinema-recommendations.jpg)
 
-*网页影院：精选影片、最近入库与高清收藏横排。*
+<p align="center"><sub>网页影院实拍 · 精选影片 / 最近入库 / 高清收藏</sub></p>
 
-下文的 **25 张截图均取自实际部署的网页端**，摄于 **2026-10-21**，部署版本为 **git-64d89f4**；部分界面与当前仓库版本有所差异。Android TV 的安装和功能另见[电视端使用指南](#android-tv在电视上观看)。
+JavJaeger 是面向个人收藏与私有部署的 JAV 影片管理与自动化工具。你可以从影片检索开始，把资源派发到 PikPak、115 网盘或 Aria2，再刮削整理到本地影视库；也可以直接扫描已有收藏，通过**网页影院或原生 Android TV 客户端**浏览和播放。
+
+<details>
+<summary>关于页面截图</summary>
+
+本文的 **25 张截图均取自实际部署的网页端**，摄于 **2026-10-21**，部署版本为 **git-64d89f4**；部分界面与当前仓库版本有所差异。Android TV 的安装和功能另见[电视端使用指南](#android-tv在电视上观看)。
+
+</details>
 
 ## 功能一览
 
