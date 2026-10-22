@@ -23,6 +23,28 @@ function app(storage = new Map(), hash = '') {
     return new (connectDesign(Base))({});
 }
 
+test('subtitle responses follow the current file and cannot reopen a closed player', async () => {
+    const instance = app(), requests = [];
+    instance.libraryByCode = new Map([['QA-001', { raw: { files: [{ exists: true }, { exists: true }] } }]]);
+    instance.request = url => new Promise(resolve => requests.push({ url, resolve }));
+    instance.playCinema('QA-001', 0);
+    instance.playCinema('QA-001', 1);
+    requests[0].resolve({ subtitles: [{ id: 'old', default: true }] });
+    await Promise.resolve();
+    assert.deepEqual(instance.state.playerSubtitles, []);
+    requests[1].resolve({ subtitles: [{ id: 'current', default: true }] });
+    await Promise.resolve();
+    assert.equal(instance.state.playerSubtitle, 'current');
+    assert.match(requests[1].url, /file_index=1$/);
+    instance.playCinema('QA-001', 0);
+    instance.setState({ cnPlaying: null });
+    requests[2].resolve({ subtitles: [{ id: 'late', default: true }] });
+    await Promise.resolve();
+    assert.equal(instance.state.cnPlaying, null);
+    assert.equal(instance.state.playerSubtitle, '');
+    instance.componentWillUnmount();
+});
+
 
 test('TV management links open only the local library and a strictly validated movie detail', () => {
     for (const [hash, id] of [['#library', null], ['#library/QA-001', 'QA-001'], ['#library/Abc_123', 'Abc_123']]) {

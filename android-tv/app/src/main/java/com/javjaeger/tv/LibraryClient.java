@@ -246,6 +246,34 @@ public final class LibraryClient {
         if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9_-]*")) throw new IllegalArgumentException("影片编号无效。");
     }
 
+    public static final class Subtitle {
+        public final String id, label, language, url;
+        public final boolean isDefault;
+        private Subtitle(JSONObject raw, String url) {
+            id = raw.optString("id"); label = raw.optString("label", "外挂字幕");
+            language = raw.optString("language", "und"); isDefault = raw.optBoolean("default"); this.url = url;
+        }
+    }
+
+    public String subtitleUrl(String id, int fileIndex, String trackId) {
+        playbackUrl(id, fileIndex);
+        if (trackId == null || !trackId.matches("[0-9a-f]{24}")) throw new IllegalArgumentException("字幕编号无效。");
+        return baseUrl + "/api/movies/local-library/" + id + "/subtitles/" + trackId + "?file_index=" + fileIndex;
+    }
+
+    public List<Subtitle> loadSubtitles(String id, int fileIndex) throws IOException {
+        playbackUrl(id, fileIndex);
+        try {
+            JSONArray tracks = read("/api/movies/local-library/" + id + "/subtitles?file_index=" + fileIndex).getJSONArray("subtitles");
+            List<Subtitle> result = new ArrayList<>();
+            for (int index = 0; index < tracks.length(); index++) {
+                JSONObject raw = tracks.getJSONObject(index);
+                result.add(new Subtitle(raw, subtitleUrl(id, fileIndex, raw.optString("id"))));
+            }
+            return result;
+        } catch (JSONException | IllegalArgumentException invalid) { throw invalidResponse(); }
+    }
+
     private JSONObject read(String path) throws IOException { return request(path, null); }
 
     private synchronized JSONObject request(String path, JSONObject body) throws IOException {

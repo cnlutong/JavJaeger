@@ -5814,6 +5814,42 @@ class Component extends DCLogic {
   var separatorById = new Map(LOCAL_SCRAPE_NAMING_SEPARATORS.map((separator) => [separator.id, separator]));
   var separatorByValue = new Map(LOCAL_SCRAPE_NAMING_SEPARATORS.map((separator) => [separator.value, separator]));
 
+  // frontend/src/utils/subtitleAppearance.mjs
+  var SUBTITLE_APPEARANCE_KEY = "javjaeger.subtitleAppearance";
+  var SUBTITLE_FONTS = [
+    { value: "sans", label: "\u9ED1\u4F53" },
+    { value: "serif", label: "\u886C\u7EBF\u4F53" },
+    { value: "mono", label: "\u7B49\u5BBD\u5B57\u4F53" }
+  ];
+  var SUBTITLE_SIZES = [
+    { value: "small", label: "\u5C0F" },
+    { value: "normal", label: "\u6807\u51C6" },
+    { value: "large", label: "\u5927" },
+    { value: "huge", label: "\u7279\u5927" }
+  ];
+  var SUBTITLE_BOTTOMS = [2, 4, 6, 8, 12];
+  var DEFAULT_SUBTITLE_APPEARANCE = { font: "sans", size: "normal", bottom: 4 };
+  function normalizeSubtitleAppearance(value) {
+    return {
+      font: SUBTITLE_FONTS.some((item) => item.value === value?.font) ? value.font : "sans",
+      size: SUBTITLE_SIZES.some((item) => item.value === value?.size) ? value.size : "normal",
+      bottom: SUBTITLE_BOTTOMS.includes(value?.bottom) ? value.bottom : 4
+    };
+  }
+  function loadSubtitleAppearance() {
+    try {
+      return normalizeSubtitleAppearance(JSON.parse(window.localStorage.getItem(SUBTITLE_APPEARANCE_KEY)));
+    } catch {
+      return { ...DEFAULT_SUBTITLE_APPEARANCE };
+    }
+  }
+  function saveSubtitleAppearance(value) {
+    try {
+      window.localStorage.setItem(SUBTITLE_APPEARANCE_KEY, JSON.stringify(normalizeSubtitleAppearance(value)));
+    } catch {
+    }
+  }
+
   // frontend/src/design/integration.mjs
   var designDataExports = "\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };";
   function adaptDesignScript(script) {
@@ -6012,7 +6048,8 @@ class Component extends DCLogic {
           fsLoading: false,
           fsDeleting: false,
           infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"],
-          lbWidths: []
+          lbWidths: [],
+          subtitleAppearance: loadSubtitleAppearance()
         };
         try {
           const saved = JSON.parse(window.sessionStorage.getItem(browsePlaybackKey) || "null");
@@ -7145,7 +7182,37 @@ class Component extends DCLogic {
           this.toast("\u672C\u5730\u6587\u4EF6\u7F3A\u5931\uFF0C\u8BF7\u91CD\u65B0\u626B\u63CF\u5F71\u89C6\u5E93", WARN);
           return;
         }
-        this.setState({ cnPlaying: code, playerIndex: index, cnPaused: false, cnBuffering: false });
+        const request = this._subtitleRequest = (this._subtitleRequest || 0) + 1;
+        this.setState({ cnPlaying: code, playerIndex: index, cnPaused: false, cnBuffering: false, playerSubtitles: [], playerSubtitle: "", playerSubtitleStatus: "\u6B63\u5728\u8BFB\u53D6\u5B57\u5E55\u2026" });
+        void this.request(`/api/movies/local-library/${id(code)}/subtitles?file_index=${index}`).then((payload) => {
+          if (this._disposed || request !== this._subtitleRequest || this.state.cnPlaying !== code || this.state.playerIndex !== index) return;
+          const tracks = payload.subtitles || [];
+          this.setState({ playerSubtitles: tracks, playerSubtitle: (tracks.find((track) => track.default) || tracks[0])?.id || "", playerSubtitleStatus: tracks.length ? "" : "\u65E0\u5916\u6302\u5B57\u5E55" }, () => this.syncPlayerSubtitles());
+        }).catch(() => {
+          if (!this._disposed && request === this._subtitleRequest && this.state.cnPlaying === code && this.state.playerIndex === index) this.setState({ playerSubtitleStatus: "\u5B57\u5E55\u4E0D\u53EF\u7528\uFF0C\u53EF\u7EE7\u7EED\u64AD\u653E" });
+        });
+      }
+      syncPlayerSubtitles() {
+        const video = document.querySelector(".jj-player video");
+        if (!video) return;
+        for (const track of video.querySelectorAll("track")) {
+          track.onload = () => this.syncPlayerSubtitles();
+          track.track.oncuechange = () => this.positionPlayerSubtitleCues(track.track);
+          track.track.mode = track.dataset.subtitleId === this.state.playerSubtitle ? "showing" : "disabled";
+          this.positionPlayerSubtitleCues(track.track);
+        }
+      }
+      positionPlayerSubtitleCues(track) {
+        for (const cue of track.cues || []) {
+          cue.snapToLines = false;
+          cue.lineAlign = "end";
+          cue.line = 100 - this.state.subtitleAppearance.bottom;
+        }
+      }
+      setSubtitleAppearance(patch) {
+        const settings = normalizeSubtitleAppearance({ ...this.state.subtitleAppearance, ...patch });
+        saveSubtitleAppearance(settings);
+        this.setState({ subtitleAppearance: settings }, () => this.syncPlayerSubtitles());
       }
       vCinema() {
         const st = this.state;
@@ -7273,6 +7340,30 @@ class Component extends DCLogic {
           view.player.error = () => this.toast("\u6D4F\u89C8\u5668\u65E0\u6CD5\u64AD\u653E\u6B64\u6587\u4EF6\uFF0C\u53EF\u4ECE\u5F71\u7247\u8BE6\u60C5\u521B\u5EFA\u786C\u4EF6\u8F6C\u7801\u4EFB\u52A1", WARN);
           view.player.files = files.map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}`, missing: file.exists === false }));
           view.player.fileIndex = String(st.playerIndex || 0);
+          view.player.subtitles = (st.playerSubtitles || []).map((track) => ({ ...track, url: `/api/movies/local-library/${id(st.cnPlaying)}/subtitles/${id(track.id)}?file_index=${st.playerIndex || 0}` }));
+          view.player.subtitle = st.playerSubtitle || "";
+          view.player.subtitleStatus = st.playerSubtitleStatus || "";
+          view.player.subtitleAppearance = {
+            ...st.subtitleAppearance,
+            fonts: SUBTITLE_FONTS,
+            sizes: SUBTITLE_SIZES,
+            bottoms: SUBTITLE_BOTTOMS.map((value) => ({ value: String(value), label: `${value}%` })),
+            setFont: (event) => this.setSubtitleAppearance({ font: event.target.value }),
+            setSize: (event) => this.setSubtitleAppearance({ size: event.target.value }),
+            setBottom: (event) => this.setSubtitleAppearance({ bottom: Number(event.target.value) }),
+            reset: () => this.setSubtitleAppearance(DEFAULT_SUBTITLE_APPEARANCE)
+          };
+          view.player.selectSubtitle = (event) => {
+            this.setState({ playerSubtitle: event.target.value }, () => this.syncPlayerSubtitles());
+          };
+          view.player.syncSubtitles = () => this.syncPlayerSubtitles();
+          view.player.subtitleError = (event) => {
+            if (event.currentTarget.dataset.subtitleId === this.state.playerSubtitle) this.toast("\u5B57\u5E55\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u5B57\u5E55\u6587\u4EF6\u683C\u5F0F\u6216\u670D\u52A1\u5668\u8FDE\u63A5", WARN);
+          };
+          view.closePlayer = () => {
+            this._subtitleRequest++;
+            this.setState({ cnPlaying: null, playerSubtitles: [], playerSubtitle: "" });
+          };
           view.player.selectFile = (event) => this.playCinema(playing.code, Number(event.target.value));
           view.player.ended = () => {
             const next = files.findIndex((file, index) => index > (this.state.playerIndex || 0) && file.exists !== false);
@@ -7487,7 +7578,10 @@ class Component extends DCLogic {
             stFg: file.exists === false ? BAD : OK,
             fg: "var(--fg)",
             gone: file.exists === false,
-            play: () => this.setState({ cnPlaying: record.code, playerIndex: index, route: "cinema", lbDetail: null }),
+            play: () => {
+              this.setState({ route: "cinema", lbDetail: null });
+              this.playCinema(record.code, index);
+            },
             transcode: () => this.openTranscode(record.code, index)
           }));
           view.d.complete = () => this.completeInformation([record.code], true);
@@ -8769,7 +8863,15 @@ class Component extends DCLogic {
   <sc-if value="{{ cn.player }}">
     <div class="jj-player" role="dialog" aria-modal="true" aria-label="\u672C\u5730\u5F71\u7247\u64AD\u653E">
       <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} \xB7 {{ cn.player.title }}</span><select class="input" aria-label="\u64AD\u653E\u6587\u4EF6" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}" disabled="{{ f.missing }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">\u505C\u6B62\u64AD\u653E</button></div>
-      <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
+      <div class="jj-subtitle-toolbar"><label for="jj-subtitle-select">\u5B57\u5E55</label><select id="jj-subtitle-select" class="input" aria-label="\u5B57\u5E55" value="{{ cn.player.subtitle }}" onChange="{{ cn.player.selectSubtitle }}"><option value="">\u5173\u95ED\u5B57\u5E55</option><sc-for list="{{ cn.player.subtitles }}" as="s"><option value="{{ s.id }}">{{ s.label }}</option></sc-for></select><span role="status" style="color:var(--dim);font-size:12px">{{ cn.player.subtitleStatus }}</span>
+        <details class="jj-subtitle-settings"><summary>\u5B57\u5E55\u6837\u5F0F</summary><div role="group" aria-label="\u5B57\u5E55\u6837\u5F0F">
+          <label>\u5B57\u4F53<select class="input" aria-label="\u5B57\u5E55\u5B57\u4F53" value="{{ cn.player.subtitleAppearance.font }}" onChange="{{ cn.player.subtitleAppearance.setFont }}"><sc-for list="{{ cn.player.subtitleAppearance.fonts }}" as="o"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select></label>
+          <label>\u5B57\u53F7<select class="input" aria-label="\u5B57\u5E55\u5B57\u53F7" value="{{ cn.player.subtitleAppearance.size }}" onChange="{{ cn.player.subtitleAppearance.setSize }}"><sc-for list="{{ cn.player.subtitleAppearance.sizes }}" as="o"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select></label>
+          <label>\u5E95\u90E8\u7559\u767D<select class="input" aria-label="\u5B57\u5E55\u5E95\u90E8\u7559\u767D" value="{{ cn.player.subtitleAppearance.bottom }}" onChange="{{ cn.player.subtitleAppearance.setBottom }}"><sc-for list="{{ cn.player.subtitleAppearance.bottoms }}" as="o"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select></label>
+          <button class="btn btn-secondary" onClick="{{ cn.player.subtitleAppearance.reset }}">\u6062\u590D\u9ED8\u8BA4</button><small>\u81EA\u52A8\u4FDD\u5B58\uFF0C\u5E95\u90E8\u7559\u767D\u8D8A\u5C0F\uFF0C\u5B57\u5E55\u8D8A\u9760\u4E0B\u3002</small>
+        </div></details>
+      </div>
+      <video src="{{ cn.player.url }}" data-subtitle-font="{{ cn.player.subtitleAppearance.font }}" data-subtitle-size="{{ cn.player.subtitleAppearance.size }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onLoadedMetadata="{{ cn.player.syncSubtitles }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"><sc-for list="{{ cn.player.subtitles }}" as="s"><track kind="subtitles" src="{{ s.url }}" srcLang="{{ s.language }}" label="{{ s.label }}" data-subtitle-id="{{ s.id }}" onLoad="{{ cn.player.syncSubtitles }}" onError="{{ cn.player.subtitleError }}"></sc-for></video>
     </div>
   </sc-if>
 

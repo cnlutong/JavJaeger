@@ -1,7 +1,9 @@
 package com.javjaeger.tv;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -26,12 +28,15 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.MimeTypes;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.datasource.BaseDataSource;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.HttpUtil;
 import androidx.media3.ui.PlayerView;
+import androidx.media3.ui.CaptionStyleCompat;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -63,9 +68,19 @@ public final class PlaybackActivity extends Activity {
     private LinearLayout playbackBar;
     private Movie playingMovie;
     private boolean selectingFile;
+    private boolean subtitlesEnabled = true;
+    private Button subtitleToggle;
+    private int subtitleFont, subtitleSize = 1, subtitleBottom = 1;
+    private static final String[] SUBTITLE_FONTS = {"sans-serif", "serif", "monospace"};
+    private static final float[] SUBTITLE_SIZES = {0.04f, 0.0533f, 0.066f, 0.08f};
+    private static final int[] SUBTITLE_BOTTOMS = {2, 4, 6, 8, 12};
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        android.content.SharedPreferences appearance = getSharedPreferences("subtitle-appearance", MODE_PRIVATE);
+        subtitleFont = Math.max(0, Math.min(2, appearance.getInt("font", 0)));
+        subtitleSize = Math.max(0, Math.min(3, appearance.getInt("size", 1)));
+        subtitleBottom = Math.max(0, Math.min(4, appearance.getInt("bottom", 1)));
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
@@ -84,6 +99,7 @@ public final class PlaybackActivity extends Activity {
             if (state != null) {
                 position = state.getLong("position");
                 playWhenReady = state.getBoolean("play", true);
+                subtitlesEnabled = state.getBoolean("subtitles", true);
             }
         } catch (IllegalArgumentException invalid) {
             showError("播放信息无效，请返回影片详情后重新选择文件。");
@@ -124,7 +140,16 @@ public final class PlaybackActivity extends Activity {
                 for (Movie.VideoFile file : movie.files) {
                     if (file.index == fileIndex && !file.missing) selectedExists = true;
                     if (file.missing) continue;
+                    List<MediaItem.SubtitleConfiguration> subtitles = new ArrayList<>();
+                    try {
+                        for (LibraryClient.Subtitle track : client.loadSubtitles(movieId, file.index)) {
+                            subtitles.add(new MediaItem.SubtitleConfiguration.Builder(Uri.parse(track.url))
+                                    .setId(track.id).setMimeType(MimeTypes.TEXT_VTT).setLanguage(track.language).setLabel(track.label)
+                                    .setSelectionFlags(track.isDefault ? C.SELECTION_FLAG_DEFAULT : 0).build());
+                        }
+                    } catch (IOException unavailable) { /* Optional sidecars must not block playback on older servers. */ }
                     playlist.add(new MediaItem.Builder().setUri(client.playbackUrl(movieId, file.index))
+                            .setSubtitleConfigurations(subtitles)
                             .setMediaId(Integer.toString(file.index))
                             .setMediaMetadata(new MediaMetadata.Builder().setTitle(movie.title + " · " + file.label).build()).build());
                 }
@@ -193,6 +218,27 @@ public final class PlaybackActivity extends Activity {
                 }
             });
         }
+        subtitleToggle = new Button(this);
+        subtitleToggle.setText("无字幕");
+        subtitleToggle.setEnabled(false);
+        subtitleToggle.setAllCaps(false);
+        subtitleToggle.setTextColor(0xfff4f5f7);
+        subtitleToggle.setBackground(controlBackground());
+        subtitleToggle.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
+        subtitleToggle.setOnClickListener(view -> {
+            if (player == null) return;
+            subtitlesEnabled = !subtitlesEnabled;
+            updateSubtitleToggle();
+        });
+        bar.addView(subtitleToggle);
+        Button subtitleStyle = new Button(this);
+        subtitleStyle.setText("字幕样式");
+        subtitleStyle.setAllCaps(false);
+        subtitleStyle.setTextColor(0xfff4f5f7);
+        subtitleStyle.setBackground(controlBackground());
+        subtitleStyle.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
+        subtitleStyle.setOnClickListener(view -> showSubtitleAppearance());
+        bar.addView(subtitleStyle);
         Button stop = new Button(this);
         stop.setText("停止播放");
         stop.setAllCaps(false);
@@ -207,7 +253,8 @@ public final class PlaybackActivity extends Activity {
         playerView.setShowNextButton(true);
         playerView.setShowPreviousButton(true);
         playerView.setControllerShowTimeoutMs(4000);
-        playerView.setShowSubtitleButton(true);
+        playerView.setShowSubtitleButton(false);
+        applySubtitleAppearance();
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) bar::setVisibility);
         root.addView(playerView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(bar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
@@ -215,8 +262,14 @@ public final class PlaybackActivity extends Activity {
         if (browseJobId != null) builder.setMediaSourceFactory(new DefaultMediaSourceFactory(
                 () -> new SessionStreamDataSource(client.playJobStreamUrl(browseJobId), getIntent().getStringExtra("session_cookie"))));
         player = builder.build();
+        player.setTrackSelectionParameters(player.getTrackSelectionParameters().buildUpon()
+                .setPreferredTextLanguage("zh").build());
         player.setAudioAttributes(AudioAttributes.DEFAULT, true);
         player.addListener(new Player.Listener() {
+            @Override public void onTracksChanged(Tracks tracks) {
+                subtitleToggle.setEnabled(tracks.isTypeSupported(C.TRACK_TYPE_TEXT));
+                updateSubtitleToggle();
+            }
             @Override public void onMediaItemTransition(MediaItem item, int reason) {
                 if (item == null || playingMovie == null) return;
                 fileIndex = Integer.parseInt(item.mediaId);
@@ -245,6 +298,76 @@ public final class PlaybackActivity extends Activity {
         if (playerView == null) return;
         playerView.setControllerShowTimeoutMs(focused ? 0 : 4000);
         playerView.showController();
+    }
+
+    private void updateSubtitleToggle() {
+        if (subtitleToggle != null) subtitleToggle.setText(!subtitleToggle.isEnabled() ? "无字幕" : subtitlesEnabled ? "字幕：开" : "字幕：关");
+        // Keep cues parsed while hidden so paused playback can show them again immediately.
+        if (playerView != null && playerView.getSubtitleView() != null)
+            playerView.getSubtitleView().setVisibility(subtitlesEnabled ? View.VISIBLE : View.INVISIBLE);
+    }
+
+    private void saveSubtitleAppearance() {
+        getSharedPreferences("subtitle-appearance", MODE_PRIVATE).edit().putInt("font", subtitleFont)
+                .putInt("size", subtitleSize).putInt("bottom", subtitleBottom).apply();
+        applySubtitleAppearance();
+    }
+
+    private void applySubtitleAppearance() {
+        if (playerView == null || playerView.getSubtitleView() == null) return;
+        androidx.media3.ui.SubtitleView subtitles = playerView.getSubtitleView();
+        subtitles.setApplyEmbeddedStyles(false);
+        subtitles.setStyle(new CaptionStyleCompat(Color.WHITE, Color.TRANSPARENT, Color.TRANSPARENT,
+                CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.BLACK, Typeface.create(SUBTITLE_FONTS[subtitleFont], Typeface.NORMAL)));
+        subtitles.setFractionalTextSize(SUBTITLE_SIZES[subtitleSize]);
+        subtitles.setBottomPaddingFraction(SUBTITLE_BOTTOMS[subtitleBottom] / 100f);
+    }
+
+    private void showSubtitleAppearance() {
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        int padding = Math.round(24 * getResources().getDisplayMetrics().density);
+        body.setPadding(padding, 0, padding, 0);
+        String[] labels = {"字幕字体", "字幕字号", "字幕底部留白"};
+        String[][] options = {{"黑体", "衬线体", "等宽字体"}, {"小", "标准", "大", "特大"}, {"2%", "4%", "6%", "8%", "12%"}};
+        int[] selected = {subtitleFont, subtitleSize, subtitleBottom};
+        TextView preview = new TextView(this);
+        preview.setText("中文字幕预览");
+        preview.setGravity(Gravity.CENTER);
+        Spinner[] selectors = new Spinner[3];
+        for (int field = 0; field < labels.length; field++) {
+            final int setting = field;
+            TextView label = new TextView(this);
+            label.setText(new String[]{"字体", "字号", "底部留白"}[field]);
+            body.addView(label);
+            Spinner selector = new Spinner(this);
+            selectors[field] = selector;
+            selector.setContentDescription(labels[field]);
+            selector.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, options[field]));
+            selector.setSelection(selected[field]);
+            body.addView(selector, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(48 * getResources().getDisplayMetrics().density)));
+            selector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override public void onNothingSelected(AdapterView<?> parent) { }
+                @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    if (setting == 0) subtitleFont = position;
+                    else if (setting == 1) subtitleSize = position;
+                    else subtitleBottom = position;
+                    saveSubtitleAppearance();
+                    preview.setTypeface(Typeface.create(SUBTITLE_FONTS[subtitleFont], Typeface.NORMAL));
+                    preview.setTextSize(new int[]{16, 20, 24, 28}[subtitleSize]);
+                }
+            });
+        }
+        body.addView(preview);
+        TextView hint = new TextView(this);
+        hint.setText("自动保存，底部留白越小，字幕越靠下。");
+        body.addView(hint);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("字幕样式").setView(body)
+                .setPositiveButton("完成", null).setNeutralButton("恢复默认", (ignored, which) -> {
+                    subtitleFont = 0; subtitleSize = 1; subtitleBottom = 1; saveSubtitleAppearance();
+                }).create();
+        dialog.show();
+        selectors[0].requestFocus();
     }
 
     static Map<String, String> playbackHeaders(String cookie) {
@@ -431,6 +554,7 @@ public final class PlaybackActivity extends Activity {
         state.putInt("file_index", current == null ? fileIndex : Integer.parseInt(current.mediaId));
         state.putLong("position", player == null ? position : player.getCurrentPosition());
         state.putBoolean("play", player == null ? playWhenReady : player.getPlayWhenReady());
+        state.putBoolean("subtitles", subtitlesEnabled);
         super.onSaveInstanceState(state);
     }
 

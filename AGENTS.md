@@ -128,7 +128,7 @@ Use this as the source-of-truth ownership map.
   - standalone native Android TV client matching cinema navigation, hero/shelves, actor/tag/VR browsing, combined filters, sorting, paging, details and playback
   - native JavBus discovery and session-owned 115 playback through existing movie and automation APIs
   - depends only on Android/Media3 and existing server HTTP APIs; never imports backend or browser implementation
-  - stores only a credential-free server address; downloading, scraping and library management remain server-owned
+  - stores a credential-free server address and subtitle appearance preferences; downloading, scraping and library management remain server-owned
   - management links open the existing browser UI through `#library[/MOVIE-ID]`
 - `frontend/src/design/`
   - original Claude Design HTML, runtime, design system and logo

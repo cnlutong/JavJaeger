@@ -136,6 +136,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_json({"version": {"version": "git-1234567", "deployed_at": "2026-10-20T00:00:00Z"}})
         elif path == "/api/movies/local-library/TV-001":
             self.send_json({"success": True, "in_local_library": True, "record": self.artwork(MOVIE)})
+        elif path == "/api/movies/local-library/TV-001/subtitles":
+            self.send_json({"subtitles": [{"id": "0123456789abcdef01234567", "language": "zh-Hans", "label": "简体中文", "default": True}]})
+        elif path == "/api/movies/local-library/TV-001/subtitles/0123456789abcdef01234567":
+            self.send_bytes("WEBVTT\n\n00:00:00.000 --> 00:01:00.000\n中文字幕显示测试\n".encode(), "text/vtt; charset=utf-8")
         elif path.startswith(("/api/movies/local-library/poster/", "/fixture-covers/")) or path == "/api/image-proxy":
             image_path = urlsplit(parse_qs(urlsplit(self.path).query).get("url", [""])[0]).path if path == "/api/image-proxy" else path
             movie_id = image_path.rsplit("/", 1)[-1].removesuffix(".png")
@@ -194,6 +198,7 @@ def main():
     parser.add_argument("--artifacts", type=Path, default=Path("/tmp/javjaeger-tv-smoke"))
     parser.add_argument("--layout-only", action="store_true", help="Check home, local and online artwork/navigation layouts without playback.")
     parser.add_argument("--actors-only", action="store_true", help="Check actor photos and remote selection in local/online directories and details.")
+    parser.add_argument("--playback-only", action="store_true", help="Check local playback, subtitle toggles and file switching only.")
     args = parser.parse_args()
 
     def adb(*command, binary=False):
@@ -354,10 +359,123 @@ def main():
             key("KEYCODE_DPAD_" + direction)
         raise AssertionError(f"Remote cannot reach: {label}")
 
+    def check_local_playback():
+        wait("播放：part-1.mp4")
+        wait("演员：QA演员")
+        wait("标签：QA 标签")
+        (args.artifacts / "detail.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        root = tree()
+        missing = find(root, "播放：missing.mp4")
+        assert missing is not None and missing.get("enabled") == "false", "Missing segment must be disabled"
+        activate("播放：part-1.mp4")
+        until = time.monotonic() + 30
+        while not any("/play?file_index=2" in p for p in FixtureHandler.requests) and time.monotonic() < until:
+            time.sleep(0.3)
+        assert any("/play?file_index=0" in p for p in FixtureHandler.requests), "First segment not requested"
+        assert any("/play?file_index=2" in p for p in FixtureHandler.requests), "Next available segment not requested"
+        assert not any("/play?file_index=1" in p for p in FixtureHandler.requests), "Missing segment was requested"
+        key("KEYCODE_MEDIA_PAUSE")
+        time.sleep(0.5)  # Allow the native controller's show animation to finish.
+        (args.artifacts / "player.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        assert any("/subtitles/0123456789abcdef01234567?file_index=2" in p for p in FixtureHandler.requests), "Second segment subtitle was not loaded"
+
+        def subtitle_pixels():
+            raw = adb("exec-out", "screencap", binary=True)
+            width, height, _ = struct.unpack_from("<III", raw)
+            pixels = raw[-width * height * 4:]
+            return b"".join(pixels[(y * width + width // 8) * 4:(y * width + width * 7 // 8) * 4]
+                            for y in range(height * 3 // 5, height * 19 // 20))
+
+        for _ in range(3):
+            key("KEYCODE_DPAD_UP")
+        key("KEYCODE_DPAD_RIGHT")  # File selector -> explicit subtitle toggle.
+        time.sleep(.3)
+        subtitles_on = subtitle_pixels()
+        play_requests = sum("/play?" in p for p in FixtureHandler.requests)
+        key("KEYCODE_DPAD_CENTER")
+        time.sleep(.3)
+        subtitles_off = subtitle_pixels()
+        (args.artifacts / "subtitles-off.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        assert sum(a != b for a, b in zip(subtitles_on, subtitles_off)) > 300, "Disabling subtitles did not remove rendered text"
+        key("KEYCODE_DPAD_CENTER")
+        time.sleep(.3)
+        assert subtitle_pixels() == subtitles_on, "Re-enabling subtitles did not restore the same caption"
+        (args.artifacts / "subtitles-on.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        assert sum("/play?" in p for p in FixtureHandler.requests) == play_requests, "Subtitle toggling restarted video"
+        key("KEYCODE_DPAD_RIGHT")
+        key("KEYCODE_DPAD_CENTER")
+        wait("字幕字体")
+        key("KEYCODE_DPAD_CENTER")  # Font selector is initially focused.
+        wait("等宽字体")
+        key("KEYCODE_DPAD_DOWN")
+        key("KEYCODE_DPAD_CENTER")
+        activate("字幕字号", click=False)
+        key("KEYCODE_DPAD_CENTER")
+        wait("特大")
+        key("KEYCODE_DPAD_DOWN")
+        key("KEYCODE_DPAD_DOWN")
+        key("KEYCODE_DPAD_CENTER")
+        activate("字幕底部留白", click=False)
+        key("KEYCODE_DPAD_CENTER")
+        wait("12%")
+        key("KEYCODE_DPAD_UP")
+        key("KEYCODE_DPAD_CENTER")
+        wait("字幕底部留白")
+        (args.artifacts / "subtitle-appearance-dialog.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        activate("完成")
+        time.sleep(.3)
+        assert sum(a != b for a, b in zip(subtitle_pixels(), subtitles_on)) > 300, "Subtitle appearance did not change on the paused video"
+        (args.artifacts / "subtitle-appearance-large-low.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        saved = ET.fromstring(adb("shell", "run-as", PACKAGE, "cat", "shared_prefs/subtitle-appearance.xml"))
+        settings = {item.get("name"): item.get("value") for item in saved}
+        assert settings == {"font": "1", "size": "3", "bottom": "0"}, f"Appearance settings were not saved: {settings}"
+        assert sum("/play?" in p for p in FixtureHandler.requests) == play_requests, "Subtitle appearance restarted video"
+        key("KEYCODE_DPAD_CENTER")
+        wait("字幕字体")
+        activate("恢复默认")
+        time.sleep(.5)  # Wait for the dialog to return focus to the playback bar.
+        key("KEYCODE_DPAD_DOWN")
+        key("KEYCODE_DPAD_UP")  # Re-enter the bar through its file selector.
+        print("PASS: Chinese subtitles render, toggle, change font/size/bottom, save and reset without restarting playback", flush=True)
+        # Media3 emits progress accessibility events every second even while paused,
+        # so UIAutomator's idle-based dump cannot inspect its visible controller.
+        for _ in range(3):
+            key("KEYCODE_DPAD_UP")
+        key("KEYCODE_DPAD_CENTER")
+        time.sleep(0.5)
+        (args.artifacts / "player-files.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        before = sum("/play?file_index=2" in path for path in FixtureHandler.requests)
+        before_detail = FixtureHandler.requests.count("/api/movies/local-library/TV-001")
+        key("KEYCODE_DPAD_DOWN")  # The disabled missing file is skipped.
+        key("KEYCODE_DPAD_CENTER")
+        until = time.monotonic() + 25
+        while (sum("/play?file_index=2" in path for path in FixtureHandler.requests) <= before
+               or FixtureHandler.requests.count("/api/movies/local-library/TV-001") <= before_detail) and time.monotonic() < until:
+            time.sleep(0.3)
+        assert sum("/play?file_index=2" in path for path in FixtureHandler.requests) > before, "Player file selection did not switch to the next available file"
+        assert FixtureHandler.requests.count("/api/movies/local-library/TV-001") > before_detail, "File selection must reload the movie before playback"
+        assert not any("/play?file_index=1" in path for path in FixtureHandler.requests), "Player file picker selected the missing file"
+        key("KEYCODE_MEDIA_PAUSE")
+        time.sleep(0.5)
+        for _ in range(3):
+            key("KEYCODE_DPAD_UP")
+        key("KEYCODE_DPAD_RIGHT")
+        key("KEYCODE_DPAD_RIGHT")
+        key("KEYCODE_DPAD_RIGHT")
+        key("KEYCODE_DPAD_CENTER")  # Stop returns to the existing detail dialog.
+        wait("播放：part-1.mp4")
+
     try:
         adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
         enter("服务器地址", f"http://127.0.0.1:{port}")
         activate("连接服务器")
+        if args.playback_only:
+            wait("最近入库")
+            activate("全部影片")
+            activate("遥控器测试影片")
+            check_local_playback()
+            print("PASS: isolated local playback and subtitle workflow", flush=True)
+            return
         if args.actors_only:
             wait("最近入库")
             activate("浏览新片")
@@ -467,48 +585,7 @@ def main():
         root, _ = wait("遥控器测试影片")
         assert find(root, "另一部影片") is None, "Search must filter the library"
         activate("遥控器测试影片")
-        wait("播放：part-1.mp4")
-        wait("演员：QA演员")
-        wait("标签：QA 标签")
-        (args.artifacts / "detail.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-        root = tree()
-        missing = find(root, "播放：missing.mp4")
-        assert missing is not None and missing.get("enabled") == "false", "Missing segment must be disabled"
-        activate("播放：part-1.mp4")
-        until = time.monotonic() + 30
-        while not any("/play?file_index=2" in p for p in FixtureHandler.requests) and time.monotonic() < until:
-            time.sleep(0.3)
-        assert any("/play?file_index=0" in p for p in FixtureHandler.requests), "First segment not requested"
-        assert any("/play?file_index=2" in p for p in FixtureHandler.requests), "Next available segment not requested"
-        assert not any("/play?file_index=1" in p for p in FixtureHandler.requests), "Missing segment was requested"
-        key("KEYCODE_MEDIA_PAUSE")
-        time.sleep(0.5)  # Allow the native controller's show animation to finish.
-        (args.artifacts / "player.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-        # Media3 emits progress accessibility events every second even while paused,
-        # so UIAutomator's idle-based dump cannot inspect its visible controller.
-        for _ in range(3):
-            key("KEYCODE_DPAD_UP")
-        key("KEYCODE_DPAD_CENTER")
-        time.sleep(0.5)
-        (args.artifacts / "player-files.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-        before = sum("/play?file_index=2" in path for path in FixtureHandler.requests)
-        before_detail = FixtureHandler.requests.count("/api/movies/local-library/TV-001")
-        key("KEYCODE_DPAD_DOWN")  # The disabled missing file is skipped.
-        key("KEYCODE_DPAD_CENTER")
-        until = time.monotonic() + 25
-        while (sum("/play?file_index=2" in path for path in FixtureHandler.requests) <= before
-               or FixtureHandler.requests.count("/api/movies/local-library/TV-001") <= before_detail) and time.monotonic() < until:
-            time.sleep(0.3)
-        assert sum("/play?file_index=2" in path for path in FixtureHandler.requests) > before, "Player file selection did not switch to the next available file"
-        assert FixtureHandler.requests.count("/api/movies/local-library/TV-001") > before_detail, "File selection must reload the movie before playback"
-        assert not any("/play?file_index=1" in path for path in FixtureHandler.requests), "Player file picker selected the missing file"
-        key("KEYCODE_MEDIA_PAUSE")
-        time.sleep(0.5)
-        for _ in range(3):
-            key("KEYCODE_DPAD_UP")
-        key("KEYCODE_DPAD_RIGHT")
-        key("KEYCODE_DPAD_CENTER")  # Stop returns to the existing detail dialog.
-        wait("播放：part-1.mp4")
+        check_local_playback()
         key("KEYCODE_BACK")
         root, _ = wait("遥控器测试影片")
         assert find(root, "另一部影片") is None, "Returning must preserve the search"

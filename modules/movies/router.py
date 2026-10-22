@@ -1,5 +1,6 @@
 import logging
 import mimetypes
+import asyncio
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -22,6 +23,7 @@ from .local_library import (
     update_local_library_settings,
 )
 from .local_scrape import apply_local_scrape, delete_local_scrape_files, preview_local_scrape
+from .subtitles import subtitle_files, read_webvtt
 from .local_scrape_tasks import local_scrape_task_manager
 from modules.common.tasks import submit_background_task
 from .background import enrich_search, test_scrapers
@@ -275,6 +277,36 @@ async def play_local_movie_library_file(movie_id: str, file_index: int = 0):
         raise HTTPException(status_code=404, detail="video_not_found")
     media_type = mimetypes.guess_type(str(video_path))[0] or "application/octet-stream"
     return DisconnectAwareFileResponse(video_path, media_type=media_type, filename=video_path.name)
+
+
+@router.get("/api/movies/local-library/{movie_id}/subtitles")
+async def list_local_movie_subtitles(movie_id: str, file_index: int = 0):
+    video = await local_movie_library_service.get_video_file_path(movie_id, file_index)
+    if video is None:
+        raise HTTPException(status_code=404, detail="video_not_found")
+    tracks = await asyncio.to_thread(subtitle_files, video)
+    return {"subtitles": [
+        {"id": token, "language": language, "label": label, "default": index == 0}
+        for index, (token, path, language, label) in enumerate(tracks)
+    ]}
+
+
+@router.get("/api/movies/local-library/{movie_id}/subtitles/{track_id}")
+async def get_local_movie_subtitle(movie_id: str, track_id: str, file_index: int = 0):
+    video = await local_movie_library_service.get_video_file_path(movie_id, file_index)
+    if video is None:
+        raise HTTPException(status_code=404, detail="video_not_found")
+    tracks = await asyncio.to_thread(subtitle_files, video)
+    path = next((path for token, path, _, _ in tracks if token == track_id), None)
+    if path is None:
+        raise HTTPException(status_code=404, detail="subtitle_not_found")
+    try:
+        content = await asyncio.to_thread(read_webvtt, path)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="subtitle_not_found") from exc
+    except (UnicodeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="subtitle_invalid_utf8_or_format") from exc
+    return Response(content, media_type="text/vtt", headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
 
 
 @router.delete("/api/movies/local-library/{movie_id}/files")

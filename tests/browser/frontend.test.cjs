@@ -1718,6 +1718,96 @@ test('indexed file playback uses the real selected-file endpoint and native vide
     await page.getByRole('button', { name: '停止播放', exact: true }).click(); assert.equal(await video.count(), 0);
 });
 
+test('local subtitles render in cinema and library, toggle without restarting video and follow selected files', async t => {
+    const token = '0123456789abcdef01234567';
+    const page = await openApp(t, 1440, async p => {
+        const state = await libraryFixture(p, 1);
+        state.records[0].files.push({ path: '/qa/QA-001-CD2.mp4', exists: true });
+        await p.route('**/api/movies/local-library/QA-001/subtitles?*', route => route.fulfill({ json: { subtitles: new URL(route.request().url()).searchParams.get('file_index') === '0' ? [{ id: token, language: 'zh-Hans', label: '简体中文', default: true }] : [] } }));
+        await p.route(`**/api/movies/local-library/QA-001/subtitles/${token}?*`, route => route.fulfill({ contentType: 'text/vtt; charset=utf-8', body: 'WEBVTT\n\n00:00:00.000 --> 00:01:00.000\n字幕显示测试\n' }));
+    });
+    const bytes = await sampleVideo(page);
+    await page.route('**/api/movies/local-library/QA-001/play?*', route => route.fulfill({ contentType: 'video/webm', body: Buffer.from(bytes) }));
+    const consoleErrors = [];
+    page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+    await navigate(page, '影院模式');
+    await page.getByRole('button', { name: '全部影片', exact: true }).click();
+    await page.locator('.jj-cinema-wall .jj-cinema-card').first().click();
+    await page.getByRole('button', { name: '播放所选文件', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '本地影片播放', exact: true });
+    const video = dialog.locator('video');
+    const selector = dialog.getByRole('combobox', { name: '字幕', exact: true });
+    await page.waitForFunction(() => document.querySelector('.jj-player video')?.textTracks[0]?.activeCues?.[0]?.text === '字幕显示测试');
+    assert.equal(await selector.inputValue(), token);
+    assert.equal(await video.locator('track').getAttribute('srclang'), 'zh-Hans');
+    await video.evaluate(node => { node.pause(); window.qaSubtitleVideo = node; window.qaSubtitlePosition = node.currentTime; });
+    await selector.selectOption('');
+    assert.equal(await video.evaluate(node => node.textTracks[0].mode), 'disabled');
+    await selector.selectOption(token);
+    assert.equal(await video.evaluate(node => node.textTracks[0].mode), 'showing');
+    assert.equal(await video.evaluate(node => node === window.qaSubtitleVideo && node.currentTime === window.qaSubtitlePosition && node.paused), true);
+    await dialog.locator('.jj-subtitle-settings summary').click();
+    const font = dialog.getByRole('combobox', { name: '字幕字体', exact: true });
+    const fontSize = dialog.getByRole('combobox', { name: '字幕字号', exact: true });
+    const bottom = dialog.getByRole('combobox', { name: '字幕底部留白', exact: true });
+    assert.equal(await font.inputValue(), 'sans');
+    assert.equal(await fontSize.inputValue(), 'normal');
+    assert.equal(await bottom.inputValue(), '4');
+    assert.deepEqual(await video.evaluate(node => { const cue = node.textTracks[0].cues[0]; return [cue.line, cue.lineAlign, cue.snapToLines]; }), [96, 'end', false]);
+    await font.selectOption('serif');
+    await fontSize.selectOption('huge');
+    await bottom.selectOption('12');
+    assert.equal(await video.evaluate(node => node.textTracks[0].cues[0].line), 88);
+    assert.equal(await video.getAttribute('data-subtitle-font'), 'serif');
+    assert.equal(await video.getAttribute('data-subtitle-size'), 'huge');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-subtitle-style-raised.png') });
+    await bottom.selectOption('2');
+    assert.equal(await video.evaluate(node => node.textTracks[0].cues[0].line), 98);
+    assert.equal(await video.evaluate(node => node === window.qaSubtitleVideo && node.currentTime === window.qaSubtitlePosition && node.paused), true, 'appearance changes preserve the video and play position');
+    await video.evaluate(node => node.requestFullscreen());
+    await page.waitForFunction(() => document.fullscreenElement?.tagName === 'VIDEO');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-subtitle-style-fullscreen.png') });
+    assert.equal(await video.getAttribute('data-subtitle-size'), 'huge');
+    await page.evaluate(() => document.exitFullscreen());
+    for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+        assert.ok(await selector.isVisible());
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+        await page.screenshot({ path: path.join(os.tmpdir(), `javjaeger-subtitles-${width}.png`) });
+    }
+    await dialog.getByRole('combobox', { name: '播放文件', exact: true }).selectOption('1');
+    await dialog.getByText('无外挂字幕', { exact: true }).waitFor();
+    assert.equal(await video.locator('track').count(), 0);
+    assert.equal(await selector.inputValue(), '');
+    await dialog.getByRole('button', { name: '停止播放', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole('button', { name: '管理界面', exact: true }).click();
+    await navigate(page, '影视库');
+    await page.locator('tbody tr').first().getByRole('button', { name: '详情', exact: true }).click();
+    await page.getByRole('button', { name: '播放', exact: true }).first().click();
+    await page.waitForFunction(() => document.querySelector('.jj-player video')?.textTracks[0]?.activeCues?.[0]?.text === '字幕显示测试');
+    await dialog.locator('.jj-subtitle-settings summary').click();
+    assert.equal(await font.inputValue(), 'serif');
+    assert.equal(await fontSize.inputValue(), 'huge');
+    assert.equal(await bottom.inputValue(), '2');
+    assert.equal(await video.evaluate(node => node.textTracks[0].cues[0].line), 98);
+    await page.getByRole('button', { name: '停止播放', exact: true }).click();
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '全部影片', exact: true }).click();
+    await page.locator('.jj-cinema-wall .jj-cinema-card').first().click();
+    await page.getByRole('button', { name: '播放所选文件', exact: true }).click();
+    await dialog.locator('.jj-subtitle-settings summary').click();
+    assert.equal(await fontSize.inputValue(), 'huge');
+    assert.equal(await bottom.inputValue(), '2');
+    await dialog.getByRole('button', { name: '恢复默认', exact: true }).click();
+    assert.equal(await font.inputValue(), 'sans');
+    assert.equal(await fontSize.inputValue(), 'normal');
+    assert.equal(await bottom.inputValue(), '4');
+    await page.getByRole('button', { name: '停止播放', exact: true }).click();
+    assert.deepEqual(consoleErrors, []);
+});
+
 test('transcode selected file, task cancel/retry/delete and failed capability refresh', async t => {
     const writes = []; let queue = [], failCaps = false;
     const page = await openApp(t, 1440, async p => {

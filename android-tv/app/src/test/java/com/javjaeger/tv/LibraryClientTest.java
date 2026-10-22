@@ -77,6 +77,28 @@ public class LibraryClientTest {
         }
     }
 
+    @Test public void loadsSidecarSubtitlesFromSelectedIndexedFileAndKeepsServerPrefix() throws Exception {
+        String token = "0123456789abcdef01234567";
+        body.set("{\"subtitles\":[{\"id\":\"" + token + "\",\"language\":\"zh-Hans\",\"label\":\"简体中文\",\"default\":true}]}");
+        LibraryClient client = new LibraryClient(address + "/media");
+        List<LibraryClient.Subtitle> subtitles = client.loadSubtitles("QA-001", 2);
+        assertEquals("/media/api/movies/local-library/QA-001/subtitles?file_index=2", requested.get());
+        assertEquals(1, subtitles.size());
+        assertEquals("zh-Hans", subtitles.get(0).language);
+        assertEquals("简体中文", subtitles.get(0).label);
+        assertTrue(subtitles.get(0).isDefault);
+        assertEquals(address + "/media/api/movies/local-library/QA-001/subtitles/" + token + "?file_index=2", subtitles.get(0).url);
+        body.set("{\"subtitles\":[]}");
+        assertTrue(client.loadSubtitles("QA-001", 0).isEmpty());
+        body.set("{\"subtitles\":[{\"id\":\"../../private\"}]}");
+        try { client.loadSubtitles("QA-001", 0); fail("Invalid subtitle token accepted"); }
+        catch (IOException expected) { assertFalse(expected.getMessage().contains("private")); }
+        for (String invalid : new String[]{"../secret", "https://example.test/file.vtt", "bad"}) {
+            try { client.subtitleUrl("QA-001", 0, invalid); fail("Invalid subtitle token accepted"); }
+            catch (IllegalArgumentException expected) { /* Only server-issued subtitle IDs are accepted. */ }
+        }
+    }
+
     @Test public void loadsCompactLibraryAndMapsNativeCinemaFields() throws Exception {
         body.set("{\"success\":true,\"records\":[{\"movie_id\":\"QA-001\",\"title\":\"影院影片\",\"date\":\"2025-03-01\","
                 + "\"stars\":[\"Alice\",{\"name\":\"演员\"}],\"genres\":[{\"name\":\"剧情\"}],\"media_info\":{\"height\":2160},"

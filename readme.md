@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License"></a>
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.2"><img src="https://img.shields.io/badge/Android_TV-v0.3.2_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.2 测试版"></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.4"><img src="https://img.shields.io/badge/Android_TV-v0.3.4_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.4 测试版"></a>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#网页影院与海报浏览">网页影院</a> ·
   <a href="#android-tv在电视上观看">Android TV</a> ·
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.2"><strong>下载 APK</strong></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.4"><strong>下载 APK</strong></a>
 </p>
 
 ![影院模式的完整推荐首页](docs/screenshots/cinema-recommendations.jpg)
@@ -142,7 +142,11 @@ docker compose logs --tail=100 javjaeger
 
 *影片详情与本地播放文件选择。*
 
-关闭详情后保留浏览位置。影院直接播放服务器上的原文件，编码、音轨和字幕能否使用取决于浏览器；无法播放时，可先从影片详情创建硬件转码任务。当前没有实时转码或跨设备观看进度。
+关闭详情后保留浏览位置。影院直接播放服务器上的原文件，编码和音轨能否使用取决于浏览器；无法播放时，可先从影片详情创建硬件转码任务。当前没有实时转码或跨设备观看进度。
+
+影院和影视库播放支持原片旁的 SRT/VTT 外挂字幕。字幕与视频保持相同文件名，可附加语言标记，例如 `ABF-017.mp4` 对应 `ABF-017.zh-Hans.srt` 或 `ABF-017.zh-Hans.vtt`；编码使用 UTF-8 或带 BOM 的 UTF-16。播放时自动读取，优先加载中文字幕，无需重新扫描影视库。播放器上方的“字幕”可选择语言或关闭，切换字幕不会重启视频；多段影片分别读取各自的字幕。同名 SRT/VTT 优先使用 VTT，仅显示一条。字幕需要预先生成，本功能不在播放时运行识别模型。
+
+展开“字幕样式”可设置字体、四档字号与底部留白，默认留白为 4%，数值越小字幕越靠下。调整即时生效，保存在当前浏览器，重新播放和刷新页面后沿用；可选择“恢复默认”。网页和 TV 分别保存各自的显示偏好。
 
 <details>
 <summary>查看影院精选、搜索、组合筛选、演员与系列</summary>
@@ -190,9 +194,9 @@ docker compose logs --tail=100 javjaeger
 
 JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同一个 JavJaeger 服务器，共用服务器影视库。支持 **Android 6.0 及以上 Android TV**，使用遥控器方向键、确认键和返回键操作。
 
-**[下载 JavJaeger TV v0.3.2 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.2)** · [完整电视端说明](android-tv/README.md)
+**[下载 JavJaeger TV v0.3.4 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.4)** · [完整电视端说明](android-tv/README.md)
 
-v0.2.0、v0.3.0 和 v0.3.1 可直接覆盖升级。新片的 115 播放需要 v0.3.0 及以上服务端；已部署 v0.3.0 的服务器可直接使用。
+沿用旧版签名，已有测试版可直接覆盖升级。新片的 115 播放需要 v0.3.0 及以上服务端；外挂字幕需要部署包含字幕接口的新服务端。
 
 ### 安装与连接
 
@@ -207,11 +211,12 @@ v0.2.0、v0.3.0 和 v0.3.1 可直接覆盖升级。新片的 115 播放需要 v0
 - “浏览新片”支持与网页浏览页相同的 JavBus 目录、组合筛选、详情和 115 等待播放。
 - 组合演员、制作商、分辨率和标签条件，按入库时间、发行日期、体积或番号排序。
 - 暂停、继续、定位进度、切换文件和停止播放；多段影片顺序播放后续可用文件。
+- 自动加载原片旁的 SRT/VTT 字幕，优先中文字幕；遥控器开关字幕，并配置字体、字号和底部留白，设置保存在当前设备。
 - 返回详情或浏览页时保留搜索、筛选和浏览位置；管理入口通过系统浏览器打开服务器管理页，没有浏览器时显示可在其他设备访问的地址。
 
 电视端使用随焦点收起或展开的侧栏，将搜索、组合筛选与排序改为按需打开。影片封面按实际比例完整显示：推荐横排固定图片高度并调整宽度，影片墙按等宽列排布不同高度的封面。播放器控件叠加在视频上并自动隐藏。刷新、服务器连接和管理入口位于“更多”。
 
-电视端只保存不含凭据的服务器地址，下载、刮削和媒体整理在服务端完成。视频直接播放原文件，支持 Range 跳转；停止、换片或跳转使旧连接断开时，服务器会停止旧响应的后续读取并关闭文件。编码、内封音轨和字幕支持取决于电视；当前没有实时转码、外挂字幕加载或跨设备观看进度。不支持的编码可先在服务器管理网页中转码。
+电视端保存不含凭据的服务器地址和字幕显示偏好，下载、刮削和媒体整理在服务端完成。视频直接播放原文件，支持 Range 跳转；停止、换片或跳转使旧连接断开时，服务器会停止旧响应的后续读取并关闭文件。编码和内封音轨支持取决于电视；当前没有实时转码或跨设备观看进度。不支持的编码可先在服务器管理网页中转码。
 
 电视需要能直接访问服务器。带登录的反向代理需要另行适配，连接与安装排障见 [Android TV 说明](android-tv/README.md)。
 

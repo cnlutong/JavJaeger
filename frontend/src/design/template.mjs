@@ -48,7 +48,15 @@ export function adaptTemplate(source, logo) {
   <sc-if value="{{ cn.player }}">
     <div class="jj-player" role="dialog" aria-modal="true" aria-label="本地影片播放">
       <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:16px 26px"><span>{{ cn.player.code }} · {{ cn.player.title }}</span><select class="input" aria-label="播放文件" value="{{ cn.player.fileIndex }}" onChange="{{ cn.player.selectFile }}"><sc-for list="{{ cn.player.files }}" as="f"><option value="{{ f.value }}" disabled="{{ f.missing }}">{{ f.label }}</option></sc-for></select><button class="btn btn-secondary" style="margin-left:auto" onClick="{{ cn.closePlayer }}">停止播放</button></div>
-      <video src="{{ cn.player.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"></video>
+      <div class="jj-subtitle-toolbar"><label for="jj-subtitle-select">字幕</label><select id="jj-subtitle-select" class="input" aria-label="字幕" value="{{ cn.player.subtitle }}" onChange="{{ cn.player.selectSubtitle }}"><option value="">关闭字幕</option><sc-for list="{{ cn.player.subtitles }}" as="s"><option value="{{ s.id }}">{{ s.label }}</option></sc-for></select><span role="status" style="color:var(--dim);font-size:12px">{{ cn.player.subtitleStatus }}</span>
+        <details class="jj-subtitle-settings"><summary>字幕样式</summary><div role="group" aria-label="字幕样式">
+          <label>字体<select class="input" aria-label="字幕字体" value="{{ cn.player.subtitleAppearance.font }}" onChange="{{ cn.player.subtitleAppearance.setFont }}"><sc-for list="{{ cn.player.subtitleAppearance.fonts }}" as="o"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select></label>
+          <label>字号<select class="input" aria-label="字幕字号" value="{{ cn.player.subtitleAppearance.size }}" onChange="{{ cn.player.subtitleAppearance.setSize }}"><sc-for list="{{ cn.player.subtitleAppearance.sizes }}" as="o"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select></label>
+          <label>底部留白<select class="input" aria-label="字幕底部留白" value="{{ cn.player.subtitleAppearance.bottom }}" onChange="{{ cn.player.subtitleAppearance.setBottom }}"><sc-for list="{{ cn.player.subtitleAppearance.bottoms }}" as="o"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select></label>
+          <button class="btn btn-secondary" onClick="{{ cn.player.subtitleAppearance.reset }}">恢复默认</button><small>自动保存，底部留白越小，字幕越靠下。</small>
+        </div></details>
+      </div>
+      <video src="{{ cn.player.url }}" data-subtitle-font="{{ cn.player.subtitleAppearance.font }}" data-subtitle-size="{{ cn.player.subtitleAppearance.size }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onLoadedMetadata="{{ cn.player.syncSubtitles }}" onEnded="{{ cn.player.ended }}" onError="{{ cn.player.error }}" style="width:100%;min-height:0;flex:1;background:#000"><sc-for list="{{ cn.player.subtitles }}" as="s"><track kind="subtitles" src="{{ s.url }}" srcLang="{{ s.language }}" label="{{ s.label }}" data-subtitle-id="{{ s.id }}" onLoad="{{ cn.player.syncSubtitles }}" onError="{{ cn.player.subtitleError }}"></sc-for></video>
     </div>
   </sc-if>
 

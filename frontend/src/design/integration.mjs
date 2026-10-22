@@ -6,6 +6,7 @@ import { buildDefaultTask } from '../utils/automationTask.mjs';
 import { selectHistoryRedispatchResource } from '../utils/historyRedispatch.mjs';
 import { loadLocalScrapeTaskTemplates, saveLocalScrapeTaskTemplate, deleteLocalScrapeTaskTemplate } from '../utils/localScrapeTemplates.mjs';
 import { LOCAL_SCRAPE_NAMING_FIELDS } from '../utils/localScrapeNamingTemplates.mjs';
+import { loadSubtitleAppearance, saveSubtitleAppearance, normalizeSubtitleAppearance, SUBTITLE_FONTS, SUBTITLE_SIZES, SUBTITLE_BOTTOMS, DEFAULT_SUBTITLE_APPEARANCE } from '../utils/subtitleAppearance.mjs';
 
 // Reuse the imported component's data and workflows in the API adapter.
 // Management views retain the supplied template; cinema has its own presentation.
@@ -138,7 +139,7 @@ export function connectDesign(Base) {
                 backgroundJobs: [], autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
                 scrapeTemplates: loadLocalScrapeTaskTemplates(), pathEdits: {}, tcOptions: {}, fsMinSize: '0', fsMinUnit: 'MB', fsVideoOnly: false,
                 fsPageSize: 60, fsLoading: false, fsDeleting: false,
-                infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
+                infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [], subtitleAppearance: loadSubtitleAppearance(),
             };
             try {
                 const saved = JSON.parse(window.sessionStorage.getItem(browsePlaybackKey) || 'null');
@@ -1011,7 +1012,40 @@ export function connectDesign(Base) {
             const files = this.libraryByCode.get(code)?.raw.files || [];
             const index = fileIndex ?? files.findIndex(file => file.exists !== false);
             if (!Number.isInteger(index) || !files[index] || files[index].exists === false) { this.toast('本地文件缺失，请重新扫描影视库', WARN); return; }
-            this.setState({ cnPlaying: code, playerIndex: index, cnPaused: false, cnBuffering: false });
+            const request = this._subtitleRequest = (this._subtitleRequest || 0) + 1;
+            this.setState({ cnPlaying: code, playerIndex: index, cnPaused: false, cnBuffering: false, playerSubtitles: [], playerSubtitle: '', playerSubtitleStatus: '正在读取字幕…' });
+            void this.request(`/api/movies/local-library/${id(code)}/subtitles?file_index=${index}`).then(payload => {
+                if (this._disposed || request !== this._subtitleRequest || this.state.cnPlaying !== code || this.state.playerIndex !== index) return;
+                const tracks = payload.subtitles || [];
+                this.setState({ playerSubtitles: tracks, playerSubtitle: (tracks.find(track => track.default) || tracks[0])?.id || '', playerSubtitleStatus: tracks.length ? '' : '无外挂字幕' }, () => this.syncPlayerSubtitles());
+            }).catch(() => {
+                if (!this._disposed && request === this._subtitleRequest && this.state.cnPlaying === code && this.state.playerIndex === index) this.setState({ playerSubtitleStatus: '字幕不可用，可继续播放' });
+            });
+        }
+
+        syncPlayerSubtitles() {
+            const video = document.querySelector('.jj-player video');
+            if (!video) return;
+            for (const track of video.querySelectorAll('track')) {
+                track.onload = () => this.syncPlayerSubtitles();
+                track.track.oncuechange = () => this.positionPlayerSubtitleCues(track.track);
+                track.track.mode = track.dataset.subtitleId === this.state.playerSubtitle ? 'showing' : 'disabled';
+                this.positionPlayerSubtitleCues(track.track);
+            }
+        }
+
+        positionPlayerSubtitleCues(track) {
+            for (const cue of track.cues || []) {
+                cue.snapToLines = false;
+                cue.lineAlign = 'end';
+                cue.line = 100 - this.state.subtitleAppearance.bottom;
+            }
+        }
+
+        setSubtitleAppearance(patch) {
+            const settings = normalizeSubtitleAppearance({ ...this.state.subtitleAppearance, ...patch });
+            saveSubtitleAppearance(settings);
+            this.setState({ subtitleAppearance: settings }, () => this.syncPlayerSubtitles());
         }
 
         vCinema() {
@@ -1102,6 +1136,23 @@ export function connectDesign(Base) {
                 view.player.error = () => this.toast('浏览器无法播放此文件，可从影片详情创建硬件转码任务', WARN);
                 view.player.files = files.map((file, index) => ({ value: String(index), label: `${index + 1}. ${file.path.split(/[\\/]/).pop()}`, missing: file.exists === false }));
                 view.player.fileIndex = String(st.playerIndex || 0);
+                view.player.subtitles = (st.playerSubtitles || []).map(track => ({ ...track, url: `/api/movies/local-library/${id(st.cnPlaying)}/subtitles/${id(track.id)}?file_index=${st.playerIndex || 0}` }));
+                view.player.subtitle = st.playerSubtitle || '';
+                view.player.subtitleStatus = st.playerSubtitleStatus || '';
+                view.player.subtitleAppearance = {
+                    ...st.subtitleAppearance, fonts: SUBTITLE_FONTS, sizes: SUBTITLE_SIZES,
+                    bottoms: SUBTITLE_BOTTOMS.map(value => ({ value: String(value), label: `${value}%` })),
+                    setFont: event => this.setSubtitleAppearance({ font: event.target.value }),
+                    setSize: event => this.setSubtitleAppearance({ size: event.target.value }),
+                    setBottom: event => this.setSubtitleAppearance({ bottom: Number(event.target.value) }),
+                    reset: () => this.setSubtitleAppearance(DEFAULT_SUBTITLE_APPEARANCE),
+                };
+                view.player.selectSubtitle = event => { this.setState({ playerSubtitle: event.target.value }, () => this.syncPlayerSubtitles()); };
+                view.player.syncSubtitles = () => this.syncPlayerSubtitles();
+                view.player.subtitleError = event => {
+                    if (event.currentTarget.dataset.subtitleId === this.state.playerSubtitle) this.toast('字幕加载失败，请检查字幕文件格式或服务器连接', WARN);
+                };
+                view.closePlayer = () => { this._subtitleRequest++; this.setState({ cnPlaying: null, playerSubtitles: [], playerSubtitle: '' }); };
                 view.player.selectFile = event => this.playCinema(playing.code, Number(event.target.value));
                 view.player.ended = () => { const next = files.findIndex((file, index) => index > (this.state.playerIndex || 0) && file.exists !== false); if (next >= 0) this.playCinema(playing.code, next); };
             }
@@ -1258,7 +1309,7 @@ export function connectDesign(Base) {
                 view.d.cover = record.cover;
                 view.d.fields = [['发行日期', record.date], ['制作商', record.studio], ['发行商', record.label], ['系列', record.series], ['分辨率 / 编码', `${record.res} · ${record.codec}`], ['体积', record.size]].map(([k, v]) => ({ k, v, fg: 'var(--fg)', mono: 'inherit', fs: '12px' }));
                 view.d.files = (record.raw.files || []).map((file, index) => ({ idx: index, path: file.path, size: size(file.size), codec: file.media_info?.codec || record.codec, status: file.exists === false ? '文件缺失' : '已索引', stFg: file.exists === false ? BAD : OK, fg: 'var(--fg)', gone: file.exists === false,
-                    play: () => this.setState({ cnPlaying: record.code, playerIndex: index, route: 'cinema', lbDetail: null }), transcode: () => this.openTranscode(record.code, index),
+                    play: () => { this.setState({ route: 'cinema', lbDetail: null }); this.playCinema(record.code, index); }, transcode: () => this.openTranscode(record.code, index),
                 }));
                 view.d.complete = () => this.completeInformation([record.code], true);
                 view.d.recheck = () => this.completeInformation([record.code], false);
