@@ -25,7 +25,7 @@ final class ImageLoader {
     private volatile boolean closed;
 
     void load(String posterUrl, ImageView image) {
-        load(posterUrl, image, 480, 720);
+        load(posterUrl, image, 640, 480);
     }
 
     void load(String posterUrl, ImageView image, int maxWidth, int maxHeight) {
@@ -33,13 +33,17 @@ final class ImageLoader {
         image.setTag(key);
         Bitmap cached = cache.get(key);
         image.setImageBitmap(cached);
+        image.requestLayout();
         if (closed || cached != null) return;
         workers.execute(() -> {
             Bitmap bitmap = fetch(posterUrl, maxWidth, maxHeight);
             if (closed || bitmap == null) return;
             cache.put(key, bitmap);
             main.post(() -> {
-                if (!closed && key.equals(image.getTag())) image.setImageBitmap(bitmap);
+                if (!closed && key.equals(image.getTag())) {
+                    image.setImageBitmap(bitmap);
+                    image.requestLayout();
+                }
             });
         });
     }

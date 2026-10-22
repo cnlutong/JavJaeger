@@ -48,8 +48,8 @@ import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final int BG = 0xff101114, SURFACE = 0xff1b1d22, TEXT = 0xfff4f5f7, DIM = 0xffa4abb7;
-    private static final int ACCENT = 0xff59cbe8, RING = 0xff383d47;
+    private static final int BG = 0xff09090b, SURFACE = 0xff202125, TEXT = 0xfff4f5f7, DIM = 0xffa4abb7;
+    private static final int ACCENT = 0xfff5f5f7, RING = 0xff383d47;
     private static final String[] TABS = {"推荐", "全部影片", "标签", "演员", "VR", "浏览新片"};
     private static final String[] SORTS = {"入库时间", "发行日期", "体积", "番号"};
     private static final String[] DIMENSIONS = {"actor", "studio", "res", "flag"};
@@ -64,6 +64,7 @@ public final class MainActivity extends Activity {
     private ImageLoader images;
     private LinearLayout shell;
     private FrameLayout content;
+    private View lastMovieCard;
     private EditText search;
     private TextView badge;
     private Button refresh;
@@ -104,20 +105,20 @@ public final class MainActivity extends Activity {
     private LinearLayout row() { LinearLayout view = new LinearLayout(this); view.setGravity(Gravity.CENTER_VERTICAL); return view; }
     private TextView text(String value, int size, int color) { TextView view = new TextView(this); view.setText(value); view.setTextSize(size); view.setTextColor(color); view.setPadding(0, dp(3), 0, dp(3)); return view; }
     private TextView heading(String value, int size) { TextView view = text(value, size, TEXT); view.setTypeface(null, Typeface.BOLD); return view; }
-    private GradientDrawable shape(int color, int stroke, boolean round) { GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(round ? 80 : 7)); if (stroke != 0) shape.setStroke(dp(2), stroke); return shape; }
+    private GradientDrawable shape(int color, int stroke, boolean round) { GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(round ? 80 : 12)); if (stroke != 0) shape.setStroke(dp(2), stroke); return shape; }
     private StateListDrawable focus(int color) {
         StateListDrawable states = new StateListDrawable();
         states.addState(new int[]{android.R.attr.state_focused}, shape(color, ACCENT, false));
-        states.addState(new int[]{android.R.attr.state_selected}, shape(color, ACCENT, false));
+        states.addState(new int[]{android.R.attr.state_selected}, shape(0xff303136, 0, false));
         states.addState(new int[]{android.R.attr.state_pressed}, shape(color, ACCENT, false));
-        states.addState(new int[]{}, shape(color, RING, false)); return states;
+        states.addState(new int[]{}, shape(color, 0, false)); return states;
     }
     private Button button(String label, Runnable action) {
         Button button = new Button(this); button.setText(label); button.setTextSize(15); button.setAllCaps(false); button.setTextColor(TEXT);
         button.setMinHeight(dp(42)); button.setMinimumHeight(dp(42)); button.setPadding(dp(14), dp(5), dp(14), dp(5)); button.setBackground(focus(SURFACE)); button.setOnClickListener(view -> action.run()); return button;
     }
     private Button primary(String label, Runnable action) { Button view = button(label, action); view.setBackground(focus(ACCENT)); view.setTextColor(0xff07232b); return view; }
-    private void chosen(Button view, boolean selected) { view.setSelected(selected); view.setTextColor(selected ? ACCENT : TEXT); }
+    private void chosen(Button view, boolean selected) { view.setSelected(selected); view.setTextColor(selected ? TEXT : DIM); }
     private EditText input(String description, String hint) {
         EditText input = new EditText(this); input.setContentDescription(description); input.setHint(hint); input.setTextColor(TEXT); input.setHintTextColor(DIM); input.setTextSize(16); input.setSingleLine(true); input.setPadding(dp(13), dp(6), dp(13), dp(6)); input.setBackground(focus(SURFACE)); return input;
     }
@@ -148,12 +149,26 @@ public final class MainActivity extends Activity {
     }
     private void createShell() {
         serverScreen = false; shell = column(); shell.setBackgroundColor(BG); setContentView(shell);
-        LinearLayout nav = row(); nav.setPadding(dp(24), dp(6), dp(24), dp(6));
-        TextView brand = heading("JavJaeger", 19); nav.addView(brand, new LinearLayout.LayoutParams(dp(120), -2)); tabButtons.clear();
-        for (String name : TABS) { Button item = button(name, () -> navigate(name)); item.setPadding(dp(8), 0, dp(8), 0); item.setMinWidth(0); item.setMinimumWidth(0); item.setBackground(focus(Color.TRANSPARENT)); tabButtons.put(name, item); nav.addView(item, new LinearLayout.LayoutParams(0, dp(42), 1)); }
-        Button find = button("搜索", this::showSearch); find.setContentDescription("打开搜索"); gap(nav, 10); nav.addView(find);
-        Button more = button("更多", this::showTools); more.setContentDescription("影院更多选项"); gap(nav, 8); nav.addView(more);
-        shell.addView(nav, new LinearLayout.LayoutParams(-1, dp(56))); content = new FrameLayout(this); shell.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+        FrameLayout stage = new FrameLayout(this); shell.addView(stage, new LinearLayout.LayoutParams(-1, -1));
+        content = new FrameLayout(this); FrameLayout.LayoutParams contentParams = new FrameLayout.LayoutParams(-1, -1); contentParams.leftMargin = dp(72); stage.addView(content, contentParams);
+        LinearLayout nav = column(); nav.setContentDescription("影院导航"); nav.setPadding(dp(10), dp(16), dp(10), dp(16)); nav.setBackgroundColor(0xf509090b);
+        TextView brand = heading("JJ", 23); brand.setGravity(Gravity.CENTER); nav.addView(brand, new LinearLayout.LayoutParams(-1, dp(44))); gap(nav, 12); tabButtons.clear();
+        String[] symbols = {"⌂", "▦", "#", "◉", "◎", "+", "⌕", "•••"};
+        List<Button> items = new ArrayList<>(); List<String> labels = new ArrayList<>(Arrays.asList(TABS)); labels.add("搜索"); labels.add("更多");
+        for (int i = 0; i < labels.size(); i++) {
+            String name = labels.get(i); Button item = button(name, () -> { if (name.equals("搜索")) showSearch(); else if (name.equals("更多")) showTools(); else navigate(name); });
+            item.setContentDescription(name.equals("搜索") ? "打开搜索" : name.equals("更多") ? "影院更多选项" : name);
+            item.setTextSize(12); item.setPadding(0, 0, 0, 0); item.setMinWidth(0); item.setMinimumWidth(0); item.setBackground(focus(Color.TRANSPARENT));
+            item.setText(symbols[i] + "\n" + (name.equals("全部影片") ? "全部" : name.equals("浏览新片") ? "新片" : name));
+            if (i < TABS.length) tabButtons.put(name, item); else if (i == TABS.length) nav.addView(new View(this), new LinearLayout.LayoutParams(1, 0, 1));
+            items.add(item); nav.addView(item, new LinearLayout.LayoutParams(-1, dp(46))); gap(nav, 4);
+        }
+        stage.addView(nav, new FrameLayout.LayoutParams(dp(72), -1, Gravity.START));
+        stage.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
+            boolean expanded = items.contains(newFocus); ViewGroup.LayoutParams params = nav.getLayoutParams(); int width = dp(expanded ? 184 : 72);
+            if (params.width == width) return; params.width = width; nav.setLayoutParams(params); brand.setText(expanded ? "JavJaeger" : "JJ");
+            for (int i = 0; i < items.size(); i++) { String name = labels.get(i); items.get(i).setTextSize(expanded ? 16 : 12); items.get(i).setGravity(expanded ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER); items.get(i).setPadding(dp(expanded ? 12 : 0), 0, 0, 0); items.get(i).setText(symbols[i] + (expanded ? "   " + name : "\n" + (name.equals("全部影片") ? "全部" : name.equals("浏览新片") ? "新片" : name))); }
+        });
         // Detached controls retain the existing query and refresh workflow between dialogs.
         search = input("搜索影片", "搜索影片、番号、演员"); search.setText(query); badge = text(deployment, 13, DIM); refresh = button("刷新", () -> loadLibrary(false));
     }
@@ -191,7 +206,7 @@ public final class MainActivity extends Activity {
     private LinearLayout paddedColumn() { LinearLayout body = column(); body.setPadding(dp(32), dp(12), dp(32), dp(24)); return body; }
     private void render(boolean focusMovies) {
         String previousFocus = focusKey(getCurrentFocus());
-        images.clearPending(); wallScroll = null; wallCards.clear(); content.removeAllViews(); for (String name : TABS) chosen(tabButtons.get(name), name.equals(tab));
+        images.clearPending(); wallScroll = null; lastMovieCard = null; wallCards.clear(); content.removeAllViews(); for (String name : TABS) chosen(tabButtons.get(name), name.equals(tab));
         if (!focusMovies && !previousFocus.isEmpty()) restoreFocus(previousFocus);
         if (tab.equals("浏览新片")) { renderBrowse(focusMovies); return; }
         if (loading && library.movies.isEmpty()) { LinearLayout body = paddedColumn(); body.addView(heading("正在读取影视库…", 25)); content.addView(body); return; }
@@ -203,29 +218,35 @@ public final class MainActivity extends Activity {
     }
     private Movie hero() { for (Movie movie : library.movies) if (movie.id.equals(heroId)) return movie; return library.movies.get(0); }
     private void renderShelves(List<CinemaLibrary.Shelf> shelves, boolean home) {
-        LinearLayout body = column(); if (home) body.addView(heroView(hero()), new LinearLayout.LayoutParams(-1, dp(178))); LinearLayout sections = paddedColumn();
+        LinearLayout body = column(); if (home) body.addView(heroView(hero()), new LinearLayout.LayoutParams(-1, dp(208))); LinearLayout sections = paddedColumn();
         if (!home) { sections.addView(heading("VR 影厅", 27)); sections.addView(text(shelves.size() + " 个分区", 14, DIM)); }
         CinemaLibrary.Page<CinemaLibrary.Shelf> page = CinemaLibrary.page(shelves, shelfPage, 6); shelfPage = page.index;
         for (CinemaLibrary.Shelf shelf : page.items) {
             LinearLayout header = row(); header.addView(heading(shelf.name, 21)); gap(header, 12); header.addView(text(shelf.movies.size() + " 部", 13, DIM)); header.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
             HorizontalScrollView track = new HorizontalScrollView(this); track.setHorizontalScrollBarEnabled(false); track.setClipToPadding(false); header.addView(button("查看全部", () -> openShelf(shelf, home)));
-            Button previous = button("‹", () -> track.smoothScrollBy(-Math.round(track.getWidth() * .85f), 0)); previous.setContentDescription("上一组 " + shelf.name); gap(header, 8); header.addView(previous);
-            Button next = button("›", () -> track.smoothScrollBy(Math.round(track.getWidth() * .85f), 0)); next.setContentDescription("下一组 " + shelf.name); gap(header, 8); header.addView(next); sections.addView(header);
-            LinearLayout cards = row(); cards.setPadding(dp(3), dp(8), dp(3), dp(8));
-            for (Movie movie : shelf.movies.subList(0, Math.min(12, shelf.movies.size()))) { LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(128), dp(224)); params.rightMargin = dp(12); cards.addView(movieCard(movie, true), params); }
+            Button previous = button("‹", () -> track.smoothScrollBy(-Math.round(track.getWidth() * .85f), 0)); previous.setMinWidth(dp(42)); previous.setMinimumWidth(dp(42)); previous.setPadding(0, 0, 0, 0); previous.setContentDescription("上一组 " + shelf.name); gap(header, 8); header.addView(previous);
+            Button next = button("›", () -> track.smoothScrollBy(Math.round(track.getWidth() * .85f), 0)); next.setMinWidth(dp(42)); next.setMinimumWidth(dp(42)); next.setPadding(0, 0, 0, 0); next.setContentDescription("下一组 " + shelf.name); gap(header, 8); header.addView(next); sections.addView(header);
+            LinearLayout cards = row(); cards.setGravity(Gravity.TOP); cards.setClipChildren(false); cards.setPadding(dp(6), dp(8), dp(6), dp(8));
+            for (Movie movie : shelf.movies.subList(0, Math.min(12, shelf.movies.size()))) {
+                LinearLayout card = movieCard(movie, true); CoverArt art = (CoverArt) card.getChildAt(0); art.fixedHeight(dp(132));
+                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(242), -2); params.rightMargin = dp(18); cards.addView(card, params);
+                art.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> { int width = r - l + card.getPaddingLeft() + card.getPaddingRight(); if (card.getLayoutParams().width != width) { card.getLayoutParams().width = width; card.requestLayout(); } });
+            }
             track.addView(cards); sections.addView(track); gap(sections, 22);
         }
         if (shelves.isEmpty()) { sections.addView(heading("暂无 VR 影片", 25)); sections.addView(text("扫描或补全影片资料后，在这里浏览你的收藏。", 17, DIM)); sections.addView(button("浏览全部影片", () -> navigate("全部影片"))); }
         addPager(sections, page, index -> { shelfPage = index; render(false); }); body.addView(sections); content.addView(scroller(body));
     }
     private FrameLayout heroView(Movie movie) {
-        FrameLayout hero = new FrameLayout(this); ImageView backdrop = new ImageView(this); backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP); hero.addView(backdrop, new FrameLayout.LayoutParams(-1, -1)); images.load(client.backdropUrl(movie), backdrop, 1280, 720);
-        View shade = new View(this); shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{BG, 0xe6101114, 0x55101114})); hero.addView(shade, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout hero = new FrameLayout(this); ImageView backdrop = new ImageView(this); backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP); backdrop.setAlpha(.35f); hero.addView(backdrop, new FrameLayout.LayoutParams(-1, -1)); images.load(client.backdropUrl(movie), backdrop, 1280, 720);
+        View shade = new View(this); shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{BG, 0xe609090b, 0x3309090b})); hero.addView(shade, new FrameLayout.LayoutParams(-1, -1));
         View bottom = new View(this); bottom.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{BG, Color.TRANSPARENT})); hero.addView(bottom, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout layout = row(); layout.setPadding(dp(34), dp(12), dp(52), dp(14)); LinearLayout copy = column(); TextView title = heading(movie.title, 30); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END); copy.addView(title); copy.addView(text(movieMeta(movie), 14, 0xffc0c7d1));
-        TextView synopsis = text(description(movie), 14, 0xffc0c7d1); synopsis.setMaxLines(1); synopsis.setEllipsize(TextUtils.TruncateAt.END); copy.addView(synopsis);
-        LinearLayout actions = row(); Button play = primary(movie.unavailable ? "文件缺失" : "播放", () -> playFirst(movie)); play.setEnabled(!movie.unavailable); actions.addView(play); gap(actions, 12); actions.addView(button("影片详情", () -> showDetail(movie.id))); copy.addView(actions); layout.addView(copy, new LinearLayout.LayoutParams(0, -2, 1)); gap(layout, 40);
-        ImageView poster = new ImageView(this); poster.setScaleType(ImageView.ScaleType.CENTER_CROP); poster.setBackground(shape(SURFACE, 0, false)); poster.setClipToOutline(true); layout.addView(poster, new LinearLayout.LayoutParams(dp(100), dp(150))); images.load(client.posterUrl(movie), poster); hero.addView(layout, new FrameLayout.LayoutParams(-1, -1)); return hero;
+        LinearLayout copy = column(); copy.setGravity(Gravity.CENTER_VERTICAL); copy.setPadding(dp(32), dp(16), dp(24), dp(12)); copy.addView(text("JAVJAEGER  /  精选收藏", 12, DIM));
+        TextView title = heading(movie.title, 31); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END); copy.addView(title); copy.addView(text(movieMeta(movie), 14, DIM));
+        TextView synopsis = text(description(movie), 14, DIM); synopsis.setMaxLines(1); synopsis.setEllipsize(TextUtils.TruncateAt.END); copy.addView(synopsis); gap(copy, 8);
+        LinearLayout actions = row(); Button play = primary(movie.unavailable ? "文件缺失" : "▶  播放", () -> playFirst(movie)); play.setContentDescription("播放"); play.setEnabled(!movie.unavailable); actions.addView(play); gap(actions, 12); actions.addView(button("影片详情", () -> showDetail(movie.id))); copy.addView(actions);
+        FrameLayout.LayoutParams copyParams = new FrameLayout.LayoutParams((int)(getResources().getDisplayMetrics().widthPixels * .48), -1, Gravity.START); hero.addView(copy, copyParams);
+        CoverArt cover = new CoverArt(this); cover.fixedHeight(dp(164)); cover.setContentDescription("精选封面：" + movie.id); FrameLayout.LayoutParams artParams = new FrameLayout.LayoutParams(dp(260), -2, Gravity.END | Gravity.CENTER_VERTICAL); artParams.rightMargin = dp(32); hero.addView(cover, artParams); images.load(client.posterUrl(movie), cover.image(), 800, 600); return hero;
     }
     private void openShelf(CinemaLibrary.Shelf shelf, boolean home) {
         clearFilters(); query = ""; actor = ""; wallPage = 0; tab = "全部影片"; tagResults = false;
@@ -275,34 +296,30 @@ public final class MainActivity extends Activity {
     }
     private void addMovieGrid(LinearLayout body, List<Movie> movies, boolean focusMovies) {
         ScrollView scroll = new ScrollView(this); wallScroll = scroll;
-        scroll.setTag("影片库"); scroll.setPadding(dp(3), dp(8), dp(3), dp(8)); scroll.setClipToPadding(false); scroll.setFocusable(false);
-        LinearLayout rows = column(); scroll.addView(rows); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        scroll.setTag("影片库"); scroll.setPadding(dp(4), dp(8), dp(4), dp(12)); scroll.setClipToPadding(false); scroll.setFocusable(false);
+        LinearLayout columns = row(); columns.setGravity(Gravity.TOP); columns.setClipChildren(false); scroll.addView(columns); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         // ponytail: at most 60 real focusable cards per page; use RecyclerView if that cap grows.
         scroll.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-            if (right - left == oldRight - oldLeft && bottom - top == oldBottom - oldTop || wallScroll != scroll) return;
-            int height = Math.min(dp(224), Math.max(dp(156), (bottom - top - dp(28)) / 2));
-            int width = Math.max(dp(40), (height - dp(52)) * 2 / 3 + dp(6));
-            int columns = Math.max(1, (right - left - dp(6) + dp(16)) / (width + dp(16)));
-            rows.removeAllViews(); wallCards.clear(); LinearLayout line = null; int index = 0;
-            for (Movie movie : movies) {
-                if (index++ % columns == 0) { line = row(); line.setGravity(Gravity.TOP); rows.addView(line); }
-                LinearLayout card = movieCard(movie, true); wallCards.put(movie.id, card);
-                LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height); params.setMargins(0, 0, dp(16), dp(20)); line.addView(card, params);
-            }
+            if (right - left == oldRight - oldLeft || wallScroll != scroll) return;
+            columns.removeAllViews(); wallCards.clear(); int count = Math.max(1, Math.min(4, (right - left + dp(18)) / dp(200)));
+            List<LinearLayout> tracks = new ArrayList<>();
+            for (int i = 0; i < count; i++) { LinearLayout track = column(); track.setClipChildren(false); LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1); if (i < count - 1) params.rightMargin = dp(18); columns.addView(track, params); tracks.add(track); }
+            int index = 0;
+            for (Movie movie : movies) { LinearLayout card = movieCard(movie, true); wallCards.put(movie.id, card); LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2); params.bottomMargin = dp(20); tracks.get(index++ % count).addView(card, params); }
             if (focusMovies) restoreGridFocus();
         });
     }
     private LinearLayout movieCard(Movie movie, boolean clickable) {
-        LinearLayout card = column(); card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES); card.setPadding(dp(3), dp(3), dp(3), dp(3)); card.setBackground(focus(Color.TRANSPARENT)); FrameLayout art = new FrameLayout(this); art.setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{0xff303745, 0xff181c25})); art.setClipToOutline(true);
-        TextView placeholder = text("▣\n" + movie.id, 16, DIM); placeholder.setGravity(Gravity.CENTER); art.addView(placeholder, new FrameLayout.LayoutParams(-1, -1)); ImageView image = new ImageView(this); image.setScaleType(ImageView.ScaleType.CENTER_CROP); art.addView(image, new FrameLayout.LayoutParams(-1, -1));
-        TextView quality = text(movie.quality, 11, TEXT); quality.setPadding(dp(6), dp(2), dp(6), dp(2)); quality.setBackgroundColor(0xcc080d16); FrameLayout.LayoutParams qualityParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.RIGHT); qualityParams.setMargins(0, 0, dp(6), dp(6)); art.addView(quality, qualityParams);
-        TextView missing = text("文件缺失", 11, TEXT); missing.setBackgroundColor(0xdd762d3c); FrameLayout.LayoutParams missingParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.LEFT); missingParams.setMargins(dp(6), dp(6), 0, 0); art.addView(missing, missingParams);
-        card.addView(art, new LinearLayout.LayoutParams(-1, 0, 1)); TextView title = text(movie.title, 15, TEXT); title.setMaxLines(1); title.setEllipsize(TextUtils.TruncateAt.END); card.addView(title); card.addView(text("", 12, DIM)); bindCard(card, movie);
-        if (clickable) { card.setFocusable(true); card.setOnFocusChangeListener((view, focused) -> { if (focused) selectedId = movie.id; }); card.setOnClickListener(view -> { selectedId = movie.id; if (tab.equals("浏览新片")) showBrowseDetail(movie.id); else showDetail(movie.id); }); } return card;
+        LinearLayout card = column(); card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES); card.setPadding(dp(4), dp(4), dp(4), dp(4)); card.setBackground(focus(Color.TRANSPARENT)); card.setClipChildren(false);
+        CoverArt art = new CoverArt(this); art.setContentDescription("封面：" + movie.id); art.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        TextView quality = text(movie.quality, 11, TEXT); quality.setPadding(dp(6), dp(2), dp(6), dp(2)); quality.setBackground(shape(0xdd09090b, 0, false)); FrameLayout.LayoutParams qualityParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END); qualityParams.setMargins(0, 0, dp(6), dp(6)); art.addView(quality, qualityParams);
+        TextView missing = text("文件缺失", 11, TEXT); missing.setBackgroundColor(0xdd762d3c); FrameLayout.LayoutParams missingParams = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START); missingParams.setMargins(dp(6), dp(6), 0, 0); art.addView(missing, missingParams);
+        card.addView(art, new LinearLayout.LayoutParams(-1, -2)); TextView title = text(movie.title, 15, TEXT); title.setMaxLines(1); title.setEllipsize(TextUtils.TruncateAt.END); card.addView(title); card.addView(text("", 12, DIM)); bindCard(card, movie);
+        if (clickable) { card.setFocusable(true); card.setOnFocusChangeListener((view, focused) -> { card.animate().scaleX(focused ? 1.025f : 1).scaleY(focused ? 1.025f : 1).setDuration(140).start(); if (focused) { selectedId = movie.id; lastMovieCard = card; } }); card.setOnClickListener(view -> { selectedId = movie.id; lastMovieCard = card; if (tab.equals("浏览新片")) showBrowseDetail(movie.id); else showDetail(movie.id); }); } return card;
     }
     private void bindCard(LinearLayout card, Movie movie) {
-        card.setContentDescription(movie.id + " " + movie.title); FrameLayout art = (FrameLayout) card.getChildAt(0); ((TextView) art.getChildAt(0)).setText("▣\n" + movie.id); images.load(client.posterUrl(movie), (ImageView) art.getChildAt(1), 320, 480);
-        ((TextView) art.getChildAt(2)).setText(movie.quality); art.getChildAt(2).setVisibility(movie.quality.isEmpty() ? View.GONE : View.VISIBLE); art.getChildAt(3).setVisibility(movie.unavailable && !tab.equals("浏览新片") ? View.VISIBLE : View.GONE); ((TextView) card.getChildAt(1)).setText(movie.title); ((TextView) card.getChildAt(2)).setText(join(movie.id, movie.year));
+        card.setContentDescription(movie.id + " " + movie.title); CoverArt art = (CoverArt) card.getChildAt(0); images.load(client.posterUrl(movie), art.image(), 640, 480);
+        ((TextView) art.getChildAt(1)).setText(movie.quality); art.getChildAt(1).setVisibility(movie.quality.isEmpty() ? View.GONE : View.VISIBLE); art.getChildAt(2).setVisibility(movie.unavailable && !tab.equals("浏览新片") ? View.VISIBLE : View.GONE); ((TextView) card.getChildAt(1)).setText(movie.title); ((TextView) card.getChildAt(2)).setText(join(movie.id, movie.year));
     }
     private HorizontalScrollView activeFilters(Runnable changed) {
         HorizontalScrollView scroll = new HorizontalScrollView(this); LinearLayout chips = row();
@@ -384,7 +401,7 @@ public final class MainActivity extends Activity {
     private void showBrowseDetail(String id) {
         LinearLayout body = paddedColumn(); Dialog dialog = panel("浏览影片详情", body); detailDialog = dialog; dialog.setOnDismissListener(ignored -> { if (detailDialog == dialog) detailDialog = null; restoreGridFocus(); }); LinearLayout info = column(); body.addView(scroller(info), new LinearLayout.LayoutParams(-1, 0, 1)); info.addView(text("正在获取影片资料…", 20, DIM)); final LibraryClient requested = client;
         network.execute(() -> { try { Movie movie = requested.loadBrowseMovie(id); runOnUiThread(() -> {
-            if (isDestroyed() || client != requested || !dialog.isShowing()) return; info.removeAllViews(); LinearLayout columns = row(); ImageView poster = new ImageView(this); poster.setScaleType(ImageView.ScaleType.FIT_CENTER); images.load(client.posterUrl(movie), poster); columns.addView(poster, new LinearLayout.LayoutParams(dp(235), dp(300))); LinearLayout facts = column(); facts.setPadding(dp(24), 0, 0, 0); facts.addView(heading(movie.title, 26)); facts.addView(text(join(movie.id, movie.date, movie.duration), 16, DIM)); facts.addView(primary("最佳资源播放", () -> startBrowsePlay(movie)));
+            if (isDestroyed() || client != requested || !dialog.isShowing()) return; info.removeAllViews(); LinearLayout columns = row(); columns.setGravity(Gravity.TOP); CoverArt poster = new CoverArt(this); poster.setContentDescription("详情封面：" + movie.id); images.load(client.posterUrl(movie), poster.image()); columns.addView(poster, new LinearLayout.LayoutParams(dp(290), -2)); LinearLayout facts = column(); facts.setPadding(dp(24), 0, 0, 0); facts.addView(heading(movie.title, 26)); facts.addView(text(join(movie.id, movie.date, movie.duration), 16, DIM)); facts.addView(primary("最佳资源播放", () -> startBrowsePlay(movie)));
             facts.addView(text("自动选择磁力并提交到 115，下载完成后播放。", 16, DIM));
             for (LibraryClient.BrowseFilter filter : movie.browseFilters) { String name = filter.type.equals("star") ? "演员" : filter.type.equals("genre") ? "标签" : filter.type.equals("studio") ? "制作商" : filter.type.equals("label") ? "发行商" : filter.type.equals("director") ? "导演" : "系列"; Button option = button(name + " · " + filter.label, () -> { dialog.dismiss(); addBrowseFilter(filter); }); option.setContentDescription("浏览" + name + "：" + filter.label); facts.addView(option); }
             columns.addView(facts, new LinearLayout.LayoutParams(0, -2, 1)); info.addView(columns);
@@ -430,7 +447,7 @@ public final class MainActivity extends Activity {
     private void renderDetail(Dialog dialog, LinearLayout body, Movie movie) {
         body.removeAllViews(); LinearLayout top = row(); top.addView(button("返回浏览", dialog::dismiss)); gap(top, 16); top.addView(heading(movie.id + " · " + movie.title, 23), new LinearLayout.LayoutParams(0, -2, 1)); Button close = button("×", dialog::dismiss); close.setContentDescription("关闭影片详情"); top.addView(close); body.addView(top); gap(body, 10);
         FrameLayout scene = new FrameLayout(this); ImageView backdrop = new ImageView(this); backdrop.setScaleType(ImageView.ScaleType.CENTER_CROP); backdrop.setAlpha(.2f); scene.addView(backdrop, new FrameLayout.LayoutParams(-1, -1)); images.load(client.backdropUrl(movie), backdrop, 1280, 720); LinearLayout columns = new LinearLayout(this); columns.setGravity(Gravity.TOP);
-        ImageView poster = new ImageView(this); poster.setScaleType(ImageView.ScaleType.FIT_CENTER); columns.addView(poster, new LinearLayout.LayoutParams(dp(155), dp(233))); images.load(client.posterUrl(movie), poster);
+        CoverArt poster = new CoverArt(this); poster.setContentDescription("详情封面：" + movie.id); columns.addView(poster, new LinearLayout.LayoutParams(dp(240), -2)); images.load(client.posterUrl(movie), poster.image());
         LinearLayout info = column(); info.setPadding(dp(22), 0, dp(20), dp(12)); info.addView(text(movieMeta(movie), 14, DIM)); info.addView(text(description(movie), 16, TEXT));
         for (String[] fact : new String[][]{{"发行日期", movie.date}, {"制作商", movie.studio}, {"系列", movie.series}, {"导演", movie.director}, {"本地文件", movie.files.size() + " 个 · " + movie.size}}) if (!fact[1].isEmpty() && !fact[1].equals("—")) info.addView(text(fact[0] + "  " + fact[1], 14, DIM));
         info.addView(button("在影视库中管理", () -> openManagement(movie.id))); info.addView(heading("演员与标签", 18));
@@ -457,7 +474,7 @@ public final class MainActivity extends Activity {
     private <T> void addPager(LinearLayout parent, CinemaLibrary.Page<T> page, PageChanged change) {
         if (page.pages <= 1) return; LinearLayout pager = row(); pager.setGravity(Gravity.CENTER); pager.setPadding(0, dp(12), 0, dp(8)); Button previous = button("上一页", () -> change.accept(page.index - 1)); previous.setEnabled(page.index > 0); pager.addView(previous); gap(pager, 16); pager.addView(text("第 " + (page.index + 1) + " / " + page.pages + " 页 · 共 " + page.total + " 项", 14, DIM)); gap(pager, 16); Button next = button("下一页", () -> change.accept(page.index + 1)); next.setEnabled(page.index < page.pages - 1); pager.addView(next); parent.addView(pager);
     }
-    private void restoreGridFocus() { if (wallScroll == null) return; ScrollView expected = wallScroll; expected.post(() -> { if (isDestroyed() || detailDialog != null || wallScroll != expected || wallCards.isEmpty()) return; View card = wallCards.get(selectedId); if (card == null) card = wallCards.values().iterator().next(); card.requestFocus(); }); }
+    private void restoreGridFocus() { if (lastMovieCard != null && lastMovieCard.isAttachedToWindow() && detailDialog == null) { lastMovieCard.requestFocus(); return; } if (wallScroll == null) return; ScrollView expected = wallScroll; expected.post(() -> { if (isDestroyed() || detailDialog != null || wallScroll != expected || wallCards.isEmpty()) return; View card = wallCards.get(selectedId); if (card == null) card = wallCards.values().iterator().next(); card.requestFocus(); }); }
     private String focusKey(View view) { if (view == null) return ""; if (view.getContentDescription() != null) return "description:" + view.getContentDescription(); return view instanceof TextView ? "text:" + ((TextView)view).getText() : ""; }
     private View findFocus(View view, String key) { if (view.isFocusable() && key.equals(focusKey(view))) return view; if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) { View found = findFocus(((ViewGroup)view).getChildAt(i), key); if (found != null) return found; } return null; }
     private void restoreFocus(String key) { shell.post(() -> { if (isDestroyed()) return; if (key.equals("#grid")) restoreGridFocus(); else { View found = findFocus(shell, key); if (found != null) found.requestFocus(); } }); }

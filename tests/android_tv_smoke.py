@@ -7,10 +7,12 @@ The checked-in synthetic MP4 needs no FFmpeg or real server/account at test time
 import argparse
 import json
 import re
+import struct
 import subprocess
 import threading
 import time
 import xml.etree.ElementTree as ET
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -34,6 +36,35 @@ MOVIES = [MOVIE, {
 }] + [{**MOVIE, "movie_id": f"PAGE-{index:03d}", "title": f"分页测试影片 {index}",
        "metadata": {"stars": ["分页演员"], "genres": ["Paging"]},
        "files": [{"file_name": "fixture.mp4", "exists": True}]} for index in range(1, 64)]
+
+
+def cover_dimensions(movie_id):
+    if movie_id in ("TV-002", "ONLINE-002"):
+        return 160, 240
+    if movie_id.startswith("PAGE-") and int(movie_id.split("-")[1]) % 3 == 1:
+        return 240, 240
+    return 480, 270
+
+
+def cover_png(width, height):
+    """Synthetic RGB art with four distinct corners, so cropping is visible."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+
+    rows = bytearray()
+    marker = min(width, height) // 5
+    corners = ((245, 45, 45), (45, 235, 85), (55, 95, 245), (245, 215, 45))
+    for y in range(height):
+        rows.append(0)
+        for x in range(width):
+            color = (35 + (x * 70 // width), 55 + (y * 70 // height), 100)
+            if (x < marker or x >= width - marker) and (y < marker or y >= height - marker):
+                color = corners[(2 if y >= height - marker else 0) + (1 if x >= width - marker else 0)]
+            rows.extend(color)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(bytes(rows))) + chunk(b"IEND", b"")
+
+
+COVERS = {dimensions: cover_png(*dimensions) for dimensions in ((480, 270), (160, 240), (240, 240))}
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -69,13 +100,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if path == "/api/movies":
             query = parse_qs(urlsplit(self.path).query)
             page = int(query.get("page", ["1"])[0])
-            self.send_json({"movies": [{"id": "ONLINE-001", "title": "新片播放测试", "date": "2026-10-22",
-                                        "img": "https://art.example/online.jpg"},
-                                       {"id": "ONLINE-002", "title": "另一部新片测试", "img": "https://art.example/online.jpg"}] if page == 1 else [],
+            self.send_json({"movies": [self.artwork({"id": "ONLINE-001", "title": "新片播放测试", "date": "2026-10-22"}),
+                                       self.artwork({"id": "ONLINE-002", "title": "另一部新片测试"})] if page == 1 else [],
                             "pagination": {"hasNextPage": page == 1, "nextPage": 2 if page == 1 else None}})
         elif path in ("/api/movies/ONLINE-001", "/api/movies/ONLINE-002"):
-            self.send_json({"id": path.rsplit("/", 1)[1], "title": "新片播放测试" if path.endswith("001") else "另一部新片测试", "stars": [{"id": "star/qa", "name": "在线演员"}],
-                            "genres": [{"id": "genre/qa", "name": "在线标签"}], "producer": {"id": "studio/qa", "name": "在线制作商"}})
+            self.send_json(self.artwork({"id": path.rsplit("/", 1)[1], "title": "新片播放测试" if path.endswith("001") else "另一部新片测试", "stars": [{"id": "star/qa", "name": "在线演员"}],
+                            "genres": [{"id": "genre/qa", "name": "在线标签"}], "producer": {"id": "studio/qa", "name": "在线制作商"}}))
         elif path in ("/static/actors.json", "/static/categories.json"):
             self.send_json({"测试": [{"name": "在线演员" if "actors" in path else "在线标签", "code": "qa"}]})
         elif path == "/api/system/jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
@@ -88,7 +118,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                             "can_cancel": self.job_status == "running" and not ready, "can_retry": self.job_status == "cancelled",
                             "result": {"success": ready, "file_name": "online.mp4"}})
         elif path == "/api/movies/local-library":
-            self.send_json({"success": True, "records": MOVIES})
+            self.send_json({"success": True, "records": [self.artwork(movie) for movie in MOVIES]})
         elif path == "/api/movies/local-library/actors":
             self.send_json({"success": True, "actors": [
                 {"key": "qa-actor", "name": "QA演员", "movie_count": 1,
@@ -97,9 +127,13 @@ class FixtureHandler(BaseHTTPRequestHandler):
         elif path == "/api/system/info":
             self.send_json({"version": {"version": "git-1234567", "deployed_at": "2026-10-20T00:00:00Z"}})
         elif path == "/api/movies/local-library/TV-001":
-            self.send_json({"success": True, "in_local_library": True, "record": MOVIE})
-        elif path.startswith("/api/movies/local-library/poster/") or path.endswith("/avatar") or path == "/api/image-proxy":
-            self.send_bytes((Path(__file__).parent / "fixtures/android_tv/poster.png").read_bytes(), "image/png")
+            self.send_json({"success": True, "in_local_library": True, "record": self.artwork(MOVIE)})
+        elif path.startswith(("/api/movies/local-library/poster/", "/fixture-covers/")) or path == "/api/image-proxy":
+            image_path = urlsplit(parse_qs(urlsplit(self.path).query).get("url", [""])[0]).path if path == "/api/image-proxy" else path
+            movie_id = image_path.rsplit("/", 1)[-1].removesuffix(".png")
+            self.send_bytes(COVERS[cover_dimensions(movie_id)], "image/png")
+        elif path.endswith("/avatar"):
+            self.send_bytes(COVERS[(240, 240)], "image/png")
         elif path in ("/api/movies/local-library/TV-001/play", "/api/automation/play-jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/stream"):
             if path.endswith("/stream") and self.headers.get("Cookie") != "session=tv-session":
                 self.send_error(403)
@@ -130,6 +164,11 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def send_json(self, payload, session=False):
         self.send_bytes(json.dumps(payload).encode(), "application/json", session=session)
 
+    def artwork(self, movie):
+        movie_id = movie.get("movie_id") or movie["id"]
+        url = f"http://127.0.0.1:{self.server.server_port}/fixture-covers/{movie_id}.png"
+        return {**movie, "img": url, "cover_url": url}
+
     def send_bytes(self, data, content_type, session=False):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
@@ -145,6 +184,7 @@ def main():
     parser.add_argument("--serial", required=True)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, default=Path("/tmp/javjaeger-tv-smoke"))
+    parser.add_argument("--layout-only", action="store_true", help="Check home, local and online artwork/navigation layouts without playback.")
     args = parser.parse_args()
 
     def adb(*command, binary=False):
@@ -194,6 +234,42 @@ def main():
         x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
         return (x1 + x2) // 2, (y1 + y2) // 2
 
+    def bounds(node):
+        return tuple(map(int, re.findall(r"\d+", node.get("bounds"))))
+
+    cover_measurements = []
+
+    def check_cover(movie_id, title, stage):
+        label = f"{movie_id} {title}"
+        activate(label, click=False)
+        expected_width, expected_height = cover_dimensions(movie_id)
+        until = time.monotonic() + 25
+        previous = None
+        while time.monotonic() < until:
+            root = tree()
+            card = find(root, label)
+            cover = find(card, "封面：" + movie_id) if card is not None else None
+            if cover is not None:
+                left, top, right, bottom = bounds(cover)
+                width, height = right - left, bottom - top
+                error = abs(height - width * expected_height / expected_width)
+                if width > 0 and height > 0 and error <= 1 and previous == (width, height):
+                    focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
+                    assert focused is not None and focused.get("content-desc") == label, "Artwork loading must preserve the focused movie card"
+                    cover_measurements.append({"stage": stage, "movie_id": movie_id, "width": width, "height": height,
+                                               "source_width": expected_width, "source_height": expected_height, "error_px": error})
+                    return root
+                previous = (width, height)
+            time.sleep(.2)
+        raise AssertionError(f"Cover frame must preserve original image ratio within 1 px: {movie_id}, measured={previous}, source={expected_width}x{expected_height}")
+
+    def check_compact_sidebar(root):
+        screen = bounds(root.find("node"))
+        nav = find(root, "影院导航")
+        assert nav is not None, "Collapsed TV sidebar must expose its navigation container"
+        left, _, right, _ = bounds(nav)
+        assert right - left <= (screen[2] - screen[0]) * .10, "Collapsed sidebar must use at most 10% of screen width while content has focus"
+
     def enter(label, value):
         _, node = wait(label)
         x, y = center(node)
@@ -216,7 +292,9 @@ def main():
             tx, ty = center(target)
             fx, fy = center(focused)
             x1, y1, x2, y2 = map(int, re.findall(r"\d+", focused.get("bounds")))
-            if x1 <= tx <= x2 and y1 <= ty <= y2:
+            same_target = target.get("focusable") != "true" or (
+                focused.get("text"), focused.get("content-desc")) == (target.get("text"), target.get("content-desc"))
+            if x1 <= tx <= x2 and y1 <= ty <= y2 and same_target:
                 if click:
                     key("KEYCODE_DPAD_CENTER")
                 return
@@ -240,14 +318,30 @@ def main():
         for tab in ("推荐", "全部影片", "标签", "演员", "VR"):
             wait(tab)
         wait("最近入库")
-        root = tree()
+        root = check_cover("TV-001", "遥控器测试影片", "home")
+        check_compact_sidebar(root)
         screen = list(map(int, re.findall(r"\d+", root.find("node").get("bounds"))))
-        _, nav = wait("全部影片")
-        nav_bottom = list(map(int, re.findall(r"\d+", nav.get("bounds"))))[3]
-        assert nav_bottom <= screen[3] * .14, "Navigation must use a single compact row"
         assert find(root, "搜索影片") is None, "Search input must open on demand"
         print("PASS: server connection and cinema home", flush=True)
         (args.artifacts / "home.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        if args.layout_only:
+            activate("全部影片")
+            for movie_id, title in (("TV-001", "遥控器测试影片"), ("TV-002", "另一部影片"), ("PAGE-001", "分页测试影片 1")):
+                check_compact_sidebar(check_cover(movie_id, title, "library"))
+            (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+            activate("浏览新片")
+            check_compact_sidebar(check_cover("ONLINE-001", "新片播放测试", "browse"))
+            check_cover("ONLINE-002", "另一部新片测试", "browse")
+            (args.artifacts / "browse.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+            print("PASS: natural wide/portrait/square artwork and compact sidebar across home/library/discovery", flush=True)
+            return
+        activate("TV-001 遥控器测试影片")
+        wait("播放：part-1.mp4")
+        key("KEYCODE_BACK")
+        root, _ = wait("TV-001 遥控器测试影片")
+        focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
+        assert focused is not None and focused.get("content-desc") == "TV-001 遥控器测试影片", "Closing home detail must restore the originating movie card's focus"
+        print("PASS: home detail returns focus to its movie card", flush=True)
         activate("标签")
         wait("搜索标签")
         activate("选择标签：QA 标签")
@@ -282,6 +376,8 @@ def main():
         wait("VR 2160p")
         activate("全部影片")
         root, _ = wait("遥控器测试影片")
+        root = check_cover("TV-001", "遥控器测试影片", "library")
+        check_compact_sidebar(root)
         card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
         card_top = list(map(int, re.findall(r"\d+", card.get("bounds"))))[1]
         assert card_top < screen[3] * .26, "Movie wall must reserve at least 74% of screen height for content"
@@ -354,6 +450,7 @@ def main():
         assert find(root, "另一部影片") is None, "Returning must preserve the search"
         assert any(p.startswith("/api/image-proxy?url=") for p in FixtureHandler.requests), "Remote covers must use the server image proxy"
         activate("浏览新片")
+        check_compact_sidebar(check_cover("ONLINE-001", "新片播放测试", "browse"))
         activate("浏览筛选")
         activate("浏览演员目录")
         activate("在线演员")
@@ -387,7 +484,7 @@ def main():
         assert any('filters=' in p and 'qa' in p for p in FixtureHandler.requests), "Online catalog selection must reach the server"
         allowed = ("/api/movies/local-library", "/api/image-proxy?url=", "/api/system/info", "/api/movies?",
                    "/api/movies/ONLINE-", "/static/actors.json", "/static/categories.json",
-                   "/api/automation/play-jobs", "/api/system/jobs/")
+                   "/api/automation/play-jobs", "/api/system/jobs/", "/fixture-covers/")
         assert all(path.startswith(allowed) for path in FixtureHandler.requests), "TV must use only its defined server APIs"
         print("PASS: online discovery, facets, session-owned 115 cancellation/retry and native playback", flush=True)
         adb("shell", "am", "force-stop", PACKAGE)
@@ -396,6 +493,7 @@ def main():
         (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         print("PASS: connect, remote search/details, missing-segment skip, playback, back and server persistence")
     finally:
+        (args.artifacts / "cover-measurements.json").write_text(json.dumps(cover_measurements, indent=2))
         (args.artifacts / "requests.json").write_text(json.dumps(FixtureHandler.requests, indent=2))
         (args.artifacts / "last-screen.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         (args.artifacts / "last-screen.xml").write_text(ET.tostring(tree(), encoding="unicode"))
