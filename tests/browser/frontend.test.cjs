@@ -101,6 +101,70 @@ const movie = (id = 'QA-001') => ({ id, title: `QA 测试影片 ${id}`, gid: '12
 const dispatchContract = require('../fixtures/dispatch-contract.json');
 const magnet = { ...dispatchContract.magnets[0], source: 'javbus' };
 
+test('browse: actor and tag filters, empty-page continuation and 115 playback survive reload', async t => {
+    const requests = []; let task = null, submissions = 0;
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/static/actors.json', route => route.fulfill({ json: { QA: [{ id: 'qa-star', name: '测试演员' }] } }));
+        await p.route('**/static/categories.json', route => route.fulfill({ json: { QA: [{ id: 'qa-genre', name: '测试标签' }] } }));
+        await p.route(/\/api\/movies\?/, route => {
+            const query = new URL(route.request().url()).searchParams;
+            const filters = JSON.parse(query.get('filters') || '[]'), number = Number(query.get('page'));
+            requests.push({ filters, number });
+            const empty = filters.length >= 2 && number === 1;
+            const movies = empty ? [] : Array.from({ length: number === 2 ? 8 : 1 }, (_, i) => ({ ...movie(`QA-${String(i + number).padStart(3, '0')}`), img: `/api/qa-browse-art/${i}` }));
+            return route.fulfill({ json: { movies, pagination: { currentPage: number, hasNextPage: number === 1, nextPage: number === 1 ? 2 : null } } });
+        });
+        await p.route(/\/api\/movies\/QA-\d+$/, route => route.fulfill({ json: { ...movie(new URL(route.request().url()).pathname.split('/').at(-1)), img: '/api/qa-browse-art/0' } }));
+        await p.route('**/api/qa-browse-art/*', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560"><rect width="400" height="560" fill="#444163"/><circle cx="200" cy="210" r="105" fill="#9184d9"/><path d="M0 560V440L180 270L400 450V560" fill="#232532"/><text x="30" y="510" fill="#fff" font-size="30">BROWSE TEST</text></svg>' }));
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: task ? [task] : [] } }));
+        await p.route('**/api/system/jobs/qa-browse-play', route => route.fulfill({ json: task }));
+        await p.route('**/api/automation/play-jobs', route => {
+            assert.equal(route.request().postDataJSON().movie_id, 'QA-002'); submissions++;
+            task = { task_id: 'qa-browse-play', type: 'browse-play', status: 'running', phase: 'waiting', percent: 42, updated_at: 'waiting', message: '115 下载中 42%', can_cancel: true };
+            return route.fulfill({ status: 202, json: task });
+        });
+        await p.route('**/api/automation/play-jobs/qa-browse-play/stream', route => route.fulfill({ contentType: 'video/mp4', body: fs.readFileSync(path.join(__dirname, '../fixtures/android_tv/test-pattern.mp4')) }));
+    });
+    await navigate(page, '浏览');
+    const main = page.getByRole('main', { name: '影片浏览', exact: true });
+    await main.getByRole('button', { name: '查看 QA-001 详情', exact: true }).waitFor();
+    await main.getByRole('button', { name: '浏览演员目录', exact: true }).click();
+    await page.getByRole('dialog', { name: '浏览筛选目录', exact: true }).getByRole('button', { name: '测试演员', exact: true }).click();
+    await main.getByRole('button', { name: '浏览标签目录', exact: true }).click();
+    await page.getByRole('dialog', { name: '浏览筛选目录', exact: true }).getByRole('button', { name: '测试标签', exact: true }).click();
+    await main.getByRole('button', { name: '加载更多影片', exact: true }).click();
+    await main.getByRole('button', { name: '查看 QA-002 详情', exact: true }).waitFor();
+    assert.ok(requests.some(({ filters, number }) => number === 2 && filters.some(f => f.type === 'star' && f.value === 'qa-star') && filters.some(f => f.type === 'genre' && f.value === 'qa-genre')));
+    assert.equal(await page.title(), 'JavJaeger');
+    assert.equal(await page.locator('.sc-logic-error').count(), 0);
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-mobile.png'), animations: 'disabled' });
+    await main.getByRole('button', { name: '查看 QA-002 详情', exact: true }).click();
+    await page.getByRole('dialog', { name: '浏览影片详情', exact: true }).getByRole('button', { name: '最佳资源播放', exact: true }).click();
+    await page.getByRole('dialog', { name: '115 影片播放', exact: true }).getByText('115 下载中 42%', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('dialog', { name: '浏览影片详情', exact: true }).count(), 0, 'background details are hidden from assistive technology during playback');
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('dialog', { name: '115 影片播放', exact: true }).getByText('115 下载中 42%', { exact: true }).waitFor();
+    task = { ...task, status: 'success', percent: 100, can_cancel: false, can_retry: false, updated_at: 'ready', message: '视频已就绪', result: { success: true, movie_id: 'QA-002', file_name: 'QA-002.mp4', pick_code: 'fixture-code', account_id: 'fixture-account' } };
+    const video = page.getByLabel('115 视频', { exact: true });
+    await video.waitFor();
+    assert.equal(await video.getAttribute('src'), '/api/automation/play-jobs/qa-browse-play/stream');
+    await page.waitForFunction(() => document.querySelector('video[aria-label="115 视频"]')?.readyState >= 2);
+    assert.ok(await video.evaluate(element => element.videoWidth > 0), 'native player decodes the ready video');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-playback-mobile.png'), animations: 'disabled' });
+    assert.equal(submissions, 1, 'refresh never submits another offline task');
+    assert.match(page.url(), /#browse$/);
+    task = null;
+    const playback = page.getByRole('dialog', { name: '115 影片播放', exact: true });
+    await playback.getByText(/后台任务已失效/).waitFor();
+    await playback.getByRole('button', { name: '重试播放', exact: true }).click();
+    await playback.getByText('115 下载中 42%', { exact: true }).waitFor();
+    assert.equal(submissions, 2, 'an expired server job can be prepared again');
+});
+
 
 // The fake worker lives in Node, so a page reload cannot cancel its work or results.
 const jobRegistries = new WeakMap();

@@ -61,6 +61,8 @@ def test_every_frontend_api_family_has_a_registered_concrete_route():
         ("POST", "/api/aria2/${action}", "/api/aria2/resume/{gid}"),
         ("DELETE", "/api/aria2/${action}", "/api/aria2/remove/{gid}"),
         ("GET", "/api/automation/tasks", "/api/automation/tasks"),
+        ("POST", "/api/automation/play-jobs", "/api/automation/play-jobs"),
+        ("GET", "/api/automation/play-jobs/${", "/api/automation/play-jobs/{task_id}/stream"),
         ("POST", "/api/automation/tasks", "/api/automation/tasks"),
         ("GET", "/api/automation/tasks/${", "/api/automation/tasks/{task_id}"),
         ("PUT", "/api/automation/tasks/${", "/api/automation/tasks/{task_id}"),

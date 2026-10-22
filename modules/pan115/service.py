@@ -1,13 +1,17 @@
 import asyncio
 import logging
 import random
+import re
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
+from starlette.background import BackgroundTask
+from starlette.responses import Response, StreamingResponse
 
 from modules.common import runtime
 from modules.common.runtime import get_pan115_config, trim_finished_tasks
@@ -32,6 +36,8 @@ PAN115_STATUS_CHECK_URL = "https://my.115.com/?ct=guide&ac=status"
 PAN115_OFFLINE_SPACE_URL = "https://115.com/"
 PAN115_WEB_OFFLINE_URL = "https://115.com/web/lixian/"
 PAN115_FILE_LIST_URL = "https://webapi.115.com/files"
+PAN115_FILE_INFO_URL = "https://webapi.115.com/files/get_info"
+PAN115_OFFLINE_LIST_URL = "https://clouddownload.115.com/web/"
 PAN115_FILE_DELETE_URL = "https://webapi.115.com/rb/delete"
 PAN115_DOWNLOAD_USER_AGENT = "JavJaeger/1.0"
 PAN115_LOGIN_APPS = {"web", "android", "ios", "tv", "alipaymini", "wechatmini", "qandroid"}
@@ -273,6 +279,83 @@ class Pan115Client:
 
         return _normalize_add_results(urls, items)
 
+    async def get_offline_task(self, info_hash: str) -> dict[str, Any] | None:
+        """Look up the submitted hash; never infer completion from a destination folder."""
+        normalized_hash = str(info_hash or "").strip().lower()
+        if not normalized_hash:
+            raise Pan115Error("pan115_task_hash_required", "115 task hash is required")
+        page = 1
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                while True:
+                    response = await client.get(PAN115_OFFLINE_LIST_URL,
+                        params={"ac": "task_lists", "page": page, "page_size": 1000}, headers=self._headers())
+                    response.raise_for_status()
+                    payload = response.json()
+                    if not _is_success_payload(payload) or not isinstance(payload.get("tasks"), list):
+                        raise ValueError("invalid task list")
+                    for task in payload["tasks"]:
+                        if not isinstance(task, dict) or str(task.get("info_hash") or "").lower() != normalized_hash:
+                            continue
+                        status = int(task.get("status", 0))
+                        return {"info_hash": normalized_hash,
+                            "status": {2: "completed", -1: "failed"}.get(status, "downloading"),
+                            "progress": 100 if status == 2 else max(0, min(100, float(task.get("percentDone") or 0))),
+                            "file_id": str(task.get("file_id") or "") or None,
+                            "folder_id": str(task.get("folder_id") or "") or None}
+                    if not payload["tasks"] or page >= int(payload.get("page_count") or 1):
+                        return None
+                    page += 1
+        except Exception:
+            raise Pan115Error("pan115_offline_list_failed", "115 offline task lookup failed") from None
+
+    async def find_playable_file(self, task: dict[str, Any]) -> dict[str, Any] | None:
+        """Find the largest video only within the completed task's file or directory."""
+        identity = str(task.get("folder_id") or task.get("file_id") or "")
+        if not identity.isascii() or not identity.isdigit() or int(identity) <= 0:
+            return None
+        if not task.get("folder_id"):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                    response = await client.get(PAN115_FILE_INFO_URL, params={"file_id": identity}, headers=self._headers())
+                    response.raise_for_status()
+                    payload = response.json()
+                if not _is_success_payload(payload):
+                    return None
+                entry = payload.get("data")
+                entry = entry[0] if isinstance(entry, list) and entry else entry
+                if isinstance(entry, dict) and "file_id" not in entry and "category_id" not in entry:
+                    item = _normalize_directory_payload({"data": [entry]})["items"][0]
+                    entry = {"file_id": item["id"], "file_category": 0 if item["kind"] == "folder" else 1,
+                        "file_name": item["name"], "pick_code": item["pick_code"], "file_size": item["size"]}
+                if not isinstance(entry, dict) or str(entry.get("file_id") or entry.get("category_id") or "") != identity:
+                    return None
+                if int(entry.get("file_category", -1)) != 0:
+                    name, pick_code = str(entry.get("file_name") or ""), str(entry.get("pick_code") or "")
+                    return {"name": name, "pick_code": pick_code, "size": int(entry.get("file_size") or 0)} if _is_video_file(name) and pick_code else None
+            except Exception:
+                raise Pan115Error("pan115_playback_file_failed", "115 task file lookup failed") from None
+        pending, visited, largest = [identity], set(), None
+        while pending:
+            directory = pending.pop()
+            if directory in visited:
+                continue
+            visited.add(directory)
+            payload = await self.list_directory_all(directory, cache_ttl_seconds=0)
+            # 115 can silently substitute root for a missing directory.
+            if str(payload.get("cid")) != directory:
+                continue
+            for entry in payload.get("items") or []:
+                if entry.get("kind") == "folder":
+                    child = str(entry.get("id") or "")
+                    if child.isascii() and child.isdigit() and int(child) > 0:
+                        pending.append(child)
+                elif _is_video_file(entry.get("name")) and entry.get("pick_code"):
+                    candidate = {"name": entry["name"], "pick_code": entry["pick_code"], "size": int(entry.get("size") or 0)}
+                    if largest is None or candidate["size"] > largest["size"]:
+                        largest = candidate
+        return largest
+
     async def list_directory(
         self,
         cid: str = "0",
@@ -443,6 +526,80 @@ class Pan115Client:
     @property
     def user_id(self) -> str:
         return self.credential.uid.split("_", 1)[0]
+
+
+async def stream_playback(pick_code: str, account_id: str, range_header: str | None = None) -> Response:
+    config = get_pan115_config()
+    if not config.get("enabled") or not config.get("cookie"):
+        raise Pan115Error("pan115_not_configured", "115 is not configured")
+    client = Pan115Client(str(config["cookie"]))
+    if client.user_id != account_id:
+        raise Pan115Error("pan115_account_changed", "115 account changed; start playback again")
+    if range_header:
+        match = re.fullmatch(r"bytes=([0-9]*)-([0-9]*)", range_header) if len(range_header) <= 128 else None
+        if not match or not any(match.groups()) or (all(match.groups()) and int(match[1]) > int(match[2])):
+            raise Pan115Error("pan115_range_invalid", "Invalid playback range")
+    try:
+        resolved = await client.resolve_direct_download(pick_code)
+        url = urlsplit(resolved.url)
+        if url.scheme not in {"https", "http"} or not url.hostname or url.username or url.password:
+            raise ValueError("invalid download URL")
+    except Exception:
+        raise Pan115Error("pan115_playback_unavailable", "115 playback is unavailable") from None
+    current = get_pan115_config()
+    if not current.get("enabled") or Pan115Credential.from_cookie(str(current.get("cookie") or "")).uid.split("_", 1)[0] != account_id:
+        raise Pan115Error("pan115_account_changed", "115 account changed; start playback again")
+    headers = {"User-Agent": PAN115_DOWNLOAD_USER_AGENT, "Accept-Encoding": "identity"}
+    if range_header:
+        headers["Range"] = range_header
+    # Use the transport directly: AsyncClient logs signed URLs at INFO level.
+    transport = httpx.AsyncHTTPTransport()
+    upstream = None
+
+    async def close():
+        with suppress(Exception):
+            if upstream is not None:
+                await upstream.aclose()
+        with suppress(Exception):
+            await transport.aclose()
+
+    try:
+        request = httpx.Request("GET", resolved.url, headers=headers,
+            extensions={"timeout": httpx.Timeout(60, connect=20).as_dict()})
+        upstream = await transport.handle_async_request(request)
+        if upstream.status_code not in {200, 206, 416} or upstream.headers.get("content-encoding", "identity") != "identity":
+            raise ValueError("upstream unavailable")
+        response_headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes"}
+        content_range = upstream.headers.get("content-range", "")
+        if re.fullmatch(r"bytes (?:\d+-\d+|\*)/(?:\d+|\*)", content_range):
+            response_headers["Content-Range"] = content_range
+        if upstream.status_code == 416:
+            await close()
+            return Response(status_code=416, headers=response_headers)
+        content_length = upstream.headers.get("content-length", "")
+        if content_length.isascii() and content_length.isdigit():
+            response_headers["Content-Length"] = content_length
+        content_type = upstream.headers.get("content-type", "").split(";", 1)[0].strip()
+        if not re.fullmatch(r"video/[a-zA-Z0-9.+-]+", content_type):
+            content_type = "application/octet-stream"
+    except asyncio.CancelledError:
+        await close()
+        raise
+    except Exception:
+        await close()
+        raise Pan115Error("pan115_playback_unavailable", "115 playback is unavailable") from None
+
+    async def chunks():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        except Exception:
+            raise Pan115Error("pan115_playback_unavailable", "115 playback stream interrupted") from None
+        finally:
+            await close()
+
+    return StreamingResponse(chunks(), status_code=upstream.status_code, headers=response_headers,
+        media_type=content_type, background=BackgroundTask(close))
 
 
 def normalize_login_app(app: str | None) -> str:
@@ -680,6 +837,7 @@ def _normalize_add_results(urls: list[str], items: list[Any]) -> list[dict[str, 
                 "info_hash": info_hash,
                 "message": item.get("message") or item.get("error_msg") or ("" if success else "115 offline task failed"),
                 **({} if success else {"error": "pan115_add_failed"}),
+                **({"rejected": True} if not success and item.get("state") is False else {}),
             }
         )
     return results

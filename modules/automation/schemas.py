@@ -8,6 +8,14 @@ NodeType = Literal["trigger", "search", "magnet", "download"]
 RunStatus = Literal["running", "success", "partial", "failed", "noop"]
 
 
+class PlaybackRequest(BaseModel):
+    movie_id: str = Field(min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9_-]*$')
+
+    @field_validator('movie_id')
+    def normalize_movie_id(cls, value):
+        return value.upper()
+
+
 class OneOffDispatchRequest(BaseModel):
     tool: Literal["pikpak", "pan115", "aria2"]
     movie_ids: list[str] = Field(default_factory=list)

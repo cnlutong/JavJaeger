@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License"></a>
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.2.0"><img src="https://img.shields.io/badge/Android_TV-v0.2.0_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.2.0 测试版"></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.0"><img src="https://img.shields.io/badge/Android_TV-v0.3.0_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.0 测试版"></a>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#网页影院与海报浏览">网页影院</a> ·
   <a href="#android-tv在电视上观看">Android TV</a> ·
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.2.0"><strong>下载 APK</strong></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.0"><strong>下载 APK</strong></a>
 </p>
 
 ![影院模式的完整推荐首页](docs/screenshots/cinema-recommendations.jpg)
@@ -39,6 +39,7 @@ JavJaeger 是面向个人收藏与私有部署的 JAV 影片管理与自动化�
 
 | 使用场景 | 入口 | 主要功能 |
 | --- | --- | --- |
+| 发现影片并通过网盘播放 | 浏览 | JavBus 封面瀑布流，演员、标签等组合筛选，自动选择资源并等待 115 离线完成后播放 |
 | 浏览与播放本地收藏 | 影院模式 | 推荐、全部影片、标签、演员与 VR 分区；海报墙、组合筛选、排序、详情和分段播放 |
 | 在电视上观看 | Android TV 客户端 | 原生电视界面，使用遥控器浏览同一影视库、搜索筛选、查看详情和播放 |
 | 管理已有收藏 | 影视库 | 扫描多个媒体目录，以海报、演员或列表视图浏览，检查与补全资料，管理本地文件 |
@@ -172,11 +173,26 @@ docker compose logs --tail=100 javjaeger
 
 </details>
 
+## 浏览：发现影片并通过 115 播放
+
+从管理界面或影院进入 **浏览**，也可直接打开 `/#browse`。页面按 JavBus 的分页展示封面，演员、标签、制作商等条件可以组合使用；组合筛选可能产生空页，仍可继续加载下一页。
+
+1. 在 **设置 → 115 网盘** 登录有效账号，并按需设置离线目录 CID。
+2. 在浏览页选择筛选条件，打开影片详情，点击播放。
+3. 服务端按现有最佳磁力规则选择资源，提交到 115；已有的对应离线任务会继续等待，避免重复提交。
+4. 等待下载完成并找到视频后，页面打开播放器。浏览器限制自动播放时，点击播放器中的播放按钮。
+
+等待任务按浏览器会话隔离，刷新页面后可以继续查看；取消等待不会删除网盘文件或取消已提交的 115 下载。失败或等待超过 30 分钟时可查看提示并重试。临时任务不跨服务重启恢复。
+
+视频经 JavJaeger 服务器转发，Cookie 和网盘临时直链不会发送给浏览器；服务器需要能够访问 115 下载节点，并承担播放流量。播放器使用原始视频，编码和音轨支持取决于浏览器；此流程没有实时转码。
+
 ## Android TV：在电视上观看
 
 JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同一个 JavJaeger 服务器，共用服务器影视库。支持 **Android 6.0 及以上 Android TV**，使用遥控器方向键、确认键和返回键操作。
 
-**[下载 JavJaeger TV v0.2.0 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.2.0)** · [完整电视端说明](android-tv/README.md)
+**[下载 JavJaeger TV v0.3.0 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.0)** · [完整电视端说明](android-tv/README.md)
+
+v0.2.0 可直接覆盖升级。使用新片的 115 播放前，请同步更新服务器到本标签并重新部署。
 
 ### 安装与连接
 
@@ -188,9 +204,12 @@ JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同�
 ### 电视端可以做什么
 
 - 浏览推荐、全部影片、标签、演员和 VR；从演员或标签进入对应影片列表。
+- “浏览新片”支持与网页浏览页相同的 JavBus 目录、组合筛选、详情和 115 等待播放。
 - 组合演员、制作商、分辨率和标签条件，按入库时间、发行日期、体积或番号排序。
 - 暂停、继续、定位进度、切换文件和停止播放；多段影片顺序播放后续可用文件。
 - 返回详情或浏览页时保留搜索、筛选和浏览位置；管理入口通过系统浏览器打开服务器管理页，没有浏览器时显示可在其他设备访问的地址。
+
+电视端使用单排导航，将搜索、组合筛选与排序改为按需打开，让海报占据主要区域；播放器控件叠加在视频上并自动隐藏。刷新、服务器连接和管理入口位于“更多”。
 
 电视端只保存不含凭据的服务器地址，下载、刮削和媒体整理在服务端完成。视频直接播放原文件，编码、内封音轨和字幕支持取决于电视；当前没有实时转码、外挂字幕加载或跨设备观看进度。不支持的编码可先在服务器管理网页中转码。
 

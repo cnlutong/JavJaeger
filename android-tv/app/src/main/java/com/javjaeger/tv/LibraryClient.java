@@ -5,12 +5,18 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import org.json.JSONArray;
@@ -20,10 +26,120 @@ import org.json.JSONObject;
 public final class LibraryClient {
     private static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
     private final String baseUrl;
+    private final CookieManager cookies = new CookieManager(null, (uri, cookie) ->
+            "session".equals(cookie.getName()) && CookiePolicy.ACCEPT_ORIGINAL_SERVER.shouldAccept(uri, cookie));
 
     public LibraryClient(String server) { baseUrl = normalizeServer(server); }
 
     public String getBaseUrl() { return baseUrl; }
+
+    public static final class BrowseFilter {
+        public final String type, value, label;
+        public BrowseFilter(String type, String value, String label) {
+            if (!Arrays.asList("star", "genre", "studio", "label", "director", "series").contains(type)
+                    || value == null || value.trim().isEmpty() || value.length() > 240 || value.matches("(?s).*[\\p{Cntrl}/?#].*") || value.indexOf('\\') >= 0)
+                throw new IllegalArgumentException("浏览筛选条件无效。");
+            this.type = type; this.value = value.trim(); this.label = label == null || label.trim().isEmpty() ? this.value : label.trim();
+        }
+    }
+
+    public static final class BrowsePage {
+        public final List<Movie> movies;
+        public final int nextPage;
+        private BrowsePage(List<Movie> movies, int nextPage) {
+            this.movies = Collections.unmodifiableList(movies); this.nextPage = nextPage;
+        }
+    }
+
+    public BrowsePage loadBrowse(int page, String kind, List<BrowseFilter> filters) throws IOException {
+        if (page < 1 || page == Integer.MAX_VALUE || !("normal".equals(kind) || "uncensored".equals(kind))) throw new IllegalArgumentException("浏览页码或影片类型无效。");
+        try {
+            JSONArray selected = new JSONArray();
+            if (filters != null) for (BrowseFilter filter : filters) selected.put(new JSONObject().put("type", filter.type).put("value", filter.value).put("label", filter.label));
+            JSONObject payload = read("/api/movies?type=" + kind + "&magnet=exist&page=" + page + "&filters=" + encode(selected.toString()));
+            JSONArray records = payload.getJSONArray("movies"); List<Movie> movies = new ArrayList<>();
+            for (int index = 0; index < records.length(); index++) movies.add(Movie.fromJson(records.getJSONObject(index)));
+            JSONObject pagination = payload.optJSONObject("pagination");
+            boolean more = pagination == null ? movies.size() >= 30 : pagination.has("hasNextPage") ? pagination.optBoolean("hasNextPage") : pagination.optInt("nextPage", 0) > 0;
+            int next = pagination == null ? page + 1 : pagination.optInt("nextPage", page + 1);
+            return new BrowsePage(movies, more ? Math.max(page + 1, next) : 0);
+        } catch (JSONException | IllegalArgumentException invalid) { throw invalidResponse(); }
+    }
+
+    public Movie loadBrowseMovie(String id) throws IOException {
+        requireMovieId(id);
+        try {
+            Movie movie = Movie.fromJson(read("/api/movies/" + id));
+            if (!movie.id.equalsIgnoreCase(id)) throw invalidResponse();
+            return movie;
+        } catch (JSONException | IllegalArgumentException invalid) { throw invalidResponse(); }
+    }
+
+    public List<BrowseFilter> loadBrowseCatalog(String type) throws IOException {
+        if (!("star".equals(type) || "genre".equals(type))) throw new IllegalArgumentException("浏览目录无效。");
+        JSONObject groups = read("star".equals(type) ? "/static/actors.json" : "/static/categories.json");
+        List<BrowseFilter> options = new ArrayList<>();
+        try {
+            for (Iterator<String> keys = groups.keys(); keys.hasNext();) {
+                Object group = groups.get(keys.next());
+                if (group instanceof JSONArray) {
+                    JSONArray items = (JSONArray) group;
+                    for (int index = 0; index < items.length(); index++) {
+                        JSONObject item = items.getJSONObject(index);
+                        options.add(new BrowseFilter(type, item.optString("id", item.optString("code", "")), item.optString("name", item.optString("title", ""))));
+                    }
+                } else if (group instanceof JSONObject) {
+                    JSONObject items = (JSONObject) group;
+                    for (Iterator<String> codes = items.keys(); codes.hasNext();) { String code = codes.next(); options.add(new BrowseFilter(type, code, items.getString(code))); }
+                } else throw invalidResponse();
+            }
+            return options;
+        } catch (JSONException | IllegalArgumentException invalid) { throw invalidResponse(); }
+    }
+
+    public JSONObject startPlayJob(String movieId) throws IOException {
+        requireMovieId(movieId);
+        try { return checkedJob(request("/api/automation/play-jobs", new JSONObject().put("movie_id", movieId))); }
+        catch (JSONException invalid) { throw invalidResponse(); }
+    }
+
+    public JSONObject playJob(String taskId) throws IOException {
+        requireTaskId(taskId);
+        JSONObject task = checkedJob(read("/api/system/jobs/" + taskId));
+        if (!taskId.equals(task.optString("task_id"))) throw invalidResponse();
+        return task;
+    }
+
+    public JSONObject controlPlayJob(String taskId, String action) throws IOException {
+        requireTaskId(taskId);
+        if (!("cancel".equals(action) || "retry".equals(action))) throw new IllegalArgumentException("播放任务操作无效。");
+        JSONObject task = checkedJob(request("/api/system/jobs/" + taskId + "/" + action, new JSONObject()));
+        if (!taskId.equals(task.optString("task_id"))) throw invalidResponse();
+        return task;
+    }
+
+    public String playJobStreamUrl(String taskId) { requireTaskId(taskId); return baseUrl + "/api/automation/play-jobs/" + taskId + "/stream"; }
+
+    private static void requireTaskId(String taskId) {
+        if (taskId == null || !taskId.matches("[0-9a-f]{32}")) throw new IllegalArgumentException("播放任务编号无效。");
+    }
+
+    private static JSONObject checkedJob(JSONObject task) throws IOException {
+        try { requireTaskId(task.optString("task_id")); }
+        catch (IllegalArgumentException invalid) { throw invalidResponse(); }
+        if (!"browse-play".equals(task.optString("type"))) throw invalidResponse();
+        return task;
+    }
+
+    // The signed app session remains in this client's memory; 115 credentials stay on the server.
+    public synchronized String sessionCookie() {
+        URI uri = URI.create(baseUrl + "/api/automation/play-jobs/");
+        for (HttpCookie cookie : cookies.getCookieStore().get(uri)) {
+            if (!cookie.hasExpired() && "session".equals(cookie.getName()) && (!cookie.getSecure() || "https".equals(uri.getScheme()))
+                    && cookie.getValue().matches("[A-Za-z0-9_.=\\-]+")) return "session=" + cookie.getValue();
+        }
+        return "";
+    }
 
     public static String normalizeServer(String raw) {
         try {
@@ -122,7 +238,9 @@ public final class LibraryClient {
         if (id == null || !id.matches("[A-Za-z0-9][A-Za-z0-9_-]*")) throw new IllegalArgumentException("影片编号无效。");
     }
 
-    private JSONObject read(String path) throws IOException {
+    private JSONObject read(String path) throws IOException { return request(path, null); }
+
+    private synchronized JSONObject request(String path, JSONObject body) throws IOException {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(baseUrl + path).openConnection();
@@ -130,7 +248,16 @@ public final class LibraryClient {
             connection.setReadTimeout(20_000);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept", "application/json");
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK || connection.getContentLength() > MAX_RESPONSE_BYTES) throw invalidResponse();
+            String cookie = sessionCookie(); if (!cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
+            if (body != null) {
+                byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+                connection.setRequestMethod("POST"); connection.setRequestProperty("Content-Type", "application/json");
+                connection.setDoOutput(true); connection.setFixedLengthStreamingMode(bytes.length);
+                try (java.io.OutputStream output = connection.getOutputStream()) { output.write(bytes); }
+            }
+            int status = connection.getResponseCode();
+            if (status < 200 || status >= 300 || connection.getContentLength() > MAX_RESPONSE_BYTES) throw invalidResponse();
+            cookies.put(URI.create(baseUrl + path), connection.getHeaderFields());
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (InputStream stream = connection.getInputStream()) {
                 byte[] buffer = new byte[8192];
@@ -141,7 +268,8 @@ public final class LibraryClient {
                 }
             }
             JSONObject payload = new JSONObject(new String(bytes.toByteArray(), StandardCharsets.UTF_8));
-            if (payload.has("error") || payload.has("success") && !payload.optBoolean("success")) throw invalidResponse();
+            boolean jobResponse = path.equals("/api/automation/play-jobs") || path.startsWith("/api/system/jobs/");
+            if (!jobResponse && payload.has("error") && !payload.isNull("error") || payload.has("success") && !payload.optBoolean("success")) throw invalidResponse();
             return payload;
         } catch (IOException | JSONException exception) {
             throw invalidResponse();
@@ -150,5 +278,5 @@ public final class LibraryClient {
         }
     }
 
-    private static IOException invalidResponse() { return new IOException("无法读取影视库，请检查服务器地址、网络连接或服务端状态。"); }
+    private static IOException invalidResponse() { return new IOException("无法读取服务器数据，请检查服务器地址、网络连接或服务端配置。"); }
 }

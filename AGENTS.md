@@ -103,6 +103,7 @@ Use this as the source-of-truth ownership map.
   - 115 QR/Cookie login
   - 115 Cookie-based offline download dispatch
   - 115 direct download URL resolution for server-side Aria2 dispatch
+  - offline completion checks, task-scoped video discovery and server-side playback streaming
   - 115 file and folder deletion, including batch deletion and account-scoped directory cache invalidation
 - `modules/webdav/`
   - WebDAV browsing
@@ -115,6 +116,7 @@ Use this as the source-of-truth ownership map.
   - magnet selection orchestration
   - PikPak, 115 or Aria2 download dispatch orchestration
   - one-off background magnet preflight and dispatch workflows
+  - session-owned browse-to-play orchestration using 115 offline tasks
 - `modules/proxy/`
   - trusted image proxy routing and retrieval
   - shared persistent image cache with an independent MB limit
@@ -124,6 +126,7 @@ Use this as the source-of-truth ownership map.
   - editable frontend source
 - `android-tv/`
   - standalone native Android TV client matching cinema navigation, hero/shelves, actor/tag/VR browsing, combined filters, sorting, paging, details and playback
+  - native JavBus discovery and session-owned 115 playback through existing movie and automation APIs
   - depends only on Android/Media3 and existing server HTTP APIs; never imports backend or browser implementation
   - stores only a credential-free server address; downloading, scraping and library management remain server-owned
   - management links open the existing browser UI through `#library[/MOVIE-ID]`
@@ -132,6 +135,7 @@ Use this as the source-of-truth ownership map.
   - `integration.mjs` connects original view controls to existing APIs
   - `template.mjs` and `host.css` contain necessary host/control adaptations
   - `cinema.mjs` replaces only the cinema presentation and reuses existing library/player workflows
+  - `browse.mjs` presents JavBus discovery and the session-owned 115 playback workflow
 - `static/app.js`, `static/app.css`
   - generated frontend bundle
   - never hand-edit

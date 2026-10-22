@@ -12,6 +12,7 @@ import { LOCAL_SCRAPE_NAMING_FIELDS } from '../utils/localScrapeNamingTemplates.
 export const designDataExports = '\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };';
 // Keep the imported design intact; adapt its eager view calculations at startup.
 export function adaptDesignScript(script) {
+    script = script.replace('const NAV = [', "const NAV = [\n  { id: 'browse', label: '浏览', icon: 'ph-compass' },");
     for (const [key, route, method] of [['cn', 'cinema', 'vCinema'], ['d', 'dispatch', 'vDispatch'], ['tc', 'transcode', 'vTranscode'], ['sc', 'scrape', 'vScrape'], ['lb', 'library', 'vLibrary'], ['au', 'auto', 'vAuto'], ['fs', 'storage', 'vStorage'], ['se', 'settings', 'vSettings']]) {
         script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === 'fs' ? ' || st.fsAdd' : ''}) ? this.${method}() : {}`);
     }
@@ -68,7 +69,8 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
 };
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
 const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask', cleanupTask: 'localLibraryCleanupTask' };
-const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发' };
+const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发', 'browse-play': '115 播放准备' };
+const browsePlaybackKey = 'javjaeger.browsePlayback';
 const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks', '/api/system/jobs'];
 const jobFinished = task => task && ['success', 'completed', 'failed', 'cancelled'].includes(task.status);
 const taskProgress = task => {
@@ -125,7 +127,8 @@ export function connectDesign(Base) {
             const session = loadPikPakSession();
             const libraryLink = String(window.location?.hash || '').match(/^#library(?:\/([A-Za-z0-9_-]+))?$/);
             this.auth = session.credentials;
-            this.state = { ...this.state, theme: loadAppTheme(), route: libraryLink ? 'library' : 'cinema', lbDetail: libraryLink?.[1] || null, cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {}, cnTagQ: '', cnTagWall: false, cnTagMode: 'or',
+            this.state = { ...this.state, theme: loadAppTheme(), route: libraryLink ? 'library' : window.location?.hash === '#browse' ? 'browse' : 'cinema', lbDetail: libraryLink?.[1] || null, cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {}, cnTagQ: '', cnTagWall: false, cnTagMode: 'or',
+                brMovies: [], brFilters: [], brKind: 'normal', brPage: 0, brNext: 1, brLoaded: false, brLoading: false, brError: '', brDetail: null, brCatalog: null, brCatalogQ: '', brPlayback: null, brPlaybackError: '',
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbSource: '', lbPaths: [], lbExcludes: [], auTask: '',
@@ -137,6 +140,13 @@ export function connectDesign(Base) {
                 fsPageSize: 60, fsLoading: false, fsDeleting: false,
                 infoFields: ['title', 'date', 'stars', 'genres', 'cover_url', 'nfo', 'poster_file'], lbWidths: [],
             };
+            try {
+                const saved = JSON.parse(window.sessionStorage.getItem(browsePlaybackKey) || 'null');
+                if (/^[A-Za-z0-9_-]+$/.test(saved?.taskId || '') && /^[A-Za-z0-9_-]+$/.test(saved?.movie_id || '')) {
+                    this.state.brPlayback = { taskId: saved.taskId, movie_id: saved.movie_id };
+                    this.state.backgroundJobs.push({ task_id: saved.taskId, type: 'browse-play', status: 'running', updated_at: 'restoring' });
+                }
+            } catch { window.sessionStorage.removeItem(browsePlaybackKey); }
             try {
                 const widths = JSON.parse(window.localStorage.getItem(libraryWidthsKey));
                 if (Array.isArray(widths) && widths.length === libraryColumns.length && widths.every(Number.isFinite)) {
@@ -264,7 +274,8 @@ export function connectDesign(Base) {
             this._keyboard = event => {
                 if (event.key === 'Escape') {
                     if (this.state.dlg) this.renderVals().dlg.cancel();
-                    else for (const key of ['taskLog', 'fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
+                    else if (this.state.route === 'browse' && this.state.brPlayback) this.closeBrowsePlayback();
+                    else for (const key of ['brCatalog', 'brDetail', 'taskLog', 'fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
                         if (this.state[key]) { this.setState({ [key]: null }); break; }
                     }
                 }
@@ -297,6 +308,7 @@ export function connectDesign(Base) {
             this.perform(async () => {
                 // Establish the shared session cookie before parallel downloader requests.
                 await this.perform(() => this.loadBackgroundJobs());
+                if (this.state.route === 'browse') void this.loadBrowse({ reset: true });
                 await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map(load => this.perform(load)));
                 const config = this.state.clientConfig;
                 for (const key of ['webdav', 'aria2', 'pikpak']) {
@@ -317,7 +329,10 @@ export function connectDesign(Base) {
 
         allConnected() { return Boolean(this.state.connections.pan115); }
         go(route) { return () => {
-            this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
+            this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null, brCatalog: null, brDetail: null });
+            if (route === 'browse') window.history?.replaceState(null, '', '#browse');
+            else if (window.location?.hash === '#browse') window.history?.replaceState(null, '', window.location.pathname + window.location.search);
+            if (route === 'browse' && !this.state.brLoaded) void this.loadBrowse({ reset: true });
             this.perform(async () => {
                 if (['cinema', 'library'].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 30000)) await this.loadLibrary();
                 if (route === 'storage') await this.loadFiles(this.state.fsSrc, this.state.directory);
@@ -326,6 +341,111 @@ export function connectDesign(Base) {
                 if (route === 'dispatch') await this.loadHistory();
             });
         }; }
+
+        async loadBrowse({ reset = false, filters = this.state.brFilters, kind = this.state.brKind } = {}) {
+            if (!reset && (this._browseLoading || !this.state.brNext)) return;
+            const version = reset ? this._browseVersion = (this._browseVersion || 0) + 1 : this._browseVersion;
+            const page = reset ? 1 : this.state.brNext;
+            this._browseLoading = true;
+            this.setState({ brLoading: true, brError: '', brFilters: filters, brKind: kind, ...(reset ? { brMovies: [], brPage: 0, brNext: 1, brDetail: null, brCatalog: null } : {}) });
+            try {
+                const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: 'exist', page: String(page) });
+                const payload = await this.request(`/api/movies?${query}`);
+                if (version !== this._browseVersion || this._disposed) return;
+                const movies = (payload.movies || []).map(record => movieView(record)), pagination = payload.pagination;
+                const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= 30;
+                const next = Number(pagination?.nextPage);
+                const combined = new Map((reset ? [] : this.state.brMovies).map(movie => [movie.code, movie]));
+                for (const movie of movies) if (movie.code) combined.set(movie.code, movie);
+                this.setState({ brMovies: [...combined.values()], brLoaded: true, brPage: page, brNext: more ? Number.isInteger(next) && next > page ? next : page + 1 : null });
+            } catch (error) {
+                if (version === this._browseVersion && !this._disposed) this.setState({ brError: safeText(error.message), brLoaded: true });
+            } finally {
+                if (version === this._browseVersion && !this._disposed) { this._browseLoading = false; this.setState({ brLoading: false }); }
+            }
+        }
+
+        addBrowseFilter(type, value, label = value) {
+            value = String(value || '').trim();
+            if (!value || !['star', 'genre', 'studio', 'series', 'director', 'label'].includes(type)) return;
+            const filters = this.state.brFilters;
+            return this.loadBrowse({ reset: true, filters: filters.some(filter => filter.type === type && filter.value === value) ? filters : [...filters, { type, value, label }] });
+        }
+
+        async openBrowseMovie(code) {
+            this.setState({ brDetail: code });
+            const movie = this.state.brMovies.find(movie => movie.code === code);
+            if (!movie || movie.detailsLoaded) return;
+            movie.detailsLoading = true; movie.detailError = '';
+            try {
+                const detail = await this.request(`/api/movies/${id(code)}`);
+                if (!this._disposed && this.state.brMovies.includes(movie)) Object.assign(movie, movieView({ ...movie.raw, ...detail }), { detailsLoaded: true });
+            } catch (error) { movie.detailError = safeText(error.message); }
+            finally { movie.detailsLoading = false; if (!this._disposed) this.forceUpdate?.(); }
+        }
+
+        async startBrowsePlayback(code) {
+            if (this._browseStarting) return;
+            const existing = this.state.brPlayback, current = this.state.backgroundJobs.find(task => task.task_id === existing?.taskId);
+            if (existing?.movie_id === code && current && (!jobFinished(current) || current.status === 'success')) return;
+            const version = this._browsePlaybackVersion = (this._browsePlaybackVersion || 0) + 1;
+            this._browseStarting = true;
+            this.setState({ brPlayback: { movie_id: code }, brPlaybackError: '' });
+            try {
+                const task = await this.startBackgroundJob('/api/automation/play-jobs', { movie_id: code });
+                if (this._disposed || version !== this._browsePlaybackVersion) return;
+                const playback = { taskId: task.task_id, movie_id: code };
+                this.setState({ brPlayback: playback });
+                try { window.sessionStorage.setItem(browsePlaybackKey, JSON.stringify(playback)); } catch {}
+            } catch (error) { if (!this._disposed && version === this._browsePlaybackVersion) this.setState({ brPlaybackError: safeText(error.message) }); }
+            finally { this._browseStarting = false; }
+        }
+
+        closeBrowsePlayback() {
+            this._browsePlaybackVersion = (this._browsePlaybackVersion || 0) + 1;
+            try { window.sessionStorage.removeItem(browsePlaybackKey); } catch {}
+            this.setState({ brPlayback: null, brPlaybackError: '' });
+        }
+
+        vBrowse() {
+            const st = this.state, typeNames = { star: '演员', genre: '标签', studio: '制作商', series: '系列', director: '导演', label: '发行商' };
+            const movie = st.brMovies.find(movie => movie.code === st.brDetail);
+            const facet = (type, item) => {
+                const name = typeof item === 'string' ? item : item.name, value = typeof item === 'string' ? item : String(item.id || '').split('/').filter(Boolean).at(-1);
+                return name && value ? { name, value, pick: () => this.addBrowseFilter(type, value, name) } : null;
+            };
+            let catalog = null;
+            if (st.brCatalog) {
+                const query = st.brCatalogQ.trim().toLowerCase(), table = st.brCatalog === 'star' ? data.ACTOR_CATALOG : data.GENRE_CATALOG;
+                const items = table.flatMap(group => group.items).filter(([name, code]) => !query || `${name} ${code}`.toLowerCase().includes(query));
+                const page = this.pageItems(items, 'brCatalogPage', [st.brCatalog, st.brCatalogQ], 36);
+                catalog = { title: st.brCatalog === 'star' ? '选择演员' : '选择标签', query: st.brCatalogQ, setQuery: event => this.setState({ brCatalogQ: event.target.value }),
+                    items: page.items.map(([name, value]) => ({ name, pick: () => this.addBrowseFilter(st.brCatalog, value, name) })), empty: !items.length, paging: page.paging };
+            }
+            const playback = st.brPlayback, task = playback && st.backgroundJobs.find(task => task.task_id === playback.taskId);
+            const ready = task?.status === 'success' && task.result?.success === true;
+            const waiting = !st.brPlaybackError && (!task || !jobFinished(task));
+            return {
+                rows: st.brMovies.map(movie => ({ code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.code, movie.date].filter(Boolean).join(' · '), open: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code) })),
+                loading: st.brLoading, error: st.brError, empty: st.brLoaded && !st.brLoading && !st.brError && !st.brMovies.length,
+                emptyHint: st.brNext ? '来源还有下一页，可以继续加载。' : '试试移除一个筛选条件。', hasMore: Boolean(st.brNext && st.brLoaded && !st.brError), finished: st.brLoaded && !st.brLoading && !st.brError && !st.brNext,
+                count: st.brMovies.length, kind: st.brKind,
+                setKind: event => this.loadBrowse({ reset: true, kind: event.target.value }), hasFilters: Boolean(st.brFilters.length), filters: st.brFilters.map(filter => ({ text: `${typeNames[filter.type]}：${filter.label || filter.value}`, remove: () => this.loadBrowse({ reset: true, filters: st.brFilters.filter(item => item !== filter) }) })),
+                clearFilters: () => this.loadBrowse({ reset: true, filters: [] }), refresh: () => this.loadBrowse({ reset: true }), more: () => this.loadBrowse(), retry: () => this.loadBrowse({ reset: !st.brPage }),
+                actors: () => { this.setState({ brCatalog: 'star', brCatalogQ: '' }); if (!data.ACTOR_CATALOG.length) return this.perform(() => this.loadCatalogs()); }, tags: () => { this.setState({ brCatalog: 'genre', brCatalogQ: '' }); if (!data.GENRE_CATALOG.length) return this.perform(() => this.loadCatalogs()); }, catalog, closeCatalog: () => this.setState({ brCatalog: null }),
+                imageError: event => { event.currentTarget.hidden = true; }, dialogOpen: Boolean(st.brDetail || st.brCatalog || playback), closeDetail: () => this.setState({ brDetail: null }),
+                detail: movie ? { code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.date, movie.dur].filter(Boolean).join(' · '), loading: movie.detailsLoading, error: movie.detailError,
+                    retry: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code), actors: (movie.raw.stars || []).map(item => facet('star', item)).filter(Boolean), tags: (movie.raw.genres || []).map(item => facet('genre', item)).filter(Boolean),
+                    fields: [['studio', movie.raw.producer || movie.raw.studio], ['label', movie.raw.publisher || movie.raw.label], ['director', movie.raw.director], ['series', movie.raw.series]].map(([type, item]) => item && facet(type, item)).filter(Boolean) } : null,
+                playback: playback ? { title: task?.result?.file_name || playback.movie_id, waiting, percent: waiting && task?.phase === 'waiting' ? Number(task.percent || 0) : undefined,
+                    url: ready && !st.brPlaybackError ? `/api/automation/play-jobs/${id(playback.taskId)}/stream` : '',
+                    message: st.brPlaybackError || safeText(task?.message, ready ? '下载完成，可以播放' : task?.status === 'cancelled' ? '已取消等待，网盘离线任务可能仍在进行。' : task?.status === 'failed' ? '播放准备失败，请重试。' : '正在选择资源并准备 115 播放…'),
+                    canCancel: Boolean(task?.can_cancel), canRetry: Boolean(task?.can_retry || task?.updated_at === 'missing' || st.brPlaybackError), busy: this._browseStarting || Boolean(this._controllingJobs?.has(playback.taskId)),
+                    close: () => this.closeBrowsePlayback(), cancel: () => this.controlJob(task, 'cancel'), retry: () => { this.setState({ brPlaybackError: '' }); return ready ? undefined : task && task.updated_at !== 'missing' ? this.controlJob(task, 'retry') : this.startBrowsePlayback(playback.movie_id); },
+                    error: () => this.setState({ brPlaybackError: '视频未能播放。请重试；若仍失败，请检查浏览器是否支持该视频编码。' }) } : null,
+                settings: () => { this.go('settings')(); this.setState({ seTab: '115 网盘' }); },
+            };
+        }
 
         async loadConnections() {
             const [config, connection, pan115] = await Promise.all([
@@ -580,7 +700,7 @@ export function connectDesign(Base) {
                 if (this._disposed) return;
                 const tasks = jobs.filter(Boolean);
                 for (const old of previous.values()) if (!tasks.some(task => task.task_id === old.task_id)) {
-                    if (!jobFinished(old) || old.updated_at === 'missing') tasks.push(old.updated_at === 'missing' ? old : { ...old, status: 'failed', updated_at: 'missing', message: '后台任务已失效，服务可能已重启，请核对结果后重新操作' });
+                    if (!jobFinished(old) || old.updated_at === 'missing' || old.type === 'browse-play' && old.task_id === this.state.brPlayback?.taskId) tasks.push(old.updated_at === 'missing' ? old : { ...old, status: 'failed', updated_at: 'missing', message: '后台任务已失效，服务可能已重启，请核对结果后重新操作' });
                 }
                 if (tasks.length !== this.state.backgroundJobs.length || tasks.some((task, index) => task !== this.state.backgroundJobs[index])) this.setState({ backgroundJobs: tasks });
                 if (!this._searchRestored) {
@@ -608,6 +728,13 @@ export function connectDesign(Base) {
         }
 
         showServerJob(task) {
+            if (task.type === 'browse-play') {
+                this.go('browse')();
+                const playback = { taskId: task.task_id, movie_id: task.result?.movie_id || task.movie_id || (this.state.brPlayback?.taskId === task.task_id ? this.state.brPlayback.movie_id : '') };
+                if (playback.movie_id) try { window.sessionStorage.setItem(browsePlaybackKey, JSON.stringify(playback)); } catch {}
+                this.setState({ brPlayback: playback, brPlaybackError: '' });
+                return;
+            }
             const route = task.type === 'search' ? 'search' : task.type === 'scraper-test' ? 'settings' : task.type === 'file-dispatch' ? 'storage' : 'dispatch';
             const open = () => {
                 if (task.type === 'search') { this._activeSearchJobId = task.task_id; this._searchAutoDownload = false; this.applyServerSearch(task); }
@@ -898,7 +1025,7 @@ export function connectDesign(Base) {
                 setQuery: event => this.setState({ cnQ: event.target.value, cnTab: '全部影片', cnActor: null }),
                 clearQuery: () => this.setState({ cnQ: '' }), browseAll: () => browse(),
                 closeDetail: () => this.setState({ cnDetail: null }), detailOpen: Boolean(st.cnDetail || st.cnPlaying), playing: Boolean(st.cnPlaying),
-                exit: this.go('library'), imageError: event => { event.currentTarget.hidden = true; },
+                exit: this.go('library'), browseOnline: this.go('browse'), imageError: event => { event.currentTarget.hidden = true; },
                 closePlayer: () => this.setState({ cnPlaying: null }),
             };
             if (!data.LIB.length) return { ...controls, tabs: [], showHero: false, showShelves: false, showWall: true, showActors: false, wall: [], wallEmpty: true, wallTitle: '你的影院', wallMeta: '本地影片收藏', emptyTitle: st.libraryLoaded ? '开始建立你的影院' : '正在读取影视库…', emptyBody: '添加媒体路径并扫描入库后，即可在这里浏览和播放。', clearText: '配置影视库', clearFilters: this.go('library'), filterGroups: [], sorts: [], filterCount: 0, hasFilters: false };
@@ -1655,6 +1782,8 @@ export function connectDesign(Base) {
 
         renderVals() {
             const view = super.renderVals(), st = this.state;
+            view.at.browse = st.route === 'browse';
+            view.br = st.route === 'browse' ? this.vBrowse() : {};
             const deployment = window.versionInfo || {};
             view.version = deployment.version || '版本未知';
             view.deploymentTime = deployment.deployed_at ? `更新 ${deployment.deployed_at.replace('T', ' ').replace('Z', ' UTC')}` : '更新时间未记录';

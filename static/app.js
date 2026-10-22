@@ -5817,6 +5817,7 @@ class Component extends DCLogic {
   // frontend/src/design/integration.mjs
   var designDataExports = "\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };";
   function adaptDesignScript(script) {
+    script = script.replace("const NAV = [", "const NAV = [\n  { id: 'browse', label: '\u6D4F\u89C8', icon: 'ph-compass' },");
     for (const [key, route, method] of [["cn", "cinema", "vCinema"], ["d", "dispatch", "vDispatch"], ["tc", "transcode", "vTranscode"], ["sc", "scrape", "vScrape"], ["lb", "library", "vLibrary"], ["au", "auto", "vAuto"], ["fs", "storage", "vStorage"], ["se", "settings", "vSettings"]]) {
       script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === "fs" ? " || st.fsAdd" : ""}) ? this.${method}() : {}`);
     }
@@ -5857,7 +5858,8 @@ class Component extends DCLogic {
   };
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
   var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask", cleanupTask: "localLibraryCleanupTask" };
-  var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1" };
+  var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1", "browse-play": "115 \u64AD\u653E\u51C6\u5907" };
+  var browsePlaybackKey = "javjaeger.browsePlayback";
   var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks", "/api/system/jobs"];
   var jobFinished = (task) => task && ["success", "completed", "failed", "cancelled"].includes(task.status);
   var taskProgress = (task) => {
@@ -5928,7 +5930,7 @@ class Component extends DCLogic {
         this.state = {
           ...this.state,
           theme: loadAppTheme(),
-          route: libraryLink ? "library" : "cinema",
+          route: libraryLink ? "library" : window.location?.hash === "#browse" ? "browse" : "cinema",
           lbDetail: libraryLink?.[1] || null,
           cnHero: "",
           cnPlaying: null,
@@ -5940,6 +5942,19 @@ class Component extends DCLogic {
           cnTagQ: "",
           cnTagWall: false,
           cnTagMode: "or",
+          brMovies: [],
+          brFilters: [],
+          brKind: "normal",
+          brPage: 0,
+          brNext: 1,
+          brLoaded: false,
+          brLoading: false,
+          brError: "",
+          brDetail: null,
+          brCatalog: null,
+          brCatalogQ: "",
+          brPlayback: null,
+          brPlaybackError: "",
           code: "",
           sMode: "code",
           fValue: "",
@@ -5999,6 +6014,15 @@ class Component extends DCLogic {
           infoFields: ["title", "date", "stars", "genres", "cover_url", "nfo", "poster_file"],
           lbWidths: []
         };
+        try {
+          const saved = JSON.parse(window.sessionStorage.getItem(browsePlaybackKey) || "null");
+          if (/^[A-Za-z0-9_-]+$/.test(saved?.taskId || "") && /^[A-Za-z0-9_-]+$/.test(saved?.movie_id || "")) {
+            this.state.brPlayback = { taskId: saved.taskId, movie_id: saved.movie_id };
+            this.state.backgroundJobs.push({ task_id: saved.taskId, type: "browse-play", status: "running", updated_at: "restoring" });
+          }
+        } catch {
+          window.sessionStorage.removeItem(browsePlaybackKey);
+        }
         try {
           const widths = JSON.parse(window.localStorage.getItem(libraryWidthsKey));
           if (Array.isArray(widths) && widths.length === libraryColumns.length && widths.every(Number.isFinite)) {
@@ -6157,7 +6181,8 @@ class Component extends DCLogic {
         this._keyboard = (event) => {
           if (event.key === "Escape") {
             if (this.state.dlg) this.renderVals().dlg.cancel();
-            else for (const key of ["taskLog", "fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying", "cnDetail"]) {
+            else if (this.state.route === "browse" && this.state.brPlayback) this.closeBrowsePlayback();
+            else for (const key of ["brCatalog", "brDetail", "taskLog", "fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying", "cnDetail"]) {
               if (this.state[key]) {
                 this.setState({ [key]: null });
                 break;
@@ -6200,6 +6225,7 @@ class Component extends DCLogic {
         this._dialogObserver.observe(document.body, { childList: true, subtree: true });
         this.perform(async () => {
           await this.perform(() => this.loadBackgroundJobs());
+          if (this.state.route === "browse") void this.loadBrowse({ reset: true });
           await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map((load) => this.perform(load)));
           const config = this.state.clientConfig;
           for (const key of ["webdav", "aria2", "pikpak"]) {
@@ -6221,7 +6247,10 @@ class Component extends DCLogic {
       }
       go(route) {
         return () => {
-          this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null });
+          this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null, brCatalog: null, brDetail: null });
+          if (route === "browse") window.history?.replaceState(null, "", "#browse");
+          else if (window.location?.hash === "#browse") window.history?.replaceState(null, "", window.location.pathname + window.location.search);
+          if (route === "browse" && !this.state.brLoaded) void this.loadBrowse({ reset: true });
           this.perform(async () => {
             if (["cinema", "library"].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 3e4)) await this.loadLibrary();
             if (route === "storage") await this.loadFiles(this.state.fsSrc, this.state.directory);
@@ -6229,6 +6258,175 @@ class Component extends DCLogic {
             if (route === "auto") await this.loadTasks();
             if (route === "dispatch") await this.loadHistory();
           });
+        };
+      }
+      async loadBrowse({ reset = false, filters = this.state.brFilters, kind = this.state.brKind } = {}) {
+        if (!reset && (this._browseLoading || !this.state.brNext)) return;
+        const version = reset ? this._browseVersion = (this._browseVersion || 0) + 1 : this._browseVersion;
+        const page = reset ? 1 : this.state.brNext;
+        this._browseLoading = true;
+        this.setState({ brLoading: true, brError: "", brFilters: filters, brKind: kind, ...reset ? { brMovies: [], brPage: 0, brNext: 1, brDetail: null, brCatalog: null } : {} });
+        try {
+          const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: "exist", page: String(page) });
+          const payload = await this.request(`/api/movies?${query}`);
+          if (version !== this._browseVersion || this._disposed) return;
+          const movies = (payload.movies || []).map((record) => movieView(record)), pagination = payload.pagination;
+          const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= 30;
+          const next = Number(pagination?.nextPage);
+          const combined = new Map((reset ? [] : this.state.brMovies).map((movie) => [movie.code, movie]));
+          for (const movie of movies) if (movie.code) combined.set(movie.code, movie);
+          this.setState({ brMovies: [...combined.values()], brLoaded: true, brPage: page, brNext: more ? Number.isInteger(next) && next > page ? next : page + 1 : null });
+        } catch (error) {
+          if (version === this._browseVersion && !this._disposed) this.setState({ brError: safeText(error.message), brLoaded: true });
+        } finally {
+          if (version === this._browseVersion && !this._disposed) {
+            this._browseLoading = false;
+            this.setState({ brLoading: false });
+          }
+        }
+      }
+      addBrowseFilter(type, value, label = value) {
+        value = String(value || "").trim();
+        if (!value || !["star", "genre", "studio", "series", "director", "label"].includes(type)) return;
+        const filters = this.state.brFilters;
+        return this.loadBrowse({ reset: true, filters: filters.some((filter) => filter.type === type && filter.value === value) ? filters : [...filters, { type, value, label }] });
+      }
+      async openBrowseMovie(code) {
+        this.setState({ brDetail: code });
+        const movie = this.state.brMovies.find((movie2) => movie2.code === code);
+        if (!movie || movie.detailsLoaded) return;
+        movie.detailsLoading = true;
+        movie.detailError = "";
+        try {
+          const detail = await this.request(`/api/movies/${id(code)}`);
+          if (!this._disposed && this.state.brMovies.includes(movie)) Object.assign(movie, movieView({ ...movie.raw, ...detail }), { detailsLoaded: true });
+        } catch (error) {
+          movie.detailError = safeText(error.message);
+        } finally {
+          movie.detailsLoading = false;
+          if (!this._disposed) this.forceUpdate?.();
+        }
+      }
+      async startBrowsePlayback(code) {
+        if (this._browseStarting) return;
+        const existing = this.state.brPlayback, current = this.state.backgroundJobs.find((task) => task.task_id === existing?.taskId);
+        if (existing?.movie_id === code && current && (!jobFinished(current) || current.status === "success")) return;
+        const version = this._browsePlaybackVersion = (this._browsePlaybackVersion || 0) + 1;
+        this._browseStarting = true;
+        this.setState({ brPlayback: { movie_id: code }, brPlaybackError: "" });
+        try {
+          const task = await this.startBackgroundJob("/api/automation/play-jobs", { movie_id: code });
+          if (this._disposed || version !== this._browsePlaybackVersion) return;
+          const playback = { taskId: task.task_id, movie_id: code };
+          this.setState({ brPlayback: playback });
+          try {
+            window.sessionStorage.setItem(browsePlaybackKey, JSON.stringify(playback));
+          } catch {
+          }
+        } catch (error) {
+          if (!this._disposed && version === this._browsePlaybackVersion) this.setState({ brPlaybackError: safeText(error.message) });
+        } finally {
+          this._browseStarting = false;
+        }
+      }
+      closeBrowsePlayback() {
+        this._browsePlaybackVersion = (this._browsePlaybackVersion || 0) + 1;
+        try {
+          window.sessionStorage.removeItem(browsePlaybackKey);
+        } catch {
+        }
+        this.setState({ brPlayback: null, brPlaybackError: "" });
+      }
+      vBrowse() {
+        const st = this.state, typeNames = { star: "\u6F14\u5458", genre: "\u6807\u7B7E", studio: "\u5236\u4F5C\u5546", series: "\u7CFB\u5217", director: "\u5BFC\u6F14", label: "\u53D1\u884C\u5546" };
+        const movie = st.brMovies.find((movie2) => movie2.code === st.brDetail);
+        const facet = (type, item) => {
+          const name = typeof item === "string" ? item : item.name, value = typeof item === "string" ? item : String(item.id || "").split("/").filter(Boolean).at(-1);
+          return name && value ? { name, value, pick: () => this.addBrowseFilter(type, value, name) } : null;
+        };
+        let catalog = null;
+        if (st.brCatalog) {
+          const query = st.brCatalogQ.trim().toLowerCase(), table = st.brCatalog === "star" ? data.ACTOR_CATALOG : data.GENRE_CATALOG;
+          const items = table.flatMap((group) => group.items).filter(([name, code]) => !query || `${name} ${code}`.toLowerCase().includes(query));
+          const page = this.pageItems(items, "brCatalogPage", [st.brCatalog, st.brCatalogQ], 36);
+          catalog = {
+            title: st.brCatalog === "star" ? "\u9009\u62E9\u6F14\u5458" : "\u9009\u62E9\u6807\u7B7E",
+            query: st.brCatalogQ,
+            setQuery: (event) => this.setState({ brCatalogQ: event.target.value }),
+            items: page.items.map(([name, value]) => ({ name, pick: () => this.addBrowseFilter(st.brCatalog, value, name) })),
+            empty: !items.length,
+            paging: page.paging
+          };
+        }
+        const playback = st.brPlayback, task = playback && st.backgroundJobs.find((task2) => task2.task_id === playback.taskId);
+        const ready = task?.status === "success" && task.result?.success === true;
+        const waiting = !st.brPlaybackError && (!task || !jobFinished(task));
+        return {
+          rows: st.brMovies.map((movie2) => ({ code: movie2.code, title: movie2.title, cover: movie2.cover, meta: [movie2.code, movie2.date].filter(Boolean).join(" \xB7 "), open: () => this.openBrowseMovie(movie2.code), play: () => this.startBrowsePlayback(movie2.code) })),
+          loading: st.brLoading,
+          error: st.brError,
+          empty: st.brLoaded && !st.brLoading && !st.brError && !st.brMovies.length,
+          emptyHint: st.brNext ? "\u6765\u6E90\u8FD8\u6709\u4E0B\u4E00\u9875\uFF0C\u53EF\u4EE5\u7EE7\u7EED\u52A0\u8F7D\u3002" : "\u8BD5\u8BD5\u79FB\u9664\u4E00\u4E2A\u7B5B\u9009\u6761\u4EF6\u3002",
+          hasMore: Boolean(st.brNext && st.brLoaded && !st.brError),
+          finished: st.brLoaded && !st.brLoading && !st.brError && !st.brNext,
+          count: st.brMovies.length,
+          kind: st.brKind,
+          setKind: (event) => this.loadBrowse({ reset: true, kind: event.target.value }),
+          hasFilters: Boolean(st.brFilters.length),
+          filters: st.brFilters.map((filter) => ({ text: `${typeNames[filter.type]}\uFF1A${filter.label || filter.value}`, remove: () => this.loadBrowse({ reset: true, filters: st.brFilters.filter((item) => item !== filter) }) })),
+          clearFilters: () => this.loadBrowse({ reset: true, filters: [] }),
+          refresh: () => this.loadBrowse({ reset: true }),
+          more: () => this.loadBrowse(),
+          retry: () => this.loadBrowse({ reset: !st.brPage }),
+          actors: () => {
+            this.setState({ brCatalog: "star", brCatalogQ: "" });
+            if (!data.ACTOR_CATALOG.length) return this.perform(() => this.loadCatalogs());
+          },
+          tags: () => {
+            this.setState({ brCatalog: "genre", brCatalogQ: "" });
+            if (!data.GENRE_CATALOG.length) return this.perform(() => this.loadCatalogs());
+          },
+          catalog,
+          closeCatalog: () => this.setState({ brCatalog: null }),
+          imageError: (event) => {
+            event.currentTarget.hidden = true;
+          },
+          dialogOpen: Boolean(st.brDetail || st.brCatalog || playback),
+          closeDetail: () => this.setState({ brDetail: null }),
+          detail: movie ? {
+            code: movie.code,
+            title: movie.title,
+            cover: movie.cover,
+            meta: [movie.date, movie.dur].filter(Boolean).join(" \xB7 "),
+            loading: movie.detailsLoading,
+            error: movie.detailError,
+            retry: () => this.openBrowseMovie(movie.code),
+            play: () => this.startBrowsePlayback(movie.code),
+            actors: (movie.raw.stars || []).map((item) => facet("star", item)).filter(Boolean),
+            tags: (movie.raw.genres || []).map((item) => facet("genre", item)).filter(Boolean),
+            fields: [["studio", movie.raw.producer || movie.raw.studio], ["label", movie.raw.publisher || movie.raw.label], ["director", movie.raw.director], ["series", movie.raw.series]].map(([type, item]) => item && facet(type, item)).filter(Boolean)
+          } : null,
+          playback: playback ? {
+            title: task?.result?.file_name || playback.movie_id,
+            waiting,
+            percent: waiting && task?.phase === "waiting" ? Number(task.percent || 0) : void 0,
+            url: ready && !st.brPlaybackError ? `/api/automation/play-jobs/${id(playback.taskId)}/stream` : "",
+            message: st.brPlaybackError || safeText(task?.message, ready ? "\u4E0B\u8F7D\u5B8C\u6210\uFF0C\u53EF\u4EE5\u64AD\u653E" : task?.status === "cancelled" ? "\u5DF2\u53D6\u6D88\u7B49\u5F85\uFF0C\u7F51\u76D8\u79BB\u7EBF\u4EFB\u52A1\u53EF\u80FD\u4ECD\u5728\u8FDB\u884C\u3002" : task?.status === "failed" ? "\u64AD\u653E\u51C6\u5907\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002" : "\u6B63\u5728\u9009\u62E9\u8D44\u6E90\u5E76\u51C6\u5907 115 \u64AD\u653E\u2026"),
+            canCancel: Boolean(task?.can_cancel),
+            canRetry: Boolean(task?.can_retry || task?.updated_at === "missing" || st.brPlaybackError),
+            busy: this._browseStarting || Boolean(this._controllingJobs?.has(playback.taskId)),
+            close: () => this.closeBrowsePlayback(),
+            cancel: () => this.controlJob(task, "cancel"),
+            retry: () => {
+              this.setState({ brPlaybackError: "" });
+              return ready ? void 0 : task && task.updated_at !== "missing" ? this.controlJob(task, "retry") : this.startBrowsePlayback(playback.movie_id);
+            },
+            error: () => this.setState({ brPlaybackError: "\u89C6\u9891\u672A\u80FD\u64AD\u653E\u3002\u8BF7\u91CD\u8BD5\uFF1B\u82E5\u4ECD\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6D4F\u89C8\u5668\u662F\u5426\u652F\u6301\u8BE5\u89C6\u9891\u7F16\u7801\u3002" })
+          } : null,
+          settings: () => {
+            this.go("settings")();
+            this.setState({ seTab: "115 \u7F51\u76D8" });
+          }
         };
       }
       async loadConnections() {
@@ -6557,7 +6755,7 @@ class Component extends DCLogic {
           if (this._disposed) return;
           const tasks = jobs.filter(Boolean);
           for (const old of previous.values()) if (!tasks.some((task) => task.task_id === old.task_id)) {
-            if (!jobFinished(old) || old.updated_at === "missing") tasks.push(old.updated_at === "missing" ? old : { ...old, status: "failed", updated_at: "missing", message: "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u6838\u5BF9\u7ED3\u679C\u540E\u91CD\u65B0\u64CD\u4F5C" });
+            if (!jobFinished(old) || old.updated_at === "missing" || old.type === "browse-play" && old.task_id === this.state.brPlayback?.taskId) tasks.push(old.updated_at === "missing" ? old : { ...old, status: "failed", updated_at: "missing", message: "\u540E\u53F0\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u670D\u52A1\u53EF\u80FD\u5DF2\u91CD\u542F\uFF0C\u8BF7\u6838\u5BF9\u7ED3\u679C\u540E\u91CD\u65B0\u64CD\u4F5C" });
           }
           if (tasks.length !== this.state.backgroundJobs.length || tasks.some((task, index) => task !== this.state.backgroundJobs[index])) this.setState({ backgroundJobs: tasks });
           if (!this._searchRestored) {
@@ -6586,6 +6784,16 @@ class Component extends DCLogic {
         }
       }
       showServerJob(task) {
+        if (task.type === "browse-play") {
+          this.go("browse")();
+          const playback = { taskId: task.task_id, movie_id: task.result?.movie_id || task.movie_id || (this.state.brPlayback?.taskId === task.task_id ? this.state.brPlayback.movie_id : "") };
+          if (playback.movie_id) try {
+            window.sessionStorage.setItem(browsePlaybackKey, JSON.stringify(playback));
+          } catch {
+          }
+          this.setState({ brPlayback: playback, brPlaybackError: "" });
+          return;
+        }
         const route = task.type === "search" ? "search" : task.type === "scraper-test" ? "settings" : task.type === "file-dispatch" ? "storage" : "dispatch";
         const open = () => {
           if (task.type === "search") {
@@ -6959,6 +7167,7 @@ class Component extends DCLogic {
           detailOpen: Boolean(st.cnDetail || st.cnPlaying),
           playing: Boolean(st.cnPlaying),
           exit: this.go("library"),
+          browseOnline: this.go("browse"),
           imageError: (event) => {
             event.currentTarget.hidden = true;
           },
@@ -8302,6 +8511,8 @@ class Component extends DCLogic {
       }
       renderVals() {
         const view = super.renderVals(), st = this.state;
+        view.at.browse = st.route === "browse";
+        view.br = st.route === "browse" ? this.vBrowse() : {};
         const deployment = window.versionInfo || {};
         view.version = deployment.version || "\u7248\u672C\u672A\u77E5";
         view.deploymentTime = deployment.deployed_at ? `\u66F4\u65B0 ${deployment.deployed_at.replace("T", " ").replace("Z", " UTC")}` : "\u66F4\u65B0\u65F6\u95F4\u672A\u8BB0\u5F55";
@@ -8522,6 +8733,23 @@ class Component extends DCLogic {
   </section></sc-if>
 </div></sc-if>`;
 
+  // frontend/src/design/browse.mjs
+  var pager2 = (key) => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="\u6D4F\u89C8\u76EE\u5F55\u5206\u9875"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span>{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+  var browseStyles = `<style>
+.jj-browse{max-width:1600px;margin:auto;padding:32px clamp(16px,3vw,48px) 64px}.jj-browse-heading,.jj-browse-tools,.jj-browse-chips{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.jj-browse-heading{justify-content:space-between;margin-bottom:22px}.jj-browse h1{font-size:30px;margin:0 0 6px}.jj-browse p{color:var(--dim);margin:0}.jj-browse-tools{padding:16px;border:1px solid var(--ring);border-radius:10px;background:var(--surf);margin-bottom:16px}.jj-browse-tools label{display:flex;align-items:center;gap:8px}.jj-browse-tools .input{width:auto}.jj-browse-chips{margin-bottom:18px}.jj-browse-wall{columns:5 210px;column-gap:18px}.jj-browse-card{break-inside:avoid;display:block;width:100%;margin:0 0 18px;background:var(--surf);border:1px solid var(--ring);border-radius:10px;overflow:hidden}.jj-browse-cover{appearance:none;display:block;position:relative;width:100%;padding:0;border:0;background:var(--surf2);color:var(--dim);cursor:pointer;min-height:130px}.jj-browse-cover img{display:block;width:100%;height:auto}.jj-browse-cover>span{display:block;padding:28px 12px;font-family:var(--mono)}.jj-browse-cover:has(img:not([hidden]))>span{display:none}.jj-browse-card-copy{padding:13px}.jj-browse-title{appearance:none;border:0;padding:0;background:none;color:var(--fg);text-align:left;cursor:pointer;font:inherit;font-weight:500;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;overflow-wrap:anywhere}.jj-browse-card-copy p{font-size:11px;margin:6px 0 12px}.jj-browse-card-copy>.btn{width:100%}.jj-browse-status{text-align:center;padding:28px 12px}.jj-browse-status .btn{margin-top:12px}.jj-browse-detail{width:900px}.jj-browse-detail-header,.jj-browse-dialog-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.jj-browse-detail-header>.btn:last-child{margin-left:auto}.jj-browse-detail-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:24px;margin:20px 0}.jj-browse-detail-body>img{width:100%;height:auto;border-radius:8px;align-self:start}.jj-browse-detail h2{font-size:22px;margin:0 0 12px;overflow-wrap:anywhere}.jj-browse-detail p{color:var(--dim)}.jj-browse-facets{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}.jj-browse-catalog{width:760px}.jj-browse-catalog-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:16px 0}.jj-browse-catalog-options button{white-space:normal;overflow-wrap:anywhere;min-height:40px}.jj-browse-playback{width:1000px}.jj-browse-playback video{display:block;width:100%;max-height:70dvh;background:#000;margin-top:16px}.jj-browse-playback progress{width:100%;accent-color:var(--acc);margin-top:16px}.jj-browse-playback p{overflow-wrap:anywhere}.jj-browse-dialog-actions{margin-top:18px}@media(max-width:650px){.jj-browse{padding:22px 14px 40px}.jj-browse-wall{columns:2;column-gap:10px}.jj-browse-card{margin-bottom:10px}.jj-browse-card-copy{padding:10px}.jj-browse-tools{padding:12px}.jj-browse-detail-body{grid-template-columns:1fr}.jj-browse-detail-body>img{max-height:35dvh;object-fit:contain}.jj-browse-catalog-options{grid-template-columns:repeat(2,minmax(0,1fr))}.jj-browse-playback video{max-height:60dvh}}
+</style>`;
+  var browseTemplate = `<sc-if value="{{ at.browse }}"><main class="jj-browse" aria-label="\u5F71\u7247\u6D4F\u89C8" aria-hidden="{{ br.dialogOpen }}">
+  <div class="jj-browse-heading"><div><h1>\u6D4F\u89C8</h1><p>\u4ECE JavBus \u53D1\u73B0\u5F71\u7247\uFF0C\u9009\u62E9\u540E\u81EA\u52A8\u51C6\u5907 115 \u64AD\u653E\u3002</p></div><button class="btn btn-secondary" onClick="{{ br.refresh }}" disabled="{{ br.loading }}">\u5237\u65B0\u5F71\u7247</button></div>
+  <div class="jj-browse-tools" role="group" aria-label="\u6D4F\u89C8\u7B5B\u9009"><button class="btn btn-secondary" aria-label="\u6D4F\u89C8\u6F14\u5458\u76EE\u5F55" onClick="{{ br.actors }}">\u6F14\u5458</button><button class="btn btn-secondary" aria-label="\u6D4F\u89C8\u6807\u7B7E\u76EE\u5F55" onClick="{{ br.tags }}">\u6807\u7B7E</button><label>\u5F71\u7247\u7C7B\u578B<select class="input" aria-label="\u6D4F\u89C8\u5F71\u7247\u7C7B\u578B" value="{{ br.kind }}" onChange="{{ br.setKind }}"><option value="normal">\u6709\u7801</option><option value="uncensored">\u65E0\u7801</option></select></label></div>
+  <sc-if value="{{ br.hasFilters }}"><div class="jj-browse-chips"><sc-for list="{{ br.filters }}" as="f"><button class="btn btn-secondary" aria-label="\u79FB\u9664 {{ f.text }}" onClick="{{ f.remove }}">{{ f.text }} \xD7</button></sc-for><button class="btn btn-ghost" onClick="{{ br.clearFilters }}">\u6E05\u7A7A\u6D4F\u89C8\u6761\u4EF6</button><span>\u540C\u65F6\u6EE1\u8DB3\u6240\u9009\u6761\u4EF6</span></div></sc-if>
+  <div class="jj-browse-wall"><sc-for list="{{ br.rows }}" as="m"><article class="jj-browse-card"><button class="jj-browse-cover" aria-label="\u67E5\u770B {{ m.code }} \u8BE6\u60C5" onClick="{{ m.open }}"><span>{{ m.code }}</span><sc-if value="{{ m.cover }}"><img src="{{ m.cover }}" alt="" loading="lazy" onError="{{ br.imageError }}"></sc-if></button><div class="jj-browse-card-copy"><button class="jj-browse-title" onClick="{{ m.open }}">{{ m.title }}</button><p>{{ m.meta }}</p><button class="btn btn-secondary" aria-label="\u64AD\u653E {{ m.code }}" onClick="{{ m.play }}">\u64AD\u653E</button></div></article></sc-for></div>
+  <div class="jj-browse-status"><sc-if value="{{ br.loading }}"><p role="status">\u6B63\u5728\u83B7\u53D6\u5F71\u7247\u2026</p></sc-if><sc-if value="{{ br.error }}"><p role="alert">{{ br.error }}</p><button class="btn btn-secondary" onClick="{{ br.retry }}">\u91CD\u8BD5\u52A0\u8F7D\u5F71\u7247</button></sc-if><sc-if value="{{ br.empty }}"><p>\u672C\u9875\u6CA1\u6709\u5339\u914D\u5F71\u7247\u3002{{ br.emptyHint }}</p></sc-if><sc-if value="{{ br.hasMore }}"><button class="btn btn-primary" disabled="{{ br.loading }}" onClick="{{ br.more }}">\u52A0\u8F7D\u66F4\u591A\u5F71\u7247</button></sc-if><sc-if value="{{ br.finished }}"><p role="status">\u5DF2\u663E\u793A {{ br.count }} \u90E8\u5F71\u7247</p></sc-if></div>
+</main>
+<sc-if value="{{ br.catalog }}"><div class="dialog-backdrop"><section class="dialog elev-lg jj-browse-catalog" role="dialog" aria-modal="true" aria-label="\u6D4F\u89C8\u7B5B\u9009\u76EE\u5F55"><div class="jj-browse-detail-header"><h2>{{ br.catalog.title }}</h2><button class="btn btn-ghost" aria-label="\u5173\u95ED\u6D4F\u89C8\u76EE\u5F55" onClick="{{ br.closeCatalog }}">\u5173\u95ED</button></div><input class="input" type="search" aria-label="\u641C\u7D22\u6D4F\u89C8\u76EE\u5F55" placeholder="\u641C\u7D22\u540D\u79F0\u6216\u4EE3\u7801" value="{{ br.catalog.query }}" onChange="{{ br.catalog.setQuery }}"><div class="jj-browse-catalog-options"><sc-for list="{{ br.catalog.items }}" as="o"><button class="btn btn-secondary" onClick="{{ o.pick }}">{{ o.name }}</button></sc-for></div><sc-if value="{{ br.catalog.empty }}"><p role="status">\u6CA1\u6709\u5339\u914D\u9009\u9879\uFF0C\u8BF7\u66F4\u6362\u5173\u952E\u8BCD\uFF1B\u76EE\u5F55\u5C1A\u672A\u52A0\u8F7D\u65F6\u53EF\u5173\u95ED\u540E\u91CD\u8BD5\u3002</p></sc-if>${pager2("br.catalog.paging")}</section></div></sc-if>
+<sc-if value="{{ br.detail }}"><div class="dialog-backdrop"><section class="dialog elev-lg jj-browse-detail" aria-hidden="{{ !!br.playback }}" role="dialog" aria-modal="true" aria-label="\u6D4F\u89C8\u5F71\u7247\u8BE6\u60C5"><div class="jj-browse-detail-header"><span>{{ br.detail.code }}</span><button class="btn btn-ghost" aria-label="\u5173\u95ED\u6D4F\u89C8\u5F71\u7247\u8BE6\u60C5" onClick="{{ br.closeDetail }}">\u5173\u95ED</button></div><div class="jj-browse-detail-body"><sc-if value="{{ br.detail.cover }}"><img src="{{ br.detail.cover }}" alt="\u5F71\u7247\u5C01\u9762" onError="{{ br.imageError }}"></sc-if><div><h2>{{ br.detail.title }}</h2><p>{{ br.detail.meta }}</p><button class="btn btn-primary" onClick="{{ br.detail.play }}">\u6700\u4F73\u8D44\u6E90\u64AD\u653E</button><p>\u81EA\u52A8\u9009\u62E9\u78C1\u529B\u5E76\u63D0\u4EA4\u5230 115\uFF0C\u4E0B\u8F7D\u5B8C\u6210\u540E\u5728\u8FD9\u91CC\u64AD\u653E\u3002</p><sc-if value="{{ br.detail.loading }}"><p role="status">\u6B63\u5728\u83B7\u53D6\u5F71\u7247\u8D44\u6599\u2026</p></sc-if><sc-if value="{{ br.detail.error }}"><p role="alert">{{ br.detail.error }}</p><button class="btn btn-secondary" onClick="{{ br.detail.retry }}">\u91CD\u8BD5\u5F71\u7247\u8D44\u6599</button></sc-if><div class="jj-browse-facets"><sc-for list="{{ br.detail.fields }}" as="f"><button class="btn btn-secondary" onClick="{{ f.pick }}">{{ f.name }}</button></sc-for></div></div></div><h3>\u6F14\u5458\u4E0E\u6807\u7B7E</h3><div class="jj-browse-facets"><sc-for list="{{ br.detail.actors }}" as="a"><button class="btn btn-secondary" onClick="{{ a.pick }}">{{ a.name }}</button></sc-for><sc-for list="{{ br.detail.tags }}" as="g"><button class="btn btn-secondary" onClick="{{ g.pick }}">{{ g.name }}</button></sc-for></div></section></div></sc-if>
+<sc-if value="{{ br.playback }}"><div class="dialog-backdrop" style="z-index:110"><section class="dialog elev-lg jj-browse-playback" role="dialog" aria-modal="true" aria-label="115 \u5F71\u7247\u64AD\u653E"><div class="jj-browse-detail-header"><h2>{{ br.playback.title }}</h2><button class="btn btn-ghost" onClick="{{ br.playback.close }}">\u5173\u95ED\u64AD\u653E</button></div><p role="status">{{ br.playback.message }}</p><sc-if value="{{ br.playback.waiting }}"><progress aria-label="115 \u4E0B\u8F7D\u8FDB\u5EA6" value="{{ br.playback.percent }}" max="100"></progress><p>\u7B49\u5F85\u671F\u95F4\u53EF\u4EE5\u79BB\u5F00\u9875\u9762\u3002\u5173\u95ED\u7B49\u5F85\u4E0D\u4F1A\u5220\u9664\u7F51\u76D8\u4E2D\u7684\u6587\u4EF6\u3002</p></sc-if><sc-if value="{{ br.playback.url }}"><video aria-label="115 \u89C6\u9891" src="{{ br.playback.url }}" controls="{{ true }}" autoPlay="{{ true }}" playsInline="{{ true }}" onError="{{ br.playback.error }}"></video></sc-if><div class="jj-browse-dialog-actions"><sc-if value="{{ br.playback.canCancel }}"><button class="btn btn-secondary" disabled="{{ br.playback.busy }}" onClick="{{ br.playback.cancel }}">\u53D6\u6D88\u7B49\u5F85</button></sc-if><sc-if value="{{ br.playback.canRetry }}"><button class="btn btn-secondary" disabled="{{ br.playback.busy }}" onClick="{{ br.playback.retry }}">\u91CD\u8BD5\u64AD\u653E</button></sc-if><button class="btn btn-secondary" onClick="{{ br.settings }}">115 \u8BBE\u7F6E</button></div></section></div></sc-if>
+</sc-if>`;
+
   // frontend/src/design/template.mjs
   function adaptTemplate(source, logo) {
     let html = source.replaceAll("<i class=", '<i aria-hidden="true" class=').replace(/<link[^>]*href="_ds\/[^"]*"[^>]*>/g, "").replace(/<script src="_ds\/[^"]*"><\/script>/g, "").replaceAll('src="static/logo.jpg"', `src="${logo}"`).replace(/<span title="\{\{ sysInfo \}\}"[^>]*>v2.4.1<\/span>/, deploymentBadge).replace('animation:jjspin 900ms linear infinite"></span>\u540E\u53F0', 'animation:{{ bg.animation }}"></span>\u540E\u53F0').replace("width:1440px;min-height:900px;", "width:100%;min-height:100vh;").replace('value="{{ r.path }}">', 'value="{{ r.path }}" onChange="{{ r.change }}" aria-label="\u8DEF\u5F84"><button class="btn btn-secondary" onClick="{{ r.browse }}">\u6D4F\u89C8</button>').replaceAll('value="{{ f.value }}">', 'value="{{ f.value }}" onChange="{{ f.set }}">').replace('placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button', 'type="{{ f.inputType }}" autoComplete="off" placeholder="{{ f.placeholder }}" value="{{ f.value }}" onChange="{{ f.set }}">\n                    <button').replace('<h4 style="margin:0">{{ au.cur.name }}</h4>', '<input class="input" aria-label="\u4EFB\u52A1\u540D\u79F0" value="{{ au.cur.name }}" onChange="{{ au.cur.setName }}">').replace('<div style="display:flex;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)">', '<button class="btn btn-ghost" style="display:flex;width:100%;align-items:center;gap:9px;padding:9px 12px;box-shadow:inset 0 -1px 0 var(--line2)" onClick="{{ e.open }}">').replace("{{ e.meta }}</span>\n            </div>", "{{ e.meta }}</span>\n            </button>").replace('onClick="{{ fs.sendSel }}"', 'disabled="{{ !fs.canSend }}" onClick="{{ fs.sendSel }}"').replace('disabled="{{ f.isDir }}" onClick="{{ f.send }}"', 'disabled="{{ !f.canSend }}" onClick="{{ f.send }}"').replace('disabled="{{ f.isDir }}" onChange="{{ f.toggle }}"', 'disabled="{{ f.selectionDisabled }}" onChange="{{ f.toggle }}"').replace('onClick="{{ f.send }}">\u53D1\u9001</button>', 'onClick="{{ f.send }}">\u53D1\u9001</button><sc-if value="{{ fs.showDelete }}"><button class="btn btn-secondary" style="font-size:11.5px;padding:3px 7px;color:var(--bad);margin-left:4px" disabled="{{ !f.canDelete }}" onClick="{{ f.remove }}">\u5220\u9664</button></sc-if>').replace('onChange="{{ d.toggleSkipLocal }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipLocal }}"').replace('onChange="{{ d.toggleSkipTried }}"', 'disabled="{{ true }}" onChange="{{ d.toggleSkipTried }}"').replace('<button class="btn btn-secondary" style="font-size:12px" onClick="{{ lb.stopScan }}">\u505C\u6B62</button>', '<span style="font-size:12px;color:var(--dim)">\u540E\u53F0\u6267\u884C\u4E2D</span>');
@@ -8579,9 +8807,9 @@ class Component extends DCLogic {
     html = html.replace('<div style="display:flex;align-items:stretch;gap:0">', '<div class="jj-auto-flow" style="display:flex;align-items:stretch;gap:0">').replace('<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">', '<div class="jj-auto-fields" style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px">');
     html = html.replace(/<input([^>]*value="{{ f.value }}"[^>]*)>/g, (input, attrs) => /\btype=/.test(attrs) ? input : `<input type="{{ f.inputType }}"${attrs}>`);
     html = html.replaceAll('<sc-if value="{{ f.isSelect }}">', '<sc-if value="{{ f.isTextarea }}"><textarea class="input" aria-label="{{ f.label }}" rows="3" value="{{ f.value }}" onChange="{{ f.set }}"></textarea></sc-if><sc-if value="{{ f.isSelect }}">');
-    const pager2 = (key, label = "\u5206\u9875") => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="${label}"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
-    html = html.replace('<sc-for list="{{ sc.outcome.rows }}"', `${pager2("sc.outcome.paging", "\u6267\u884C\u7ED3\u679C\u5206\u9875")}<sc-for list="{{ sc.outcome.rows }}"`).replace(/(<sc-if value="{{ d.hasFailed }}">[\s\S]*?)(<table class="table")/, `$1${pager2("d.failedPaging", "\u5931\u8D25\u8D44\u6E90\u5206\u9875")}$2`);
-    html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager2("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager2("bg.paging")}<sc-for list="{{ bg.items }}"`);
+    const pager3 = (key, label = "\u5206\u9875") => `<sc-if value="{{ ${key}.visible }}"><nav class="jj-pager" aria-label="${label}"><button class="btn btn-secondary" disabled="{{ ${key}.first }}" onClick="{{ ${key}.prev }}">\u4E0A\u4E00\u9875</button><span role="status">{{ ${key}.text }}</span><button class="btn btn-secondary" disabled="{{ ${key}.last }}" onClick="{{ ${key}.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>`;
+    html = html.replace('<sc-for list="{{ sc.outcome.rows }}"', `${pager3("sc.outcome.paging", "\u6267\u884C\u7ED3\u679C\u5206\u9875")}<sc-for list="{{ sc.outcome.rows }}"`).replace(/(<sc-if value="{{ d.hasFailed }}">[\s\S]*?)(<table class="table")/, `$1${pager3("d.failedPaging", "\u5931\u8D25\u8D44\u6E90\u5206\u9875")}$2`);
+    html = html.replace('<sc-if value="{{ dlg.hasList }}">', `${pager3("dlg.paging")}<sc-if value="{{ dlg.hasList }}">`).replace('<sc-for list="{{ bg.items }}"', `${pager3("bg.paging")}<sc-for list="{{ bg.items }}"`);
     html = html.replace(
       '<div style="height:3px;border-radius:2px;background:var(--t08);overflow:hidden"><div style="height:100%;width:{{ b.pct }}%;background:{{ b.fg }}"></div></div>',
       '<div class="jj-task-progress" role="progressbar" aria-label="\u4EFB\u52A1\u8FDB\u5EA6" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ b.ariaNow }}" aria-valuetext="{{ b.ariaText }}"><div class="{{ b.barClass }}" style="width:{{ b.barWidth }}%;background:{{ b.fg }}"></div></div>'
@@ -8600,7 +8828,7 @@ class Component extends DCLogic {
         </div></div></sc-if>
       <sc-if value="{{ dlg.open }}">`);
     for (const [route, key] of [["dispatch", "d"], ["transcode", "tc"], ["scrape", "sc"]]) {
-      html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager2(key + ".paging")}$2`);
+      html = html.replace(new RegExp(`(<sc-if value="{{ at.${route} }}">[\\s\\S]*?)(<\\/main>)`), `$1${pager3(key + ".paging")}$2`);
     }
     html = html.replace('checked="{{ fs.allSel }}" onChange="{{ fs.toggleAll }}"', 'aria-label="\u5168\u9009\u672C\u9875" title="\u4EC5\u9009\u62E9\u5F53\u524D\u9875" disabled="{{ fs.selectionDisabled }}" checked="{{ fs.allSel }}" onChange="{{ fs.toggleAll }}"');
     html = html.replace(/(<sc-if value="{{ at.storage }}">[\s\S]*?)(<table)/, `$1
@@ -8611,14 +8839,15 @@ class Component extends DCLogic {
           <button class="btn btn-secondary" disabled="{{ fs.loading }}" onClick="{{ fs.refreshFiles }}">\u5237\u65B0\u76EE\u5F55</button>
           <sc-if value="{{ fs.showDelete }}"><button class="btn btn-secondary" style="color:var(--bad)" disabled="{{ fs.deleteDisabled }}" onClick="{{ fs.deleteSel }}">\u5220\u9664\u6240\u9009</button></sc-if>
           <span class="jj-path-hint">\u672C\u76EE\u5F55\u5168\u9009\u5305\u542B\u5F53\u524D\u7B5B\u9009\u7ED3\u679C\u7684\u6240\u6709\u5206\u9875\uFF1B\u9009\u62E9\u6587\u4EF6\u5939\u540E\uFF0C\u4E0B\u8F7D\u65F6\u9012\u5F52\u5904\u7406\u3002</span>
-        </div>${pager2("fs.paging", "\u7F51\u76D8\u6587\u4EF6\u5206\u9875")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager2("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager2("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
-    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager2("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager2("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager2("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-ghost" onClick="{{ lb.configureCheck }}">\u68C0\u67E5\u9879\u8BBE\u7F6E</button><button class="btn btn-secondary" disabled="{{ lb.checkBusy }}" onClick="{{ lb.openCheck }}">').replace('onClick="{{ lb.runCheck }}"', 'disabled="{{ lb.checkBusy }}" onClick="{{ lb.runCheck }}"').replace('\u52FE\u9009\u8981\u68C0\u67E5\u7684\u8D44\u6599\uFF0C\u4F5C\u4E3A <code style="font-family:var(--mono);font-size:11.5px;color:var(--accs)">fields</code> \u53C2\u6570\u63D0\u4EA4\uFF1B\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002', "\u9009\u62E9\u68C0\u67E5\u5185\u5BB9\uFF0C\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002\u68C0\u67E5\u5728\u540E\u53F0\u8FD0\u884C\uFF0C\u5B8C\u6210\u540E\u53EF\u4ECE\u540E\u53F0\u4EFB\u52A1\u67E5\u770B\u7ED3\u679C\u5E76\u5F00\u59CB\u8865\u5168\u3002").replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
+        </div>${pager3("fs.paging", "\u7F51\u76D8\u6587\u4EF6\u5206\u9875")}$2`).replace(/(<h5 style="margin:0">Aria2 任务<\/h5>[\s\S]*?<\/div>\s*)(<table)/, `$1${pager3("fs.taskPaging")}$2`).replace('<sc-for list="{{ fs.addForm.entries }}"', `${pager3("fs.directoryPaging")}<sc-for list="{{ fs.addForm.entries }}"`);
+    html = html.replace(/(<sc-if value="{{ at.library }}">[\s\S]*?)(<\/main>)/, `$1${pager3("lb.paging")}$2`).replace(/(<sc-if value="{{ at.search }}"[^>]*>[\s\S]*?)(<\/main>)/, `$1${pager3("s.paging")}$2`).replace('<sc-for list="{{ s.browse.groups }}"', `${pager3("s.browse.paging")}<sc-for list="{{ s.browse.groups }}"`).replace('<button class="btn btn-secondary" onClick="{{ lb.openCheck }}">', '<button class="btn btn-secondary" onClick="{{ lb.refresh }}">\u5237\u65B0\u5F71\u89C6\u5E93</button><button class="btn btn-ghost" onClick="{{ lb.configureCheck }}">\u68C0\u67E5\u9879\u8BBE\u7F6E</button><button class="btn btn-secondary" disabled="{{ lb.checkBusy }}" onClick="{{ lb.openCheck }}">').replace('onClick="{{ lb.runCheck }}"', 'disabled="{{ lb.checkBusy }}" onClick="{{ lb.runCheck }}"').replace('\u52FE\u9009\u8981\u68C0\u67E5\u7684\u8D44\u6599\uFF0C\u4F5C\u4E3A <code style="font-family:var(--mono);font-size:11.5px;color:var(--accs)">fields</code> \u53C2\u6570\u63D0\u4EA4\uFF1B\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002', "\u9009\u62E9\u68C0\u67E5\u5185\u5BB9\uFF0C\u672A\u52FE\u9009\u7684\u9879\u4E0D\u8BA1\u5165\u5B8C\u6574\u5EA6\u3002\u68C0\u67E5\u5728\u540E\u53F0\u8FD0\u884C\uFF0C\u5B8C\u6210\u540E\u53EF\u4ECE\u540E\u53F0\u4EFB\u52A1\u67E5\u770B\u7ED3\u679C\u5E76\u5F00\u59CB\u8865\u5168\u3002").replace('value="{{ lb.q }}"', 'aria-label="\u5F71\u89C6\u5E93\u641C\u7D22" value="{{ lb.q }}"').replace('onClick="{{ lb.tcDialog.submit }}"', 'disabled="{{ !lb.tcDialog.canSubmit }}" onClick="{{ lb.tcDialog.submit }}"');
     html = html.replace(/<sc-if value="{{ at.library }}">[\s\S]*?<\/main>\s*<\/div>\s*<\/sc-if>/, (library) => library.replace('<div style="display:flex;align-items:stretch;min-height:848px">', '<div class="jj-library" style="display:flex;align-items:stretch;min-height:848px">').replace("<aside style=", '<aside class="jj-library-sidebar" aria-label="\u5F71\u89C6\u5E93\u7B5B\u9009" style=').replace("<main style=", '<main class="jj-library-main" aria-label="\u5F71\u89C6\u5E93\u5185\u5BB9" style=').replace('<select class="input" style="width:auto;', '<select aria-label="\u5F71\u89C6\u5E93\u6392\u5E8F" class="input" style="width:auto;').replace('<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">', '<div class="jj-library-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">').replace('<div style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">', '<div class="jj-library-table" style="background:var(--surf);border-radius:8px;box-shadow:0 0 0 1px var(--ring);overflow:hidden">').replace('<sc-if value="{{ lb.showList }}">', '<sc-if value="{{ lb.showList }}"><div class="jj-library-table-tools"><span>\u62D6\u52A8\u8868\u5934\u5206\u9694\u7EBF\u8C03\u6574\u5217\u5BBD</span><button class="btn btn-ghost" onClick="{{ lb.resetWidths }}">\u6062\u590D\u9ED8\u8BA4\u5217\u5BBD</button></div>').replace('<table class="table">', '<table class="table" style="width:{{ lb.tableWidth }}">').replace(/<thead>[\s\S]*?<\/thead>/, '<thead><tr><sc-for list="{{ lb.columns }}" as="c"><th scope="col" style="width:{{ c.cssWidth }}">{{ c.label }}<span class="jj-column-resize" role="separator" tabIndex="0" aria-label="\u8C03\u6574{{ c.label }}\u5217\u5BBD" aria-orientation="vertical" aria-valuemin="{{ c.min }}" aria-valuemax="1200" aria-valuenow="{{ c.width }}" title="\u62D6\u52A8\u8C03\u6574\u5217\u5BBD\uFF1B\u65B9\u5411\u952E\u5FAE\u8C03\uFF0CHome \u6700\u7A84\uFF0CEnd \u6700\u5BBD" onPointerDown="{{ c.resize }}" onKeyDown="{{ c.resize }}"></span></th></sc-for></tr></thead>').replace('<div style="width:70px;aspect-ratio:3/2;', '<div class="jj-library-list-cover" style="width:100%;aspect-ratio:2/3;').replace('<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:13px">', '<div class="jj-library-posters" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px">').replace('<div style="font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">', '<div class="jj-library-list-title" title="{{ r.title }}" style="font-size:13px">').replace('<td style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>', '<td class="jj-library-list-actors" title="{{ r.actorText }}" style="font-size:12.5px;color:var(--dim)">{{ r.actorText }}</td>').replace(/<div onClick="{{ r.open }}"([^>]*)>([\s\S]*?)\s*<\/div>\s*<\/sc-for>/, '<button class="jj-library-card" aria-label="\u67E5\u770B {{ r.code }} \u8BE6\u60C5" title="{{ r.title }}" onClick="{{ r.open }}"$1>$2\n</button></sc-for>').replace("background:linear-gradient(transparent,var(--scrim9))", "background:linear-gradient(transparent,rgba(12,14,24,.94))").replace('color:var(--t70)">{{ r.resText }}', 'color:#eeeef4">{{ r.resText }}').replace('<sc-if value="{{ lb.scanning }}">', '<sc-if value="{{ lb.empty }}"><div class="jj-library-empty"><i aria-hidden="true" class="ph ph-film-strip"></i><h2>{{ lb.emptyTitle }}</h2><p>{{ lb.emptyBody }}</p><sc-if value="{{ lb.showEmptyAction }}"><button class="btn btn-secondary" onClick="{{ lb.emptyAction }}">{{ lb.emptyActionText }}</button></sc-if></div></sc-if><sc-if value="{{ lb.scanning }}">'));
     html = html.replace('<div style="width:186px;flex:none;aspect-ratio:2/3;', '<div class="jj-library-detail-cover" style="position:relative;overflow:hidden;width:186px;flex:none;aspect-ratio:2/3;').replace('color:var(--t30)">{{ lb.d.code }}</div>', `color:var(--t30)">${poster("lb.d")}{{ lb.d.code }}</div>`);
     html = html.replace(/<sc-if value="{{ lb.d }}">[\s\S]*?<\/aside>/, (detail) => detail.replace('class="jj-drawer"', 'class="jj-drawer jj-library-detail"').replace('<table class="table"', '<table class="table jj-library-files"'));
     const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');
     const cinemaEnd = html.indexOf('  <sc-if value="{{ cn.player }}">', cinemaStart);
     html = html.slice(0, cinemaStart) + cinemaTemplate + "\n" + html.slice(cinemaEnd);
+    html = html.replace("</helmet>", browseStyles + "</helmet>").replace('<button class="btn btn-secondary jj-cinema-exit"', '<button class="btn btn-secondary" onClick="{{ cn.browseOnline }}">\u6D4F\u89C8\u65B0\u7247</button><button class="btn btn-secondary jj-cinema-exit"').replace('  <sc-if value="{{ at.search }}"', browseTemplate + '\n  <sc-if value="{{ at.search }}"');
     return html;
   }
 

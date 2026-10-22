@@ -13,7 +13,7 @@ import time
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 PACKAGE = "com.javjaeger.tv"
@@ -38,6 +38,27 @@ MOVIES = [MOVIE, {
 
 class FixtureHandler(BaseHTTPRequestHandler):
     requests = []
+    job_status = "running"
+    job_retried = False
+
+    def do_POST(self):
+        self.requests.append(self.path)
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        if self.path == "/api/automation/play-jobs":
+            if json.loads(body)["movie_id"] == "ONLINE-002":
+                self.send_error(409)
+                return
+            assert json.loads(body)["movie_id"] == "ONLINE-001"
+            self.send_json({"task_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "running", "type": "browse-play"}, session=True)
+        elif self.path in ("/api/system/jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/cancel", "/api/system/jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/retry"):
+            if self.headers.get("Cookie") != "session=tv-session":
+                self.send_error(403)
+                return
+            FixtureHandler.job_status = "cancelled" if self.path.endswith("cancel") else "running"
+            FixtureHandler.job_retried = self.path.endswith("retry")
+            self.send_json({"task_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": self.job_status, "type": "browse-play"})
+        else:
+            self.send_error(404)
 
     def log_message(self, *_args):
         pass
@@ -45,7 +66,28 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.requests.append(self.path)
         path = urlsplit(self.path).path
-        if path == "/api/movies/local-library":
+        if path == "/api/movies":
+            query = parse_qs(urlsplit(self.path).query)
+            page = int(query.get("page", ["1"])[0])
+            self.send_json({"movies": [{"id": "ONLINE-001", "title": "新片播放测试", "date": "2026-10-22",
+                                        "img": "https://art.example/online.jpg"},
+                                       {"id": "ONLINE-002", "title": "另一部新片测试", "img": "https://art.example/online.jpg"}] if page == 1 else [],
+                            "pagination": {"hasNextPage": page == 1, "nextPage": 2 if page == 1 else None}})
+        elif path in ("/api/movies/ONLINE-001", "/api/movies/ONLINE-002"):
+            self.send_json({"id": path.rsplit("/", 1)[1], "title": "新片播放测试" if path.endswith("001") else "另一部新片测试", "stars": [{"id": "star/qa", "name": "在线演员"}],
+                            "genres": [{"id": "genre/qa", "name": "在线标签"}], "producer": {"id": "studio/qa", "name": "在线制作商"}})
+        elif path in ("/static/actors.json", "/static/categories.json"):
+            self.send_json({"测试": [{"name": "在线演员" if "actors" in path else "在线标签", "code": "qa"}]})
+        elif path == "/api/system/jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
+            if self.headers.get("Cookie") != "session=tv-session":
+                self.send_error(403)
+                return
+            ready = self.job_retried and self.job_status != "cancelled"
+            self.send_json({"task_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "type": "browse-play", "status": "success" if ready else self.job_status,
+                            "message": "视频已就绪，可以播放" if ready else "115 正在下载：30%", "percent": 30,
+                            "can_cancel": self.job_status == "running" and not ready, "can_retry": self.job_status == "cancelled",
+                            "result": {"success": ready, "file_name": "online.mp4"}})
+        elif path == "/api/movies/local-library":
             self.send_json({"success": True, "records": MOVIES})
         elif path == "/api/movies/local-library/actors":
             self.send_json({"success": True, "actors": [
@@ -58,7 +100,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.send_json({"success": True, "in_local_library": True, "record": MOVIE})
         elif path.startswith("/api/movies/local-library/poster/") or path.endswith("/avatar") or path == "/api/image-proxy":
             self.send_bytes((Path(__file__).parent / "fixtures/android_tv/poster.png").read_bytes(), "image/png")
-        elif path == "/api/movies/local-library/TV-001/play":
+        elif path in ("/api/movies/local-library/TV-001/play", "/api/automation/play-jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/stream"):
+            if path.endswith("/stream") and self.headers.get("Cookie") != "session=tv-session":
+                self.send_error(403)
+                return
             data = (Path(__file__).parent / "fixtures/android_tv/test-pattern.mp4").read_bytes()
             byte_range = self.headers.get("Range")
             match = re.fullmatch(r"bytes=(\d+)-(\d*)", byte_range or "")
@@ -82,13 +127,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def send_json(self, payload):
-        self.send_bytes(json.dumps(payload).encode(), "application/json")
+    def send_json(self, payload, session=False):
+        self.send_bytes(json.dumps(payload).encode(), "application/json", session=session)
 
-    def send_bytes(self, data, content_type):
+    def send_bytes(self, data, content_type, session=False):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        if session:
+            self.send_header("Set-Cookie", "session=tv-session; Path=/; HttpOnly; SameSite=Lax")
         self.end_headers()
         self.wfile.write(data)
 
@@ -157,7 +204,7 @@ def main():
         adb("shell", "input", "text", value)
         key("KEYCODE_BACK")
 
-    def activate(label):
+    def activate(label, click=True):
         # Navigate using only a remote, with target bounds read from the UI tree.
         tried = set()
         for _ in range(48):
@@ -170,7 +217,8 @@ def main():
             fx, fy = center(focused)
             x1, y1, x2, y2 = map(int, re.findall(r"\d+", focused.get("bounds")))
             if x1 <= tx <= x2 and y1 <= ty <= y2:
-                key("KEYCODE_DPAD_CENTER")
+                if click:
+                    key("KEYCODE_DPAD_CENTER")
                 return
             # Android chooses the next row before comparing horizontal centers.
             direction = "DOWN" if ty > y2 else "UP" if ty < y1 else "RIGHT" if tx > fx else "LEFT"
@@ -192,6 +240,12 @@ def main():
         for tab in ("推荐", "全部影片", "标签", "演员", "VR"):
             wait(tab)
         wait("最近入库")
+        root = tree()
+        screen = list(map(int, re.findall(r"\d+", root.find("node").get("bounds"))))
+        _, nav = wait("全部影片")
+        nav_bottom = list(map(int, re.findall(r"\d+", nav.get("bounds"))))[3]
+        assert nav_bottom <= screen[3] * .14, "Navigation must use a single compact row"
+        assert find(root, "搜索影片") is None, "Search input must open on demand"
         print("PASS: server connection and cinema home", flush=True)
         (args.artifacts / "home.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         activate("标签")
@@ -201,13 +255,18 @@ def main():
         wait("全部标签")
         root, _ = wait("遥控器测试影片")
         assert find(root, "另一部影片") is None, "Tag selection must filter the movie wall"
+        filtered_card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
+        assert list(map(int, re.findall(r"\d+", filtered_card.get("bounds"))))[1] < screen[3] * .26, "Filtered walls must keep controls compact"
         (args.artifacts / "tags.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         activate("全部标签")
         activate("选择标签：第二标签")
         activate("匹配全部标签")
         activate("查看影片")
         wait("没有符合条件的影片")
+        activate("筛选影片")
+        activate("标签")
         activate("匹配任一标签")
+        activate("完成")
         wait("遥控器测试影片")
         wait("另一部影片")
         activate("全部标签")
@@ -222,13 +281,17 @@ def main():
         activate("VR")
         wait("VR 2160p")
         activate("全部影片")
-        wait("影院排序")
+        root, _ = wait("遥控器测试影片")
+        card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
+        card_top = list(map(int, re.findall(r"\d+", card.get("bounds"))))[1]
+        assert card_top < screen[3] * .26, "Movie wall must reserve at least 74% of screen height for content"
         activate("筛选影片")
         wait("完成")
-        key("KEYCODE_BACK")
         activate("影院排序")
         wait("发行日期")
         key("KEYCODE_BACK")
+        activate("完成")
+        activate("打开搜索")
         enter("搜索影片", "PAGE-")
         print("PASS: actor and VR browsing, filter and sort controls", flush=True)
         activate("搜索")
@@ -237,6 +300,7 @@ def main():
         wait("第 2 / 2 页 · 共 63 项")
         activate("上一页")
         wait("第 1 / 2 页 · 共 63 项")
+        activate("打开搜索")
         enter("搜索影片", "TV-001")
         print("PASS: 60-item paging and search", flush=True)
         activate("搜索")
@@ -289,7 +353,43 @@ def main():
         root, _ = wait("遥控器测试影片")
         assert find(root, "另一部影片") is None, "Returning must preserve the search"
         assert any(p.startswith("/api/image-proxy?url=") for p in FixtureHandler.requests), "Remote covers must use the server image proxy"
-        assert all(p.startswith(("/api/movies/local-library", "/api/image-proxy?url=", "/api/system/info")) for p in FixtureHandler.requests), "TV must only use library, image and deployment APIs"
+        activate("浏览新片")
+        activate("浏览筛选")
+        activate("浏览演员目录")
+        activate("在线演员")
+        wait("新片播放测试")
+        activate("新片播放测试")
+        wait("浏览演员：在线演员")
+        wait("浏览标签：在线标签")
+        activate("最佳资源播放")
+        activate("取消等待", click=False)
+        time.sleep(2)
+        focused = next((node for node in tree().iter("node") if node.get("focused") == "true"), None)
+        assert focused is not None and focused.get("text") == "取消等待", "Polling must preserve remote action focus"
+        key("KEYCODE_BACK")
+        wait("最佳资源播放")
+        key("KEYCODE_BACK")
+        wait("新片播放测试")
+        activate("另一部新片测试")
+        activate("最佳资源播放")
+        activate("继续上一部播放准备")
+        activate("取消等待")
+        activate("重试播放")
+        until = time.monotonic() + 25
+        while not any(p.endswith("/stream") for p in FixtureHandler.requests) and time.monotonic() < until:
+            time.sleep(0.3)
+        assert any(p.endswith("/stream") for p in FixtureHandler.requests), "115 stream must use the same in-memory session"
+        (args.artifacts / "online-player.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        key("KEYCODE_BACK")
+        wait("最佳资源播放")
+        key("KEYCODE_BACK")
+        root, _ = wait("新片播放测试")
+        assert any('filters=' in p and 'qa' in p for p in FixtureHandler.requests), "Online catalog selection must reach the server"
+        allowed = ("/api/movies/local-library", "/api/image-proxy?url=", "/api/system/info", "/api/movies?",
+                   "/api/movies/ONLINE-", "/static/actors.json", "/static/categories.json",
+                   "/api/automation/play-jobs", "/api/system/jobs/")
+        assert all(path.startswith(allowed) for path in FixtureHandler.requests), "TV must use only its defined server APIs"
+        print("PASS: online discovery, facets, session-owned 115 cancellation/retry and native playback", flush=True)
         adb("shell", "am", "force-stop", PACKAGE)
         adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
         wait("遥控器测试影片")  # Credential-free server address survives a process restart.

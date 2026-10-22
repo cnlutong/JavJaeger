@@ -1,4 +1,5 @@
 import { cinemaTemplate, deploymentBadge } from './cinema.mjs';
+import { browseTemplate, browseStyles } from './browse.mjs';
 
 // Keep the imported design unchanged; host layout and API controls live here.
 export function adaptTemplate(source, logo) {
@@ -202,5 +203,8 @@ export function adaptTemplate(source, logo) {
     const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');
     const cinemaEnd = html.indexOf('  <sc-if value="{{ cn.player }}">', cinemaStart);
     html = html.slice(0, cinemaStart) + cinemaTemplate + '\n' + html.slice(cinemaEnd);
+    html = html.replace('</helmet>', browseStyles + '</helmet>')
+        .replace('<button class="btn btn-secondary jj-cinema-exit"', '<button class="btn btn-secondary" onClick="{{ cn.browseOnline }}">浏览新片</button><button class="btn btn-secondary jj-cinema-exit"')
+        .replace('  <sc-if value="{{ at.search }}"', browseTemplate + '\n  <sc-if value="{{ at.search }}"');
     return html;
 }

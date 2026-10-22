@@ -18,6 +18,7 @@ public final class Movie {
     public final boolean isVr, subtitle, unavailable;
     public final List<String> actors, tags;
     public final List<VideoFile> files;
+    public final List<LibraryClient.BrowseFilter> browseFilters;
     final String artworkSource;
     final String backdropSource;
 
@@ -44,6 +45,16 @@ public final class Movie {
         List<String> genres = names(record.optJSONArray("genres") != null ? record.optJSONArray("genres") : metadata.optJSONArray("genres"));
         if (record.optBoolean("is_vr") && !genres.contains("VR")) genres.add("VR");
         tags = Collections.unmodifiableList(genres);
+        List<LibraryClient.BrowseFilter> facets = new ArrayList<>();
+        for (String[] dimension : new String[][]{{"star", "stars"}, {"genre", "genres"}, {"studio", "producer"}, {"label", "publisher"}, {"director", "director"}, {"series", "series"}}) {
+            Object value = record.opt(dimension[1]);
+            if (value == null || value == JSONObject.NULL) value = metadata.opt(dimension[1]);
+            if (value == null && dimension[0].equals("studio")) value = record.opt("studio");
+            if (value == null && dimension[0].equals("label")) value = record.opt("label");
+            if (value instanceof JSONArray) for (int index = 0; index < ((JSONArray) value).length(); index++) addBrowseFilter(facets, dimension[0], ((JSONArray) value).opt(index));
+            else addBrowseFilter(facets, dimension[0], value);
+        }
+        browseFilters = Collections.unmodifiableList(facets);
         isVr = tags.contains("VR");
         subtitle = tags.contains("中文字幕");
         List<VideoFile> videos = new ArrayList<>();
@@ -91,6 +102,15 @@ public final class Movie {
     }
 
     static Movie fromJson(JSONObject record) throws JSONException { return new Movie(record); }
+
+    private static void addBrowseFilter(List<LibraryClient.BrowseFilter> filters, String type, Object item) {
+        String label = item instanceof String ? ((String) item).trim() : item instanceof JSONObject ? text((JSONObject) item, "name", "") : "";
+        String value = item instanceof String ? label : item instanceof JSONObject ? text((JSONObject) item, "id", "") : "";
+        while (value.endsWith("/")) value = value.substring(0, value.length() - 1);
+        value = value.substring(value.lastIndexOf('/') + 1);
+        if (!label.isEmpty() && !value.isEmpty()) try { filters.add(new LibraryClient.BrowseFilter(type, value, label)); }
+        catch (IllegalArgumentException invalid) { /* Ignore malformed optional facets. */ }
+    }
 
     public boolean matches(String query) {
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
