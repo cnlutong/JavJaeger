@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:focusable="true"
+    android:descendantFocusability="afterDescendants"
+    app:touch_target_height="48dp"
+    app:bar_height="5dp"
+    app:scrubber_enabled_size="14dp"
+    app:scrubber_dragged_size="20dp"
+    app:played_color="#FFFFFF"
+    app:scrubber_color="#FFFFFF"
+    app:show_buffering="when_playing" />

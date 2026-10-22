@@ -37,6 +37,7 @@ import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.HttpUtil;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.CaptionStyleCompat;
+import androidx.media3.ui.DefaultTimeBar;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -61,6 +62,7 @@ public final class PlaybackActivity extends Activity {
     private int generation;
     private ExoPlayer player;
     private PlayerView playerView;
+    private DefaultTimeBar timeBar;
     private FrameLayout root;
     private boolean failed;
     private Spinner fileSelector;
@@ -173,19 +175,23 @@ public final class PlaybackActivity extends Activity {
         root.removeAllViews();
         playingMovie = movie;
         LinearLayout bar = new LinearLayout(this);
-        playbackBar = bar;
         bar.setContentDescription("播放控制栏");
+        bar.setOrientation(LinearLayout.VERTICAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
-        int padding = Math.round(14 * getResources().getDisplayMetrics().density);
+        int padding = Math.round(24 * getResources().getDisplayMetrics().density);
         bar.setPadding(padding, padding / 2, padding, padding / 2);
         bar.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xee101114, 0x00101114}));
         playbackTitle = new TextView(this);
         playbackTitle.setText(movie == null ? playlist.get(0).mediaMetadata.title : movie.id + " · " + movie.title);
         playbackTitle.setMaxLines(1);
         playbackTitle.setEllipsize(TextUtils.TruncateAt.END);
-        playbackTitle.setTextSize(16);
+        playbackTitle.setTextSize(18);
         playbackTitle.setTextColor(0xfff4f5f7);
-        bar.addView(playbackTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        bar.addView(playbackTitle, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout actions = new LinearLayout(this);
+        playbackBar = actions;
+        actions.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        bar.addView(actions, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         fileSelector = null;
         if (movie != null) {
             List<String> labels = new ArrayList<>();
@@ -204,7 +210,7 @@ public final class PlaybackActivity extends Activity {
             fileSelector.setSelection(selected);
             fileSelector.setBackground(controlBackground());
             fileSelector.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
-            bar.addView(fileSelector, new LinearLayout.LayoutParams(Math.round(260 * getResources().getDisplayMetrics().density), ViewGroup.LayoutParams.WRAP_CONTENT));
+            actions.addView(fileSelector, new LinearLayout.LayoutParams(0, Math.round(48 * getResources().getDisplayMetrics().density), 1));
             fileSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onNothingSelected(AdapterView<?> parent) { }
                 @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -230,7 +236,7 @@ public final class PlaybackActivity extends Activity {
             subtitlesEnabled = !subtitlesEnabled;
             updateSubtitleToggle();
         });
-        bar.addView(subtitleToggle);
+        actions.addView(subtitleToggle);
         Button subtitleStyle = new Button(this);
         subtitleStyle.setText("字幕样式");
         subtitleStyle.setAllCaps(false);
@@ -238,7 +244,7 @@ public final class PlaybackActivity extends Activity {
         subtitleStyle.setBackground(controlBackground());
         subtitleStyle.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
         subtitleStyle.setOnClickListener(view -> showSubtitleAppearance());
-        bar.addView(subtitleStyle);
+        actions.addView(subtitleStyle);
         Button stop = new Button(this);
         stop.setText("停止播放");
         stop.setAllCaps(false);
@@ -246,14 +252,32 @@ public final class PlaybackActivity extends Activity {
         stop.setBackground(controlBackground());
         stop.setOnClickListener(view -> finish());
         stop.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
-        bar.addView(stop);
-        playerView = new PlayerView(this);
+        actions.addView(stop);
+        TextView hint = new TextView(this);
+        hint.setText("↓ 进度条 · ← → 定位 10 秒 · 确认完成定位 · 上键切换文件与字幕");
+        hint.setTextSize(13);
+        hint.setTextColor(0xffa4abb7);
+        bar.addView(hint);
+        playerView = (PlayerView) getLayoutInflater().inflate(R.layout.tv_player, root, false);
         playerView.setContentDescription("影片播放器");
         playerView.setKeepScreenOn(true);
         playerView.setShowNextButton(true);
         playerView.setShowPreviousButton(true);
         playerView.setControllerShowTimeoutMs(4000);
         playerView.setShowSubtitleButton(false);
+        timeBar = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
+        timeBar.setKeyTimeIncrement(10000);
+        timeBar.setFocusable(true);
+        timeBar.setBackground(controlBackground());
+        FrameLayout.LayoutParams progressParams = (FrameLayout.LayoutParams) timeBar.getLayoutParams();
+        progressParams.height = Math.round(48 * getResources().getDisplayMetrics().density);
+        progressParams.setMargins(padding, 0, padding, Math.round(48 * getResources().getDisplayMetrics().density));
+        timeBar.setLayoutParams(progressParams);
+        View centerControls = playerView.findViewById(androidx.media3.ui.R.id.exo_center_controls);
+        FrameLayout.LayoutParams centerParams = (FrameLayout.LayoutParams) centerControls.getLayoutParams();
+        centerParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        centerParams.bottomMargin = Math.round(104 * getResources().getDisplayMetrics().density);
+        centerControls.setLayoutParams(centerParams);
         applySubtitleAppearance();
         playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) bar::setVisibility);
         root.addView(playerView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -499,8 +523,8 @@ public final class PlaybackActivity extends Activity {
                 return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_DOWN && playbackBar.hasFocus()) {
-                playerView.requestFocus();
                 playerView.showController();
+                if (!timeBar.requestFocus()) playerView.requestFocus();
                 return true;
             }
             if (key == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || key == KeyEvent.KEYCODE_MEDIA_PAUSE || key == KeyEvent.KEYCODE_MEDIA_PLAY) {
@@ -512,12 +536,16 @@ public final class PlaybackActivity extends Activity {
                 return true;
             }
             boolean hidden = playerView.hasFocus() && !playerView.isControllerFullyVisible();
-            if (key == KeyEvent.KEYCODE_MEDIA_REWIND || (hidden && key == KeyEvent.KEYCODE_DPAD_LEFT)) {
+            if (hidden && (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT || key == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                playerView.showController();
+                if (timeBar.requestFocus()) return key == KeyEvent.KEYCODE_DPAD_DOWN || playerView.dispatchKeyEvent(event);
+            }
+            if (key == KeyEvent.KEYCODE_MEDIA_REWIND) {
                 player.seekBack();
                 playerView.showController();
                 return true;
             }
-            if (key == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || (hidden && key == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if (key == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) {
                 player.seekForward();
                 playerView.showController();
                 return true;

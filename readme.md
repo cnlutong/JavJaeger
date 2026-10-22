@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License"></a>
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.4"><img src="https://img.shields.io/badge/Android_TV-v0.3.4_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.4 测试版"></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.5"><img src="https://img.shields.io/badge/Android_TV-v0.3.5_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.5 测试版"></a>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#网页影院与海报浏览">网页影院</a> ·
   <a href="#android-tv在电视上观看">Android TV</a> ·
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.4"><strong>下载 APK</strong></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.5"><strong>下载 APK</strong></a>
 </p>
 
 ![影院模式的完整推荐首页](docs/screenshots/cinema-recommendations.jpg)
@@ -194,7 +194,7 @@ docker compose logs --tail=100 javjaeger
 
 JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同一个 JavJaeger 服务器，共用服务器影视库。支持 **Android 6.0 及以上 Android TV**，使用遥控器方向键、确认键和返回键操作。
 
-**[下载 JavJaeger TV v0.3.4 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.4)** · [完整电视端说明](android-tv/README.md)
+**[下载 JavJaeger TV v0.3.5 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.5)** · [完整电视端说明](android-tv/README.md)
 
 沿用旧版签名，已有测试版可直接覆盖升级。新片的 115 播放需要 v0.3.0 及以上服务端；外挂字幕需要部署包含字幕接口的新服务端。
 
@@ -214,7 +214,7 @@ JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同�
 - 自动加载原片旁的 SRT/VTT 字幕，优先中文字幕；遥控器开关字幕，并配置字体、字号和底部留白，设置保存在当前设备。
 - 返回详情或浏览页时保留搜索、筛选和浏览位置；管理入口通过系统浏览器打开服务器管理页，没有浏览器时显示可在其他设备访问的地址。
 
-电视端使用随焦点收起或展开的侧栏，将搜索、组合筛选与排序改为按需打开。影片封面按实际比例完整显示：推荐横排固定图片高度并调整宽度，影片墙按等宽列排布不同高度的封面。播放器控件叠加在视频上并自动隐藏。刷新、服务器连接和管理入口位于“更多”。
+电视端使用随焦点收起或展开的侧栏，将搜索、组合筛选与排序改为按需打开。影片封面按实际比例完整显示：推荐横排固定图片高度并调整卡片宽度，影片墙按等宽列排布不同高度的封面，演员目录末行保持固定列宽。详情使用封面与播放资料双栏。播放器控件叠加在视频上并自动隐藏；从顶部操作栏按下键进入进度条，左右键每次定位 10 秒，按确认键提交，也支持鼠标或触控拖动。刷新、服务器连接和管理入口位于“更多”。
 
 电视端保存不含凭据的服务器地址和字幕显示偏好，下载、刮削和媒体整理在服务端完成。视频直接播放原文件，支持 Range 跳转；停止、换片或跳转使旧连接断开时，服务器会停止旧响应的后续读取并关闭文件。编码和内封音轨支持取决于电视；当前没有实时转码或跨设备观看进度。不支持的编码可先在服务器管理网页中转码。
 

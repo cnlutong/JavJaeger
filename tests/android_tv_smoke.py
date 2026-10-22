@@ -199,6 +199,7 @@ def main():
     parser.add_argument("--layout-only", action="store_true", help="Check home, local and online artwork/navigation layouts without playback.")
     parser.add_argument("--actors-only", action="store_true", help="Check actor photos and remote selection in local/online directories and details.")
     parser.add_argument("--playback-only", action="store_true", help="Check local playback, subtitle toggles and file switching only.")
+    parser.add_argument("--seek-only", action="store_true", help="Check remote and pointer seeking using the debug androidTest APK.")
     args = parser.parse_args()
 
     def adb(*command, binary=False):
@@ -255,12 +256,19 @@ def main():
     actor_measurements = []
 
     def check_actor_photo(name, action, image_path, stage):
+        if "detail" in stage:
+            reveal(action)
         activate(action, click=False)
         until = time.monotonic() + 25
         photo_bounds = None
         requested = False
         while time.monotonic() < until:
             root = tree()
+            if stage == "local-actors":
+                card = find(root, action)
+                if card is not None:
+                    left, _, right, _ = bounds(card)
+                    assert right - left <= bounds(root.find("node"))[2] / 5, "Incomplete actor rows must keep six-column widths"
             requested = any(urlsplit(parse_qs(urlsplit(path).query).get("url", [path])[0]).path == image_path
                             for path in FixtureHandler.requests)
             photo = find(root, "演员照片：" + name)
@@ -304,6 +312,9 @@ def main():
                 if width > 0 and height > 0 and error <= 1 and previous == (width, height):
                     focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
                     assert focused is not None and focused.get("content-desc") == label, "Artwork loading must preserve the focused movie card"
+                    if stage == "home":
+                        card_bounds = bounds(card)
+                        assert abs(card_bounds[2] - card_bounds[0] - width) < bounds(root.find("node"))[2] * .02, "Shelf card width must follow its cover without empty columns"
                     cover_measurements.append({"stage": stage, "movie_id": movie_id, "width": width, "height": height,
                                                "source_width": expected_width, "source_height": expected_height, "error_px": error})
                     return root
@@ -359,10 +370,18 @@ def main():
             key("KEYCODE_DPAD_" + direction)
         raise AssertionError(f"Remote cannot reach: {label}")
 
+    def reveal(label, direction="DOWN"):
+        for _ in range(20):
+            if find(tree(), label) is not None:
+                return
+            key("KEYCODE_DPAD_" + direction)
+        raise AssertionError(f"Remote cannot scroll to: {label}")
+
     def check_local_playback():
         wait("播放：part-1.mp4")
-        wait("演员：QA演员")
-        wait("标签：QA 标签")
+        reveal("演员：QA演员")
+        reveal("标签：QA 标签")
+        reveal("播放：part-1.mp4", "UP")
         (args.artifacts / "detail.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         root = tree()
         missing = find(root, "播放：missing.mp4")
@@ -466,6 +485,15 @@ def main():
         wait("播放：part-1.mp4")
 
     try:
+        if args.seek_only:
+            test_apk = args.apk.resolve().parents[1] / "androidTest/debug/app-debug-androidTest.apk"
+            assert test_apk.is_file(), "Run ./gradlew assembleDebugAndroidTest first"
+            adb("install", "-r", str(test_apk))
+            result = adb("shell", "am", "instrument", "-w", "-r", "-e", "server", f"http://127.0.0.1:{port}",
+                         f"{PACKAGE}.test/{PACKAGE}.PlaybackSeekCheck")
+            print(result, flush=True)
+            assert "PASS: local and session playback" in result and "INSTRUMENTATION_CODE: -1" in result, result
+            return
         adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
         enter("服务器地址", f"http://127.0.0.1:{port}")
         activate("连接服务器")
@@ -500,6 +528,8 @@ def main():
         wait("最近入库")
         root = check_cover("TV-001", "遥控器测试影片", "home")
         check_compact_sidebar(root)
+        check_cover("TV-002", "另一部影片", "home")
+        activate("TV-001 遥控器测试影片", click=False)
         screen = list(map(int, re.findall(r"\d+", root.find("node").get("bounds"))))
         assert find(root, "搜索影片") is None, "Search input must open on demand"
         print("PASS: server connection and cinema home", flush=True)
@@ -513,6 +543,12 @@ def main():
             check_compact_sidebar(check_cover("ONLINE-001", "新片播放测试", "browse"))
             check_cover("ONLINE-002", "另一部新片测试", "browse")
             (args.artifacts / "browse.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+            activate("演员")
+            activate("查看演员：QA演员", click=False)
+            actor_root, actor_card = wait("查看演员：QA演员")
+            actor_bounds = bounds(actor_card)
+            assert actor_bounds[2] - actor_bounds[0] <= bounds(actor_root.find("node"))[2] / 5, "Incomplete actor rows must keep the same six-column card width"
+            (args.artifacts / "actors.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
             print("PASS: natural wide/portrait/square artwork and compact sidebar across home/library/discovery", flush=True)
             return
         activate("TV-001 遥控器测试影片")
