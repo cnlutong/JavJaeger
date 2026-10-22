@@ -108,7 +108,8 @@ public final class Movie {
         String value = item instanceof String ? label : item instanceof JSONObject ? text((JSONObject) item, "id", "") : "";
         while (value.endsWith("/")) value = value.substring(0, value.length() - 1);
         value = value.substring(value.lastIndexOf('/') + 1);
-        if (!label.isEmpty() && !value.isEmpty()) try { filters.add(new LibraryClient.BrowseFilter(type, value, label)); }
+        String avatar = item instanceof JSONObject ? remoteImage(text((JSONObject) item, "avatar", ""), text((JSONObject) item, "img", "")) : "";
+        if (!label.isEmpty() && !value.isEmpty()) try { filters.add(new LibraryClient.BrowseFilter(type, value, label, avatar)); }
         catch (IllegalArgumentException invalid) { /* Ignore malformed optional facets. */ }
     }
 
@@ -165,7 +166,7 @@ public final class Movie {
                 text(record, "thumbnail_url", ""), text(metadata, "list_thumbnail_url", ""));
     }
 
-    private static String remoteImage(String... sources) {
+    static String remoteImage(String... sources) {
         for (String value : sources) {
             try {
                 URI image = new URI(value);

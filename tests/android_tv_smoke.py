@@ -46,8 +46,8 @@ def cover_dimensions(movie_id):
     return 480, 270
 
 
-def cover_png(width, height):
-    """Synthetic RGB art with four distinct corners, so cropping is visible."""
+def cover_png(width, height, avatar=False):
+    """Synthetic cover corners or a geometric actor avatar; never real artwork."""
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
 
@@ -58,13 +58,18 @@ def cover_png(width, height):
         rows.append(0)
         for x in range(width):
             color = (35 + (x * 70 // width), 55 + (y * 70 // height), 100)
-            if (x < marker or x >= width - marker) and (y < marker or y >= height - marker):
+            if avatar:
+                head = (x - width / 2) ** 2 + (y - height / 3) ** 2 < (width / 5) ** 2
+                body = width / 5 < x < width * 4 / 5 and height * .6 < y < height * .9
+                color = (245, 75, 205) if head or body else (25, 185, 215)
+            elif (x < marker or x >= width - marker) and (y < marker or y >= height - marker):
                 color = corners[(2 if y >= height - marker else 0) + (1 if x >= width - marker else 0)]
             rows.extend(color)
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(bytes(rows))) + chunk(b"IEND", b"")
 
 
 COVERS = {dimensions: cover_png(*dimensions) for dimensions in ((480, 270), (160, 240), (240, 240))}
+AVATAR = cover_png(160, 160, avatar=True)
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -104,10 +109,13 @@ class FixtureHandler(BaseHTTPRequestHandler):
                                        self.artwork({"id": "ONLINE-002", "title": "另一部新片测试"})] if page == 1 else [],
                             "pagination": {"hasNextPage": page == 1, "nextPage": 2 if page == 1 else None}})
         elif path in ("/api/movies/ONLINE-001", "/api/movies/ONLINE-002"):
-            self.send_json(self.artwork({"id": path.rsplit("/", 1)[1], "title": "新片播放测试" if path.endswith("001") else "另一部新片测试", "stars": [{"id": "star/qa", "name": "在线演员"}],
+            self.send_json(self.artwork({"id": path.rsplit("/", 1)[1], "title": "新片播放测试" if path.endswith("001") else "另一部新片测试", "stars": [{"id": "qa", "name": "在线演员", "avatar": "https://art.example/remote-avatar.png"}],
                             "genres": [{"id": "genre/qa", "name": "在线标签"}], "producer": {"id": "studio/qa", "name": "在线制作商"}}))
         elif path in ("/static/actors.json", "/static/categories.json"):
-            self.send_json({"测试": [{"name": "在线演员" if "actors" in path else "在线标签", "code": "qa"}]})
+            self.send_json({"测试": [{"name": "在线演员", "code": "qa", "avatar": "/static/avatars/qa.jpg"}]
+                            if "actors" in path else [{"name": "在线标签", "code": "qa"}]})
+        elif path == "/static/avatars/qa.jpg":
+            self.send_bytes(AVATAR, "image/png")
         elif path == "/api/system/jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":
             if self.headers.get("Cookie") != "session=tv-session":
                 self.send_error(403)
@@ -131,9 +139,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
         elif path.startswith(("/api/movies/local-library/poster/", "/fixture-covers/")) or path == "/api/image-proxy":
             image_path = urlsplit(parse_qs(urlsplit(self.path).query).get("url", [""])[0]).path if path == "/api/image-proxy" else path
             movie_id = image_path.rsplit("/", 1)[-1].removesuffix(".png")
-            self.send_bytes(COVERS[cover_dimensions(movie_id)], "image/png")
+            self.send_bytes(AVATAR if image_path == "/remote-avatar.png" else COVERS[cover_dimensions(movie_id)], "image/png")
         elif path.endswith("/avatar"):
-            self.send_bytes(COVERS[(240, 240)], "image/png")
+            self.send_bytes(AVATAR, "image/png")
         elif path in ("/api/movies/local-library/TV-001/play", "/api/automation/play-jobs/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/stream"):
             if path.endswith("/stream") and self.headers.get("Cookie") != "session=tv-session":
                 self.send_error(403)
@@ -185,6 +193,7 @@ def main():
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, default=Path("/tmp/javjaeger-tv-smoke"))
     parser.add_argument("--layout-only", action="store_true", help="Check home, local and online artwork/navigation layouts without playback.")
+    parser.add_argument("--actors-only", action="store_true", help="Check actor photos and remote selection in local/online directories and details.")
     args = parser.parse_args()
 
     def adb(*command, binary=False):
@@ -238,6 +247,40 @@ def main():
         return tuple(map(int, re.findall(r"\d+", node.get("bounds"))))
 
     cover_measurements = []
+    actor_measurements = []
+
+    def check_actor_photo(name, action, image_path, stage):
+        activate(action, click=False)
+        until = time.monotonic() + 25
+        photo_bounds = None
+        requested = False
+        while time.monotonic() < until:
+            root = tree()
+            requested = any(urlsplit(parse_qs(urlsplit(path).query).get("url", [path])[0]).path == image_path
+                            for path in FixtureHandler.requests)
+            photo = find(root, "演员照片：" + name)
+            if requested and photo is not None:
+                photo_bounds = bounds(photo)
+                left, top, right, bottom = photo_bounds
+                assert right > left and bottom > top, "Actor photo must have visible bounds"
+                raw = adb("exec-out", "screencap", binary=True)
+                width, height, pixel_format = struct.unpack_from("<III", raw)
+                assert pixel_format in (1, 2), "Avatar pixel check expects RGBA/RGBX screenshot"
+                pixels = raw[-width * height * 4:]
+                matches = 0
+                for y in range(3, 8):
+                    for x in range(3, 8):
+                        offset = ((top + (bottom - top) * y // 10) * width + left + (right - left) * x // 10) * 4
+                        rgb = pixels[offset:offset + 3]
+                        matches += any(all(abs(rgb[i] - color[i]) <= 6 for i in range(3))
+                                       for color in ((245, 75, 205), (25, 185, 215)))
+                if matches >= 12:
+                    actor_measurements.append({"stage": stage, "name": name, "bounds": photo_bounds,
+                                               "image_path": image_path, "matching_pixels": matches})
+                    (args.artifacts / (stage + ".png")).write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+                    return
+            time.sleep(.2)
+        raise AssertionError(f"{stage}: actor photo not loaded for {name}; request={requested}, image_bounds={photo_bounds}")
 
     def check_cover(movie_id, title, stage):
         label = f"{movie_id} {title}"
@@ -315,6 +358,25 @@ def main():
         adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
         enter("服务器地址", f"http://127.0.0.1:{port}")
         activate("连接服务器")
+        if args.actors_only:
+            wait("最近入库")
+            activate("浏览新片")
+            activate("浏览筛选")
+            activate("浏览演员目录")
+            check_actor_photo("在线演员", "在线演员", "/static/avatars/qa.jpg", "online-actors")
+            activate("在线演员")
+            activate("新片播放测试")
+            check_actor_photo("在线演员", "浏览演员：在线演员", "/remote-avatar.png", "online-detail-actors")
+            key("KEYCODE_BACK")
+            wait("新片播放测试")
+            activate("演员")
+            check_actor_photo("QA演员", "查看演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-actors")
+            activate("查看演员：QA演员")
+            activate("遥控器测试影片")
+            check_actor_photo("QA演员", "演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-detail-actors")
+            assert any(path.startswith("/api/image-proxy?url=") and "remote-avatar.png" in path for path in FixtureHandler.requests), "Remote actor photos must use the server image proxy"
+            print("PASS: actor photo requests, visible synthetic pixels and remote selection in all four entry points", flush=True)
+            return
         for tab in ("推荐", "全部影片", "标签", "演员", "VR"):
             wait(tab)
         wait("最近入库")
@@ -337,6 +399,7 @@ def main():
             return
         activate("TV-001 遥控器测试影片")
         wait("播放：part-1.mp4")
+        check_actor_photo("QA演员", "演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-detail-actors")
         key("KEYCODE_BACK")
         root, _ = wait("TV-001 遥控器测试影片")
         focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
@@ -367,6 +430,7 @@ def main():
         activate("清空标签选择")
         print("PASS: tag directory, OR/AND and clear", flush=True)
         activate("演员")
+        check_actor_photo("QA演员", "查看演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-actors")
         activate("查看演员：QA演员")
         wait("全部演员")
         root, _ = wait("遥控器测试影片")
@@ -453,11 +517,13 @@ def main():
         check_compact_sidebar(check_cover("ONLINE-001", "新片播放测试", "browse"))
         activate("浏览筛选")
         activate("浏览演员目录")
+        check_actor_photo("在线演员", "在线演员", "/static/avatars/qa.jpg", "online-actors")
         activate("在线演员")
         wait("新片播放测试")
         activate("新片播放测试")
         wait("浏览演员：在线演员")
         wait("浏览标签：在线标签")
+        check_actor_photo("在线演员", "浏览演员：在线演员", "/remote-avatar.png", "online-detail-actors")
         activate("最佳资源播放")
         activate("取消等待", click=False)
         time.sleep(2)
@@ -483,7 +549,7 @@ def main():
         root, _ = wait("新片播放测试")
         assert any('filters=' in p and 'qa' in p for p in FixtureHandler.requests), "Online catalog selection must reach the server"
         allowed = ("/api/movies/local-library", "/api/image-proxy?url=", "/api/system/info", "/api/movies?",
-                   "/api/movies/ONLINE-", "/static/actors.json", "/static/categories.json",
+                   "/api/movies/ONLINE-", "/static/actors.json", "/static/categories.json", "/static/avatars/",
                    "/api/automation/play-jobs", "/api/system/jobs/", "/fixture-covers/")
         assert all(path.startswith(allowed) for path in FixtureHandler.requests), "TV must use only its defined server APIs"
         print("PASS: online discovery, facets, session-owned 115 cancellation/retry and native playback", flush=True)
@@ -493,6 +559,7 @@ def main():
         (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         print("PASS: connect, remote search/details, missing-segment skip, playback, back and server persistence")
     finally:
+        (args.artifacts / "actor-measurements.json").write_text(json.dumps(actor_measurements, indent=2))
         (args.artifacts / "cover-measurements.json").write_text(json.dumps(cover_measurements, indent=2))
         (args.artifacts / "requests.json").write_text(json.dumps(FixtureHandler.requests, indent=2))
         (args.artifacts / "last-screen.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))

@@ -242,6 +242,49 @@ public class LibraryClientTest {
         assertEquals("g1", client.loadBrowseCatalog("genre").get(0).value); assertEquals("/static/categories.json", requested.get());
     }
 
+    @Test public void browseActorCatalogAndDetailsKeepValidatedAvatarFields() throws Exception {
+        LibraryClient client = new LibraryClient(address + "/base");
+        body.set("{\"演员\":[{\"code\":\"a1\",\"name\":\"演员 A\",\"avatar\":\"https://art.example/a.jpg\"},"
+                + "{\"id\":\"a2\",\"name\":\"演员 B\",\"img\":\"https://art.example/b.jpg\"},"
+                + "{\"id\":\"a3\",\"name\":\"演员 C\",\"avatar\":\"/api/system/settings\"},"
+                + "{\"id\":\"a4\",\"name\":\"演员 D\",\"avatar\":\"https://user:secret@art.example/a.jpg\",\"img\":\"https://art.example/d.jpg\"}]}");
+        List<LibraryClient.BrowseFilter> catalog = client.loadBrowseCatalog("star");
+        assertEquals("/base/static/actors.json", requested.get());
+        assertEquals("https://art.example/a.jpg", catalog.get(0).artworkSource);
+        assertEquals("https://art.example/b.jpg", catalog.get(1).artworkSource);
+        assertEquals("", catalog.get(2).artworkSource);
+        assertEquals("https://art.example/d.jpg", catalog.get(3).artworkSource);
+        assertEquals(address + "/base/api/image-proxy?url=https%3A%2F%2Fart.example%2Fa.jpg", client.browseActorAvatarUrl(catalog.get(0)));
+        assertEquals(address + "/base/static/avatars/a3.jpg", client.browseActorAvatarUrl(catalog.get(2)));
+        body.set("{\"id\":\"QA-100\",\"stars\":[{\"id\":\"uncensored/a1\",\"name\":\"演员 A\",\"avatar\":\"https://art.example/a.jpg\"},"
+                + "{\"id\":\"a2\",\"name\":\"演员 B\",\"img\":\"https://art.example/b.jpg\"}],"
+                + "\"genres\":[{\"id\":\"g1\",\"name\":\"标签\",\"avatar\":\"https://art.example/tag.jpg\"}]}");
+        Movie movie = client.loadBrowseMovie("QA-100");
+        assertEquals("a1", movie.browseFilters.get(0).value);
+        assertEquals("演员 A", movie.browseFilters.get(0).label);
+        assertEquals(catalog.get(0).artworkSource, movie.browseFilters.get(0).artworkSource);
+        assertEquals(catalog.get(1).artworkSource, movie.browseFilters.get(1).artworkSource);
+        assertEquals("", movie.browseFilters.get(2).artworkSource);
+    }
+
+    @Test public void browseActorAvatarsUseOnlyFixedPathsOrServerProxyAndNeverOtherFacetTypes() throws Exception {
+        LibraryClient client = new LibraryClient(address + "/base");
+        for (String invalid : new String[]{null, "", "/static/avatars/OTHER.jpg", "/api/system/settings", "../secret", "//art.example/a.jpg",
+                "https://user:secret@art.example/a.jpg", "file:///secret", "javascript:secret", "https://art.example:70000/a.jpg"}) {
+            LibraryClient.BrowseFilter actor = new LibraryClient.BrowseFilter("star", "演员 A", "演员 A", invalid);
+            assertEquals("", actor.artworkSource);
+            assertEquals(address + "/base/static/avatars/%E6%BC%94%E5%91%98%20A.jpg", client.browseActorAvatarUrl(actor));
+        }
+        for (String type : new String[]{"genre", "studio", "label", "director", "series"}) {
+            LibraryClient.BrowseFilter other = new LibraryClient.BrowseFilter(type, "a1", "分类", "https://art.example/a.jpg");
+            assertEquals("", other.artworkSource);
+            assertEquals("", client.browseActorAvatarUrl(other));
+        }
+        assertEquals("", client.browseActorAvatarUrl(null));
+        assertEquals("", client.actorAvatarUrl(null));
+        assertEquals(address + "/base/static/avatars/a1.jpg", client.browseActorAvatarUrl(new LibraryClient.BrowseFilter("star", "a1", "演员 A")));
+    }
+
     @Test public void browseFiltersRejectControlCharactersAndKeepRemotePathsOutOfFilterIds() throws Exception {
         for (String invalid : new String[]{"\n\n", "a\r\nb", "a?token=secret", "a#secret", "a\\secret", "../secret"}) {
             try { new LibraryClient.BrowseFilter("star", invalid, "演员"); fail("Accepted invalid filter value"); }

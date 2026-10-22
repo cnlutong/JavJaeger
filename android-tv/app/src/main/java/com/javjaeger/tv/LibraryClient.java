@@ -34,12 +34,14 @@ public final class LibraryClient {
     public String getBaseUrl() { return baseUrl; }
 
     public static final class BrowseFilter {
-        public final String type, value, label;
-        public BrowseFilter(String type, String value, String label) {
+        public final String type, value, label, artworkSource;
+        public BrowseFilter(String type, String value, String label) { this(type, value, label, ""); }
+        public BrowseFilter(String type, String value, String label, String avatar) {
             if (!Arrays.asList("star", "genre", "studio", "label", "director", "series").contains(type)
                     || value == null || value.trim().isEmpty() || value.length() > 240 || value.matches("(?s).*[\\p{Cntrl}/?#].*") || value.indexOf('\\') >= 0)
                 throw new IllegalArgumentException("浏览筛选条件无效。");
             this.type = type; this.value = value.trim(); this.label = label == null || label.trim().isEmpty() ? this.value : label.trim();
+            artworkSource = "star".equals(type) ? Movie.remoteImage(avatar == null ? "" : avatar) : "";
         }
     }
 
@@ -86,7 +88,8 @@ public final class LibraryClient {
                     JSONArray items = (JSONArray) group;
                     for (int index = 0; index < items.length(); index++) {
                         JSONObject item = items.getJSONObject(index);
-                        options.add(new BrowseFilter(type, item.optString("id", item.optString("code", "")), item.optString("name", item.optString("title", ""))));
+                        options.add(new BrowseFilter(type, item.optString("id", item.optString("code", "")), item.optString("name", item.optString("title", "")),
+                                Movie.remoteImage(item.optString("avatar", ""), item.optString("img", ""))));
                     }
                 } else if (group instanceof JSONObject) {
                     JSONObject items = (JSONObject) group;
@@ -189,6 +192,11 @@ public final class LibraryClient {
     public String actorAvatarUrl(CinemaLibrary.Actor actor) {
         if (actor == null || !actor.avatarAvailable || !CinemaLibrary.Actor.validKey(actor.key)) return "";
         return baseUrl + "/api/movies/local-library/actors/" + encode(actor.key).replace("+", "%20") + "/avatar";
+    }
+
+    public String browseActorAvatarUrl(BrowseFilter actor) {
+        if (actor == null || !"star".equals(actor.type)) return "";
+        return actor.artworkSource.isEmpty() ? baseUrl + "/static/avatars/" + encode(actor.value).replace("+", "%20") + ".jpg" : artworkUrl(actor.artworkSource);
     }
 
     public String deploymentLabel() throws IOException {
