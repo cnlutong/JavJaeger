@@ -24,10 +24,17 @@ def test_tv_player_can_seek_indexed_files_and_receives_missing_file_errors(tmp_p
             response = await client.get(url)
             assert response.status_code == 200
             assert response.content == b"0123456789"
+            etag = response.headers["etag"]
             response = await client.get(url, headers={"Range": "bytes=2-5"})
             assert response.status_code == 206
             assert response.headers["content-range"] == "bytes 2-5/10"
             assert response.content == b"2345"
+            response = await client.get(url, headers={"Range": "bytes=-3", "If-Range": etag})
+            assert response.status_code == 206
+            assert response.content == b"789"
+            response = await client.get(url, headers={"Range": "bytes=2-5", "If-Range": '"old-file"'})
+            assert response.status_code == 200
+            assert response.content == b"0123456789"
             assert (await client.get(url, headers={"Range": "bytes=100-"})).status_code == 416
             assert (await client.get(url.replace("index=2", "index=1"))).status_code == 404
 

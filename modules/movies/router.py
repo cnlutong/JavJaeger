@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
 from modules.common import runtime
+from modules.common.file_response import DisconnectAwareFileResponse
 from modules.common.paths import UserPathError
 from modules.history.service import local_actor_library_service, local_movie_library_service
 from .local_library import (
@@ -273,7 +274,7 @@ async def play_local_movie_library_file(movie_id: str, file_index: int = 0):
     if video_path is None:
         raise HTTPException(status_code=404, detail="video_not_found")
     media_type = mimetypes.guess_type(str(video_path))[0] or "application/octet-stream"
-    return FileResponse(video_path, media_type=media_type, filename=video_path.name)
+    return DisconnectAwareFileResponse(video_path, media_type=media_type, filename=video_path.name)
 
 
 @router.delete("/api/movies/local-library/{movie_id}/files")
