@@ -103,7 +103,7 @@ def playback_runner(movie_id: str):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return failed('等待超时，网盘任务仍会继续；重试可继续等待')
-                await poll_delay(min(15, remaining))
+                await poll_delay(min(3, remaining))
         except Exception:
             return failed('播放准备失败，请检查 115 连接后重试')
 

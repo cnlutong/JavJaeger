@@ -90,6 +90,7 @@ Use this as the source-of-truth ownership map.
   - durable per-movie update files, snapshot compaction, and actor-index recovery
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
+  - indexed local subtitle discovery, video-version matching and WebVTT delivery
   - server-side search enrichment and scraper diagnostics jobs
   - background local library scans, information checks, completion and invalid-file cleanup workflows
   - GPU capability detection and hardware-only transcoding task orchestration

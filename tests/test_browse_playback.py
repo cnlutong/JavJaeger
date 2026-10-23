@@ -65,7 +65,7 @@ def test_playback_reuses_existing_completed_cloud_task(monkeypatch):
 
 
 @pytest.mark.parametrize('timeout', [60, 2])
-def test_playback_polls_no_faster_than_fifteen_seconds_unless_deadline_is_nearer(monkeypatch, timeout):
+def test_playback_polls_every_three_seconds_unless_deadline_is_nearer(monkeypatch, timeout):
     client = fake_client([{'status': 'downloading', 'progress': 10}, {'status': 'completed'}])
     configure(monkeypatch, client)
     sleep = AsyncMock()
@@ -75,7 +75,7 @@ def test_playback_polls_no_faster_than_fifteen_seconds_unless_deadline_is_nearer
     assert result['success']
     sleep.assert_awaited_once()
     delay = sleep.await_args.args[0]
-    assert delay == 15 if timeout >= 15 else 0 < delay <= timeout
+    assert delay == 3 if timeout >= 3 else 0 < delay <= timeout
 
 
 def test_running_playback_snapshot_identifies_movie_without_claiming_readiness(monkeypatch):
