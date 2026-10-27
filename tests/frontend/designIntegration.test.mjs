@@ -739,6 +739,89 @@ test('performance: incremental search enrichment avoids rescanning every result 
     assert.ok(fullResultVisits <= count * 4, `${fullResultVisits} full-result visits while enriching ${count} films`);
 });
 
+test('search submits the current category without requiring a separate add action', async t => {
+    for (const fetchMode of ['page', 'all']) await t.test(fetchMode, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ route: 'search', sMode: 'filter', fType: '类别', fValue: '4y', fLabel: '测试类别', fetchMode });
+        const fixture = mockSearch([]);
+        await instance.runSearch();
+        const query = fetchMode === 'all' ? fixture.calls.find(call => call.body?.all_pages).body.query
+            : Object.fromEntries(new URL(fixture.calls.find(call => call.url.startsWith('/api/movies?')).url, 'http://localhost').searchParams);
+        assert.deepEqual(JSON.parse(query.filters), [{ type: 'genre', value: '4y', label: '测试类别' }]);
+        assert.ok(instance.renderVals().s.chips.some(chip => chip.text === '类别：测试类别'));
+        assert.equal(instance.state.fValue, '', 'the submitted draft is consumed so removing its chip really removes the filter');
+        instance.renderVals().s.chips.find(chip => chip.text === '类别：测试类别').remove();
+        await instance.runSearch();
+        const nextQuery = fetchMode === 'all' ? fixture.calls.filter(call => call.body?.all_pages).at(-1).body.query
+            : Object.fromEntries(new URL(fixture.calls.filter(call => call.url.startsWith('/api/movies?')).at(-1).url, 'http://localhost').searchParams);
+        assert.deepEqual(JSON.parse(nextQuery.filters), []);
+    });
+});
+
+test('search preserves category names and combines an added condition with the current draft once', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'filter', fType: '演员', fValue: 'qa-star', fLabel: '测试演员' });
+    instance.renderVals().s.addFilter();
+    const fixture = mockSearch([]);
+    await instance.runSearch();
+    instance.setState({ fType: '类别', fValue: '4y', fLabel: '测试类别' });
+    await instance.runSearch();
+    const query = new URL(fixture.calls.filter(call => call.url.startsWith('/api/movies?')).at(-1).url, 'http://localhost').searchParams;
+    assert.deepEqual(JSON.parse(query.get('filters')), [
+        { type: 'star', value: 'qa-star', label: '测试演员' }, { type: 'genre', value: '4y', label: '测试类别' },
+    ]);
+    assert.equal(instance.state.fList.length, 2);
+});
+
+test('search resolves a typed category name through the real catalogue before submission', async t => {
+    for (const addFirst of [false, true]) await t.test(addFirst ? 'added' : 'draft', async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        globalThis.fetch = async url => json(url.endsWith('categories.json') ? { QA: [{ code: 'qa-genre', name: '测试类别' }] } : {});
+        await instance.loadCatalogs();
+        instance.setState({ route: 'search', sMode: 'filter', fType: '类别', fValue: '测试类别', fLabel: '测试类别' });
+        if (addFirst) instance.renderVals().s.addFilter();
+        const fixture = mockSearch([]);
+        await instance.runSearch();
+        const query = new URL(fixture.calls.find(call => call.url.startsWith('/api/movies?')).url, 'http://localhost').searchParams;
+        assert.deepEqual(JSON.parse(query.get('filters')), [{ type: 'genre', value: 'qa-genre', label: '测试类别' }]);
+    });
+});
+
+test('search keeps distinct category codes when their displayed names are identical', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.constructor.data.GENRE_CATALOG.push({ name: '测试分组', items: [['清楚', 'i6'], ['清楚', 'jo']] });
+    instance.setState({ route: 'search', sMode: 'filter', fType: '类别', fValue: 'i6', fLabel: '清楚' });
+    instance.renderVals().s.addFilter();
+    instance.setState({ fValue: 'jo', fLabel: '清楚' }); instance.renderVals().s.addFilter();
+    assert.deepEqual(instance.state.fList.map(filter => filter.value), ['i6', 'jo']);
+    instance.setState({ fValue: 'i6', fLabel: '清楚' }); instance.renderVals().s.addFilter();
+    assert.deepEqual(instance.state.fList.map(filter => filter.value), ['i6', 'jo'], 'the same code is still deduplicated');
+});
+
+test('search rejects an ambiguous category name and asks for its code without sending a request', async t => {
+    for (const addFirst of [false, true]) await t.test(addFirst ? 'add' : 'search', async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.constructor.data.GENRE_CATALOG.push({ name: '测试分组', items: [['清楚', 'i6'], ['清楚', 'jo']] });
+        instance.setState({ route: 'search', sMode: 'filter', fType: '类别', fValue: '清楚', fLabel: '清楚' });
+        const messages = []; instance.toast = message => messages.push(message);
+        const fixture = mockSearch([]);
+        if (addFirst) await instance.renderVals().s.addFilter(); else await instance.runSearch();
+        assert.equal(instance.state.fList.length, 0);
+        assert.equal(fixture.calls.length, 0);
+        assert.match(messages.at(-1), /i6.*jo/);
+        assert.match(messages.at(-1), /目录.*代码/);
+    });
+});
+
+test('search restarts pagination when the movie type changes', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ route: 'search', sMode: 'filter', page: 4 });
+    instance.renderVals().s.setKindUnc();
+    assert.equal(instance.state.kind, 'uncensored'); assert.equal(instance.state.page, 1);
+    instance.setState({ page: 3 }); instance.renderVals().s.setKindNormal();
+    assert.equal(instance.state.kind, 'normal'); assert.equal(instance.state.page, 1);
+});
+
 test('search enriches every summary in the background and reuses details across all magnet sources', async t => {
     for (const src of ['javbus', 'cili', 'yhg']) await t.test(src, async t => {
         const instance = app(); t.after(() => instance.componentWillUnmount());

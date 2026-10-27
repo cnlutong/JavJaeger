@@ -10,7 +10,7 @@ import { loadSubtitleAppearance, saveSubtitleAppearance, normalizeSubtitleAppear
 
 // Reuse the imported component's data and workflows in the API adapter.
 // Management views retain the supplied template; cinema has its own presentation.
-export const designDataExports = '\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };';
+export const designDataExports = '\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };\nComponent.filterTypes = FILTER_TYPES;';
 // Keep the imported design intact; adapt its eager view calculations at startup.
 export function adaptDesignScript(script) {
     script = script.replace('const NAV = [', "const NAV = [\n  { id: 'browse', label: '浏览', icon: 'ph-compass' },");
@@ -591,16 +591,33 @@ export function connectDesign(Base) {
             return magnets.map(magnet => ({ ...magnet, name: magnet.title || magnet.name || movie.code, source: magnet.source || sourceKey(source), movie_id: movie.code }));
         }
 
+        searchFilterPatch(st = this.state) {
+            const input = st.fValue.trim();
+            if (!input) return {};
+            const type = Base.filterTypes[st.fType].key;
+            const catalog = type === 'genre' ? data.GENRE_CATALOG : type === 'star' ? data.ACTOR_CATALOG : [];
+            const items = catalog.flatMap(group => group.items), exactCode = items.find(([, code]) => code === input);
+            const matches = exactCode ? [exactCode] : items.filter(([name]) => name === input);
+            if (matches.length > 1) throw new Error(`名称“${input}”对应多个代码（${matches.map(([, code]) => code).join('、')}），请从目录选择或输入代码`);
+            const item = matches[0];
+            const value = item?.[1] || input, name = item?.[0] || st.fLabel || value;
+            const exists = st.fList.some(filter => filter.type === type && filter.value === value);
+            return { fList: exists ? st.fList : [...st.fList, { type, value, label: st.fType, name }],
+                fValue: '', fLabel: '', ...(!exists ? { page: 1 } : {}) };
+        }
+
         runSearch = async () => {
             const version = ++this.requestVersion, st = { ...this.state };
             this._searchRestored = true; this._activeSearchJobId = null;
             data.MOVIES.splice(0); this.magnets.clear(); this.searchByCode.clear();
             this.setState({ loading: true, sel: [], detail: null, searchError: '', searchDone: false, nextPage: false, searchPage: null });
             try {
+                const filters = st.sMode === 'filter' ? this.searchFilterPatch(st) : {};
+                Object.assign(st, filters); this.setState(filters);
                 let payload;
                 if (st.sMode === 'recognize') payload = await this.request('/api/movies/recognize', 'POST', { html_content: st.recogHtml, auto_download: false, magnet_source: sourceKey(st.src), has_subtitle_filter: st.sub === '0' ? null : st.sub, exclude_4k: st.exclude4k });
                 else if (st.sMode === 'filter') {
-                    const query = new URLSearchParams({ filters: JSON.stringify(st.fList.map(({ type, value }) => ({ type, value }))), magnet: st.magParam, type: st.kind, page: String(st.page), excludeVr: String(st.excludeVr) });
+                    const query = new URLSearchParams({ filters: JSON.stringify(st.fList.map(({ type, value, name }) => ({ type, value, label: name || value }))), magnet: st.magParam, type: st.kind, page: String(st.page), excludeVr: String(st.excludeVr) });
                     if (st.sub !== '0') query.set('hasSubtitle', st.sub);
                     const count = { '1 人': '1', '2 人': '2', '3 人': '3', '≤ 2 人': '<=2', '≤ 3 人': '<=3', '≥ 3 人': '>=3', '≥ 4 人': '>=4' }[st.actorCount];
                     if (count) query.set('actorCountFilter', count);
@@ -1863,6 +1880,12 @@ export function connectDesign(Base) {
             const confirmation = this.pageItems(view.dlg.list, 'dlgPage', []);
             view.dlg.list = confirmation.items; view.dlg.paging = confirmation.paging;
             const search = view.s, movies = st.route === 'search' ? this.visible() : [];
+            search.addFilter = () => this.perform(() => {
+                if (!this.state.fValue.trim()) { this.toast('请选择筛选类型并填写筛选代码或名称', WARN); return; }
+                this.setState(this.searchFilterPatch());
+            });
+            search.setKindNormal = () => this.setState({ kind: 'normal', page: 1 });
+            search.setKindUnc = () => this.setState({ kind: 'uncensored', page: 1 });
             const movieIndex = this.searchByCode;
             search.paging = this.pageItems(movies, 'searchPage', []).paging;
             search.selectPage = () => this.setState({ sel: [...new Set([...st.sel, ...search.rows.map(row => row.code)])] });

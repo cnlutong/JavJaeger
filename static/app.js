@@ -5851,7 +5851,7 @@ class Component extends DCLogic {
   }
 
   // frontend/src/design/integration.mjs
-  var designDataExports = "\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };";
+  var designDataExports = "\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };\nComponent.filterTypes = FILTER_TYPES;";
   function adaptDesignScript(script) {
     script = script.replace("const NAV = [", "const NAV = [\n  { id: 'browse', label: '\u6D4F\u89C8', icon: 'ph-compass' },");
     for (const [key, route, method] of [["cn", "cinema", "vCinema"], ["d", "dispatch", "vDispatch"], ["tc", "transcode", "vTranscode"], ["sc", "scrape", "vScrape"], ["lb", "library", "vLibrary"], ["au", "auto", "vAuto"], ["fs", "storage", "vStorage"], ["se", "settings", "vSettings"]]) {
@@ -6637,6 +6637,24 @@ class Component extends DCLogic {
         const magnets = Array.isArray(result) ? result : result.magnets || [];
         return magnets.map((magnet) => ({ ...magnet, name: magnet.title || magnet.name || movie.code, source: magnet.source || sourceKey(source), movie_id: movie.code }));
       }
+      searchFilterPatch(st = this.state) {
+        const input = st.fValue.trim();
+        if (!input) return {};
+        const type = Base.filterTypes[st.fType].key;
+        const catalog = type === "genre" ? data.GENRE_CATALOG : type === "star" ? data.ACTOR_CATALOG : [];
+        const items = catalog.flatMap((group) => group.items), exactCode = items.find(([, code]) => code === input);
+        const matches = exactCode ? [exactCode] : items.filter(([name2]) => name2 === input);
+        if (matches.length > 1) throw new Error(`\u540D\u79F0\u201C${input}\u201D\u5BF9\u5E94\u591A\u4E2A\u4EE3\u7801\uFF08${matches.map(([, code]) => code).join("\u3001")}\uFF09\uFF0C\u8BF7\u4ECE\u76EE\u5F55\u9009\u62E9\u6216\u8F93\u5165\u4EE3\u7801`);
+        const item = matches[0];
+        const value = item?.[1] || input, name = item?.[0] || st.fLabel || value;
+        const exists = st.fList.some((filter) => filter.type === type && filter.value === value);
+        return {
+          fList: exists ? st.fList : [...st.fList, { type, value, label: st.fType, name }],
+          fValue: "",
+          fLabel: "",
+          ...!exists ? { page: 1 } : {}
+        };
+      }
       runSearch = async () => {
         const version = ++this.requestVersion, st = { ...this.state };
         this._searchRestored = true;
@@ -6646,10 +6664,13 @@ class Component extends DCLogic {
         this.searchByCode.clear();
         this.setState({ loading: true, sel: [], detail: null, searchError: "", searchDone: false, nextPage: false, searchPage: null });
         try {
+          const filters = st.sMode === "filter" ? this.searchFilterPatch(st) : {};
+          Object.assign(st, filters);
+          this.setState(filters);
           let payload;
           if (st.sMode === "recognize") payload = await this.request("/api/movies/recognize", "POST", { html_content: st.recogHtml, auto_download: false, magnet_source: sourceKey(st.src), has_subtitle_filter: st.sub === "0" ? null : st.sub, exclude_4k: st.exclude4k });
           else if (st.sMode === "filter") {
-            const query = new URLSearchParams({ filters: JSON.stringify(st.fList.map(({ type, value }) => ({ type, value }))), magnet: st.magParam, type: st.kind, page: String(st.page), excludeVr: String(st.excludeVr) });
+            const query = new URLSearchParams({ filters: JSON.stringify(st.fList.map(({ type, value, name }) => ({ type, value, label: name || value }))), magnet: st.magParam, type: st.kind, page: String(st.page), excludeVr: String(st.excludeVr) });
             if (st.sub !== "0") query.set("hasSubtitle", st.sub);
             const count = { "1 \u4EBA": "1", "2 \u4EBA": "2", "3 \u4EBA": "3", "\u2264 2 \u4EBA": "<=2", "\u2264 3 \u4EBA": "<=3", "\u2265 3 \u4EBA": ">=3", "\u2265 4 \u4EBA": ">=4" }[st.actorCount];
             if (count) query.set("actorCountFilter", count);
@@ -8643,6 +8664,15 @@ class Component extends DCLogic {
         view.dlg.list = confirmation.items;
         view.dlg.paging = confirmation.paging;
         const search = view.s, movies = st.route === "search" ? this.visible() : [];
+        search.addFilter = () => this.perform(() => {
+          if (!this.state.fValue.trim()) {
+            this.toast("\u8BF7\u9009\u62E9\u7B5B\u9009\u7C7B\u578B\u5E76\u586B\u5199\u7B5B\u9009\u4EE3\u7801\u6216\u540D\u79F0", WARN);
+            return;
+          }
+          this.setState(this.searchFilterPatch());
+        });
+        search.setKindNormal = () => this.setState({ kind: "normal", page: 1 });
+        search.setKindUnc = () => this.setState({ kind: "uncensored", page: 1 });
         const movieIndex = this.searchByCode;
         search.paging = this.pageItems(movies, "searchPage", []).paging;
         search.selectPage = () => this.setState({ sel: [.../* @__PURE__ */ new Set([...st.sel, ...search.rows.map((row) => row.code)])] });

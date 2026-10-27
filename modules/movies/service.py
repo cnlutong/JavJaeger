@@ -170,6 +170,18 @@ def _movie_detail_matches_filter(movie_detail: dict[str, Any], condition: dict[s
     if not expected_values:
         return True
 
+    if condition["type"] == "genre":
+        expected_codes = set(_iter_detail_values({"id": condition.get("value")}))
+        genres = movie_detail.get("genres") or []
+        for genre in genres if isinstance(genres, list) else [genres]:
+            # Names can be shared by different JavBus codes; use names only when the code is absent.
+            if isinstance(genre, dict) and genre.get("id"):
+                if expected_codes.intersection(_iter_detail_values({"id": genre["id"]})):
+                    return True
+            elif expected_values.intersection(_iter_detail_values(genre)):
+                return True
+        return False
+
     detail_values: set[str] = set()
     for field_name in FILTER_DETAIL_FIELDS[condition["type"]]:
         detail_values.update(_iter_detail_values(movie_detail.get(field_name)))

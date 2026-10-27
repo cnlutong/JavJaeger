@@ -57,3 +57,5 @@ Add new baseline contracts whenever project architecture, security model, route 
 - Do not read real runtime state from `data/`.
 - Do not use files under `archive/` as active fixtures unless the test name explicitly documents historical compatibility.
 - Never commit real credentials, cookies, tokens, or private download URLs.
+
+The category catalogue in `static/categories.json` is checked against the user-supplied JavBus censored genre page, normalized in `tests/fixtures/javbus_genres.json`. Preserve existing localized labels and use category codes as identities: different codes may share a name. The captured page assigns `hd` to both `高清` and `縛り`; retain the established `高清` entry and exclude the conflicting alias until an authoritative correction is available. Genre filters match supplied detail codes before falling back to names for metadata without codes.

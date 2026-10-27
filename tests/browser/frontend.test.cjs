@@ -1081,6 +1081,110 @@ test('imported runtime renders all original pages with no demo data or errors', 
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-design-settings.png'), fullPage: true });
 });
 
+test('search: category drafts, catalogue selection and movie type reach the request without an extra add click', async t => {
+    const queries = [], consoleErrors = [];
+    t.after(() => assert.deepEqual(consoleErrors, [], 'no browser console errors during category filtering'));
+    const page = await openApp(t, 1440, async p => {
+        p.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+        await libraryFixture(p);
+        await p.route('**/static/categories.json', route => route.fulfill({ json: { QA: [{ code: 'qa-genre', name: '测试类别' }] } }));
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', body => {
+            if (body.all_pages) queries.push(body.query);
+            return searchSnapshot(body, body.all_pages ? [movie('QA-FILTERED')] : body.movies);
+        });
+        await p.route('**/api/movies?*', route => {
+            const query = Object.fromEntries(new URL(route.request().url()).searchParams); queries.push(query);
+            const filtered = JSON.parse(query.filters).some(filter => filter.type === 'genre' && filter.value === 'qa-genre');
+            return route.fulfill({ json: { movies: [movie(filtered ? 'QA-FILTERED' : 'QA-UNFILTERED')], pagination: { hasNextPage: true, nextPage: 2 } } });
+        });
+    });
+    await navigate(page, '影片检索');
+    await page.getByRole('button', { name: '标签筛选', exact: true }).click();
+    await field(page, '筛选类型').selectOption('类别');
+    await page.getByPlaceholder('筛选代码或名称', { exact: true }).fill('qa-genre');
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-FILTERED', { exact: true }).waitFor();
+    assert.deepEqual(JSON.parse(queries.at(-1).filters), [{ type: 'genre', value: 'qa-genre', label: '测试类别' }]);
+    assert.equal(await page.getByPlaceholder('筛选代码或名称', { exact: true }).inputValue(), '');
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('main')?.textContent.includes('QA-FILTERED') && !document.querySelector('main')?.textContent.includes('正在获取'));
+    await page.locator('label').filter({ has: page.locator('input[name="jj-kind"]') }).filter({ hasText: '无码' }).click();
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-FILTERED', { exact: true }).waitFor();
+    assert.equal(queries.at(-1).type, 'uncensored');
+    assert.equal(queries.at(-1).page, '1', 'changing movie type restarts its pagination');
+    await page.getByRole('button', { name: '重置', exact: true }).click();
+    await field(page, '筛选类型').selectOption('类别');
+    await page.getByPlaceholder('筛选代码或名称', { exact: true }).fill('测试类别');
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-FILTERED', { exact: true }).waitFor();
+    assert.deepEqual(JSON.parse(queries.at(-1).filters), [{ type: 'genre', value: 'qa-genre', label: '测试类别' }]);
+    await page.getByRole('button', { name: '重置', exact: true }).click();
+    await field(page, '筛选类型').selectOption('类别');
+    await page.getByRole('button', { name: '浏览筛选目录', exact: true }).click();
+    await page.getByText('测试类别', { exact: true }).click();
+    await page.locator('label').filter({ has: page.locator('input[name="jj-fetch"]') }).filter({ hasText: '全部页' }).click();
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-FILTERED', { exact: true }).waitFor();
+    assert.deepEqual(JSON.parse(queries.at(-1).filters), [{ type: 'genre', value: 'qa-genre', label: '测试类别' }]);
+    assert.equal(await page.title(), 'JavJaeger');
+    assert.ok(page.url().startsWith(baseURL));
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-category-filter-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.getByText('QA 测试影片 QA-FILTERED', { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-category-filter-mobile.png'), animations: 'disabled' });
+    t.diagnostic(JSON.stringify({ baseURL, browser: 'Playwright Chromium', viewports: ['1440x1000', '390x844'], filters: JSON.parse(queries.at(-1).filters) }));
+});
+
+test('search: the real category catalogue resolves new codes and keeps same-name categories distinct', async t => {
+    const queries = [];
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await backgroundRoute(p, '/api/movies/search-jobs', 'search', body => searchSnapshot(body));
+        await p.route('**/api/movies?*', route => {
+            queries.push(Object.fromEntries(new URL(route.request().url()).searchParams));
+            return route.fulfill({ json: { movies: [movie('QA-CATALOG')], pagination: { hasNextPage: false } } });
+        });
+    });
+    const groups = await (await page.request.get(baseURL + '/static/categories.json')).json();
+    assert.equal(Object.values(groups).flat().length, 492);
+    await navigate(page, '影片检索');
+    await page.getByRole('button', { name: '标签筛选', exact: true }).click();
+    await field(page, '筛选类型').selectOption('类别');
+    await page.getByPlaceholder('筛选代码或名称', { exact: true }).fill('清楚');
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText(/名称“清楚”对应多个代码/).first().waitFor();
+    assert.equal(queries.length, 0, 'an ambiguous name cannot silently select the first code');
+    await page.getByPlaceholder('筛选代码或名称', { exact: true }).fill('4K');
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-CATALOG', { exact: true }).waitFor();
+    assert.deepEqual(JSON.parse(queries.at(-1).filters), [{ type: 'genre', value: 'fd', label: '4K' }]);
+    await page.getByRole('button', { name: '重置', exact: true }).click();
+    await field(page, '筛选类型').selectOption('类别');
+    for (const code of ['i6', 'jo']) {
+        await page.getByRole('button', { name: '浏览筛选目录', exact: true }).click();
+        await page.getByPlaceholder('搜索名称或代码', { exact: true }).fill('清楚');
+        const entry = page.getByRole('button').filter({ has: page.getByText(code, { exact: true }) });
+        await entry.waitFor();
+        if (code === 'i6') {
+            await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-genre-codes-desktop.png'), animations: 'disabled' });
+            await page.setViewportSize({ width: 390, height: 844 });
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+            await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-genre-codes-mobile.png'), animations: 'disabled' });
+            await page.setViewportSize({ width: 1440, height: 1000 });
+        }
+        await entry.click();
+        await page.getByRole('button', { name: '添加为筛选条件', exact: true }).click();
+    }
+    await page.getByRole('button', { name: '开始筛选', exact: true }).click();
+    await page.getByText('QA 测试影片 QA-CATALOG', { exact: true }).waitFor();
+    assert.deepEqual(JSON.parse(queries.at(-1).filters), [
+        { type: 'genre', value: 'i6', label: '清楚' }, { type: 'genre', value: 'jo', label: '清楚' },
+    ]);
+});
+
 test('original search controls use actual movie, magnet, filter and recognition APIs', async t => {
     const calls = [];
     const cover = 'https://covers.example.test/search.svg';
