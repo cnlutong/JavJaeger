@@ -1,8 +1,9 @@
 """Discover sidecars for one indexed video; serve browser/TV-compatible WebVTT."""
 import hashlib
-import mimetypes
 import re
 from pathlib import Path
+
+from .local_scrape import VIDEO_EXTENSIONS
 
 MAX_SUBTITLE_BYTES = 8 * 1024 * 1024
 
@@ -23,7 +24,7 @@ def subtitle_files(video: Path) -> list[tuple[str, Path, str, str]]:
             else:
                 continue
             container, separator, language = suffix.partition(".")
-            specific = bool(separator and (mimetypes.guess_type("video." + container)[0] or "").startswith("video/"))
+            specific = bool(separator and "." + container.lower() in VIDEO_EXTENSIONS)
             if specific:
                 if "." + container.lower() != video.suffix.lower():
                     continue

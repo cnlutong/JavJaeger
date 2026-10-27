@@ -1,4 +1,7 @@
 import asyncio
+import mimetypes
+
+import pytest
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -7,7 +10,10 @@ from modules.movies.router import local_movie_library_service, router
 from modules.movies.subtitles import MAX_SUBTITLE_BYTES, subtitle_files
 
 
-def test_container_specific_subtitles_override_shared_tracks_without_cross_loading(tmp_path):
+@pytest.mark.parametrize("missing_system_mime_types", [False, True])
+def test_container_specific_subtitles_override_shared_tracks_without_cross_loading(tmp_path, monkeypatch, missing_system_mime_types):
+    if missing_system_mime_types:
+        monkeypatch.setattr(mimetypes, "guess_type", lambda *args, **kwargs: (None, None))
     mp4, mkv = tmp_path / "QA-001.mp4", tmp_path / "QA-001.mkv"
     for path in (mp4, mkv):
         path.write_bytes(b"video")
