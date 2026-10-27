@@ -57,14 +57,19 @@ TS_MIN_VIDEO_SIZE = 10 * 1024 * 1024
 MPEG_TS_PACKET_SIZE = 188
 MPEG_TS_SYNC_BYTE = 0x47
 DESIGNATION_PATTERNS: list[tuple[re.Pattern[str], int]] = [
-    (re.compile(r"(?i)(FC2)-?PPV-?(\d{6,8})"), 100),
-    (re.compile(r"(?i)(\d{3}[A-Z]{2,6})-(\d{3,5})"), 95),
-    (re.compile(r"(?i)([A-Z]{2,6})-(\d{3,5})"), 90),
-    (re.compile(r"(?i)([A-Z]+\d+)-(\d{3,5})"), 85),
-    (re.compile(r"(?i)([A-Z]{2,6})(0+\d{3,5})(?=[A-Z]{1,4}(?:[^A-Z0-9]|$))"), 82),
-    (re.compile(r"(?i)([A-Z]{2,6})(\d{3,5})(?:[^A-Z0-9]|$)"), 80),
-    (re.compile(r"(?i)(\d{6})[_-](\d{3,5})"), 70),
+    (re.compile(r"(?i)(?<![A-Z0-9])(FC2)[_\-\s]?(?:PPV[_\-\s]?)?(\d{6,8})(?!\d)"), 100),
+    (re.compile(r"(?i)(?<![A-Z0-9])(\d{3}[A-Z]{2,6})[-_\s]+(\d{3,5})(?!\d)"), 95),
+    (re.compile(r"(?i)(?<![A-Z0-9])([A-Z]{2,6})[-_\s]+(\d{3,5})(?!\d)"), 90),
+    (re.compile(r"(?i)(?<![A-Z0-9])([A-Z]+\d+)[-_\s]+(\d{3,5})(?!\d)"), 85),
+    (re.compile(r"(?i)(?<![A-Z0-9])([A-Z]{2,6})(0+\d{3,5})(?=[A-Z]{1,4}(?:[^A-Z0-9]|$))"), 82),
+    (re.compile(r"(?i)(?<![A-Z0-9])([A-Z]{2,6})(\d{3,5})(?=[^A-Z0-9]|$)"), 80),
+    (re.compile(r"(?i)(?<![A-Z0-9])(\d{6})[_-](\d{3,5})(?!\d)"), 70),
 ]
+SITE_MARKER_PATTERN = re.compile(
+    r"(?i)(?<![A-Z0-9])(?:[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?\.)+"
+    r"(?:com|net|org|me|tv|cc|xyz|top|site|club|info|io|co)(?![A-Z0-9])"
+)
+CODEC_PREFIXES = {"AVC", "HEVC", "H264", "H265", "X264", "X265", "VP9", "AV1"}
 RESOLUTION_NUMBERS = {"800", "1080", "720", "480", "360"}
 INVALID_PATH_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 PART_MARKER_PATTERN = re.compile(r"(?i)(?:^|[._\-\s])(?P<kind>part|pt|cd|disc|disk)[._\-\s]*(?P<number>\d{1,2})(?:[^A-Z0-9]|$)")
@@ -96,17 +101,18 @@ def _is_resolution_noise(filename: str, match: re.Match[str], number: str) -> bo
     next_char = filename[match.end() : match.end() + 1].lower()
     if next_char == "p":
         return True
-    raw_match = match.group(0)
-    return "-" not in raw_match and "_" not in raw_match
+    return not re.search(r"[-_\s]", match.group(0))
 
 
 def recognize_designation(filename: str) -> str | None:
+    # Site watermarks can contain plausible codes; remove them before ranking matches.
+    filename = SITE_MARKER_PATTERN.sub(" ", filename)
     candidates: list[tuple[str, int, int]] = []
     for pattern, priority in DESIGNATION_PATTERNS:
         for match in pattern.finditer(filename):
             prefix = match.group(1)
             number = _normalize_designation_number(prefix, match.group(2))
-            if _is_resolution_noise(filename, match, number):
+            if prefix.upper() in CODEC_PREFIXES or _is_resolution_noise(filename, match, number):
                 continue
             designation = f"{prefix}-{number}"
             candidates.append((designation, priority, match.start()))
