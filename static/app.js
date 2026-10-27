@@ -5474,6 +5474,292 @@ class Component extends DCLogic {
     }
   };
 
+  // frontend/src/utils/forum.mjs
+  function filterForumMovies(movies, query = "", keywords = []) {
+    const needle = query.trim().toLocaleLowerCase();
+    return movies.filter((movie) => {
+      const title = String(movie.title || "").toLocaleLowerCase();
+      return title.includes(needle) && keywords.every((keyword) => title.includes(keyword.toLocaleLowerCase()));
+    });
+  }
+  function visibleForumSelection(movies, selected) {
+    const actionable = new Set(movies.filter((movie) => movie.status === "ready" && movie.magnets?.length).map((movie) => movie.thread_id));
+    return selected.filter((key) => actionable.has(key));
+  }
+  function forumDispatchEntries(movies, selected) {
+    const chosen = new Set(visibleForumSelection(movies, selected));
+    return movies.filter((movie) => chosen.has(movie.thread_id)).flatMap((movie) => movie.magnets.map((magnet) => ({
+      movie_id: movie.movie_id,
+      link: magnet.link,
+      source: magnet.source || "dmn12"
+    })));
+  }
+  function forumDispatchFeedback(movie, jobs = [], tool) {
+    const key = { PikPak: "pikpak", "115 \u7F51\u76D8": "pan115", Aria2: "aria2" }[tool];
+    const results = jobs.filter((job) => job.type === "dispatch-" + key && job.result).sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || ""))).reverse().flatMap((job) => job.result.results || []);
+    const matches = (movie.magnets || []).map((magnet) => results.find((row) => String(row.original_magnet || row.magnet || row.link || "").trim().toLowerCase() === magnet.link.trim().toLowerCase()));
+    if (!matches.length || matches.some((row) => !row)) return { handled: false, text: "" };
+    if (matches.some((row) => !row.success && !row.skipped)) return { handled: false, text: "\u4E0B\u53D1\u5931\u8D25\uFF0C\u53EF\u91CD\u8BD5" };
+    return { handled: true, text: matches.every((row) => row.skipped) ? "\u5DF2\u8DF3\u8FC7\u91CD\u590D\u8D44\u6E90" : `\u5DF2\u63D0\u4EA4\u5230 ${tool}` };
+  }
+
+  // frontend/src/design/forumView.mjs
+  var forumStyles = `<style>
+.jj-forum{max-width:1480px;margin:auto;padding:30px clamp(16px,3vw,44px) 112px;min-width:0}.jj-forum-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}.jj-forum h1{font-size:28px;margin:0 0 7px}.jj-forum p{margin:0;color:var(--dim);line-height:1.6}
+.jj-forum-filters{display:grid;grid-template-columns:minmax(190px,1fr) 100px minmax(220px,1.7fr) auto;gap:16px;align-items:end;padding:20px;background:var(--surf);border:1px solid var(--ring);border-radius:10px}.jj-forum-filters label{display:flex;flex-direction:column;gap:8px;font-size:13px}.jj-forum-filters .input{width:100%;min-width:0}.jj-forum-fetch-actions{display:flex;gap:8px;flex-wrap:wrap}.jj-forum-cache{font-size:12px;margin:12px 0!important;overflow-wrap:anywhere}.jj-forum-keywords{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0;color:var(--dim);font-size:13px}.jj-forum-keywords button[aria-pressed="true"]{background:var(--acc);color:var(--bg)}.jj-forum-keywords small{font-size:13px}
+.jj-forum-progress{padding:16px 18px;border:1px solid var(--ring);border-radius:8px;margin-bottom:20px;background:var(--surf2)}.jj-forum-progress-head{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}.jj-forum-progress-head>span{flex:1}.jj-forum-progress progress{width:100%;height:6px;accent-color:var(--acc)}.jj-forum-toolbar{display:flex;gap:16px;justify-content:space-between;align-items:center;margin:24px 0 12px;color:var(--dim);font-size:13px;flex-wrap:wrap}.jj-forum-toolbar label{display:flex;gap:9px;align-items:center}.jj-forum input[type="checkbox"]{accent-color:var(--acc);width:17px;height:17px;flex:none}
+.jj-forum-list{border-top:1px solid var(--line)}.jj-forum-row{display:grid;grid-template-columns:24px 160px minmax(0,1fr) 152px;gap:20px;align-items:center;padding:20px 0;border-bottom:1px solid var(--line2);animation:jjforum-in .18s ease-out}.jj-forum-row:has(input:checked){background:var(--t03)}.jj-forum-cover{position:relative;display:grid;place-items:center;width:100%;aspect-ratio:3/2;overflow:hidden;background:var(--surf2);border:1px solid var(--line);border-radius:6px;color:var(--dim);padding:0;cursor:pointer}.jj-forum-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.jj-forum-cover:has(img:not([hidden]))>span{visibility:hidden}.jj-forum-cover>span{font-size:13px;padding:10px}
+.jj-forum .jj-forum-title{display:-webkit-box;width:100%;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;white-space:normal;appearance:none;background:none;border:0;padding:0;color:var(--fg);font:inherit;font-size:15px;line-height:1.65;text-align:left;cursor:pointer}.jj-forum-copy{min-width:0}.jj-forum-copy p{margin-top:9px;font-size:13px}.jj-forum-copy small{display:inline-block;margin-top:9px;color:var(--accs);font-size:12px}.jj-forum-actions{display:flex;align-items:flex-end;flex-direction:column;gap:12px;font-size:13px;color:var(--dim)}.jj-forum-empty{padding:64px 16px;text-align:center}.jj-forum-empty h2{font-size:20px;margin:0 0 12px}
+.jj-forum-selection{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);box-sizing:border-box;width:min(900px,calc(100% - 28px));z-index:25;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:15px 18px;background:var(--surf);border:1px solid var(--acc);border-radius:10px;box-shadow:0 8px 32px var(--ovl);animation:jjforum-selection-in .18s ease-out}.jj-forum-selection>span:first-child{margin-right:auto}.jj-forum-destination{display:flex;align-items:center;gap:9px;font-size:13px}.jj-forum-destination .input{width:auto}.jj-forum-detail{width:1000px}.jj-forum-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}.jj-forum-detail-header button{margin-left:auto}.jj-forum-detail h2{font-size:22px;line-height:1.6;overflow-wrap:anywhere}.jj-forum-gallery{display:grid;gap:16px;margin:20px 0}.jj-forum-gallery img{max-width:100%;max-height:60dvh;object-fit:contain;justify-self:center}.jj-forum-magnet{display:flex;gap:12px;align-items:center;margin:12px 0}.jj-forum-magnet code{min-width:0;flex:1;overflow-wrap:anywhere;font-size:13px}.jj-forum-error{color:var(--bad);margin:14px 0;line-height:1.6}.jj-forum-source{color:var(--accs)}@keyframes jjforum-in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes jjforum-selection-in{from{opacity:0;transform:translate(-50%,6px)}to{opacity:1;transform:translateX(-50%)}}
+@media(max-width:750px){.jj-forum{padding:22px 14px 100px}.jj-forum-heading{align-items:flex-start;flex-direction:column}.jj-forum-filters{grid-template-columns:1fr 90px;padding:16px;gap:14px}.jj-forum-filters>label:nth-child(3){grid-column:1/-1}.jj-forum-filters>.jj-forum-fetch-actions{grid-column:1/-1}.jj-forum-row{grid-template-columns:20px 108px minmax(0,1fr);gap:12px;padding:16px 0;align-items:start}.jj-forum-actions{grid-column:2/-1;flex-direction:row;align-items:center;justify-content:space-between;gap:8px}.jj-forum .jj-forum-title{font-size:14px;-webkit-line-clamp:3}.jj-forum-copy p{font-size:13px}.jj-forum-selection{padding:12px;gap:10px}.jj-forum-selection>.btn-primary{flex:1}.jj-forum-magnet{align-items:flex-start}.jj-forum-magnet code{font-size:12px}}@media(prefers-reduced-motion:reduce){.jj-forum-row,.jj-forum-selection{animation:none}}
+</style>`;
+  var forumTemplate = `<sc-if value="{{ at.forum }}"><main class="jj-forum" aria-label="\u8BBA\u575B\u5F71\u7247" aria-hidden="{{ !!fo.detail }}">
+<header class="jj-forum-heading"><div><h1>\u8BBA\u575B\u5F71\u7247</h1><p>\u6D4F\u89C8 98 \u5802\u5F71\u7247\uFF0C\u628A\u9009\u4E2D\u7684\u8D44\u6E90\u4E0B\u53D1\u5230\u4F60\u7684\u7F51\u76D8\u6216\u4E0B\u8F7D\u5DE5\u5177\u3002</p></div><div class="jj-forum-destination"><label>\u4E0B\u53D1\u5230 <select class="input" aria-label="\u8BBA\u575B\u4E0B\u53D1\u76EE\u6807" value="{{ fo.tool }}" onChange="{{ fo.setTool }}"><option>PikPak</option><option>115 \u7F51\u76D8</option><option>Aria2</option></select></label><button class="btn btn-ghost" onClick="{{ fo.configure }}">{{ fo.connection }}</button><button class="btn btn-secondary" aria-label="\u8BBA\u575B\u7F13\u5B58\u8BBE\u7F6E" onClick="{{ fo.openCacheSettings }}">\u7F13\u5B58\u8BBE\u7F6E</button></div></header>
+<div class="jj-forum-filters" role="group" aria-label="\u8BBA\u575B\u83B7\u53D6\u6761\u4EF6"><label>\u5206\u533A<select class="input" aria-label="\u8BBA\u575B\u5206\u533A" disabled="{{ fo.busy }}" value="{{ fo.source }}" onChange="{{ fo.setSource }}"><option value="36">\u4E9A\u6D32\u65E0\u7801\u539F\u521B</option><option value="103">\u9AD8\u6E05\u4E2D\u6587\u5B57\u5E55</option></select></label><label>\u9875\u7801<input class="input" type="number" min="1" max="10000" aria-label="\u8BBA\u575B\u9875\u7801" disabled="{{ fo.busy }}" value="{{ fo.pageInput }}" onChange="{{ fo.setPage }}"></label><label>\u7B5B\u9009\u672C\u9875\u6807\u9898<input class="input" type="search" aria-label="\u8BBA\u575B\u6807\u9898\u7B5B\u9009" placeholder="\u8F93\u5165\u6807\u9898\u6587\u5B57\u6216\u756A\u53F7" value="{{ fo.query }}" onChange="{{ fo.setQuery }}"></label><div class="jj-forum-fetch-actions"><button class="btn btn-primary" disabled="{{ fo.busy }}" onClick="{{ fo.fetch }}">\u83B7\u53D6\u5F71\u7247</button><button class="btn btn-secondary" disabled="{{ fo.busy }}" title="\u8DF3\u8FC7\u7F13\u5B58\uFF0C\u91CD\u65B0\u8BFB\u53D6\u5F53\u524D\u5206\u533A\u4E0E\u9875\u7801" onClick="{{ fo.refresh }}">\u5237\u65B0\u539F\u5E16</button></div></div>
+<div class="jj-forum-keywords"><span>\u6807\u9898\u5173\u952E\u8BCD</span><button class="btn btn-secondary" aria-label="\u6807\u9898\u5173\u952E\u8BCD LTX" aria-pressed="{{ fo.ltx }}" onClick="{{ fo.toggleKeyword }}">LTX</button><small>\u5339\u914D\u6807\u9898\u4E2D\u5305\u542B\u7684\u6587\u5B57\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199</small></div>
+<sc-if value="{{ fo.cacheText }}"><p class="jj-forum-cache" aria-label="\u8BBA\u575B\u7F13\u5B58\u72B6\u6001">{{ fo.cacheText }}</p></sc-if>
+<sc-if value="{{ fo.error }}"><p class="jj-forum-error" role="alert">{{ fo.error }}</p></sc-if>
+<sc-if value="{{ fo.hasTask }}"><section class="jj-forum-progress" aria-label="\u8BBA\u575B\u83B7\u53D6\u8FDB\u5EA6"><div class="jj-forum-progress-head"><span role="status">{{ fo.message }}</span><sc-if value="{{ fo.canCancel }}"><button class="btn btn-secondary" onClick="{{ fo.cancel }}">\u505C\u6B62\u83B7\u53D6</button></sc-if><sc-if value="{{ fo.canRetry }}"><button class="btn btn-secondary" onClick="{{ fo.retry }}">\u91CD\u8BD5\u672A\u5B8C\u6210\u9879</button></sc-if></div><sc-if value="{{ fo.running }}"><progress aria-label="\u8BBA\u575B\u6293\u53D6\u8FDB\u5EA6" value="{{ fo.percent }}" max="100"></progress></sc-if></section></sc-if>
+<sc-if value="{{ fo.initial }}"><div class="jj-forum-empty"><h2>\u4ECE\u8BBA\u575B\u53D1\u73B0\u5F71\u7247</h2><p>\u9009\u62E9\u5206\u533A\u548C\u9875\u7801\uFF0C\u83B7\u53D6\u5F71\u7247\u540E\u53EF\u6309\u6807\u9898\u7B5B\u9009\u5E76\u6279\u91CF\u4E0B\u53D1\u3002</p></div></sc-if>
+<sc-if value="{{ fo.hasRows }}"><div class="jj-forum-toolbar"><label><input type="checkbox" aria-label="\u5168\u9009\u5F53\u524D\u7B5B\u9009\u7ED3\u679C" checked="{{ fo.allSelected }}" disabled="{{ fo.noReady }}" onChange="{{ fo.toggleAll }}">\u5168\u9009\u7B5B\u9009\u7ED3\u679C</label><span>{{ fo.summary }}</span></div><div class="jj-forum-list"><sc-for list="{{ fo.rows }}" as="m"><article class="jj-forum-row"><input type="checkbox" aria-label="\u9009\u62E9 {{ m.label }}" checked="{{ m.selected }}" disabled="{{ m.disabled }}" onChange="{{ m.toggle }}"><button class="jj-forum-cover" aria-label="\u67E5\u770B {{ m.label }} \u56FE\u7247" onClick="{{ m.open }}"><span>{{ m.statusText }}</span><sc-if value="{{ m.cover }}"><img src="{{ m.cover }}" alt="{{ m.label }} \u56FE\u7247" loading="lazy" onError="{{ fo.imageError }}"></sc-if></button><div class="jj-forum-copy"><button class="jj-forum-title" title="{{ m.title }}" onClick="{{ m.open }}">{{ m.title }}</button><p>{{ m.meta }}</p><sc-if value="{{ m.hasLtx }}"><small>LTX</small></sc-if></div><div class="jj-forum-actions"><span>{{ m.resourceText }}</span><button class="btn btn-secondary" aria-label="\u4E0B\u53D1 {{ m.label }}" disabled="{{ m.disabled }}" onClick="{{ m.dispatch }}">{{ m.dispatchText }}</button></div></article></sc-for></div></sc-if>
+<sc-if value="{{ fo.empty }}"><div class="jj-forum-empty"><h2>\u6682\u65E0\u5339\u914D\u5F71\u7247</h2><p>{{ fo.emptyText }}</p></div></sc-if>
+<sc-if value="{{ fo.showPager }}"><nav class="jj-pager" aria-label="\u8BBA\u575B\u5206\u9875"><button class="btn btn-secondary" disabled="{{ fo.prevDisabled }}" onClick="{{ fo.prev }}">\u4E0A\u4E00\u9875</button><span>\u7B2C {{ fo.page }} \u9875</span><button class="btn btn-secondary" disabled="{{ fo.nextDisabled }}" onClick="{{ fo.next }}">\u4E0B\u4E00\u9875</button></nav></sc-if>
+<sc-if value="{{ fo.hasSelection }}"><div class="jj-forum-selection" role="toolbar" aria-label="\u8BBA\u575B\u6279\u91CF\u4E0B\u53D1"><span>\u5DF2\u9009 {{ fo.selectedCount }} \u90E8\u5F71\u7247</span><button class="btn btn-ghost" onClick="{{ fo.clearSelection }}">\u6E05\u7A7A\u9009\u62E9</button><span>{{ fo.tool }}</span><button class="btn btn-primary" onClick="{{ fo.dispatch }}">\u4E0B\u53D1\u6240\u9009</button></div></sc-if>
+</main>
+<sc-if value="{{ fo.detail }}"><div class="dialog-backdrop"><section class="dialog elev-lg jj-forum-detail" role="dialog" aria-modal="true" aria-label="\u8BBA\u575B\u5F71\u7247\u8BE6\u60C5"><div class="jj-forum-detail-header"><span>{{ fo.detail.label }}</span><button class="btn btn-ghost" aria-label="\u5173\u95ED\u8BBA\u575B\u8BE6\u60C5" onClick="{{ fo.closeDetail }}">\u5173\u95ED</button></div><h2>{{ fo.detail.title }}</h2><p>{{ fo.detail.size }} \xB7 {{ fo.detail.actors }}</p><a class="jj-forum-source" href="{{ fo.detail.url }}" target="_blank" rel="noopener noreferrer">\u67E5\u770B\u539F\u5E16</a><div class="jj-forum-gallery"><sc-for list="{{ fo.detail.images }}" as="i"><img src="{{ i.url }}" alt="\u5E16\u5B50\u56FE\u7247" loading="lazy" onError="{{ fo.imageError }}"></sc-for></div><sc-for list="{{ fo.detail.magnets }}" as="m"><div class="jj-forum-magnet"><code>{{ m.link }}</code><button class="btn btn-secondary" onClick="{{ m.copy }}">\u590D\u5236\u94FE\u63A5</button></div></sc-for><sc-if value="{{ fo.detail.canDispatch }}"><button class="btn btn-primary" onClick="{{ fo.detail.dispatch }}">\u4E0B\u53D1\u5230 {{ fo.tool }}</button></sc-if></section></div></sc-if></sc-if>`;
+
+  // frontend/src/design/forum.mjs
+  var storageKey = "javjaeger.forum";
+  var active = (task) => task && ["running", "queued"].includes(task.status);
+  function initialForumState() {
+    let saved = {};
+    try {
+      saved = JSON.parse(window.sessionStorage.getItem(storageKey) || "{}");
+    } catch {
+    }
+    return {
+      foSource: [36, 103].includes(saved?.source) ? saved.source : 36,
+      foPage: Number(saved?.page) || 1,
+      foPageInput: String(Number(saved?.page) || 1),
+      foTitle: String(saved?.query || "").slice(0, 200),
+      foKeywords: saved?.keywords?.includes("LTX") ? ["LTX"] : [],
+      foTaskId: /^[A-Za-z0-9_-]{1,80}$/.test(saved?.taskId || "") ? saved.taskId : null,
+      foMovies: [],
+      foSelected: [],
+      foTask: null,
+      foCache: null,
+      foCacheLoading: false,
+      foStarting: false,
+      foDetail: null,
+      foError: ""
+    };
+  }
+  var forumMethods = {
+    async loadForumCache() {
+      const st = this.state;
+      if (st.foTaskId || st.foTask || st.foStarting || st.foCacheLoading) return;
+      const token = this._forumCacheRequest = (this._forumCacheRequest || 0) + 1;
+      const source = st.foSource, page = st.foPage;
+      this.setState({ foCacheLoading: true });
+      try {
+        const response = await this.request(`/api/movies/forum/cache?forum_id=${source}&page=${page}`);
+        if (this._disposed || token !== this._forumCacheRequest || this.state.foTaskId || this.state.foSource !== source || this.state.foPage !== page) return;
+        if (response.cached && response.result) this.setState({ foCache: response.result, foMovies: response.result.movies || [], foSelected: [], foError: "" });
+      } catch {
+      } finally {
+        if (!this._disposed && token === this._forumCacheRequest) this.setState({ foCacheLoading: false });
+      }
+    },
+    persistForum() {
+      const st = this.state;
+      try {
+        window.sessionStorage.setItem(storageKey, JSON.stringify({ source: st.foSource, page: st.foPage, query: st.foTitle, keywords: st.foKeywords, taskId: st.foTaskId }));
+      } catch {
+      }
+    },
+    setForumFilter(patch) {
+      const st = { ...this.state, ...patch };
+      const visible = filterForumMovies(st.foMovies, st.foTitle, st.foKeywords);
+      this.setState({ ...patch, foSelected: visibleForumSelection(visible, st.foSelected) }, () => this.persistForum());
+    },
+    applyForumTask(task, force = false) {
+      if (!force && task.task_id !== this.state.foTaskId) return;
+      const result = task.result;
+      const patch = { foTaskId: task.task_id, foTask: task, foError: "" };
+      if (force) {
+        this._forumCacheRequest = (this._forumCacheRequest || 0) + 1;
+        Object.assign(patch, { foMovies: [], foSelected: [], foDetail: null, foCache: null, foCacheLoading: false });
+      }
+      if (result) Object.assign(patch, { foSource: result.forum_id, foPage: result.page, foPageInput: String(result.page), foMovies: result.movies || [] });
+      const st = { ...this.state, ...patch };
+      patch.foSelected = visibleForumSelection(filterForumMovies(st.foMovies, st.foTitle, st.foKeywords), st.foSelected);
+      this.setState(patch, () => this.persistForum());
+    },
+    syncForumJobs(tasks) {
+      if (!this._forumRestored) {
+        this._forumRestored = true;
+        const latest = tasks.filter((task3) => task3.type === "forum-fetch" && task3.result?.forum_id === this.state.foSource && task3.result?.page === this.state.foPage).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).at(-1);
+        const task2 = tasks.find((task3) => task3.task_id === this.state.foTaskId) || !this.state.foTaskId && latest;
+        if (task2) this.applyForumTask(task2, true);
+        else if (this.state.foTaskId) this.setState({ foTaskId: null, foError: "\u4E0A\u4E00\u6B21\u83B7\u53D6\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u83B7\u53D6\u5F71\u7247" }, () => {
+          if (this.state.route === "forum") void this.loadForumCache();
+        });
+      }
+      const task = tasks.find((task2) => task2.task_id === this.state.foTaskId);
+      if (task && task !== this.state.foTask) this.applyForumTask(task);
+      const seen = this._forumDispatchSeen || (this._forumDispatchSeen = /* @__PURE__ */ new Map());
+      const changed = tasks.filter((job) => job.type.startsWith("dispatch-") && job.result && seen.get(job.task_id) !== job);
+      for (const job of changed) seen.set(job.task_id, job);
+      const handled = new Set(this.state.foMovies.filter((movie) => forumDispatchFeedback(movie, changed, this.state.tool).handled).map((movie) => movie.thread_id));
+      if (this.state.foSelected.some((key) => handled.has(key))) this.setState({ foSelected: this.state.foSelected.filter((key) => !handled.has(key)) });
+    },
+    async startForum(page, forceRefresh = false) {
+      if (this.state.foStarting || active(this.state.foTask)) return;
+      const target = Number(page ?? this.state.foPageInput);
+      if (!Number.isInteger(target) || target < 1 || target > 1e4) {
+        this.setState({ foError: "\u9875\u7801\u9700\u4E3A 1 \u81F3 10000 \u7684\u6574\u6570" });
+        return;
+      }
+      this.setState({ foStarting: true, foError: "" });
+      try {
+        const payload = { forum_id: this.state.foSource, page: target };
+        if (forceRefresh) payload.force_refresh = true;
+        const task = await this.startBackgroundJob("/api/movies/forum/jobs", payload);
+        if (!this._disposed) {
+          this._forumRestored = true;
+          this.applyForumTask(task, true);
+        }
+      } catch {
+        if (!this._disposed) this.setState({ foError: "\u83B7\u53D6\u4EFB\u52A1\u672A\u80FD\u542F\u52A8\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5" });
+      } finally {
+        if (!this._disposed) this.setState({ foStarting: false });
+      }
+    },
+    async forumTaskAction(action) {
+      const task = this.state.foTask;
+      if (!task) return;
+      await this.perform(async () => {
+        const updated = await this.request(`/api/system/jobs/${encodeURIComponent(task.task_id)}/${action}`, "POST");
+        this.applyForumTask(updated);
+      });
+    },
+    dispatchForum(selected) {
+      const st = this.state, visible = filterForumMovies(st.foMovies, st.foTitle, st.foKeywords);
+      const entries = forumDispatchEntries(visible, selected);
+      if (!entries.length) return;
+      if (!this.toolStates().find((tool) => tool.name === st.tool)?.connected) {
+        this.setState({ toolCfg: st.tool });
+        this.toast("\u8BF7\u5148\u8FDE\u63A5\u6240\u9009\u4E0B\u8F7D\u5DE5\u5177\uFF0C\u518D\u4E0B\u53D1\u5F71\u7247");
+        return;
+      }
+      return this.confirmDispatch(entries.map((entry) => entry.movie_id), entries, st.tool);
+    },
+    vForum(imageURL) {
+      const st = this.state, task = st.foTask, result = task?.result || st.foCache;
+      const movies = filterForumMovies(st.foMovies, st.foTitle, st.foKeywords);
+      const selected = visibleForumSelection(movies, st.foSelected);
+      const ready = movies.filter((movie) => movie.status === "ready" && movie.magnets?.length);
+      const busy = st.foStarting || st.foCacheLoading || active(task);
+      const toggle = (key) => this.setState({ foSelected: selected.includes(key) ? selected.filter((value) => value !== key) : [...selected, key] });
+      const detail = st.foMovies.find((movie) => movie.thread_id === st.foDetail);
+      const connection = this.toolStates().find((tool) => tool.name === st.tool);
+      const statusText = { pending: "\u6B63\u5728\u83B7\u53D6", ready: "\u8D44\u6E90\u5C31\u7EEA", failed: "\u83B7\u53D6\u5931\u8D25", no_resources: "\u6682\u65E0\u516C\u5F00\u78C1\u529B" };
+      const percent = Math.max(0, Math.min(100, Number(task?.percent || 0)));
+      const savedAt = result?.cache?.saved_at ? new Date(result.cache.saved_at) : null;
+      const cacheText = savedAt && Number.isFinite(savedAt.getTime()) ? (result.cache.hit ? "\u5DF2\u4F7F\u7528\u7F13\u5B58 \xB7 " : result.cache.reused_posts ? `\u5DF2\u590D\u7528 ${result.cache.reused_posts} \u6761\u5E16\u5B50\u7F13\u5B58 \xB7 ` : "") + "\u5217\u8868\u66F4\u65B0\u4E8E " + savedAt.toLocaleString(void 0, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      return {
+        source: st.foSource,
+        pageInput: st.foPageInput,
+        query: st.foTitle,
+        ltx: st.foKeywords.includes("LTX"),
+        tool: st.tool,
+        setSource: (event) => {
+          this._forumRestored = true;
+          this._forumCacheRequest = (this._forumCacheRequest || 0) + 1;
+          this.setState({ foSource: Number(event.target.value), foPage: 1, foPageInput: "1", foMovies: [], foTask: null, foTaskId: null, foCache: null, foCacheLoading: false, foSelected: [], foDetail: null, foError: "" }, () => {
+            this.persistForum();
+            void this.loadForumCache();
+          });
+        },
+        setPage: (event) => this.setState({ foPageInput: event.target.value }),
+        setQuery: (event) => this.setForumFilter({ foTitle: event.target.value }),
+        toggleKeyword: () => this.setForumFilter({ foKeywords: st.foKeywords.length ? [] : ["LTX"] }),
+        setTool: (event) => this.setState({ tool: event.target.value }),
+        configure: () => this.setState({ toolCfg: st.tool }),
+        connection: connection?.connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5",
+        fetch: () => this.startForum(),
+        refresh: () => this.startForum(void 0, true),
+        busy,
+        cacheText,
+        openCacheSettings: () => {
+          this.go("settings")();
+          this.setState({ seTab: "\u8BBA\u575B\u7F13\u5B58" });
+          return this.perform(() => this.loadForumCacheSettings());
+        },
+        message: task?.status === "cancelled" ? "\u5DF2\u505C\u6B62\u83B7\u53D6\uFF0C\u5DF2\u8BFB\u53D6\u7684\u5F71\u7247\u4ECD\u53EF\u4E0B\u53D1" : result?.message || task?.message || "",
+        hasTask: !!task || !!result,
+        percent,
+        running: active(task),
+        cancel: () => this.forumTaskAction("cancel"),
+        canCancel: !!task?.can_cancel,
+        retry: () => this.forumTaskAction("retry"),
+        canRetry: !!task?.can_retry,
+        error: st.foError || (task?.status === "failed" ? result?.message || task.message : ""),
+        hasRows: movies.length > 0,
+        initial: !task && !st.foMovies.length,
+        empty: !movies.length && !!result && !busy,
+        emptyText: st.foTitle || st.foKeywords.length ? "\u672C\u9875\u6CA1\u6709\u5339\u914D\u6807\u9898\uFF0C\u53EF\u8C03\u6574\u7B5B\u9009\u6216\u67E5\u770B\u4E0B\u4E00\u9875\u3002" : "\u672C\u9875\u6CA1\u6709\u53EF\u663E\u793A\u7684\u5F71\u7247\uFF0C\u53EF\u91CD\u8BD5\u6216\u67E5\u770B\u4E0B\u4E00\u9875\u3002",
+        summary: `\u672C\u9875 ${st.foMovies.length} \u6761 \xB7 \u663E\u793A ${movies.length} \u6761 \xB7 ${ready.length} \u6761\u53EF\u4E0B\u53D1`,
+        allSelected: ready.length > 0 && ready.every((movie) => selected.includes(movie.thread_id)),
+        noReady: !ready.length,
+        toggleAll: () => this.setState({ foSelected: ready.every((movie) => selected.includes(movie.thread_id)) ? [] : ready.map((movie) => movie.thread_id) }),
+        selectedCount: selected.length,
+        hasSelection: selected.length > 0,
+        clearSelection: () => this.setState({ foSelected: [] }),
+        dispatch: () => this.dispatchForum(selected),
+        page: st.foPage,
+        showPager: !!result,
+        prevDisabled: busy || st.foPage <= 1,
+        nextDisabled: busy || !result?.has_next,
+        prev: () => this.startForum(st.foPage - 1),
+        next: () => this.startForum(st.foPage + 1),
+        imageError: (event) => {
+          event.currentTarget.hidden = true;
+        },
+        rows: movies.map((movie) => {
+          const feedback = forumDispatchFeedback(movie, st.backgroundJobs, st.tool);
+          return {
+            ...movie,
+            cover: imageURL(movie.cover_url),
+            label: movie.code || movie.movie_id,
+            selected: selected.includes(movie.thread_id),
+            disabled: movie.status !== "ready" || !movie.magnets?.length,
+            hasLtx: /ltx/i.test(movie.title),
+            statusText: statusText[movie.status] || "\u5F85\u83B7\u53D6",
+            resourceText: feedback.text || (movie.magnets?.length ? `${movie.magnets.length} \u6761\u78C1\u529B` : statusText[movie.status]),
+            dispatchText: feedback.handled ? "\u518D\u6B21\u4E0B\u53D1" : "\u4E0B\u53D1",
+            meta: [movie.code, movie.size, movie.actors].filter(Boolean).join(" \xB7 "),
+            open: () => this.setState({ foDetail: movie.thread_id }),
+            toggle: () => toggle(movie.thread_id),
+            dispatch: () => this.dispatchForum([movie.thread_id])
+          };
+        }),
+        detail: detail ? {
+          ...detail,
+          label: detail.code || detail.movie_id,
+          images: (detail.images || []).map((url) => ({ url: imageURL(url) })),
+          magnets: (detail.magnets || []).map((magnet) => ({ ...magnet, copy: () => this.perform(async () => {
+            await this.copyText(magnet.link);
+            this.toast("\u5DF2\u590D\u5236\u78C1\u529B\u94FE\u63A5");
+          }) })),
+          canDispatch: detail.status === "ready",
+          dispatch: () => this.dispatchForum([detail.thread_id])
+        } : null,
+        closeDetail: () => this.setState({ foDetail: null })
+      };
+    }
+  };
+
   // frontend/src/utils/storage.js
   var parseJson = (value, fallback = {}) => {
     if (!value) {
@@ -5853,7 +6139,7 @@ class Component extends DCLogic {
   // frontend/src/design/integration.mjs
   var designDataExports = "\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };\nComponent.filterTypes = FILTER_TYPES;";
   function adaptDesignScript(script) {
-    script = script.replace("const NAV = [", "const NAV = [\n  { id: 'browse', label: '\u6D4F\u89C8', icon: 'ph-compass' },");
+    script = script.replace("const NAV = [", "const NAV = [\n  { id: 'browse', label: '\u6D4F\u89C8', icon: 'ph-compass' },\n  { id: 'forum', label: '\u8BBA\u575B\u5F71\u7247', icon: 'ph-images' },");
     for (const [key, route, method] of [["cn", "cinema", "vCinema"], ["d", "dispatch", "vDispatch"], ["tc", "transcode", "vTranscode"], ["sc", "scrape", "vScrape"], ["lb", "library", "vLibrary"], ["au", "auto", "vAuto"], ["fs", "storage", "vStorage"], ["se", "settings", "vSettings"]]) {
       script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === "fs" ? " || st.fsAdd" : ""}) ? this.${method}() : {}`);
     }
@@ -5895,6 +6181,7 @@ class Component extends DCLogic {
   var imageSource = (url) => !url ? "" : url.startsWith("/api/") ? url : `/api/image-proxy?url=${id(url)}`;
   var jobStorage = { scrapeTask: "localScrapeActiveTask", scanTask: "localLibraryActiveTask", dispatchTask: "pan115ActiveDispatch", informationTask: "localLibraryInformationTask", cleanupTask: "localLibraryCleanupTask" };
   var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1", "browse-play": "115 \u64AD\u653E\u51C6\u5907" };
+  backgroundNames["forum-fetch"] = "\u8BBA\u575B\u5F71\u7247\u83B7\u53D6";
   var browsePlaybackKey = "javjaeger.browsePlayback";
   var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks", "/api/system/jobs"];
   var jobFinished = (task) => task && ["success", "completed", "failed", "cancelled"].includes(task.status);
@@ -5960,13 +6247,15 @@ class Component extends DCLogic {
     return class ConnectedDesign extends Base {
       constructor(props) {
         super(props);
+        Object.assign(this, forumMethods);
         const session = loadPikPakSession();
         const libraryLink = String(window.location?.hash || "").match(/^#library(?:\/([A-Za-z0-9_-]+))?$/);
         this.auth = session.credentials;
         this.state = {
           ...this.state,
+          ...initialForumState(),
           theme: loadAppTheme(),
-          route: libraryLink ? "library" : window.location?.hash === "#browse" ? "browse" : "cinema",
+          route: libraryLink ? "library" : window.location?.hash === "#forum" ? "forum" : window.location?.hash === "#browse" ? "browse" : "cinema",
           lbDetail: libraryLink?.[1] || null,
           cnHero: "",
           cnPlaying: null,
@@ -6015,6 +6304,8 @@ class Component extends DCLogic {
           cacheDraft: null,
           imageCacheSettings: null,
           imageCacheDraft: null,
+          forumCacheSettings: null,
+          forumCacheDraft: null,
           connections: {},
           clientConfig: {},
           tasks: [],
@@ -6090,9 +6381,9 @@ class Component extends DCLogic {
         this._searchRestored = false;
         this._scraperSettings = /* @__PURE__ */ new Map();
         this._disposed = false;
-        for (const [key, storageKey] of Object.entries(jobStorage)) {
+        for (const [key, storageKey2] of Object.entries(jobStorage)) {
           try {
-            const saved = JSON.parse(window.sessionStorage.getItem(storageKey) || "null");
+            const saved = JSON.parse(window.sessionStorage.getItem(storageKey2) || "null");
             if (!saved?.taskId) continue;
             if (key === "scrapeTask") {
               for (const field of scrapeConfigKeys) if (saved.config?.[field] !== void 0) this.state[field] = saved.config[field];
@@ -6102,7 +6393,7 @@ class Component extends DCLogic {
             if (key === "informationTask" && saved.config?.fields?.length) this.state.infoFields = saved.config.fields;
             this.state[key] = { id: saved.taskId, operation: saved.type, status: "running", payload: saved.config, preflight: saved.preflight || [] };
           } catch {
-            window.sessionStorage.removeItem(storageKey);
+            window.sessionStorage.removeItem(storageKey2);
           }
         }
       }
@@ -6218,6 +6509,7 @@ class Component extends DCLogic {
         this._keyboard = (event) => {
           if (event.key === "Escape") {
             if (this.state.dlg) this.renderVals().dlg.cancel();
+            else if (this.state.foDetail) this.setState({ foDetail: null });
             else if (this.state.route === "browse" && this.state.brPlayback) this.closeBrowsePlayback();
             else for (const key of ["brCatalog", "brDetail", "taskLog", "fsAdd", "toolCfg", "browse", "scRepair", "scDesigner", "scCmp", "scInspect", "lbTc", "lbCheckCfg", "lbPathCfg", "lbDetail", "detail", "tcDetail", "bgOpen", "cnPlaying", "cnDetail"]) {
               if (this.state[key]) {
@@ -6263,6 +6555,7 @@ class Component extends DCLogic {
         this.perform(async () => {
           await this.perform(() => this.loadBackgroundJobs());
           if (this.state.route === "browse") void this.loadBrowse({ reset: true });
+          if (this.state.route === "forum") void this.loadForumCache();
           await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map((load) => this.perform(load)));
           const config = this.state.clientConfig;
           for (const key of ["webdav", "aria2", "pikpak"]) {
@@ -6285,9 +6578,10 @@ class Component extends DCLogic {
       go(route) {
         return () => {
           this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null, brCatalog: null, brDetail: null });
-          if (route === "browse") window.history?.replaceState(null, "", "#browse");
-          else if (window.location?.hash === "#browse") window.history?.replaceState(null, "", window.location.pathname + window.location.search);
+          if (["browse", "forum"].includes(route)) window.history?.replaceState(null, "", "#" + route);
+          else if (["#browse", "#forum"].includes(window.location?.hash)) window.history?.replaceState(null, "", window.location.pathname + window.location.search);
           if (route === "browse" && !this.state.brLoaded) void this.loadBrowse({ reset: true });
+          if (route === "forum" && !this.state.foMovies.length) void this.loadForumCache();
           this.perform(async () => {
             if (["cinema", "library"].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 3e4)) await this.loadLibrary();
             if (route === "storage") await this.loadFiles(this.state.fsSrc, this.state.directory);
@@ -6481,6 +6775,10 @@ class Component extends DCLogic {
       async loadCacheSettings(images = false) {
         const result = await this.request(images ? "/api/image-cache" : "/api/metadata-cache");
         this.setState({ [images ? "imageCacheSettings" : "cacheSettings"]: result, [images ? "imageCacheDraft" : "cacheDraft"]: { ...result.settings } });
+      }
+      async loadForumCacheSettings() {
+        const result = await this.request("/api/movies/forum/cache/settings");
+        this.setState({ forumCacheSettings: result, forumCacheDraft: { ...result.settings } });
       }
       async loadCatalogs() {
         for (const [url, table] of [["/static/actors.json", data.ACTOR_CATALOG], ["/static/categories.json", data.GENRE_CATALOG]]) {
@@ -6820,6 +7118,7 @@ class Component extends DCLogic {
             this._searchRestored = true;
             this._activeSearchJobId = tasks.filter((task) => task.type === "search").sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).at(-1)?.task_id || null;
           }
+          this.syncForumJobs(tasks);
           for (const task of tasks) {
             const old = previous.get(task.task_id);
             if (task.type === "search" && task.task_id === this._activeSearchJobId && (!old || old.updated_at !== task.updated_at)) this.applyServerSearch(task);
@@ -6842,6 +7141,11 @@ class Component extends DCLogic {
         }
       }
       showServerJob(task) {
+        if (task.type === "forum-fetch") {
+          this.applyForumTask(task, true);
+          this.go("forum")();
+          return;
+        }
         if (task.type === "browse-play") {
           this.go("browse")();
           const playback = { taskId: task.task_id, movie_id: task.result?.movie_id || task.movie_id || (this.state.brPlayback?.taskId === task.task_id ? this.state.brPlayback.movie_id : "") };
@@ -7718,9 +8022,9 @@ class Component extends DCLogic {
         const page = this.pageItems(view.rows, "tcPage", [this.state.tcF]);
         view.rows = page.items;
         view.paging = page.paging;
-        const active = data.TC.filter((task) => ["running", "queued"].includes(task.status)), done = data.TC.filter((task) => task.status === "completed"), bad = data.TC.filter((task) => ["failed", "cancelled"].includes(task.status));
-        view.stats = [stat("\u6D3B\u52A8\u4EFB\u52A1", active.length), stat("\u5DF2\u5B8C\u6210", done.length, "", OK), stat("\u5F02\u5E38 / \u53D6\u6D88", bad.length, "", WARN), stat("\u8282\u7701\u7A7A\u95F4", size(done.reduce((sum, task) => sum + Math.max(0, task.raw.input_size - task.raw.output_size), 0)), "", ACC)];
-        view.nActive = active.length;
+        const active2 = data.TC.filter((task) => ["running", "queued"].includes(task.status)), done = data.TC.filter((task) => task.status === "completed"), bad = data.TC.filter((task) => ["failed", "cancelled"].includes(task.status));
+        view.stats = [stat("\u6D3B\u52A8\u4EFB\u52A1", active2.length), stat("\u5DF2\u5B8C\u6210", done.length, "", OK), stat("\u5F02\u5E38 / \u53D6\u6D88", bad.length, "", WARN), stat("\u8282\u7701\u7A7A\u95F4", size(done.reduce((sum, task) => sum + Math.max(0, task.raw.input_size - task.raw.output_size), 0)), "", ACC)];
+        view.nActive = active2.length;
         view.nDone = done.length;
         view.nBad = bad.length;
         view.maxConcurrent = caps.max_concurrent_tasks ?? "\u2014";
@@ -8500,9 +8804,10 @@ class Component extends DCLogic {
         const st = this.state, sectionMap = { "JavBus API": "javbus", "\u522E\u524A\u6E90": "scrapers", WebDAV: "webdav", Aria2: "aria2", PikPak: "pikpak", "115 \u7F51\u76D8": "pan115", \u78C1\u529B\u7B5B\u9009: "magnet_health" }, key = sectionMap[st.seTab];
         const values = st.settingsDraft[key] || {}, update = (field, value) => this.setState({ settingsDraft: { ...st.settingsDraft, [key]: { ...values, [field]: value } } });
         const labels = { enabled: "\u542F\u7528", base_url: "\u57FA\u5730\u5740", url: "\u670D\u52A1\u5730\u5740", username: "\u7528\u6237\u540D", password: "\u5BC6\u7801", secret: "RPC Secret", cookie: "Cookie", timeout_seconds: "\u8BF7\u6C42\u8D85\u65F6\uFF08\u79D2\uFF09", proxy: "\u4EE3\u7406", request_interval_seconds: "\u8BF7\u6C42\u95F4\u9694\uFF08\u79D2\uFF09", cache_expire_seconds: "\u7F13\u5B58\u6709\u6548\u671F\uFF08\u79D2\uFF09", cache_max_size: "\u7F13\u5B58\u6761\u76EE\u4E0A\u9650", image_retry_attempts: "\u56FE\u7247\u91CD\u8BD5\u6B21\u6570", image_retry_backoff_seconds: "\u56FE\u7247\u91CD\u8BD5\u95F4\u9694", auto_connect: "\u81EA\u52A8\u8FDE\u63A5", auto_login: "\u81EA\u52A8\u767B\u5F55", save_dir_id: "\u79BB\u7EBF\u76EE\u5F55 CID", login_app: "\u767B\u5F55 App", batch_size: "\u6279\u91CF\u5927\u5C0F", batch_interval_seconds: "\u6279\u6B21\u95F4\u9694\uFF08\u79D2\uFF09", jitter_seconds: "\u968F\u673A\u5EF6\u65F6\uFF08\u79D2\uFF09", probe_with_aria2: "\u4F7F\u7528 Aria2 \u63A2\u6D4B", min_seeders: "\u6700\u5C11\u505A\u79CD\u6570", min_peers: "\u6700\u5C11\u8282\u70B9\u6570", min_availability: "\u6700\u4F4E\u53EF\u7528\u7387", min_score: "\u6700\u4F4E\u8BC4\u5206", probe_timeout_seconds: "\u63A2\u6D4B\u8D85\u65F6\uFF08\u79D2\uFF09", allow_unknown: "\u5141\u8BB8\u672A\u77E5\u5065\u5EB7\u5EA6" };
-        const isMedia = st.seTab === "\u5A92\u4F53\u76EE\u5F55", media = st.librarySettings || {}, isImages = st.seTab === "\u56FE\u7247\u7F13\u5B58", isCache = st.seTab === "\u7F13\u5B58" || isImages;
-        const savedKey = isImages ? "imageCacheSettings" : "cacheSettings", draftKey = isImages ? "imageCacheDraft" : "cacheDraft", cacheSaved = st[savedKey], cache = st[draftKey] || {};
-        const tabs = ["\u914D\u7F6E\u6982\u89C8", "\u5916\u89C2", "\u5A92\u4F53\u76EE\u5F55", "\u7F13\u5B58", "\u56FE\u7247\u7F13\u5B58", ...Object.keys(sectionMap), "\u8FD0\u884C\u5B89\u5168"];
+        const isMedia = st.seTab === "\u5A92\u4F53\u76EE\u5F55", media = st.librarySettings || {}, isImages = st.seTab === "\u56FE\u7247\u7F13\u5B58", isForum = st.seTab === "\u8BBA\u575B\u7F13\u5B58", isCache = st.seTab === "\u7F13\u5B58" || isImages || isForum;
+        const savedKey = isForum ? "forumCacheSettings" : isImages ? "imageCacheSettings" : "cacheSettings", draftKey = isForum ? "forumCacheDraft" : isImages ? "imageCacheDraft" : "cacheDraft", cacheSaved = st[savedKey], cache = st[draftKey] || {};
+        const cacheURL = isForum ? "/api/movies/forum/cache/settings" : isImages ? "/api/image-cache" : "/api/metadata-cache";
+        const tabs = ["\u914D\u7F6E\u6982\u89C8", "\u5916\u89C2", "\u5A92\u4F53\u76EE\u5F55", "\u7F13\u5B58", "\u56FE\u7247\u7F13\u5B58", "\u8BBA\u575B\u7F13\u5B58", ...Object.keys(sectionMap), "\u8FD0\u884C\u5B89\u5168"];
         const status = (name) => name === "WebDAV" ? st.connections.webdav_connected ? "\u5DF2\u8FDE\u63A5" : "\u672A\u8FDE\u63A5" : this.toolStates().find((tool) => tool.name === name)?.hint || "";
         let fields = key && key !== "scrapers" ? Object.entries(values).filter(([field, value]) => labels[field] && typeof value !== "object").map(([field, value]) => this.formField(labels[field], value, (value2) => update(field, value2), ["password", "secret", "cookie"].includes(field) ? "secret" : typeof value === "boolean" ? "check" : typeof value === "number" ? "number" : "text", [], ["password", "secret", "cookie"].includes(field) ? "\u7559\u7A7A\u4FDD\u7559\u670D\u52A1\u7AEF\u5DF2\u5B58\u503C\uFF1B\u4FDD\u5B58\u4F1A\u5199\u5165\u670D\u52A1\u7AEF\u914D\u7F6E\u3002" : "")) : [];
         if (isMedia) fields = [
@@ -8513,7 +8818,7 @@ class Component extends DCLogic {
           span: "1 / -1",
           browse: () => this.perform(() => this.browseDirectory(st[stateKey] ?? fallback, { key: stateKey }))
         }));
-        if (isCache && !isImages) fields = [
+        if (isCache && !isImages && !isForum) fields = [
           this.formField("\u7F13\u5B58\u6E05\u7406\u65B9\u5F0F", cache.mode === "size" ? "\u6309\u5360\u7528\u7A7A\u95F4" : "\u6309\u7F13\u5B58\u5929\u6570", (value) => this.setState({ cacheDraft: { ...cache, mode: value === "\u6309\u5360\u7528\u7A7A\u95F4" ? "size" : "days" } }), "select", ["\u6309\u7F13\u5B58\u5929\u6570", "\u6309\u5360\u7528\u7A7A\u95F4"]),
           cache.mode === "size" ? this.formField("\u6700\u591A\u5360\u7528\u7A7A\u95F4\uFF08MB\uFF09", cache.mb, (value) => this.setState({ cacheDraft: { ...cache, mb: value } }), "number", [], "\u6309\u670D\u52A1\u7AEF\u7F13\u5B58\u6587\u4EF6\u7684\u5B9E\u9645\u5927\u5C0F\u8BA1\u7B97\uFF0C\u8D85\u9650\u65F6\u4F18\u5148\u6E05\u7406\u6700\u65E9\u7F13\u5B58\u7684\u8D44\u6599\u3002") : this.formField("\u6700\u591A\u7F13\u5B58\u5929\u6570", cache.days, (value) => this.setState({ cacheDraft: { ...cache, days: value } }), "number", [], "\u4ECE\u8D44\u6599\u8865\u5168\u65F6\u95F4\u8D77\u8BA1\u7B97\uFF0C\u8D85\u8FC7\u540E\u5728\u4E0B\u6B21\u641C\u7D22\u65F6\u91CD\u65B0\u83B7\u53D6\u3002"),
           this.formField("\u5F53\u524D\u7F13\u5B58", `${st.cacheSettings?.count || 0} \u90E8 \xB7 ${size(st.cacheSettings?.size_bytes || 0)}`, () => {
@@ -8523,6 +8828,13 @@ class Component extends DCLogic {
           this.formField("\u56FE\u7247\u7F13\u5B58\u4E0A\u9650\uFF08MB\uFF09", cache.mb, (value) => this.setState({ imageCacheDraft: { mb: value } }), "number", [], "\u6309\u56FE\u7247\u7F13\u5B58\u6587\u4EF6\u7684\u5B9E\u9645\u5927\u5C0F\u8BA1\u7B97\uFF0C\u8D85\u9650\u65F6\u4F18\u5148\u6E05\u7406\u8F83\u4E45\u672A\u4F7F\u7528\u7684\u56FE\u7247\u3002"),
           this.formField("\u5F53\u524D\u56FE\u7247\u7F13\u5B58", `${cacheSaved?.count || 0} \u5F20 \xB7 ${size(cacheSaved?.size_bytes || 0)}`, () => {
           }, "status", [], "\u5355\u72EC\u8BA1\u7B97\u7A7A\u95F4\uFF0C\u4E0D\u5360\u7528\u5F71\u7247\u8D44\u6599\u7F13\u5B58\u7684\u4E0A\u9650\u3002\u5355\u5F20\u56FE\u7247\u8D85\u8FC7\u603B\u4E0A\u9650\u65F6\uFF0C\u4EC5\u663E\u793A\uFF0C\u4E0D\u7F13\u5B58\u3002")
+        ];
+        if (isForum) fields = [
+          this.formField("\u5217\u8868\u7F13\u5B58\u65F6\u95F4\uFF08\u5206\u949F\uFF09", cache.list_minutes, (value) => this.setState({ forumCacheDraft: { ...cache, list_minutes: value } }), "number", [], "\u6B63\u6574\u6570\uFF0C\u9ED8\u8BA4 30 \u5206\u949F\uFF1B\u4ECE\u5217\u8868\u8BFB\u53D6\u65F6\u95F4\u8D77\u8BA1\u7B97\u3002"),
+          this.formField("\u5E16\u5B50\u7F13\u5B58\u65F6\u95F4\uFF08\u5C0F\u65F6\uFF09", cache.post_hours, (value) => this.setState({ forumCacheDraft: { ...cache, post_hours: value } }), "number", [], "\u6B63\u6574\u6570\uFF0C\u9ED8\u8BA4 24 \u5C0F\u65F6\uFF1B\u56FE\u7247\u5730\u5740\u4E0E\u78C1\u529B\u7B49\u5E16\u5B50\u8D44\u6599\u5171\u7528\u6B64\u65F6\u95F4\u3002"),
+          this.formField("\u8BBA\u575B\u7F13\u5B58\u4E0A\u9650\uFF08MB\uFF09", cache.mb, (value) => this.setState({ forumCacheDraft: { ...cache, mb: value } }), "number", [], "\u6B63\u6574\u6570\uFF0C\u9ED8\u8BA4 32 MB\uFF1B\u4FDD\u5B58\u540E\u7ACB\u5373\u6E05\u7406\u8D85\u9650\u6216\u8FC7\u671F\u8BB0\u5F55\u3002"),
+          this.formField("\u5F53\u524D\u8BBA\u575B\u7F13\u5B58", `${cacheSaved?.count || 0} \u6761 \xB7 ${size(cacheSaved?.size_bytes || 0)}`, () => {
+          }, "status", [], "\u5217\u8868\u4E0E\u5E16\u5B50\u5408\u8BA1\uFF0C\u6700\u591A 512 \u6761\u8BB0\u5F55\u3002\u56FE\u7247\u6587\u4EF6\u4F7F\u7528\u72EC\u7ACB\u56FE\u7247\u7F13\u5B58\u3002")
         ];
         if (isCache && !cacheSaved) fields = [this.formField("\u670D\u52A1\u7AEF\u7F13\u5B58", "\u5C1A\u672A\u8F7D\u5165", () => {
         }, "status", [], "\u70B9\u51FB\u91CD\u65B0\u8F7D\u5165\uFF0C\u8BFB\u53D6\u670D\u52A1\u5668\u4E0A\u7684\u7F13\u5B58\u8BBE\u7F6E\u3002")];
@@ -8543,10 +8855,17 @@ class Component extends DCLogic {
         });
         const openTab = (name) => () => {
           this.setState({ seTab: name });
+          if (name === "\u8BBA\u575B\u7F13\u5B58") return this.perform(() => this.loadForumCacheSettings());
           if (["\u7F13\u5B58", "\u56FE\u7247\u7F13\u5B58"].includes(name)) return this.perform(() => this.loadCacheSettings(name === "\u56FE\u7247\u7F13\u5B58"));
         };
         return {
           saveDisabled: st.seTab === "\u914D\u7F6E\u6982\u89C8" || isCache && !cacheSaved,
+          headingClass: isForum ? "jj-forum-cache-heading" : "",
+          canClearForumCache: isForum,
+          clearForumCache: () => this.ask({ title: "\u6E05\u7A7A\u8BBA\u575B\u7F13\u5B58\uFF1F", body: "\u6E05\u9664\u670D\u52A1\u5668\u5DF2\u4FDD\u5B58\u7684\u5217\u8868\u548C\u5E16\u5B50\u8D44\u6599\uFF0C\u4FDD\u7559\u7F13\u5B58\u8BBE\u7F6E\u3002\u8FD0\u884C\u4E2D\u7684\u6293\u53D6\u4F1A\u7EE7\u7EED\u5199\u5165\u65B0\u7F13\u5B58\u3002", color: WARN, okText: "\u6E05\u7A7A\u7F13\u5B58", run: () => this.perform(async () => {
+            const result = await this.request("/api/movies/forum/cache", "DELETE");
+            this.setState({ forumCacheSettings: result });
+          }, "\u8BBA\u575B\u7F13\u5B58\u5DF2\u6E05\u7A7A") }),
           tabs: tabs.map((name) => ({ name, status: status(name), dot: status(name) === "\u5DF2\u8FDE\u63A5" ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? "rgba(145,132,217,.12)" : "transparent", fg: name === st.seTab ? "var(--fg)" : DIM, fw: name === st.seTab ? 500 : 400, pick: openTab(name) })),
           isOverview: st.seTab === "\u914D\u7F6E\u6982\u89C8",
           isAppearance: st.seTab === "\u5916\u89C2",
@@ -8595,7 +8914,7 @@ class Component extends DCLogic {
           save: () => this.perform(async () => {
             if (isCache) {
               if (!cacheSaved) throw new Error("\u8BF7\u5148\u8F7D\u5165\u670D\u52A1\u7AEF\u7F13\u5B58\u8BBE\u7F6E");
-              const result = await this.request(isImages ? "/api/image-cache" : "/api/metadata-cache", "PUT", cache);
+              const result = await this.request(cacheURL, "PUT", cache);
               this.setState({ [savedKey]: result, [draftKey]: { ...result.settings } });
               return;
             }
@@ -8609,7 +8928,8 @@ class Component extends DCLogic {
             await this.loadConnections();
           }, "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58"),
           reload: () => this.perform(async () => {
-            if (isCache) await this.loadCacheSettings(isImages);
+            if (isForum) await this.loadForumCacheSettings();
+            else if (isCache) await this.loadCacheSettings(isImages);
             else if (isMedia) this.applyLibrarySettings(await this.request("/api/movies/local-library/settings"), true);
             else await this.loadSettings();
           }, "\u914D\u7F6E\u5DF2\u91CD\u65B0\u8F7D\u5165"),
@@ -8628,6 +8948,8 @@ class Component extends DCLogic {
         const view = super.renderVals(), st = this.state;
         view.at.browse = st.route === "browse";
         view.br = st.route === "browse" ? this.vBrowse() : {};
+        view.at.forum = st.route === "forum";
+        view.fo = st.route === "forum" ? this.vForum(imageSource) : {};
         const deployment = window.versionInfo || {};
         view.version = deployment.version || "\u7248\u672C\u672A\u77E5";
         view.deploymentTime = deployment.deployed_at ? `\u66F4\u65B0 ${deployment.deployed_at.replace("T", " ").replace("Z", " UTC")}` : "\u66F4\u65B0\u65F6\u95F4\u672A\u8BB0\u5F55";
@@ -8979,7 +9301,8 @@ class Component extends DCLogic {
     const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');
     const cinemaEnd = html.indexOf('  <sc-if value="{{ cn.player }}">', cinemaStart);
     html = html.slice(0, cinemaStart) + cinemaTemplate + "\n" + html.slice(cinemaEnd);
-    html = html.replace("</helmet>", browseStyles + "</helmet>").replace('<button class="btn btn-secondary jj-cinema-exit"', '<button class="btn btn-secondary" onClick="{{ cn.browseOnline }}">\u6D4F\u89C8\u65B0\u7247</button><button class="btn btn-secondary jj-cinema-exit"').replace('  <sc-if value="{{ at.search }}"', browseTemplate + '\n  <sc-if value="{{ at.search }}"');
+    html = html.replace("</helmet>", browseStyles + forumStyles + "</helmet>").replace('<button class="btn btn-secondary jj-cinema-exit"', '<button class="btn btn-secondary" onClick="{{ cn.browseOnline }}">\u6D4F\u89C8\u65B0\u7247</button><button class="btn btn-secondary jj-cinema-exit"').replace('  <sc-if value="{{ at.search }}"', browseTemplate + forumTemplate + '\n  <sc-if value="{{ at.search }}"');
+    html = html.replace('<div style="display:flex;align-items:flex-end;gap:14px">\n        <div><h4 style="margin:0 0 2px">{{ se.cur.title }}', '<div class="{{ se.headingClass }}" style="display:flex;align-items:flex-end;gap:14px">\n        <div><h4 style="margin:0 0 2px">{{ se.cur.title }}').replace('<button class="btn btn-secondary" onClick="{{ se.reload }}">', '<sc-if value="{{ se.canClearForumCache }}"><button class="btn btn-secondary" disabled="{{ se.saveDisabled }}" onClick="{{ se.clearForumCache }}">\u6E05\u7A7A\u8BBA\u575B\u7F13\u5B58</button></sc-if><button class="btn btn-secondary" onClick="{{ se.reload }}">');
     return html;
   }
 

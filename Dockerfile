@@ -19,6 +19,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     JAVJAEGER_CONFIG_PATH=/app/data/config.json \
     JAVJAEGER_ACTOR_IMAGE_DIR=/app/actor_images
 
@@ -33,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m patchright install --with-deps chromium
 
 COPY . .
 COPY --from=frontend-builder /frontend/static/app.js /app/static/app.js

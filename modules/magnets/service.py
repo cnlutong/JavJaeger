@@ -686,6 +686,9 @@ async def get_same_source_replacement_magnet_payload(
     magnet_link: str,
     magnet_source: str | None = None,
 ) -> dict[str, Any] | None:
+    # Forum resources are explicit links; another provider cannot replace them.
+    if str(magnet_source or '').strip().lower() == 'dmn12':
+        return None
     source = _normalize_magnet_source_name(magnet_source)
     if not source:
         source = _normalize_magnet_source_name(

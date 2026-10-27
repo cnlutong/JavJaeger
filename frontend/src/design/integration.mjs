@@ -1,4 +1,5 @@
 import { loadAppTheme, saveAppTheme } from '../utils/theme.js';
+import { forumMethods, initialForumState } from './forum.mjs';
 import { loadPikPakSession, persistPikPakSession, clearPikPakSession, loadWebDavSettings, saveWebDavSettings, loadAria2Settings, saveAria2Settings } from '../utils/storage.js';
 import { isConformingLocalScrapeItem, getLocalScrapeIssueReason } from '../utils/localScrapeResults.mjs';
 import { withSecretPlaceholders, buildSettingsPayload } from '../utils/systemSettings.mjs';
@@ -13,7 +14,7 @@ import { loadSubtitleAppearance, saveSubtitleAppearance, normalizeSubtitleAppear
 export const designDataExports = '\nComponent.data = { MOVIES, MAGNETS, LIB, CN_ACTORS, CN_RESUME, FILTER_DIMS, ACTOR_CATALOG, GENRE_CATALOG, BG, HISTORY, TC, PRESETS, SCRAPE_ROWS };\nComponent.filterTypes = FILTER_TYPES;';
 // Keep the imported design intact; adapt its eager view calculations at startup.
 export function adaptDesignScript(script) {
-    script = script.replace('const NAV = [', "const NAV = [\n  { id: 'browse', label: '浏览', icon: 'ph-compass' },");
+    script = script.replace('const NAV = [', "const NAV = [\n  { id: 'browse', label: '浏览', icon: 'ph-compass' },\n  { id: 'forum', label: '论坛影片', icon: 'ph-images' },");
     for (const [key, route, method] of [['cn', 'cinema', 'vCinema'], ['d', 'dispatch', 'vDispatch'], ['tc', 'transcode', 'vTranscode'], ['sc', 'scrape', 'vScrape'], ['lb', 'library', 'vLibrary'], ['au', 'auto', 'vAuto'], ['fs', 'storage', 'vStorage'], ['se', 'settings', 'vSettings']]) {
         script = script.replace(`${key}: this.${method}()`, `${key}: (st.route === '${route}'${key === 'fs' ? ' || st.fsAdd' : ''}) ? this.${method}() : {}`);
     }
@@ -71,6 +72,7 @@ const safeText = (value, fallback = '操作失败，请检查配置或稍后重�
 const imageSource = url => !url ? '' : url.startsWith('/api/') ? url : `/api/image-proxy?url=${id(url)}`;
 const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibraryActiveTask', dispatchTask: 'pan115ActiveDispatch', informationTask: 'localLibraryInformationTask', cleanupTask: 'localLibraryCleanupTask' };
 const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发', 'browse-play': '115 播放准备' };
+backgroundNames['forum-fetch'] = '论坛影片获取';
 const browsePlaybackKey = 'javjaeger.browsePlayback';
 const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks', '/api/system/jobs'];
 const jobFinished = task => task && ['success', 'completed', 'failed', 'cancelled'].includes(task.status);
@@ -125,15 +127,16 @@ export function connectDesign(Base) {
     return class ConnectedDesign extends Base {
         constructor(props) {
             super(props);
+            Object.assign(this, forumMethods);
             const session = loadPikPakSession();
             const libraryLink = String(window.location?.hash || '').match(/^#library(?:\/([A-Za-z0-9_-]+))?$/);
             this.auth = session.credentials;
-            this.state = { ...this.state, theme: loadAppTheme(), route: libraryLink ? 'library' : window.location?.hash === '#browse' ? 'browse' : 'cinema', lbDetail: libraryLink?.[1] || null, cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {}, cnTagQ: '', cnTagWall: false, cnTagMode: 'or',
+            this.state = { ...this.state, ...initialForumState(), theme: loadAppTheme(), route: libraryLink ? 'library' : window.location?.hash === '#forum' ? 'forum' : window.location?.hash === '#browse' ? 'browse' : 'cinema', lbDetail: libraryLink?.[1] || null, cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {}, cnTagQ: '', cnTagWall: false, cnTagMode: 'or',
                 brMovies: [], brFilters: [], brKind: 'normal', brPage: 0, brNext: 1, brLoaded: false, brLoading: false, brError: '', brDetail: null, brCatalog: null, brCatalogQ: '', brPlayback: null, brPlaybackError: '',
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbSource: '', lbPaths: [], lbExcludes: [], auTask: '',
-                settings: {}, settingsDraft: {}, cacheSettings: null, cacheDraft: null, imageCacheSettings: null, imageCacheDraft: null, connections: {}, clientConfig: {}, tasks: [], fileRows: [],
+                settings: {}, settingsDraft: {}, cacheSettings: null, cacheDraft: null, imageCacheSettings: null, imageCacheDraft: null, forumCacheSettings: null, forumCacheDraft: null, connections: {}, clientConfig: {}, tasks: [], fileRows: [],
                 tcCaps: {}, searchError: '', searchDone: false, loading: false, libraryLoaded: false,
                 scanTask: null, scrapeTask: null, scrapeResult: null, checkResult: null, informationTask: null, infoStarting: false, tool: 'PikPak',
                 backgroundJobs: [], autoDraft: null, directory: '', directories: [], browserTarget: null, qr: null, sourcesResult: [],
@@ -275,6 +278,7 @@ export function connectDesign(Base) {
             this._keyboard = event => {
                 if (event.key === 'Escape') {
                     if (this.state.dlg) this.renderVals().dlg.cancel();
+                    else if (this.state.foDetail) this.setState({ foDetail: null });
                     else if (this.state.route === 'browse' && this.state.brPlayback) this.closeBrowsePlayback();
                     else for (const key of ['brCatalog', 'brDetail', 'taskLog', 'fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
                         if (this.state[key]) { this.setState({ [key]: null }); break; }
@@ -310,6 +314,7 @@ export function connectDesign(Base) {
                 // Establish the shared session cookie before parallel downloader requests.
                 await this.perform(() => this.loadBackgroundJobs());
                 if (this.state.route === 'browse') void this.loadBrowse({ reset: true });
+                if (this.state.route === 'forum') void this.loadForumCache();
                 await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map(load => this.perform(load)));
                 const config = this.state.clientConfig;
                 for (const key of ['webdav', 'aria2', 'pikpak']) {
@@ -331,9 +336,10 @@ export function connectDesign(Base) {
         allConnected() { return Boolean(this.state.connections.pan115); }
         go(route) { return () => {
             this.setState({ route, bgOpen: false, detail: null, lbDetail: null, cnPlaying: null, cnDetail: null, lbTc: null, lbPathCfg: false, lbCheckCfg: false, toolCfg: null, fsAdd: null, brCatalog: null, brDetail: null });
-            if (route === 'browse') window.history?.replaceState(null, '', '#browse');
-            else if (window.location?.hash === '#browse') window.history?.replaceState(null, '', window.location.pathname + window.location.search);
+            if (['browse', 'forum'].includes(route)) window.history?.replaceState(null, '', '#' + route);
+            else if (['#browse', '#forum'].includes(window.location?.hash)) window.history?.replaceState(null, '', window.location.pathname + window.location.search);
             if (route === 'browse' && !this.state.brLoaded) void this.loadBrowse({ reset: true });
+            if (route === 'forum' && !this.state.foMovies.length) void this.loadForumCache();
             this.perform(async () => {
                 if (['cinema', 'library'].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 30000)) await this.loadLibrary();
                 if (route === 'storage') await this.loadFiles(this.state.fsSrc, this.state.directory);
@@ -461,6 +467,10 @@ export function connectDesign(Base) {
         async loadCacheSettings(images = false) {
             const result = await this.request(images ? '/api/image-cache' : '/api/metadata-cache');
             this.setState({ [images ? 'imageCacheSettings' : 'cacheSettings']: result, [images ? 'imageCacheDraft' : 'cacheDraft']: { ...result.settings } });
+        }
+        async loadForumCacheSettings() {
+            const result = await this.request('/api/movies/forum/cache/settings');
+            this.setState({ forumCacheSettings: result, forumCacheDraft: { ...result.settings } });
         }
         async loadCatalogs() {
             for (const [url, table] of [['/static/actors.json', data.ACTOR_CATALOG], ['/static/categories.json', data.GENRE_CATALOG]]) {
@@ -725,6 +735,7 @@ export function connectDesign(Base) {
                     this._searchRestored = true;
                     this._activeSearchJobId = tasks.filter(task => task.type === 'search').sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).at(-1)?.task_id || null;
                 }
+                this.syncForumJobs(tasks);
                 for (const task of tasks) {
                     const old = previous.get(task.task_id);
                     if (task.type === 'search' && task.task_id === this._activeSearchJobId && (!old || old.updated_at !== task.updated_at)) this.applyServerSearch(task);
@@ -746,6 +757,7 @@ export function connectDesign(Base) {
         }
 
         showServerJob(task) {
+            if (task.type === 'forum-fetch') { this.applyForumTask(task, true); this.go('forum')(); return; }
             if (task.type === 'browse-play') {
                 this.go('browse')();
                 const playback = { taskId: task.task_id, movie_id: task.result?.movie_id || task.movie_id || (this.state.brPlayback?.taskId === task.task_id ? this.state.brPlayback.movie_id : '') };
@@ -1793,9 +1805,10 @@ export function connectDesign(Base) {
             const st = this.state, sectionMap = { 'JavBus API': 'javbus', '刮削源': 'scrapers', WebDAV: 'webdav', Aria2: 'aria2', PikPak: 'pikpak', '115 网盘': 'pan115', 磁力筛选: 'magnet_health' }, key = sectionMap[st.seTab];
             const values = st.settingsDraft[key] || {}, update = (field, value) => this.setState({ settingsDraft: { ...st.settingsDraft, [key]: { ...values, [field]: value } } });
             const labels = { enabled: '启用', base_url: '基地址', url: '服务地址', username: '用户名', password: '密码', secret: 'RPC Secret', cookie: 'Cookie', timeout_seconds: '请求超时（秒）', proxy: '代理', request_interval_seconds: '请求间隔（秒）', cache_expire_seconds: '缓存有效期（秒）', cache_max_size: '缓存条目上限', image_retry_attempts: '图片重试次数', image_retry_backoff_seconds: '图片重试间隔', auto_connect: '自动连接', auto_login: '自动登录', save_dir_id: '离线目录 CID', login_app: '登录 App', batch_size: '批量大小', batch_interval_seconds: '批次间隔（秒）', jitter_seconds: '随机延时（秒）', probe_with_aria2: '使用 Aria2 探测', min_seeders: '最少做种数', min_peers: '最少节点数', min_availability: '最低可用率', min_score: '最低评分', probe_timeout_seconds: '探测超时（秒）', allow_unknown: '允许未知健康度' };
-            const isMedia = st.seTab === '媒体目录', media = st.librarySettings || {}, isImages = st.seTab === '图片缓存', isCache = st.seTab === '缓存' || isImages;
-            const savedKey = isImages ? 'imageCacheSettings' : 'cacheSettings', draftKey = isImages ? 'imageCacheDraft' : 'cacheDraft', cacheSaved = st[savedKey], cache = st[draftKey] || {};
-            const tabs = ['配置概览', '外观', '媒体目录', '缓存', '图片缓存', ...Object.keys(sectionMap), '运行安全'];
+            const isMedia = st.seTab === '媒体目录', media = st.librarySettings || {}, isImages = st.seTab === '图片缓存', isForum = st.seTab === '论坛缓存', isCache = st.seTab === '缓存' || isImages || isForum;
+            const savedKey = isForum ? 'forumCacheSettings' : isImages ? 'imageCacheSettings' : 'cacheSettings', draftKey = isForum ? 'forumCacheDraft' : isImages ? 'imageCacheDraft' : 'cacheDraft', cacheSaved = st[savedKey], cache = st[draftKey] || {};
+            const cacheURL = isForum ? '/api/movies/forum/cache/settings' : isImages ? '/api/image-cache' : '/api/metadata-cache';
+            const tabs = ['配置概览', '外观', '媒体目录', '缓存', '图片缓存', '论坛缓存', ...Object.keys(sectionMap), '运行安全'];
             const status = name => name === 'WebDAV' ? (st.connections.webdav_connected ? '已连接' : '未连接') : this.toolStates().find(tool => tool.name === name)?.hint || '';
             let fields = key && key !== 'scrapers' ? Object.entries(values).filter(([field, value]) => labels[field] && typeof value !== 'object').map(([field, value]) => this.formField(labels[field], value, value => update(field, value), ['password', 'secret', 'cookie'].includes(field) ? 'secret' : typeof value === 'boolean' ? 'check' : typeof value === 'number' ? 'number' : 'text', [], ['password', 'secret', 'cookie'].includes(field) ? '留空保留服务端已存值；保存会写入服务端配置。' : '')) : [];
             if (isMedia) fields = [
@@ -1805,7 +1818,7 @@ export function connectDesign(Base) {
                 ...this.formField(label, st[stateKey] ?? fallback, value => this.setState({ [stateKey]: value }), 'path', [], hint), span: '1 / -1',
                 browse: () => this.perform(() => this.browseDirectory(st[stateKey] ?? fallback, { key: stateKey })),
             }));
-            if (isCache && !isImages) fields = [
+            if (isCache && !isImages && !isForum) fields = [
                 this.formField('缓存清理方式', cache.mode === 'size' ? '按占用空间' : '按缓存天数', value => this.setState({ cacheDraft: { ...cache, mode: value === '按占用空间' ? 'size' : 'days' } }), 'select', ['按缓存天数', '按占用空间']),
                 cache.mode === 'size'
                     ? this.formField('最多占用空间（MB）', cache.mb, value => this.setState({ cacheDraft: { ...cache, mb: value } }), 'number', [], '按服务端缓存文件的实际大小计算，超限时优先清理最早缓存的资料。')
@@ -1815,6 +1828,12 @@ export function connectDesign(Base) {
             if (isImages) fields = [
                 this.formField('图片缓存上限（MB）', cache.mb, value => this.setState({ imageCacheDraft: { mb: value } }), 'number', [], '按图片缓存文件的实际大小计算，超限时优先清理较久未使用的图片。'),
                 this.formField('当前图片缓存', `${cacheSaved?.count || 0} 张 · ${size(cacheSaved?.size_bytes || 0)}`, () => {}, 'status', [], '单独计算空间，不占用影片资料缓存的上限。单张图片超过总上限时，仅显示，不缓存。'),
+            ];
+            if (isForum) fields = [
+                this.formField('列表缓存时间（分钟）', cache.list_minutes, value => this.setState({ forumCacheDraft: { ...cache, list_minutes: value } }), 'number', [], '正整数，默认 30 分钟；从列表读取时间起计算。'),
+                this.formField('帖子缓存时间（小时）', cache.post_hours, value => this.setState({ forumCacheDraft: { ...cache, post_hours: value } }), 'number', [], '正整数，默认 24 小时；图片地址与磁力等帖子资料共用此时间。'),
+                this.formField('论坛缓存上限（MB）', cache.mb, value => this.setState({ forumCacheDraft: { ...cache, mb: value } }), 'number', [], '正整数，默认 32 MB；保存后立即清理超限或过期记录。'),
+                this.formField('当前论坛缓存', `${cacheSaved?.count || 0} 条 · ${size(cacheSaved?.size_bytes || 0)}`, () => {}, 'status', [], '列表与帖子合计，最多 512 条记录。图片文件使用独立图片缓存。'),
             ];
             if (isCache && !cacheSaved) fields = [this.formField('服务端缓存', '尚未载入', () => {}, 'status', [], '点击重新载入，读取服务器上的缓存设置。')];
             if (st.seTab === '运行安全') fields = [this.formField('会话密钥', st.settings.security?.session_secret_configured ? '已配置' : '未配置', () => {}, 'status'), this.formField('环境变量覆盖', Object.entries(st.settings.environment_overrides?.javbus || {}).filter(([, value]) => value).map(([name]) => name).join(' · ') || '无', () => {}, 'status')];
@@ -1830,9 +1849,15 @@ export function connectDesign(Base) {
                 this._scraperSettings.set(job.task_id, st.settings);
                 this.toast('刮削源测试已在后台启动，可刷新或离开页面', OK);
             });
-            const openTab = name => () => { this.setState({ seTab: name }); if (['缓存', '图片缓存'].includes(name)) return this.perform(() => this.loadCacheSettings(name === '图片缓存')); };
+            const openTab = name => () => { this.setState({ seTab: name }); if (name === '论坛缓存') return this.perform(() => this.loadForumCacheSettings()); if (['缓存', '图片缓存'].includes(name)) return this.perform(() => this.loadCacheSettings(name === '图片缓存')); };
             return {
                 saveDisabled: st.seTab === '配置概览' || isCache && !cacheSaved,
+                headingClass: isForum ? 'jj-forum-cache-heading' : '',
+                canClearForumCache: isForum,
+                clearForumCache: () => this.ask({ title: '清空论坛缓存？', body: '清除服务器已保存的列表和帖子资料，保留缓存设置。运行中的抓取会继续写入新缓存。', color: WARN, okText: '清空缓存', run: () => this.perform(async () => {
+                    const result = await this.request('/api/movies/forum/cache', 'DELETE');
+                    this.setState({ forumCacheSettings: result });
+                }, '论坛缓存已清空') }),
                 tabs: tabs.map(name => ({ name, status: status(name), dot: status(name) === '已连接' ? OK : DIM2, stFg: DIM2, bg: name === st.seTab ? 'rgba(145,132,217,.12)' : 'transparent', fg: name === st.seTab ? 'var(--fg)' : DIM, fw: name === st.seTab ? 500 : 400, pick: openTab(name) })),
                 isOverview: st.seTab === '配置概览', isAppearance: st.seTab === '外观', isSources: key === 'scrapers', isForm: isCache || isMedia || Boolean(key && key !== 'scrapers') || st.seTab === '运行安全', fields,
                 cur: { title: st.seTab, desc: isImages ? '封面图片统一缓存在服务器，所有设备共用。容量独立计算，保存后立即清理超限图片。' : isCache ? '缓存与清理设置统一保存在服务器，所有设备和浏览器共用。保存后立即生效。' : isMedia ? '统一配置刮削输入和影视库输出，保存后同步到影视库与本地刮削。保存不会移动文件或启动扫描。' : st.seTab === '外观' ? '管理界面配色主题' : '配置现有服务与连接', canTest: ['webdav', 'aria2', 'pikpak', 'pan115', 'scrapers', 'javbus'].includes(key), banner: status(st.seTab), bannerFg: DIM, bannerBg: 'var(--t03)', bannerRing: 'var(--t09)', bannerMeta: '' },
@@ -1842,8 +1867,8 @@ export function connectDesign(Base) {
                     fields: Object.entries(name === 'javbus' ? {} : source).filter(([field]) => ['language', 'request_delay', 'base_url', 'api_key'].includes(field)).map(([field, value]) => this.formField(field, value, value => updateSource(name, { [field]: value }), field === 'api_key' ? 'secret' : typeof value === 'number' ? 'number' : 'text')) }; }),
                 test: () => key === 'scrapers' || key === 'javbus' ? testSources(key === 'javbus' ? ['javbus'] : providers) : this.perform(() => this.connect(key, !values.password && !values.secret && !values.cookie && Object.entries(values).every(([field, value]) => ['password', 'secret', 'cookie'].includes(field) || st.settings[key]?.[field] === value)), '连接成功'),
                 applyTestResults: () => this.perform(async () => { requireSavedSources(); if (!st.sourcesResult.length) throw new Error('请先运行测试'); await this.request('/api/movies/metadata-scrapers/apply-test-results', 'POST', { results: st.sourcesResult }); await this.loadSettings(); }, '已按测试结果更新配置'),
-                save: () => this.perform(async () => { if (isCache) { if (!cacheSaved) throw new Error('请先载入服务端缓存设置'); const result = await this.request(isImages ? '/api/image-cache' : '/api/metadata-cache', 'PUT', cache); this.setState({ [savedKey]: result, [draftKey]: { ...result.settings } }); return; } if (isMedia) return this.saveLibraryPaths({ ...media, source_directory: st.seSource ?? media.source_directory, directories: [st.seTarget ?? media.directories?.[0] ?? '', ...(media.directories || []).slice(1)] }); if (st.seTab === '外观') { saveAppTheme(st.theme); return; } await this.request('/api/system/settings', 'PUT', buildSettingsPayload(st.settingsDraft)); await this.loadSettings(); await this.loadConnections(); }, '设置已保存'),
-                reload: () => this.perform(async () => { if (isCache) await this.loadCacheSettings(isImages); else if (isMedia) this.applyLibrarySettings(await this.request('/api/movies/local-library/settings'), true); else await this.loadSettings(); }, '配置已重新载入'), reset: () => isCache ? this.setState({ [draftKey]: cacheSaved ? { ...cacheSaved.settings } : null }) : isMedia ? this.setState({ seSource: undefined, seTarget: undefined }) : this.setState({ settingsDraft: withSecretPlaceholders(st.settings), sourcesResult: [] }),
+                save: () => this.perform(async () => { if (isCache) { if (!cacheSaved) throw new Error('请先载入服务端缓存设置'); const result = await this.request(cacheURL, 'PUT', cache); this.setState({ [savedKey]: result, [draftKey]: { ...result.settings } }); return; } if (isMedia) return this.saveLibraryPaths({ ...media, source_directory: st.seSource ?? media.source_directory, directories: [st.seTarget ?? media.directories?.[0] ?? '', ...(media.directories || []).slice(1)] }); if (st.seTab === '外观') { saveAppTheme(st.theme); return; } await this.request('/api/system/settings', 'PUT', buildSettingsPayload(st.settingsDraft)); await this.loadSettings(); await this.loadConnections(); }, '设置已保存'),
+                reload: () => this.perform(async () => { if (isForum) await this.loadForumCacheSettings(); else if (isCache) await this.loadCacheSettings(isImages); else if (isMedia) this.applyLibrarySettings(await this.request('/api/movies/local-library/settings'), true); else await this.loadSettings(); }, '配置已重新载入'), reset: () => isCache ? this.setState({ [draftKey]: cacheSaved ? { ...cacheSaved.settings } : null }) : isMedia ? this.setState({ seSource: undefined, seTarget: undefined }) : this.setState({ settingsDraft: withSecretPlaceholders(st.settings), sourcesResult: [] }),
                 startQr: () => this.perform(() => this.startQr()), showQrLogin: key === 'pan115', logout: () => { clearPikPakSession(); this.auth = null; this.setState({ pikLogged: false }); }, showLogout: key === 'pikpak' && st.pikLogged,
             };
         }
@@ -1852,6 +1877,8 @@ export function connectDesign(Base) {
             const view = super.renderVals(), st = this.state;
             view.at.browse = st.route === 'browse';
             view.br = st.route === 'browse' ? this.vBrowse() : {};
+            view.at.forum = st.route === 'forum';
+            view.fo = st.route === 'forum' ? this.vForum(imageSource) : {};
             const deployment = window.versionInfo || {};
             view.version = deployment.version || '版本未知';
             view.deploymentTime = deployment.deployed_at ? `更新 ${deployment.deployed_at.replace('T', ' ').replace('Z', ' UTC')}` : '更新时间未记录';

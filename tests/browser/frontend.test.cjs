@@ -101,6 +101,249 @@ const movie = (id = 'QA-001') => ({ id, title: `QA 测试影片 ${id}`, gid: '12
 const dispatchContract = require('../fixtures/dispatch-contract.json');
 const magnet = { ...dispatchContract.magnets[0], source: 'javbus' };
 
+test('forum: images, LTX selection, refresh recovery and exact-link dispatch to every tool', async t => {
+    const link = 'magnet:?xt=urn:btih:' + 'a'.repeat(40), submissions = [], jobs = [];
+    const movies = [
+        { thread_id: '1', movie_id: 'QA-001', code: 'QA-001', title: 'QA-001 [ltx模型] 远方的电影与很长的中文标题', size: '3.3 GB', actors: '演员甲', status: 'ready', url: 'https://dmn12.vip/thread-1-1-1.html', cover_url: 'https://tu.djhdhs.us/tupian/qa.jpg', images: ['https://tu.djhdhs.us/tupian/qa.jpg'], magnets: [{ link, source: 'dmn12' }] },
+        { thread_id: '2', movie_id: 'QA-002', code: 'QA-002', title: 'QA-002 海边的电影', size: '2 GB', actors: '演员乙', status: 'ready', url: 'https://dmn12.vip/thread-2-1-1.html', cover_url: '', images: [], magnets: [{ link: 'magnet:?xt=urn:btih:' + 'b'.repeat(40), source: 'dmn12' }] },
+        ...Array.from({ length: 8 }, (_, index) => ({ thread_id: String(index + 3), movie_id: 'QA-' + (index + 3), code: 'QA-' + (index + 3), title: '长列表影片 ' + (index + 3), size: '2 GB', actors: '', status: 'ready', images: [], magnets: [{ link: 'magnet:?xt=urn:btih:' + 'c'.repeat(40), source: 'dmn12' }] })),
+    ];
+    let task;
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.addInitScript(() => { sessionStorage.setItem('pikpakCredentials', JSON.stringify({ fromConfig: true })); sessionStorage.setItem('pikpakLoginStatus', 'true'); });
+        await p.route('**/api/webdav/status', route => route.fulfill({ json: { aria2_connected: true } }));
+        await p.route('**/api/115/status', route => route.fulfill({ json: { connected: true } }));
+        await p.route('**/api/image-proxy?*', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="360" height="240"><rect width="360" height="240" fill="#405c7a"/><circle cx="250" cy="70" r="45" fill="#cab99b"/><path d="M0 240V160L100 65L260 210L360 120V240" fill="#233348"/></svg>' }));
+        await p.route('**/api/movies/forum/jobs', route => {
+            assert.deepEqual(route.request().postDataJSON(), { forum_id: 36, page: 1 });
+            task = { task_id: 'forum-qa', type: 'forum-fetch', status: 'success', updated_at: 'done', percent: 100, can_retry: false,
+                result: { success: true, forum_id: 36, page: 1, listed_count: movies.length, has_next: true, movies, message: '影片已读取，可下发' } };
+            return route.fulfill({ status: 202, json: task });
+        });
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: [...(task ? [task] : []), ...jobs] } }));
+        await p.route('**/api/system/jobs/*', route => route.fulfill({ json: [task, ...jobs].find(job => job?.task_id === new URL(route.request().url()).pathname.split('/').at(-1)) || {} }));
+        await p.route('**/api/automation/dispatch-jobs', route => {
+            const payload = route.request().postDataJSON(); submissions.push(payload);
+            const job = { task_id: 'forum-dispatch-' + jobs.length, type: 'dispatch-' + payload.tool, status: 'success', updated_at: 'done',
+                result: { success: true, tool: payload.tool, results: [{ movie_id: 'QA-001', success: true, magnet: link }] } };
+            jobs.push(job); return route.fulfill({ status: 202, json: job });
+        });
+    });
+    await navigate(page, '论坛影片');
+    await page.getByRole('button', { name: '获取影片', exact: true }).click();
+    await page.locator('.jj-forum-row').nth(1).waitFor();
+    assert.equal(await page.locator('.jj-forum-row').count(), 10);
+    await page.getByAltText('QA-001 图片').evaluate(image => image.decode());
+    assert.equal(await page.getByAltText('QA-001 图片').evaluate(image => image.complete && image.naturalWidth > 0), true);
+    await page.getByRole('checkbox', { name: '全选当前筛选结果' }).check();
+    const bulkBox = await page.getByRole('toolbar', { name: '论坛批量下发' }).boundingBox();
+    assert.ok(bulkBox.y >= 0 && bulkBox.y + bulkBox.height <= 1000, 'bulk action stays in the viewport for long forum lists');
+    await page.getByRole('button', { name: '标题关键词 LTX' }).click();
+    assert.equal(await page.locator('.jj-forum-row').count(), 1);
+    await page.getByText('已选 1 部影片', { exact: true }).waitFor();
+    for (const [name, key] of [['115 网盘', 'pan115'], ['PikPak', 'pikpak'], ['Aria2', 'aria2']]) {
+        await page.getByRole('combobox', { name: '论坛下发目标' }).selectOption(name);
+        await page.getByRole('checkbox', { name: '选择 QA-001', exact: true }).check();
+        await page.getByRole('button', { name: '下发所选', exact: true }).click();
+        const submitted = page.waitForResponse(response => response.url().endsWith('/api/automation/dispatch-jobs') && response.request().method() === 'POST');
+        await approve(page, '开始派发');
+        await submitted;
+        assert.equal(submissions.at(-1).tool, key);
+        assert.deepEqual(submissions.at(-1).magnet_links, [link]);
+        assert.deepEqual(submissions.at(-1).magnet_sources, ['dmn12']);
+        await page.locator('.jj-forum-row').getByText('已提交到 ' + name, { exact: true }).waitFor();
+        await page.waitForFunction(() => !document.querySelector('input[aria-label="选择 QA-001"]')?.checked);
+        assert.equal(await page.getByRole('checkbox', { name: '选择 QA-001', exact: true }).isChecked(), false);
+    }
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.locator('.jj-forum-row').first().waitFor();
+    assert.equal(await page.locator('.jj-forum-row').count(), 1);
+    assert.equal(await page.getByRole('button', { name: '标题关键词 LTX' }).getAttribute('aria-pressed'), 'true');
+    await page.getByRole('button', { name: '查看 QA-001 图片' }).click();
+    await page.getByRole('dialog', { name: '论坛影片详情' }).waitFor();
+    assert.equal(await page.getByRole('dialog', { name: '论坛影片详情' }).getByText(link, { exact: true }).count(), 1);
+    await page.getByRole('button', { name: '关闭论坛详情' }).click();
+    await page.getByRole('searchbox', { name: '论坛标题筛选' }).fill('不存在的标题');
+    await page.getByRole('heading', { name: '暂无匹配影片' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '下一页', exact: true }).isEnabled(), true);
+    await page.getByRole('searchbox', { name: '论坛标题筛选' }).fill('');
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'forum fits the mobile viewport');
+    const titleMetrics = await page.locator('.jj-forum-title').first().evaluate(title => ({ height: title.getBoundingClientRect().height, lineHeight: Number.parseFloat(getComputedStyle(title).lineHeight) }));
+    assert.ok(titleMetrics.height > titleMetrics.lineHeight * 1.5, 'long titles wrap into readable lines on mobile');
+    await page.getByRole('button', { name: '下发 QA-001', exact: true }).waitFor();
+    if (process.env.JAVJAEGER_FORUM_SHOTS) {
+        fs.mkdirSync(process.env.JAVJAEGER_FORUM_SHOTS, { recursive: true });
+        await page.locator('.jj-forum-row').first().evaluate(row => Promise.all(row.getAnimations({ subtree: true }).map(animation => animation.finished)));
+        await page.screenshot({ path: path.join(process.env.JAVJAEGER_FORUM_SHOTS, 'forum-mobile.png'), fullPage: true });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.locator('.jj-forum-row').first().evaluate(row => Promise.all(row.getAnimations({ subtree: true }).map(animation => animation.finished)));
+        await page.screenshot({ path: path.join(process.env.JAVJAEGER_FORUM_SHOTS, 'forum-desktop.png'), fullPage: true });
+    }
+});
+
+test('forum: partial results survive cancellation, retry and failed starts', async t => {
+    const movie = { thread_id: '1', movie_id: 'QA-001', code: 'QA-001', title: 'QA-001 [LTX] 测试影片', status: 'ready', images: [], magnets: [{ link: 'magnet:?xt=urn:btih:' + 'a'.repeat(40), source: 'dmn12' }] };
+    let task, attempts = 0;
+    const page = await openApp(t, 390, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/movies/forum/jobs', route => {
+            attempts++;
+            if (attempts > 1) return route.fulfill({ status: 503, json: { detail: 'test unavailable' } });
+            task = { task_id: 'forum-partial', type: 'forum-fetch', status: 'running', percent: 50, updated_at: 'running', can_cancel: true,
+                result: { forum_id: 36, page: 1, movies: [movie, { ...movie, thread_id: '2', code: 'QA-002', title: 'QA-002 待读取', status: 'pending', magnets: [] }], message: '已读取 1/2 条', has_next: true } };
+            return route.fulfill({ status: 202, json: task });
+        });
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: task ? [task] : [] } }));
+        await p.route('**/api/system/jobs/forum-partial', route => route.fulfill({ json: task }));
+        await p.route('**/api/system/jobs/forum-partial/cancel', route => {
+            task = { ...task, status: 'cancelled', updated_at: 'cancelled', can_cancel: false, can_retry: true };
+            return route.fulfill({ json: task });
+        });
+        await p.route('**/api/system/jobs/forum-partial/retry', route => {
+            task = { ...task, status: 'success', updated_at: 'done', percent: 100, can_retry: false,
+                result: { ...task.result, movies: [movie, { ...movie, thread_id: '2', code: 'QA-002', title: 'QA-002 已就绪' }], message: '已读取 2/2 条' } };
+            return route.fulfill({ json: task });
+        });
+    });
+    await navigate(page, '论坛影片');
+    await page.getByRole('button', { name: '获取影片', exact: true }).click();
+    await page.getByRole('checkbox', { name: '选择 QA-002', exact: true }).waitFor();
+    assert.equal(await page.getByRole('checkbox', { name: '选择 QA-001', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('checkbox', { name: '选择 QA-002', exact: true }).isEnabled(), false);
+    await page.getByRole('button', { name: '停止获取', exact: true }).click();
+    await page.getByText('已停止获取，已读取的影片仍可下发', { exact: true }).waitFor();
+    assert.equal(await page.locator('.jj-forum-row').count(), 2);
+    await page.getByRole('button', { name: '重试未完成项', exact: true }).click();
+    await page.getByText('已读取 2/2 条', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('checkbox', { name: '选择 QA-002', exact: true }).isEnabled(), true);
+    await page.getByRole('spinbutton', { name: '论坛页码' }).fill('0');
+    await page.getByRole('button', { name: '获取影片', exact: true }).click();
+    await page.getByRole('alert').getByText('页码需为 1 至 10000 的整数', { exact: true }).waitFor();
+    assert.equal(attempts, 1, 'invalid page never starts a job');
+    await page.getByRole('spinbutton', { name: '论坛页码' }).fill('1');
+    await page.getByRole('button', { name: '获取影片', exact: true }).click();
+    await page.getByRole('alert').getByText('获取任务未能启动，请稍后重试', { exact: true }).waitFor();
+    assert.equal(await page.locator('.jj-forum-row').count(), 2, 'failed start preserves the usable previous results');
+});
+
+test('forum: persistent cache restores without jobs and manual refresh bypasses it', async t => {
+    let posts = 0, cacheReads = 0;
+    const row = { thread_id: '101', movie_id: 'QA-101', code: 'QA-101', title: 'QA-101 [LTX] 缓存影片', status: 'ready', images: [], magnets: [{ link: 'magnet:?xt=urn:btih:' + 'a'.repeat(40), source: 'dmn12' }] };
+    let result = { success: true, forum_id: 36, page: 1, has_next: true, movies: [row], message: '已读取 1/1 条，1 条可下发', cache: { hit: true, saved_at: '2026-10-27T10:00:00Z' } };
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: [] } }));
+        await p.route('**/api/movies/forum/cache?*', route => {
+            cacheReads++;
+            const cached = new URL(route.request().url()).searchParams.get('forum_id') === '36';
+            return route.fulfill({ json: { cached, result: cached ? { ...result, cache: { ...result.cache, hit: true } } : null } });
+        });
+        await p.route('**/api/movies/forum/jobs', route => {
+            posts++;
+            assert.deepEqual(route.request().postDataJSON(), { forum_id: 36, page: 1, force_refresh: true });
+            result = { ...result, movies: [{ ...row, title: 'QA-101 [LTX] 原帖已更新' }], cache: { hit: false, saved_at: '2026-10-27T11:00:00Z' } };
+            return route.fulfill({ status: 202, json: { task_id: 'refreshed-cache', type: 'forum-fetch', status: 'success', result } });
+        });
+    });
+    await navigate(page, '论坛影片');
+    await page.getByRole('button', { name: row.title, exact: true }).waitFor();
+    await page.getByLabel('论坛缓存状态').getByText(/已使用缓存/).waitFor();
+    assert.equal(posts, 0, 'entering cached page never creates a scraping task');
+    await page.getByRole('button', { name: '标题关键词 LTX' }).click();
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: row.title, exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '标题关键词 LTX' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(posts, 0, 'missing old jobs after restart still restore from persistent cache');
+    await page.getByRole('button', { name: '刷新原帖', exact: true }).click();
+    await page.getByRole('button', { name: 'QA-101 [LTX] 原帖已更新', exact: true }).waitFor();
+    assert.equal(posts, 1);
+    await page.getByRole('combobox', { name: '论坛分区' }).selectOption('103');
+    await page.getByRole('heading', { name: '从论坛发现影片' }).waitFor();
+    assert.equal(await page.locator('.jj-forum-row').count(), 0, 'another partition never displays stale rows');
+    await page.getByRole('combobox', { name: '论坛分区' }).selectOption('36');
+    await page.getByRole('button', { name: 'QA-101 [LTX] 原帖已更新', exact: true }).waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    assert.ok(cacheReads >= 3 && posts === 1);
+    if (process.env.JAVJAEGER_FORUM_CACHE_SHOTS) {
+        fs.mkdirSync(process.env.JAVJAEGER_FORUM_CACHE_SHOTS, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.JAVJAEGER_FORUM_CACHE_SHOTS, 'cache-mobile.png'), animations: 'disabled' });
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        await page.screenshot({ path: path.join(process.env.JAVJAEGER_FORUM_CACHE_SHOTS, 'cache-desktop.png'), animations: 'disabled' });
+    }
+});
+
+test('forum cache settings: server persistence, validation, confirmed clearing and failures', async t => {
+    const settingsURL = baseURL + '/api/movies/forum/cache/settings';
+    const setup = async page => {
+        await libraryFixture(page);
+        await page.route('**/api/movies/forum/cache/settings', route => route.continue());
+        await page.route('**/api/movies/forum/cache', route => route.continue());
+    };
+    t.after(async () => { await fetch(settingsURL, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ list_minutes: 30, post_hours: 24, mb: 32 }) }); });
+    const directory = path.join(scratch, 'data/forum_cache');
+    fs.mkdirSync(directory, { recursive: true });
+    const seed = id => {
+        const key = 'post:' + id, saved_at = Date.now() / 1000;
+        fs.writeFileSync(path.join(directory, crypto.createHash('sha256').update(key).digest('hex') + '.json'), JSON.stringify({ key, saved_at, expires_at: saved_at + 86400, value: { status: 'no_resources', images: [], magnets: [] } }));
+    };
+    seed('987651'); seed('987652');
+    const first = await openApp(t, 1440, setup);
+    await navigate(first, '论坛影片');
+    await first.getByRole('button', { name: '论坛缓存设置', exact: true }).click();
+    await field(first, '列表缓存时间（分钟）').waitFor();
+    assert.equal(await field(first, '列表缓存时间（分钟）').inputValue(), '30');
+    await field(first, '列表缓存时间（分钟）').fill('7');
+    await field(first, '帖子缓存时间（小时）').fill('12');
+    await field(first, '论坛缓存上限（MB）').fill('2');
+    await first.getByRole('button', { name: '保存', exact: true }).click();
+    await first.getByText('设置已保存', { exact: true }).waitFor();
+    assert.deepEqual((await (await fetch(settingsURL)).json()).settings, { list_minutes: 7, post_hours: 12, mb: 2 });
+    const second = await openApp(t, 390, setup);
+    await navigate(second, '设置');
+    await second.locator('aside').getByRole('button', { name: '论坛缓存', exact: true }).click();
+    await field(second, '列表缓存时间（分钟）').waitFor();
+    assert.equal(await field(second, '列表缓存时间（分钟）').inputValue(), '7');
+    assert.equal(await field(second, '帖子缓存时间（小时）').inputValue(), '12');
+    assert.equal(await field(second, '论坛缓存上限（MB）').inputValue(), '2');
+    assert.ok(await second.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    const settingsHeading = second.locator('main h4').filter({ hasText: '论坛缓存' });
+    const headingBox = await settingsHeading.boundingBox();
+    assert.ok(headingBox.width > 150 && headingBox.height < 50, 'mobile settings heading keeps readable width');
+    await field(second, '列表缓存时间（分钟）').fill('0');
+    await second.getByRole('button', { name: '保存', exact: true }).click();
+    await second.getByText(/必须为正整数/).waitFor();
+    await second.getByRole('button', { name: '重置改动', exact: true }).click();
+    assert.equal(await field(second, '列表缓存时间（分钟）').inputValue(), '7');
+    await second.getByRole('button', { name: '清空论坛缓存', exact: true }).click();
+    await second.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal((await (await fetch(settingsURL)).json()).count, 2);
+    await second.getByRole('button', { name: '清空论坛缓存', exact: true }).click();
+    await approve(second, '清空缓存');
+    await second.getByText('论坛缓存已清空', { exact: true }).waitFor();
+    const cleared = await (await fetch(settingsURL)).json();
+    assert.equal(cleared.count, 0);
+    assert.deepEqual(cleared.settings, { list_minutes: 7, post_hours: 12, mb: 2 });
+    await first.getByRole('button', { name: '重新载入', exact: true }).click();
+    await first.getByText('配置已重新载入', { exact: true }).waitFor();
+    if (process.env.JAVJAEGER_FORUM_SETTINGS_SHOTS) {
+        fs.mkdirSync(process.env.JAVJAEGER_FORUM_SETTINGS_SHOTS, { recursive: true });
+        await first.screenshot({ path: path.join(process.env.JAVJAEGER_FORUM_SETTINGS_SHOTS, 'settings-desktop.png'), animations: 'disabled' });
+        await second.setViewportSize({ width: 390, height: 844 });
+        await second.locator('main h4').filter({ hasText: '论坛缓存' }).evaluate(element => element.scrollIntoView({ block: 'start' }));
+        await second.screenshot({ path: path.join(process.env.JAVJAEGER_FORUM_SETTINGS_SHOTS, 'settings-mobile.png'), animations: 'disabled' });
+    }
+    seed('987653');
+    await second.getByRole('button', { name: '重新载入', exact: true }).click();
+    await second.route('**/api/movies/forum/cache', route => route.request().method() === 'DELETE' ? route.fulfill({ status: 500, json: { detail: '无法清空论坛缓存，请检查数据目录权限' } }) : route.continue());
+    await second.getByRole('button', { name: '清空论坛缓存', exact: true }).click();
+    await approve(second, '清空缓存');
+    await second.getByText('无法清空论坛缓存，请检查数据目录权限', { exact: true }).waitFor();
+    assert.equal((await (await fetch(settingsURL)).json()).count, 1);
+});
+
 test('browse: actor and tag filters, empty-page continuation and 115 playback survive reload', async t => {
     const requests = []; let task = null, submissions = 0;
     const page = await openApp(t, 1440, async p => {

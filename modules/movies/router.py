@@ -1,8 +1,9 @@
 import logging
 import mimetypes
 import asyncio
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
 from modules.common import runtime
@@ -27,6 +28,8 @@ from .subtitles import subtitle_files, read_webvtt
 from .local_scrape_tasks import local_scrape_task_manager
 from modules.common.tasks import submit_background_task
 from .background import enrich_search, test_scrapers
+from .forum import (ForumPageJob, ForumPageRequest, forum_sources, get_cached_forum_page,
+                    get_forum_cache_settings, configure_forum_cache, clear_forum_cache)
 from .schemas import (
     LocalLibraryInformationDownloadRequest,
     LocalLibraryScanRequest,
@@ -61,6 +64,50 @@ from .workflows import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["movies"])
+
+
+@router.get('/api/movies/forum/sources')
+async def get_forum_sources():
+    return forum_sources()
+
+
+@router.post('/api/movies/forum/jobs', status_code=202)
+async def start_forum_job(request: Request, payload: ForumPageRequest):
+    runner = ForumPageJob(payload)
+    return submit_background_task(request, 'forum-fetch', runner, cancellable=True, retryable=runner.can_retry)
+
+
+@router.get('/api/movies/forum/cache')
+async def get_forum_cache(response: Response, forum_id: Literal['36', '103'] = '36', page: int = Query(default=1, ge=1, le=10000)):
+    response.headers['Cache-Control'] = 'no-store'
+    return await get_cached_forum_page(int(forum_id), page)
+
+
+@router.get('/api/movies/forum/cache/settings')
+async def forum_cache_settings(response: Response):
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        return await get_forum_cache_settings()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail='无法读取论坛缓存，请检查数据目录权限') from exc
+
+
+@router.put('/api/movies/forum/cache/settings')
+async def save_forum_cache_settings(request: Request):
+    try:
+        return await configure_forum_cache(await request.json())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail='列表缓存分钟数、帖子缓存小时数和容量上限必须为正整数') from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail='无法保存论坛缓存设置，请检查可用空间与数据目录权限') from exc
+
+
+@router.delete('/api/movies/forum/cache')
+async def delete_forum_cache():
+    try:
+        return await clear_forum_cache()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail='无法清空论坛缓存，请检查数据目录权限') from exc
 
 
 @router.post('/api/movies/search-jobs', status_code=202)

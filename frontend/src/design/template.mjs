@@ -1,5 +1,6 @@
 import { cinemaTemplate, deploymentBadge } from './cinema.mjs';
 import { browseTemplate, browseStyles } from './browse.mjs';
+import { forumTemplate, forumStyles } from './forum.mjs';
 
 // Keep the imported design unchanged; host layout and API controls live here.
 export function adaptTemplate(source, logo) {
@@ -211,8 +212,10 @@ export function adaptTemplate(source, logo) {
     const cinemaStart = html.indexOf('  <sc-if value="{{ at.cinema }}">');
     const cinemaEnd = html.indexOf('  <sc-if value="{{ cn.player }}">', cinemaStart);
     html = html.slice(0, cinemaStart) + cinemaTemplate + '\n' + html.slice(cinemaEnd);
-    html = html.replace('</helmet>', browseStyles + '</helmet>')
+    html = html.replace('</helmet>', browseStyles + forumStyles + '</helmet>')
         .replace('<button class="btn btn-secondary jj-cinema-exit"', '<button class="btn btn-secondary" onClick="{{ cn.browseOnline }}">浏览新片</button><button class="btn btn-secondary jj-cinema-exit"')
-        .replace('  <sc-if value="{{ at.search }}"', browseTemplate + '\n  <sc-if value="{{ at.search }}"');
+        .replace('  <sc-if value="{{ at.search }}"', browseTemplate + forumTemplate + '\n  <sc-if value="{{ at.search }}"');
+    html = html.replace('<div style="display:flex;align-items:flex-end;gap:14px">\n        <div><h4 style="margin:0 0 2px">{{ se.cur.title }}', '<div class="{{ se.headingClass }}" style="display:flex;align-items:flex-end;gap:14px">\n        <div><h4 style="margin:0 0 2px">{{ se.cur.title }}')
+        .replace('<button class="btn btn-secondary" onClick="{{ se.reload }}">', '<sc-if value="{{ se.canClearForumCache }}"><button class="btn btn-secondary" disabled="{{ se.saveDisabled }}" onClick="{{ se.clearForumCache }}">清空论坛缓存</button></sc-if><button class="btn btn-secondary" onClick="{{ se.reload }}">');
     return html;
 }

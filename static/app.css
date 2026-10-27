@@ -924,6 +924,13 @@ textarea {
   overflow-x: auto !important;
 }
 @media (max-width: 850px) {
+  .jj-forum-cache-heading {
+    flex-direction: column;
+    align-items: stretch !important;
+  }
+  .jj-forum-cache-heading > div:last-child {
+    margin-left: 0 !important;
+  }
   .jj-auto-flow {
     flex-direction: column;
     gap: 8px !important;

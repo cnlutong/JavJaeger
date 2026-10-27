@@ -94,6 +94,8 @@ input, select, textarea { min-width: 0; }
 .jj-drawer td { overflow-wrap: anywhere; }
 .jj-drawer div:has(> table) { overflow-x: auto !important; }
 @media (max-width: 850px) {
+  .jj-forum-cache-heading { flex-direction: column; align-items: stretch !important; }
+  .jj-forum-cache-heading > div:last-child { margin-left: 0 !important; }
   .jj-auto-flow { flex-direction: column; gap: 8px !important; }
   .jj-auto-flow > div { flex-direction: column; }
   .jj-auto-flow > div > div:last-child:not([role="button"]) { width: 100% !important; height: 24px; transform: rotate(90deg); }

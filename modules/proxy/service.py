@@ -11,11 +11,11 @@ from urllib.parse import urljoin, urlsplit, urldefrag
 
 import httpx
 
-from modules.common.image_download import IMAGE_DOWNLOAD_HEADERS
+from modules.common.image_download import IMAGE_DOWNLOAD_HEADERS, FORUM_IMAGE_HOSTS, FORUM_ORIGIN
 
 
 logger = logging.getLogger(__name__)
-ALLOWED_IMAGE_HOSTS = {"www.javbus.com", "pics.dmm.co.jp"}
+ALLOWED_IMAGE_HOSTS = {"www.javbus.com", "pics.dmm.co.jp", *FORUM_IMAGE_HOSTS}
 MAX_IMAGE_BYTES = 32 * 1024 ** 2
 
 
@@ -125,7 +125,10 @@ class ImageProxyService:
             async with httpx.AsyncClient(follow_redirects=False, timeout=15) as client:
                 for _ in range(6):
                     if not _is_allowed_image_host(url): raise ImageProxyError(400, "Unsupported image host")
-                    async with client.stream("GET", url, headers=IMAGE_DOWNLOAD_HEADERS) as response:
+                    headers = dict(IMAGE_DOWNLOAD_HEADERS)
+                    if urlsplit(url).hostname in FORUM_IMAGE_HOSTS:
+                        headers['Referer'] = FORUM_ORIGIN + '/'
+                    async with client.stream("GET", url, headers=headers) as response:
                         if response.is_redirect:
                             url = urljoin(url, response.headers.get("location", "")); continue
                         if response.status_code != 200: raise ImageProxyError(response.status_code, "Failed to fetch image")

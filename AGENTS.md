@@ -65,6 +65,7 @@ Use this as the source-of-truth ownership map.
   - startup and shutdown hooks
 - `modules/common/`
   - shared runtime utilities
+  - bounded, disposable public JSON cache primitives with persistent TTL records
   - process-local background execution, bounded results and session ownership
   - batch-scoped HTTP transport reuse with independent request sessions
   - config
@@ -90,6 +91,7 @@ Use this as the source-of-truth ownership map.
   - durable per-movie update files, snapshot compaction, and actor-index recovery
 - `modules/movies/`
   - movie list/detail/batch/recognition workflows
+  - public 98堂 forum discovery, title filtering, persistent public list/post caching, retention settings and session-owned browser scraping jobs
   - indexed local subtitle discovery, video-version matching and WebVTT delivery
   - server-side search enrichment and scraper diagnostics jobs
   - background local library scans, information checks, completion and invalid-file cleanup workflows
@@ -98,6 +100,7 @@ Use this as the source-of-truth ownership map.
   - size-reducing-only safe replacement of indexed local movie files
 - `modules/magnets/`
   - magnet lookup and selection policy
+  - validated magnet extraction from public forum posts
 - `modules/pikpak/`
   - PikPak login and download dispatch
 - `modules/pan115/`
@@ -137,6 +140,7 @@ Use this as the source-of-truth ownership map.
   - `template.mjs` and `host.css` contain necessary host/control adaptations
   - `cinema.mjs` replaces only the cinema presentation and reuses existing library/player workflows
   - `browse.mjs` presents JavBus discovery and the session-owned 115 playback workflow
+  - `forum.mjs` presents forum discovery and reuses the existing explicit-link download dispatch workflow
 - `static/app.js`, `static/app.css`
   - generated frontend bundle
   - never hand-edit

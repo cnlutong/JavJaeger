@@ -11,6 +11,12 @@ Android TV 客户端连接同一台服务器，不需要新增容器或媒体挂
 - 应用容器内部监听 `5000` 端口
 - 宿主机默认映射为 `8000:5000`
 
+论坛影片功能使用 Scrapling 与 Chromium。Dockerfile 在构建时安装浏览器和系统依赖，浏览器位于 `/opt/ms-playwright`，无需额外容器或账号配置。更新此功能需要重建镜像，构建主机需能下载 Chromium。论坛及图片 CDN 必须能从应用服务器访问；仅抓取公开页面，浏览器临时目录在任务结束后删除。
+
+论坛抓取通过 `POST /api/movies/forum/jobs` 创建会话所属的后台任务，支持 36、103 分区和单个列表页；来源与可选标题关键词由 `GET /api/movies/forum/sources` 返回。进度、取消与失败重试复用 `/api/system/jobs`，任务状态只在当前服务进程内保留。公开列表和帖子资料保存在 `/app/data/forum_cache/`，通过现有 `./data` 挂载在重启后保留；默认列表有效期 30 分钟、帖子资料 24 小时、容量上限 32 MB，最多 512 条记录，超限按最近最少使用清理。`GET /api/movies/forum/cache?forum_id=36&page=1` 只返回完整且有效的页面缓存；未命中返回 `{"cached":false,"result":null}`，不会启动抓取。创建任务时传 `"force_refresh":true` 跳过列表和帖子缓存；不持久化原始 HTML、Cookie、账号或任务状态。论坛图片仅信任明确的 CDN 主机 `tu.djhdhs.us`，继续使用独立图片缓存及已有 URL、重定向和体积校验。
+
+在「设置 → 论坛缓存」管理清理策略，设置保存在 `/app/data/forum_cache/settings.json`，清空缓存会保留此文件，不需要新增挂载。`GET /api/movies/forum/cache/settings` 返回 `settings`、`count` 和 `size_bytes`；`PUT` 同路径接受 `{"list_minutes":30,"post_hours":24,"mb":32}`，三个值均为正整数，保存后立即应用到已有记录并清理过期或超限内容。`DELETE /api/movies/forum/cache` 清空论坛记录并返回相同统计结构；不影响独立图片缓存、下载历史、当前已显示的影片或运行中的任务，继续抓取仍可能写入新缓存。
+
 如果你使用仓库中的 `nginx.conf` 作为反向代理，上游后端也必须指向 `javjaeger:5000`。这一点已经与当前配置对齐。
 
 ## 当前本地部署环境

@@ -13,6 +13,9 @@ from modules.common.runtime import get_javbus_config
 
 logger = logging.getLogger(__name__)
 
+FORUM_ORIGIN = "https://dmn12.vip"
+FORUM_IMAGE_HOSTS = frozenset({"tu.djhdhs.us"})
+
 IMAGE_DOWNLOAD_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
