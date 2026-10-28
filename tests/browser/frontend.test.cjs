@@ -228,6 +228,43 @@ test('forum: partial results survive cancellation, retry and failed starts', asy
     assert.equal(await page.locator('.jj-forum-row').count(), 2, 'failed start preserves the usable previous results');
 });
 
+test('forum: title conditions are sent before fetching, on paging and on source refresh', async t => {
+    const sent = [];
+    const row = { thread_id: '1', movie_id: 'QA-001', code: 'QA-001', title: 'QA-001 [LTX] 远方的电影', status: 'ready', images: [], magnets: [] };
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: [] } }));
+        await p.route('**/api/movies/forum/cache?*', route => route.fulfill({ json: { cached: false, result: null } }));
+        await p.route('**/api/movies/forum/jobs', route => {
+            const payload = route.request().postDataJSON(); sent.push(payload);
+            return route.fulfill({ status: 202, json: { task_id: `filtered-${sent.length}`, type: 'forum-fetch', status: 'success',
+                result: { success: true, forum_id: 36, page: payload.page, listed_count: 30, has_next: true, movies: [row] } } });
+        });
+    });
+    await navigate(page, '论坛影片');
+    await page.getByRole('searchbox', { name: '论坛标题筛选' }).fill('  远方  ');
+    await page.getByRole('button', { name: '标题关键词 LTX' }).click();
+    await page.getByRole('button', { name: '获取影片', exact: true }).click();
+    await page.getByRole('button', { name: row.title, exact: true }).waitFor();
+    assert.deepEqual(sent[0], { forum_id: 36, page: 1, title_query: '远方', keywords: ['LTX'] });
+    await page.getByRole('button', { name: '下一页', exact: true }).click();
+    await page.getByText('第 2 页', { exact: true }).waitFor();
+    assert.deepEqual(sent[1], { forum_id: 36, page: 2, title_query: '远方', keywords: ['LTX'] });
+    const refreshed = page.waitForResponse(response => response.url().endsWith('/api/movies/forum/jobs') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: '刷新原帖', exact: true }).click(); await refreshed;
+    assert.deepEqual(sent[2], { forum_id: 36, page: 2, title_query: '远方', keywords: ['LTX'], force_refresh: true });
+    await page.getByRole('button', { name: row.title, exact: true }).waitFor();
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-forum-filter-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-forum-filter-mobile.png'), animations: 'disabled' });
+    await page.getByRole('searchbox', { name: '论坛标题筛选' }).fill('');
+    await page.getByRole('button', { name: '标题关键词 LTX' }).click();
+    const unfiltered = page.waitForResponse(response => response.url().endsWith('/api/movies/forum/jobs') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: '获取影片', exact: true }).click(); await unfiltered;
+    assert.deepEqual(sent[3], { forum_id: 36, page: 2 });
+});
+
 test('forum: persistent cache restores without jobs and manual refresh bypasses it', async t => {
     let posts = 0, cacheReads = 0;
     const row = { thread_id: '101', movie_id: 'QA-101', code: 'QA-101', title: 'QA-101 [LTX] 缓存影片', status: 'ready', images: [], magnets: [{ link: 'magnet:?xt=urn:btih:' + 'a'.repeat(40), source: 'dmn12' }] };
@@ -242,7 +279,7 @@ test('forum: persistent cache restores without jobs and manual refresh bypasses 
         });
         await p.route('**/api/movies/forum/jobs', route => {
             posts++;
-            assert.deepEqual(route.request().postDataJSON(), { forum_id: 36, page: 1, force_refresh: true });
+            assert.deepEqual(route.request().postDataJSON(), { forum_id: 36, page: 1, keywords: ['LTX'], force_refresh: true });
             result = { ...result, movies: [{ ...row, title: 'QA-101 [LTX] 原帖已更新' }], cache: { hit: false, saved_at: '2026-10-27T11:00:00Z' } };
             return route.fulfill({ status: 202, json: { task_id: 'refreshed-cache', type: 'forum-fetch', status: 'success', result } });
         });

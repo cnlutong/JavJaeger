@@ -73,6 +73,9 @@ export const forumMethods = {
         this.setState({ foStarting: true, foError: '' });
         try {
             const payload = { forum_id: this.state.foSource, page: target };
+            const titleQuery = this.state.foTitle.trim();
+            if (titleQuery) payload.title_query = titleQuery;
+            if (this.state.foKeywords.length) payload.keywords = [...this.state.foKeywords];
             if (forceRefresh) payload.force_refresh = true;
             const task = await this.startBackgroundJob('/api/movies/forum/jobs', payload);
             if (!this._disposed) { this._forumRestored = true; this.applyForumTask(task, true); }

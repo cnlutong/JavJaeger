@@ -173,6 +173,35 @@ def test_job_filters_before_fetching_details_and_keeps_empty_page_continuation()
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize('conditions, expected_threads', [
+    ({'keywords': ['LTX']}, ['1']),
+    ({'title_query': '  影片乙  '}, ['2']),
+    ({'title_query': '影片甲', 'keywords': ['LTX']}, ['1']),
+    ({'title_query': '影片乙', 'keywords': ['LTX']}, []),
+    ({'title_query': '.*'}, []),
+])
+@pytest.mark.parametrize('force_refresh', [False, True])
+def test_forum_api_filters_titles_before_any_detail_requests(monkeypatch, conditions, expected_threads, force_refresh):
+    import main
+    from modules.movies import router
+    from modules.common.tasks import background_tasks
+    browser = FakeBrowser()
+    monkeypatch.setattr(router, 'ForumPageJob', lambda payload: ForumPageJob(payload, client_factory=lambda: browser, delay=0))
+
+    async def exercise():
+        async with AsyncClient(transport=ASGITransport(app=main.app), base_url='http://test') as client:
+            response = await client.post('/api/movies/forum/jobs', json={'forum_id': 36, 'page': 1, **conditions, 'force_refresh': force_refresh})
+            assert response.status_code == 202
+            await asyncio.gather(*background_tasks._running)
+            result = (await client.get('/api/system/jobs/' + response.json()['task_id'])).json()['result']
+            assert result['success'] and result['listed_count'] == 2 and result['has_next']
+            assert [movie['thread_id'] for movie in result['movies']] == expected_threads
+            assert browser.calls == [ORIGIN + '/forum-36-1.html', *[ORIGIN + f'/thread-{thread}-1-1.html' for thread in expected_threads]]
+            assert browser.closed
+
+    asyncio.run(exercise())
+
+
 def test_job_cancellation_closes_browser_and_preserves_partial_results():
     from modules.common.tasks import TaskCancelled
     async def exercise():

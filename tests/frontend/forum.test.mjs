@@ -115,6 +115,30 @@ test('manual source refresh bypasses the server cache', async t => {
     assert.deepEqual(sent, { forum_id: 36, page: 1, force_refresh: true });
 });
 
+for (const [query, keywords] of [['  影片甲  ', []], ['', ['LTX']], ['  影片甲  ', ['LTX']]]) {
+    test(`forum fetch, pagination and refresh send the current title conditions: ${JSON.stringify([query, keywords])}`, async t => {
+        const instance = app(); t.after(() => instance.componentWillUnmount());
+        instance.setState({ foTitle: query, foKeywords: keywords });
+        const sent = [];
+        instance.startBackgroundJob = async (url, payload) => {
+            sent.push({ url, payload });
+            return { task_id: `filtered-${sent.length}`, status: 'success', result: { forum_id: 36, page: payload.page, has_next: true, movies: [] } };
+        };
+        await instance.renderVals().fo.fetch();
+        await instance.renderVals().fo.next();
+        await instance.renderVals().fo.refresh();
+        const conditions = { ...(query.trim() ? { title_query: query.trim() } : {}), ...(keywords.length ? { keywords } : {}) };
+        assert.deepEqual(sent, [
+            { url: '/api/movies/forum/jobs', payload: { forum_id: 36, page: 1, ...conditions } },
+            { url: '/api/movies/forum/jobs', payload: { forum_id: 36, page: 2, ...conditions } },
+            { url: '/api/movies/forum/jobs', payload: { forum_id: 36, page: 2, ...conditions, force_refresh: true } },
+        ]);
+        instance.setForumFilter({ foTitle: '', foKeywords: [] });
+        await instance.renderVals().fo.fetch();
+        assert.deepEqual(sent.at(-1).payload, { forum_id: 36, page: 2 }, 'cleared conditions do not leak into later requests');
+    });
+}
+
 test('forum cache settings entry loads, saves, resets and clears only after confirmation', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     instance.setState({ route: 'settings', seTab: '论坛缓存' });

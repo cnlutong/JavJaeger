@@ -5,6 +5,7 @@ import re
 import logging
 import tempfile
 import time
+from time import monotonic
 from contextlib import AsyncExitStack
 from datetime import datetime, timezone
 from typing import Literal
@@ -122,18 +123,41 @@ def parse_forum_post(html, movie):
             'status': 'ready' if magnets else 'no_resources'}
 
 
+def _forum_browser_session(**options):
+    """Adapt Scrapling 0.5's initial detection window; retain its challenge solver."""
+    from scrapling.fetchers import AsyncStealthySession
+    from scrapling.engines._browsers._stealth import __CF_PATTERN__
+    from scrapling.engines.toolbelt.convertor import ResponseFactory
+
+    class ForumSession(AsyncStealthySession):
+        async def _cloudflare_solver(self, page, _attempts=0):
+            if _attempts:
+                return await super()._cloudflare_solver(page, _attempts)
+            deadline = monotonic() + 3
+            while True:
+                challenge = self._detect_cloudflare(await ResponseFactory._get_async_page_content(page))
+                if challenge and (challenge != 'embedded' or page.frame(url=__CF_PATTERN__) is not None):
+                    return await super()._cloudflare_solver(page, _attempts)
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    return None
+                await page.wait_for_timeout(min(500, remaining * 1000))
+
+    return ForumSession(**options)
+
+
 class ForumBrowser:
     """No persistent account state; navigation stays on the known forum and challenge hosts."""
     async def __aenter__(self):
-        from scrapling.fetchers import Fetcher, AsyncStealthySession
+        from scrapling.fetchers import Fetcher
         from protego import Protego
         robots = await asyncio.to_thread(Fetcher.get, FORUM_ORIGIN + '/robots.txt', impersonate='chrome', timeout=20)
         if robots.status != 200 or b'User-agent:' not in robots.body or b'<html' in robots.body.lower():
             raise ValueError('无法读取论坛访问规则，请稍后重试')
         self.rules = Protego.parse(robots.body.decode('utf-8', errors='replace'))
         self.profile = tempfile.TemporaryDirectory(prefix='javjaeger-forum-')
-        self.session = AsyncStealthySession(headless=True, user_data_dir=self.profile.name, timeout=90000, retries=1,
-                                           solve_cloudflare=True, google_search=False, block_ads=True, max_pages=1)
+        self.session = _forum_browser_session(headless=True, user_data_dir=self.profile.name, timeout=90000, retries=1,
+                                             solve_cloudflare=True, google_search=False, block_ads=True, max_pages=1)
         try:
             await self.session.__aenter__()
         except BaseException:
