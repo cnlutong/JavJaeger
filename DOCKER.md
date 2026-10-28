@@ -44,6 +44,8 @@ ssh -p 22 Tong@10.0.0.20
 
 SSH 密码在连接提示中输入，不写入本文、仓库配置或命令行参数。
 
+本机维护使用的私密登录文档位于 `/Volumes/dev1/Developer/private/JavJaeger/server-access.txt`，权限为 `600`，父目录为 `700`。此文件位于项目和 Git 之外，不打包到部署镜像；自动化维护时从文件读取到内存，通过标准输入提供给 SSH/sudo，不输出密码。
+
 只读连接检查：
 
 ```bash
