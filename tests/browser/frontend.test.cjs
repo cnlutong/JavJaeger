@@ -381,6 +381,90 @@ test('forum cache settings: server persistence, validation, confirmed clearing a
     assert.equal((await (await fetch(settingsURL)).json()).count, 1);
 });
 
+test('browse: landscape artwork and confirmed downloads reach every tool on desktop and mobile', async t => {
+    const submissions = [], imageRequests = [], consoleErrors = [];
+    const page = await openApp(t, 1440, async p => {
+        p.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+        await libraryFixture(p);
+        await p.addInitScript(() => { sessionStorage.setItem('pikpakCredentials', JSON.stringify({ fromConfig: true })); sessionStorage.setItem('pikpakLoginStatus', 'true'); });
+        await p.route('**/api/webdav/status', route => route.fulfill({ json: { aria2_connected: true } }));
+        await p.route('**/api/115/status', route => route.fulfill({ json: { connected: true } }));
+        await p.route(/\/api\/movies\?/, route => route.fulfill({ json: {
+            movies: Array.from({ length: 10 }, (_, i) => ({ ...movie(`QA-${String(i + 1).padStart(3, '0')}`), img: `https://www.javbus.com/pics/thumb/qa${i}.jpg` })),
+            pagination: { hasNextPage: false },
+        } }));
+        await p.route('**/api/movies/QA-001', route => route.fulfill({ json: { ...movie(), img: 'https://www.javbus.com/pics/cover/detail_b.jpg' } }));
+        await p.route('**/api/image-proxy?*', route => {
+            const source = new URL(route.request().url()).searchParams.get('url'); imageRequests.push(source);
+            const landscape = source.includes('/pics/cover/');
+            return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="${landscape ? 660 : 220}" height="${landscape ? 440 : 330}"><rect width="100%" height="100%" fill="#405c7a"/><circle cx="490" cy="130" r="75" fill="#cab99b"/><path d="M0 440V280L180 100L430 350L660 180V440" fill="#233348"/><text x="32" y="392" fill="#fff" font-size="32">LANDSCAPE COVER</text></svg>` });
+        });
+        await backgroundRoute(p, '/api/automation/dispatch-jobs', body => 'dispatch-' + body.tool, async body => {
+            submissions.push(body);
+            return { success: true, tool: body.tool, message: '下载任务已提交', results: [{ movie_id: 'QA-001', success: true }] };
+        });
+    });
+    await navigate(page, '浏览');
+    const main = page.getByRole('main', { name: '影片浏览', exact: true });
+    await main.getByRole('button', { name: '下载 QA-001', exact: true }).waitFor();
+    assert.equal(await page.title(), 'JavJaeger');
+    assert.match(page.url(), /#browse$/);
+    assert.equal(await main.locator('.jj-browse-card').count(), 10);
+    await page.waitForFunction(() => document.querySelector('.jj-browse-cover img')?.naturalWidth > 0);
+    const cover = main.locator('.jj-browse-cover img').first();
+    assert.equal(new URL(await cover.getAttribute('src'), baseURL).searchParams.get('url'), 'https://www.javbus.com/pics/cover/qa0_b.jpg');
+    const dimensions = await cover.evaluate(img => ({ width: img.clientWidth, height: img.clientHeight, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight, fit: getComputedStyle(img).objectFit }));
+    assert.ok(dimensions.width > dimensions.height && dimensions.naturalWidth > dimensions.naturalHeight, 'the actual loaded art and its frame are landscape');
+    assert.equal(dimensions.fit, 'contain', 'the complete cover remains visible');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-download-desktop.png'), animations: 'disabled' });
+    for (const [name, key] of [['PikPak', 'pikpak'], ['115 网盘', 'pan115'], ['Aria2', 'aria2']]) {
+        if (key === 'aria2') {
+            await page.setViewportSize({ width: 390, height: 844 });
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+            await page.locator('.jj-toast').waitFor({ state: 'hidden' });
+            await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-download-mobile.png'), animations: 'disabled' });
+        }
+        await main.getByRole('combobox', { name: '浏览下载目标' }).selectOption(name);
+        if (key === 'pan115') {
+            await main.getByRole('button', { name: '查看 QA-001 详情', exact: true }).click();
+            const detail = page.getByRole('dialog', { name: '浏览影片详情', exact: true });
+            await detail.getByRole('button', { name: '下载 QA-001', exact: true }).click();
+            assert.equal(await detail.count(), 0, 'the confirmation hides the background detail from assistive technology');
+        } else await main.getByRole('button', { name: '下载 QA-001', exact: true }).click();
+        const confirm = page.locator('.jj-confirm');
+        await confirm.getByText(`派发 1 部到 ${name}？`, { exact: true }).waitFor();
+        assert.equal(submissions.length, key === 'pikpak' ? 0 : key === 'pan115' ? 1 : 2, 'opening the dialog never submits');
+        if (key === 'pikpak') {
+            await confirm.getByRole('button', { name: '取消', exact: true }).click();
+            assert.equal(submissions.length, 0);
+            await main.getByRole('button', { name: '下载 QA-001', exact: true }).click();
+        }
+        const submitted = page.waitForResponse(response => response.url().endsWith('/api/automation/dispatch-jobs') && response.request().method() === 'POST');
+        await approve(page, '开始派发'); await submitted;
+        assert.equal(submissions.at(-1).tool, key);
+        assert.deepEqual(submissions.at(-1).movie_ids, ['QA-001']);
+        assert.equal(submissions.at(-1).magnet_links, null);
+        if (key === 'pan115') await page.getByRole('button', { name: '关闭浏览影片详情', exact: true }).click();
+        assert.match(page.url(), /#browse$/);
+    }
+    assert.ok(imageRequests.every(url => url.includes('/pics/cover/')), 'the browse wall never requests portrait thumbnails');
+    await page.evaluate(() => { sessionStorage.removeItem('pikpakCredentials'); sessionStorage.removeItem('pikpakLoginStatus'); });
+    // Simulate a new browser session without the connected-tool fixture.
+    await page.addInitScript(() => { sessionStorage.removeItem('pikpakCredentials'); sessionStorage.removeItem('pikpakLoginStatus'); });
+    await page.reload({ waitUntil: 'networkidle' });
+    await main.getByText('未连接', { exact: true }).waitFor();
+    await main.getByRole('button', { name: '查看 QA-001 详情', exact: true }).click();
+    await page.getByRole('dialog', { name: '浏览影片详情', exact: true }).getByRole('button', { name: '下载 QA-001', exact: true }).click();
+    await page.getByText('下载工具 · PikPak', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('dialog', { name: '浏览影片详情', exact: true }).count(), 0);
+    await page.keyboard.press('Escape');
+    await page.getByRole('dialog', { name: '浏览影片详情', exact: true }).waitFor();
+    assert.equal(await page.getByText('下载工具 · PikPak', { exact: true }).count(), 0);
+    assert.equal(submissions.length, 3, 'disconnected tools cannot start another download');
+    assert.deepEqual(consoleErrors, []);
+    t.diagnostic(JSON.stringify({ baseURL, browser: 'Playwright Chromium', viewports: ['1440x1000', '390x844'], tools: submissions.map(body => body.tool) }));
+});
+
 test('browse: actor and tag filters, empty-page continuation and 115 playback survive reload', async t => {
     const requests = []; let task = null, submissions = 0;
     const page = await openApp(t, 1440, async p => {

@@ -1,5 +1,6 @@
 import { loadAppTheme, saveAppTheme } from '../utils/theme.js';
 import { forumMethods, initialForumState } from './forum.mjs';
+import { browseCoverUrl } from './browse.mjs';
 import { loadPikPakSession, persistPikPakSession, clearPikPakSession, loadWebDavSettings, saveWebDavSettings, loadAria2Settings, saveAria2Settings } from '../utils/storage.js';
 import { isConformingLocalScrapeItem, getLocalScrapeIssueReason } from '../utils/localScrapeResults.mjs';
 import { withSecretPlaceholders, buildSettingsPayload } from '../utils/systemSettings.mjs';
@@ -280,6 +281,7 @@ export function connectDesign(Base) {
                     if (this.state.dlg) this.renderVals().dlg.cancel();
                     else if (this.state.foDetail) this.setState({ foDetail: null });
                     else if (this.state.route === 'browse' && this.state.brPlayback) this.closeBrowsePlayback();
+                    else if (this.state.route === 'browse' && this.state.toolCfg) this.setState({ toolCfg: null });
                     else for (const key of ['brCatalog', 'brDetail', 'taskLog', 'fsAdd', 'toolCfg', 'browse', 'scRepair', 'scDesigner', 'scCmp', 'scInspect', 'lbTc', 'lbCheckCfg', 'lbPathCfg', 'lbDetail', 'detail', 'tcDetail', 'bgOpen', 'cnPlaying', 'cnDetail']) {
                         if (this.state[key]) { this.setState({ [key]: null }); break; }
                     }
@@ -359,7 +361,7 @@ export function connectDesign(Base) {
                 const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: 'exist', page: String(page) });
                 const payload = await this.request(`/api/movies?${query}`);
                 if (version !== this._browseVersion || this._disposed) return;
-                const movies = (payload.movies || []).map(record => movieView(record)), pagination = payload.pagination;
+                const movies = (payload.movies || []).map(record => ({ ...movieView(record), cover: imageSource(browseCoverUrl(record)) })), pagination = payload.pagination;
                 const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= 30;
                 const next = Number(pagination?.nextPage);
                 const combined = new Map((reset ? [] : this.state.brMovies).map(movie => [movie.code, movie]));
@@ -386,7 +388,10 @@ export function connectDesign(Base) {
             movie.detailsLoading = true; movie.detailError = '';
             try {
                 const detail = await this.request(`/api/movies/${id(code)}`);
-                if (!this._disposed && this.state.brMovies.includes(movie)) Object.assign(movie, movieView({ ...movie.raw, ...detail }), { detailsLoaded: true });
+                if (!this._disposed && this.state.brMovies.includes(movie)) {
+                    const record = { ...movie.raw, ...detail };
+                    Object.assign(movie, movieView(record), { cover: imageSource(browseCoverUrl(record)), detailsLoaded: true });
+                }
             } catch (error) { movie.detailError = safeText(error.message); }
             finally { movie.detailsLoading = false; if (!this._disposed) this.forceUpdate?.(); }
         }
@@ -414,6 +419,15 @@ export function connectDesign(Base) {
             this.setState({ brPlayback: null, brPlaybackError: '' });
         }
 
+        downloadBrowseMovie(code) {
+            if (!this.toolStates().find(tool => tool.name === this.state.tool)?.connected) {
+                this.setState({ toolCfg: this.state.tool });
+                this.toast('请先连接所选下载工具，再下载影片', WARN);
+                return;
+            }
+            return this.confirmDispatch([code]);
+        }
+
         vBrowse() {
             const st = this.state, typeNames = { star: '演员', genre: '标签', studio: '制作商', series: '系列', director: '导演', label: '发行商' };
             const movie = st.brMovies.find(movie => movie.code === st.brDetail);
@@ -433,16 +447,17 @@ export function connectDesign(Base) {
             const ready = task?.status === 'success' && task.result?.success === true;
             const waiting = !st.brPlaybackError && (!task || !jobFinished(task));
             return {
-                rows: st.brMovies.map(movie => ({ code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.code, movie.date].filter(Boolean).join(' · '), open: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code) })),
+                rows: st.brMovies.map(movie => ({ code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.code, movie.date].filter(Boolean).join(' · '), open: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code), download: () => this.downloadBrowseMovie(movie.code) })),
+                tool: st.tool, setTool: event => this.setState({ tool: event.target.value }), connection: this.toolStates().find(tool => tool.name === st.tool)?.hint || '未连接', configure: () => this.setState({ toolCfg: st.tool }),
                 loading: st.brLoading, error: st.brError, empty: st.brLoaded && !st.brLoading && !st.brError && !st.brMovies.length,
                 emptyHint: st.brNext ? '来源还有下一页，可以继续加载。' : '试试移除一个筛选条件。', hasMore: Boolean(st.brNext && st.brLoaded && !st.brError), finished: st.brLoaded && !st.brLoading && !st.brError && !st.brNext,
                 count: st.brMovies.length, kind: st.brKind,
                 setKind: event => this.loadBrowse({ reset: true, kind: event.target.value }), hasFilters: Boolean(st.brFilters.length), filters: st.brFilters.map(filter => ({ text: `${typeNames[filter.type]}：${filter.label || filter.value}`, remove: () => this.loadBrowse({ reset: true, filters: st.brFilters.filter(item => item !== filter) }) })),
                 clearFilters: () => this.loadBrowse({ reset: true, filters: [] }), refresh: () => this.loadBrowse({ reset: true }), more: () => this.loadBrowse(), retry: () => this.loadBrowse({ reset: !st.brPage }),
                 actors: () => { this.setState({ brCatalog: 'star', brCatalogQ: '' }); if (!data.ACTOR_CATALOG.length) return this.perform(() => this.loadCatalogs()); }, tags: () => { this.setState({ brCatalog: 'genre', brCatalogQ: '' }); if (!data.GENRE_CATALOG.length) return this.perform(() => this.loadCatalogs()); }, catalog, closeCatalog: () => this.setState({ brCatalog: null }),
-                imageError: event => { event.currentTarget.hidden = true; }, dialogOpen: Boolean(st.brDetail || st.brCatalog || playback), closeDetail: () => this.setState({ brDetail: null }),
-                detail: movie ? { code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.date, movie.dur].filter(Boolean).join(' · '), loading: movie.detailsLoading, error: movie.detailError,
-                    retry: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code), actors: (movie.raw.stars || []).map(item => facet('star', item)).filter(Boolean), tags: (movie.raw.genres || []).map(item => facet('genre', item)).filter(Boolean),
+                imageError: event => { event.currentTarget.hidden = true; }, dialogOpen: Boolean(st.brDetail || st.brCatalog || playback || st.dlg || st.toolCfg), detailHidden: Boolean(playback || st.dlg), closeDetail: () => this.setState({ brDetail: null }),
+                detail: movie && !st.toolCfg ? { code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.date, movie.dur].filter(Boolean).join(' · '), loading: movie.detailsLoading, error: movie.detailError,
+                    retry: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code), download: () => this.downloadBrowseMovie(movie.code), actors: (movie.raw.stars || []).map(item => facet('star', item)).filter(Boolean), tags: (movie.raw.genres || []).map(item => facet('genre', item)).filter(Boolean),
                     fields: [['studio', movie.raw.producer || movie.raw.studio], ['label', movie.raw.publisher || movie.raw.label], ['director', movie.raw.director], ['series', movie.raw.series]].map(([type, item]) => item && facet(type, item)).filter(Boolean) } : null,
                 playback: playback ? { title: task?.result?.file_name || playback.movie_id, waiting, percent: waiting && task?.phase === 'waiting' ? Number(task.percent || 0) : undefined,
                     url: ready && !st.brPlaybackError ? `/api/automation/play-jobs/${id(playback.taskId)}/stream` : '',

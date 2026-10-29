@@ -139,7 +139,7 @@ Use this as the source-of-truth ownership map.
   - `integration.mjs` connects original view controls to existing APIs
   - `template.mjs` and `host.css` contain necessary host/control adaptations
   - `cinema.mjs` replaces only the cinema presentation and reuses existing library/player workflows
-  - `browse.mjs` presents JavBus discovery and the session-owned 115 playback workflow
+  - `browse.mjs` presents JavBus discovery with landscape covers, reuses download dispatch and the session-owned 115 playback workflow
   - `forum.mjs` presents forum discovery and reuses the existing explicit-link download dispatch workflow
 - `static/app.js`, `static/app.css`
   - generated frontend bundle

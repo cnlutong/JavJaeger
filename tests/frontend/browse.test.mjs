@@ -26,6 +26,80 @@ test('browse is a separate page with management and cinema entry points', () => 
     instance.componentWillUnmount();
 });
 
+test('browse uses full landscape covers in cards and details without fetching every movie', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const calls = [], thumb = 'https://www.javbus.com/pics/thumb/qa.jpg?v=2#image';
+    globalThis.fetch = async url => {
+        calls.push(url);
+        return json(url.startsWith('/api/movies?') ? { movies: [
+            { ...movie('QA-001'), img: thumb },
+            { ...movie('QA-002'), img: thumb, cover_url: 'https://www.javbus.com/pics/cover/custom.jpg' },
+        ] } : { ...movie('QA-001'), img: 'https://www.javbus.com/pics/cover/actual_b.jpg' });
+    };
+    await instance.loadBrowse({ reset: true });
+    let rows = instance.renderVals().br.rows;
+    assert.equal(new URL(rows[0].cover, 'http://test').searchParams.get('url'), 'https://www.javbus.com/pics/cover/qa_b.jpg?v=2#image');
+    assert.equal(new URL(rows[1].cover, 'http://test').searchParams.get('url'), 'https://www.javbus.com/pics/cover/custom.jpg');
+    assert.equal(calls.length, 1, 'the initial wall needs only the list request');
+    await rows[0].open();
+    const view = instance.renderVals().br;
+    assert.equal(new URL(view.detail.cover, 'http://test').searchParams.get('url'), 'https://www.javbus.com/pics/cover/actual_b.jpg');
+    assert.equal(view.rows[0].cover, view.detail.cover);
+    assert.match(adaptTemplate(original, '/logo.jpg'), /aria-label="下载 \{\{ m.code \}\}"/);
+});
+
+test('browse downloads use the selected connected tool and shared confirmation and background workflow', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ brMovies: [{ code: 'QA-001', title: '测试影片', raw: {}, detailsLoaded: true }], pikLogged: true,
+        connections: { pan115: true, aria2_connected: true } });
+    const requests = [];
+    globalThis.fetch = async (url, options) => { requests.push([url, JSON.parse(options.body)]);
+        return json({ task_id: 'download-' + requests.length, type: 'dispatch-' + JSON.parse(options.body).tool, status: 'running' }); };
+    for (const [name, key] of [['PikPak', 'pikpak'], ['115 网盘', 'pan115'], ['Aria2', 'aria2']]) {
+        instance.renderVals().br.setTool({ target: { value: name } });
+        const br = instance.renderVals().br;
+        assert.equal(br.tool, name); assert.equal(br.connection, '已连接');
+        await br.rows[0].download();
+        assert.deepEqual(instance.state.dlg.list, ['QA-001']);
+        assert.match(instance.state.dlg.title, new RegExp(name));
+        assert.equal(instance.renderVals().br.dialogOpen, true);
+        const before = requests.length;
+        instance.renderVals().dlg.cancel();
+        assert.equal(requests.length, before, 'cancel never submits');
+        await instance.openBrowseMovie('QA-001');
+        await instance.renderVals().br.detail.download();
+        assert.equal(instance.renderVals().br.detailHidden, true);
+        await instance.state.dlg.run();
+        instance.setState({ dlg: null });
+        assert.equal(requests.at(-1)[0], '/api/automation/dispatch-jobs');
+        assert.equal(requests.at(-1)[1].tool, key);
+        assert.deepEqual(requests.at(-1)[1].movie_ids, ['QA-001']);
+        assert.equal(requests.at(-1)[1].magnet_links, null, 'the server selects the resource');
+        assert.equal(requests.at(-1)[1].magnet_source, 'javbus');
+        assert.equal(instance.state.route, 'browse');
+        instance.setState({ brDetail: null });
+    }
+    assert.equal(instance.state.backgroundJobs.length, 3);
+});
+
+test('browse directs an unconnected download tool to existing connection controls', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ brMovies: [{ code: 'QA-001', title: '测试影片', raw: {}, detailsLoaded: true }] });
+    globalThis.fetch = async () => { throw new Error('must not submit while disconnected'); };
+    for (const name of ['PikPak', '115 网盘', 'Aria2']) {
+        instance.setState({ toolCfg: null, dlg: null });
+        instance.renderVals().br.setTool({ target: { value: name } });
+        assert.equal(instance.renderVals().br.connection, '未连接');
+        await instance.openBrowseMovie('QA-001');
+        await instance.renderVals().br.detail.download();
+        assert.equal(instance.state.dlg, null);
+        assert.equal(instance.state.toolCfg, name);
+        assert.equal(instance.renderVals().br.detail, null, 'the connection dialog stays above the detail');
+        instance.setState({ toolCfg: null });
+        assert.equal(instance.renderVals().br.detail.code, 'QA-001', 'closing connection controls restores the detail');
+    }
+});
+
 test('browse combines actor and tag filters, deduplicates pages and can continue after an empty filtered page', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     const calls = [];
