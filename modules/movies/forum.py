@@ -8,6 +8,7 @@ import time
 from time import monotonic
 from contextlib import AsyncExitStack
 from datetime import datetime, timezone
+from enum import IntEnum
 from typing import Literal
 from urllib.parse import urljoin, urlsplit
 
@@ -21,7 +22,15 @@ from modules.magnets.forum import extract_forum_magnets
 from .local_scrape import recognize_designation
 
 
-FORUMS = {36: '亚洲无码原创', 103: '高清中文字幕'}
+FORUM_GROUPS = {
+    '原创BT电影': {2: '国产原创', 36: '亚洲无码原创', 37: '亚洲有码原创', 103: '高清中文字幕',
+                   107: '三级写真', 160: 'VR视频区', 104: '素人有码系列', 38: '欧美无码',
+                   151: '4K原版', 152: '韩国主播', 39: '动漫原创', 148: '鲍鱼直播盒子'},
+    'AI综合区': {172: 'AI短剧', 166: 'AI专区', 174: 'AI交流'},
+}
+FORUMS = {key: name for forums in FORUM_GROUPS.values() for key, name in forums.items()}
+# The shared enum accepts numeric HTTP query values and keeps both routes whitelisted.
+ForumId = IntEnum('ForumId', {f'FORUM_{key}': key for key in FORUMS})
 KEYWORDS = ['LTX']
 FORUM_CACHE_DEFAULTS = {'list_minutes': 30, 'post_hours': 24, 'mb': 32}
 logger = logging.getLogger(__name__)
@@ -32,7 +41,7 @@ def valid_cache_settings(values):
 
 
 class ForumPageRequest(BaseModel):
-    forum_id: Literal[36, 103] = 36
+    forum_id: ForumId = 36
     page: int = Field(default=1, ge=1, le=10000)
     title_query: str = Field(default='', max_length=200)
     keywords: list[Literal['LTX']] = Field(default_factory=list, max_length=1)
@@ -45,7 +54,8 @@ class ForumPageRequest(BaseModel):
 
 
 def forum_sources():
-    return {'forums': [{'id': key, 'name': name} for key, name in FORUMS.items()], 'keywords': KEYWORDS}
+    return {'forums': [{'id': key, 'name': name, 'group': group}
+                       for group, forums in FORUM_GROUPS.items() for key, name in forums.items()], 'keywords': KEYWORDS}
 
 
 def title_matches(title, query='', keywords=()):

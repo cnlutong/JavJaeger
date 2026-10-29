@@ -3,6 +3,7 @@ import test from 'node:test';
 import { filterForumMovies, forumDispatchEntries, visibleForumSelection, forumDispatchFeedback } from '../../frontend/src/utils/forum.mjs';
 import { readFileSync } from 'node:fs';
 import { adaptDesignScript, connectDesign, designDataExports } from '../../frontend/src/design/integration.mjs';
+const catalogue = JSON.parse(readFileSync(new URL('../fixtures/forum_sources.json', import.meta.url), 'utf8'));
 
 function app(storage = new Map()) {
     globalThis.window = { location: { hash: '#forum' }, localStorage: { getItem: () => null, removeItem() {} },
@@ -11,7 +12,9 @@ function app(storage = new Map()) {
     const source = readFileSync(new URL('../../frontend/src/design/JavJaeger.dc.html', import.meta.url), 'utf8');
     const script = adaptDesignScript(source.match(/<script[^>]*data-dc-script[^>]*>([\s\S]*?)<\/script>/)[1]);
     const Base = new Function('DCLogic', script + designDataExports + '\nreturn Component;')(Logic);
-    return new (connectDesign(Base))({});
+    const instance = new (connectDesign(Base))({});
+    instance.setState({ foSources: catalogue.forums });
+    return instance;
 }
 
 const rows = [
@@ -19,6 +22,74 @@ const rows = [
     { thread_id: '2', movie_id: 'QA-002', title: 'QA-002 影片乙', status: 'ready', magnets: [{ link: 'magnet:original-b', source: 'dmn12' }] },
     { thread_id: '3', movie_id: 'QA-003', title: 'QA-003 [LTX] 影片丙', status: 'pending', magnets: [] },
 ];
+
+test('section choices come from the server and restore an AI section across refresh', async t => {
+    const storage = new Map([['javjaeger.forum', JSON.stringify({ source: 172, page: 3, keywords: ['LTX'] })]]);
+    const instance = app(storage); t.after(() => instance.componentWillUnmount());
+    instance.setState({ foSources: [] });
+    const calls = [];
+    instance.request = async url => { calls.push(url); return url.endsWith('/sources') ? catalogue : { cached: false }; };
+    await Promise.all([instance.enterForum(), instance.enterForum()]);
+    assert.equal(calls.filter(url => url.endsWith('/sources')).length, 1);
+    assert.equal(instance.state.foSource, 172);
+    assert.equal(instance.state.foPage, 3);
+    assert.ok(calls.includes('/api/movies/forum/cache?forum_id=172&page=3'));
+    assert.deepEqual(instance.renderVals().fo.sourceGroups.map(group => group.name), ['原创BT电影', 'AI综合区']);
+    const all = instance.renderVals().fo.sourceGroups.flatMap(group => group.forums);
+    assert.deepEqual(all, catalogue.forums);
+});
+
+test('an obsolete saved section resets before any cache request and catalogue failures can retry', async t => {
+    const instance = app(new Map([['javjaeger.forum', JSON.stringify({ source: 999, page: 7, taskId: 'old-task' })]]));
+    t.after(() => instance.componentWillUnmount());
+    instance.setState({ foSources: [] });
+    const calls = []; let offline = true;
+    instance.request = async url => {
+        calls.push(url);
+        if (offline) throw new Error('offline');
+        return url.endsWith('/sources') ? catalogue : { cached: false };
+    };
+    await instance.enterForum();
+    assert.match(instance.state.foError, /分区/);
+    assert.equal(calls.length, 1);
+    offline = false;
+    await instance.enterForum();
+    assert.equal(instance.state.foSource, 36);
+    assert.equal(instance.state.foPage, 1);
+    assert.equal(instance.state.foTaskId, null);
+    assert.equal(calls.at(-1), '/api/movies/forum/cache?forum_id=36&page=1');
+    assert.equal(instance.state.foError, '');
+});
+
+test('starting a job waits for a valid catalogue and a failed catalogue load can retry', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ foSources: [] });
+    let attempts = 0;
+    instance.startBackgroundJob = async () => { attempts++; return { task_id: 'retry-start', status: 'success' }; };
+    instance.request = async () => { throw new Error('offline'); };
+    await instance.startForum();
+    assert.equal(attempts, 0);
+    assert.equal(instance.state.foStarting, false);
+    instance.request = async () => catalogue;
+    await instance.startForum();
+    assert.equal(attempts, 1);
+});
+
+test('switching section resets page, result and selection while retaining title conditions', t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    instance.setState({ foPage: 4, foPageInput: '4', foMovies: rows, foSelected: ['1'], foCache: { movies: rows },
+        foTaskId: 'finished-task', foTask: { status: 'success' }, foTitle: 'QA', foKeywords: ['LTX'] });
+    instance.request = async () => ({ cached: false });
+    instance.renderVals().fo.setSource({ target: { value: '166' } });
+    assert.equal(instance.state.foSource, 166);
+    assert.equal(instance.state.foPage, 1);
+    assert.equal(instance.state.foTaskId, null);
+    assert.equal(instance.state.foCache, null);
+    assert.deepEqual(instance.state.foSelected, []);
+    assert.deepEqual(instance.state.foMovies, []);
+    assert.equal(instance.state.foTitle, 'QA');
+    assert.deepEqual(instance.state.foKeywords, ['LTX']);
+});
 
 test('title query and optional LTX keyword match literally without case sensitivity', () => {
     assert.deepEqual(filterForumMovies(rows, '', ['LTX']).map(r => r.thread_id), ['1', '3']);

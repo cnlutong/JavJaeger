@@ -5515,7 +5515,7 @@ class Component extends DCLogic {
 </style>`;
   var forumTemplate = `<sc-if value="{{ at.forum }}"><main class="jj-forum" aria-label="\u8BBA\u575B\u5F71\u7247" aria-hidden="{{ !!fo.detail }}">
 <header class="jj-forum-heading"><div><h1>\u8BBA\u575B\u5F71\u7247</h1><p>\u6D4F\u89C8 98 \u5802\u5F71\u7247\uFF0C\u628A\u9009\u4E2D\u7684\u8D44\u6E90\u4E0B\u53D1\u5230\u4F60\u7684\u7F51\u76D8\u6216\u4E0B\u8F7D\u5DE5\u5177\u3002</p></div><div class="jj-forum-destination"><label>\u4E0B\u53D1\u5230 <select class="input" aria-label="\u8BBA\u575B\u4E0B\u53D1\u76EE\u6807" value="{{ fo.tool }}" onChange="{{ fo.setTool }}"><option>PikPak</option><option>115 \u7F51\u76D8</option><option>Aria2</option></select></label><button class="btn btn-ghost" onClick="{{ fo.configure }}">{{ fo.connection }}</button><button class="btn btn-secondary" aria-label="\u8BBA\u575B\u7F13\u5B58\u8BBE\u7F6E" onClick="{{ fo.openCacheSettings }}">\u7F13\u5B58\u8BBE\u7F6E</button></div></header>
-<div class="jj-forum-filters" role="group" aria-label="\u8BBA\u575B\u83B7\u53D6\u6761\u4EF6"><label>\u5206\u533A<select class="input" aria-label="\u8BBA\u575B\u5206\u533A" disabled="{{ fo.busy }}" value="{{ fo.source }}" onChange="{{ fo.setSource }}"><option value="36">\u4E9A\u6D32\u65E0\u7801\u539F\u521B</option><option value="103">\u9AD8\u6E05\u4E2D\u6587\u5B57\u5E55</option></select></label><label>\u9875\u7801<input class="input" type="number" min="1" max="10000" aria-label="\u8BBA\u575B\u9875\u7801" disabled="{{ fo.busy }}" value="{{ fo.pageInput }}" onChange="{{ fo.setPage }}"></label><label>\u7B5B\u9009\u672C\u9875\u6807\u9898<input class="input" type="search" aria-label="\u8BBA\u575B\u6807\u9898\u7B5B\u9009" placeholder="\u8F93\u5165\u6807\u9898\u6587\u5B57\u6216\u756A\u53F7" value="{{ fo.query }}" onChange="{{ fo.setQuery }}"></label><div class="jj-forum-fetch-actions"><button class="btn btn-primary" disabled="{{ fo.busy }}" onClick="{{ fo.fetch }}">\u83B7\u53D6\u5F71\u7247</button><button class="btn btn-secondary" disabled="{{ fo.busy }}" title="\u8DF3\u8FC7\u7F13\u5B58\uFF0C\u91CD\u65B0\u8BFB\u53D6\u5F53\u524D\u5206\u533A\u4E0E\u9875\u7801" onClick="{{ fo.refresh }}">\u5237\u65B0\u539F\u5E16</button></div></div>
+<div class="jj-forum-filters" role="group" aria-label="\u8BBA\u575B\u83B7\u53D6\u6761\u4EF6"><label>\u5206\u533A<select class="input" aria-label="\u8BBA\u575B\u5206\u533A" disabled="{{ fo.busy || fo.sourcesUnavailable }}" value="{{ fo.source }}" onChange="{{ fo.setSource }}"><sc-if value="{{ fo.sourcesUnavailable }}"><option>\u6B63\u5728\u52A0\u8F7D\u5206\u533A</option></sc-if><sc-for list="{{ fo.sourceGroups }}" as="g"><optgroup label="{{ g.name }}"><sc-for list="{{ g.forums }}" as="b"><option value="{{ b.id }}">{{ b.name }}</option></sc-for></optgroup></sc-for></select></label><label>\u9875\u7801<input class="input" type="number" min="1" max="10000" aria-label="\u8BBA\u575B\u9875\u7801" disabled="{{ fo.busy }}" value="{{ fo.pageInput }}" onChange="{{ fo.setPage }}"></label><label>\u7B5B\u9009\u672C\u9875\u6807\u9898<input class="input" type="search" aria-label="\u8BBA\u575B\u6807\u9898\u7B5B\u9009" placeholder="\u8F93\u5165\u6807\u9898\u6587\u5B57\u6216\u756A\u53F7" value="{{ fo.query }}" onChange="{{ fo.setQuery }}"></label><div class="jj-forum-fetch-actions"><button class="btn btn-primary" disabled="{{ fo.busy }}" onClick="{{ fo.fetch }}">\u83B7\u53D6\u5F71\u7247</button><button class="btn btn-secondary" disabled="{{ fo.busy }}" title="\u8DF3\u8FC7\u7F13\u5B58\uFF0C\u91CD\u65B0\u8BFB\u53D6\u5F53\u524D\u5206\u533A\u4E0E\u9875\u7801" onClick="{{ fo.refresh }}">\u5237\u65B0\u539F\u5E16</button></div></div>
 <div class="jj-forum-keywords"><span>\u6807\u9898\u5173\u952E\u8BCD</span><button class="btn btn-secondary" aria-label="\u6807\u9898\u5173\u952E\u8BCD LTX" aria-pressed="{{ fo.ltx }}" onClick="{{ fo.toggleKeyword }}">LTX</button><small>\u5339\u914D\u6807\u9898\u4E2D\u5305\u542B\u7684\u6587\u5B57\uFF0C\u4E0D\u533A\u5206\u5927\u5C0F\u5199</small></div>
 <sc-if value="{{ fo.cacheText }}"><p class="jj-forum-cache" aria-label="\u8BBA\u575B\u7F13\u5B58\u72B6\u6001">{{ fo.cacheText }}</p></sc-if>
 <sc-if value="{{ fo.error }}"><p class="jj-forum-error" role="alert">{{ fo.error }}</p></sc-if>
@@ -5538,7 +5538,8 @@ class Component extends DCLogic {
     } catch {
     }
     return {
-      foSource: [36, 103].includes(saved?.source) ? saved.source : 36,
+      foSource: Number.isInteger(saved?.source) && saved.source > 0 ? saved.source : 36,
+      foSources: [],
       foPage: Number(saved?.page) || 1,
       foPageInput: String(Number(saved?.page) || 1),
       foTitle: String(saved?.query || "").slice(0, 200),
@@ -5555,6 +5556,45 @@ class Component extends DCLogic {
     };
   }
   var forumMethods = {
+    async loadForumSources() {
+      if (this.state.foSources.length) return true;
+      if (this._forumSourcesRequest) return this._forumSourcesRequest;
+      this._forumSourcesRequest = (async () => {
+        try {
+          const response = await this.request("/api/movies/forum/sources");
+          const sources = response.forums;
+          if (!Array.isArray(sources) || !sources.length || sources.some((row) => !Number.isInteger(row.id) || row.id <= 0 || typeof row.name !== "string")) throw new Error("Invalid forum sources");
+          if (this._disposed) return false;
+          const patch = { foSources: sources, foError: "" };
+          if (!sources.some((row) => row.id === this.state.foSource)) {
+            this._forumCacheRequest = (this._forumCacheRequest || 0) + 1;
+            this._forumRestored = true;
+            Object.assign(patch, {
+              foSource: sources.some((row) => row.id === 36) ? 36 : sources[0].id,
+              foPage: 1,
+              foPageInput: "1",
+              foTaskId: null,
+              foTask: null,
+              foCache: null,
+              foMovies: [],
+              foSelected: [],
+              foDetail: null
+            });
+          }
+          this.setState(patch, () => this.persistForum());
+          return true;
+        } catch {
+          if (!this._disposed) this.setState({ foError: "\u8BBA\u575B\u5206\u533A\u5217\u8868\u52A0\u8F7D\u5931\u8D25\uFF0C\u8BF7\u70B9\u51FB\u83B7\u53D6\u5F71\u7247\u91CD\u8BD5" });
+          return false;
+        } finally {
+          this._forumSourcesRequest = null;
+        }
+      })();
+      return this._forumSourcesRequest;
+    },
+    async enterForum() {
+      if (await this.loadForumSources() && !this.state.foMovies.length) await this.loadForumCache();
+    },
     async loadForumCache() {
       const st = this.state;
       if (st.foTaskId || st.foTask || st.foStarting || st.foCacheLoading) return;
@@ -5602,7 +5642,7 @@ class Component extends DCLogic {
         const task2 = tasks.find((task3) => task3.task_id === this.state.foTaskId) || !this.state.foTaskId && latest;
         if (task2) this.applyForumTask(task2, true);
         else if (this.state.foTaskId) this.setState({ foTaskId: null, foError: "\u4E0A\u4E00\u6B21\u83B7\u53D6\u4EFB\u52A1\u5DF2\u5931\u6548\uFF0C\u8BF7\u91CD\u65B0\u83B7\u53D6\u5F71\u7247" }, () => {
-          if (this.state.route === "forum") void this.loadForumCache();
+          if (this.state.route === "forum") void this.enterForum();
         });
       }
       const task = tasks.find((task2) => task2.task_id === this.state.foTaskId);
@@ -5622,6 +5662,7 @@ class Component extends DCLogic {
       }
       this.setState({ foStarting: true, foError: "" });
       try {
+        if (!await this.loadForumSources()) return;
         const payload = { forum_id: this.state.foSource, page: target };
         const titleQuery = this.state.foTitle.trim();
         if (titleQuery) payload.title_query = titleQuery;
@@ -5671,6 +5712,8 @@ class Component extends DCLogic {
       const savedAt = result?.cache?.saved_at ? new Date(result.cache.saved_at) : null;
       const cacheText = savedAt && Number.isFinite(savedAt.getTime()) ? (result.cache.hit ? "\u5DF2\u4F7F\u7528\u7F13\u5B58 \xB7 " : result.cache.reused_posts ? `\u5DF2\u590D\u7528 ${result.cache.reused_posts} \u6761\u5E16\u5B50\u7F13\u5B58 \xB7 ` : "") + "\u5217\u8868\u66F4\u65B0\u4E8E " + savedAt.toLocaleString(void 0, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
       return {
+        sourceGroups: [...new Set(st.foSources.map((row) => row.group || "\u8BBA\u575B\u5206\u533A"))].map((name) => ({ name, forums: st.foSources.filter((row) => (row.group || "\u8BBA\u575B\u5206\u533A") === name) })),
+        sourcesUnavailable: !st.foSources.length,
         source: st.foSource,
         pageInput: st.foPageInput,
         query: st.foTitle,
@@ -6581,7 +6624,7 @@ class Component extends DCLogic {
         this.perform(async () => {
           await this.perform(() => this.loadBackgroundJobs());
           if (this.state.route === "browse") void this.loadBrowse({ reset: true });
-          if (this.state.route === "forum") void this.loadForumCache();
+          if (this.state.route === "forum") void this.enterForum();
           await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map((load) => this.perform(load)));
           const config = this.state.clientConfig;
           for (const key of ["webdav", "aria2", "pikpak"]) {
@@ -6607,7 +6650,7 @@ class Component extends DCLogic {
           if (["browse", "forum"].includes(route)) window.history?.replaceState(null, "", "#" + route);
           else if (["#browse", "#forum"].includes(window.location?.hash)) window.history?.replaceState(null, "", window.location.pathname + window.location.search);
           if (route === "browse" && !this.state.brLoaded) void this.loadBrowse({ reset: true });
-          if (route === "forum" && !this.state.foMovies.length) void this.loadForumCache();
+          if (route === "forum") void this.enterForum();
           this.perform(async () => {
             if (["cinema", "library"].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 3e4)) await this.loadLibrary();
             if (route === "storage") await this.loadFiles(this.state.fsSrc, this.state.directory);

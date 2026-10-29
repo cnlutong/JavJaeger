@@ -28,7 +28,7 @@ from .subtitles import subtitle_files, read_webvtt
 from .local_scrape_tasks import local_scrape_task_manager
 from modules.common.tasks import submit_background_task
 from .background import enrich_search, test_scrapers
-from .forum import (ForumPageJob, ForumPageRequest, forum_sources, get_cached_forum_page,
+from .forum import (ForumId, ForumPageJob, ForumPageRequest, forum_sources, get_cached_forum_page,
                     get_forum_cache_settings, configure_forum_cache, clear_forum_cache)
 from .schemas import (
     LocalLibraryInformationDownloadRequest,
@@ -78,7 +78,7 @@ async def start_forum_job(request: Request, payload: ForumPageRequest):
 
 
 @router.get('/api/movies/forum/cache')
-async def get_forum_cache(response: Response, forum_id: Literal['36', '103'] = '36', page: int = Query(default=1, ge=1, le=10000)):
+async def get_forum_cache(response: Response, forum_id: ForumId = Query(default=36), page: int = Query(default=1, ge=1, le=10000)):
     response.headers['Cache-Control'] = 'no-store'
     return await get_cached_forum_page(int(forum_id), page)
 

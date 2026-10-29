@@ -316,7 +316,7 @@ export function connectDesign(Base) {
                 // Establish the shared session cookie before parallel downloader requests.
                 await this.perform(() => this.loadBackgroundJobs());
                 if (this.state.route === 'browse') void this.loadBrowse({ reset: true });
-                if (this.state.route === 'forum') void this.loadForumCache();
+                if (this.state.route === 'forum') void this.enterForum();
                 await Promise.all([() => this.loadLibrary(), () => this.loadSettings(), () => this.loadConnections(), () => this.loadHistory(), () => this.loadTasks(), () => this.loadTranscodes(), () => this.loadCatalogs()].map(load => this.perform(load)));
                 const config = this.state.clientConfig;
                 for (const key of ['webdav', 'aria2', 'pikpak']) {
@@ -341,7 +341,7 @@ export function connectDesign(Base) {
             if (['browse', 'forum'].includes(route)) window.history?.replaceState(null, '', '#' + route);
             else if (['#browse', '#forum'].includes(window.location?.hash)) window.history?.replaceState(null, '', window.location.pathname + window.location.search);
             if (route === 'browse' && !this.state.brLoaded) void this.loadBrowse({ reset: true });
-            if (route === 'forum' && !this.state.foMovies.length) void this.loadForumCache();
+            if (route === 'forum') void this.enterForum();
             this.perform(async () => {
                 if (['cinema', 'library'].includes(route) && (!this.state.libraryLoaded || Date.now() - this._libraryLoadedAt >= 30000)) await this.loadLibrary();
                 if (route === 'storage') await this.loadFiles(this.state.fsSrc, this.state.directory);

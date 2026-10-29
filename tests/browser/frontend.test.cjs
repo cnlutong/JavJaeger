@@ -228,6 +228,50 @@ test('forum: partial results survive cancellation, retry and failed starts', asy
     assert.equal(await page.locator('.jj-forum-row').count(), 2, 'failed start preserves the usable previous results');
 });
 
+test('forum: both server-provided groups select every section and restore AI paging after reload', async t => {
+    const catalogue = require('../fixtures/forum_sources.json'), sent = [], cacheReads = [];
+    const page = await openApp(t, 1440, async p => {
+        await libraryFixture(p);
+        await p.route('**/api/system/jobs', route => route.fulfill({ json: { tasks: [] } }));
+        await p.route('**/api/movies/forum/cache?*', route => {
+            cacheReads.push(new URL(route.request().url()).searchParams.get('forum_id'));
+            return route.fulfill({ json: { cached: false, result: null } });
+        });
+        await p.route('**/api/movies/forum/jobs', route => {
+            const body = route.request().postDataJSON(); sent.push(body);
+            return route.fulfill({ status: 202, json: { task_id: 'ai-section-fixture', type: 'forum-fetch', status: 'success',
+                result: { success: true, forum_id: body.forum_id, page: body.page, has_next: true, movies: [], message: '分区与筛选条件验收完成' } } });
+        });
+    });
+    await navigate(page, '论坛影片');
+    const select = page.getByRole('combobox', { name: '论坛分区' });
+    await page.waitForFunction(count => document.querySelectorAll('select[aria-label="论坛分区"] option').length === count, catalogue.forums.length);
+    assert.deepEqual(await select.locator('optgroup').evaluateAll(groups => groups.map(group => group.label)), ['原创BT电影', 'AI综合区']);
+    assert.deepEqual(await select.locator('option').evaluateAll(options => options.map(option => ({ id: Number(option.value), name: option.textContent }))), catalogue.forums.map(({ id, name }) => ({ id, name })));
+    for (const section of catalogue.forums) {
+        await select.selectOption(String(section.id));
+        assert.equal(await select.inputValue(), String(section.id));
+        await page.waitForFunction(id => JSON.parse(sessionStorage.getItem('javjaeger.forum')).source === id, section.id);
+    }
+    await select.selectOption('172');
+    await page.getByRole('spinbutton', { name: '论坛页码' }).fill('3');
+    await page.getByRole('searchbox', { name: '论坛标题筛选' }).fill('QA');
+    await page.getByRole('button', { name: '标题关键词 LTX' }).click();
+    await page.getByRole('button', { name: '获取影片', exact: true }).click();
+    await page.getByText('分区与筛选条件验收完成', { exact: true }).waitFor();
+    assert.deepEqual(sent, [{ forum_id: 172, page: 3, title_query: 'QA', keywords: ['LTX'] }]);
+    assert.ok(cacheReads.includes('166') && cacheReads.includes('174') && cacheReads.includes('37'));
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await select.inputValue(), '172');
+    assert.equal(await page.getByRole('spinbutton', { name: '论坛页码' }).inputValue(), '3');
+    assert.equal(await page.getByRole('searchbox', { name: '论坛标题筛选' }).inputValue(), 'QA');
+    assert.equal(await page.getByRole('button', { name: '标题关键词 LTX' }).getAttribute('aria-pressed'), 'true');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-forum-sections-desktop.png'), animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-forum-sections-mobile.png'), animations: 'disabled' });
+});
+
 test('forum: title conditions are sent before fetching, on paging and on source refresh', async t => {
     const sent = [];
     const row = { thread_id: '1', movie_id: 'QA-001', code: 'QA-001', title: 'QA-001 [LTX] 远方的电影', status: 'ready', images: [], magnets: [] };

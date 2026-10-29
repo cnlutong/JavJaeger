@@ -6,13 +6,41 @@ const active = task => task && ['running', 'queued'].includes(task.status);
 export function initialForumState() {
     let saved = {};
     try { saved = JSON.parse(window.sessionStorage.getItem(storageKey) || '{}'); } catch {}
-    return { foSource: [36, 103].includes(saved?.source) ? saved.source : 36, foPage: Number(saved?.page) || 1,
+    return { foSource: Number.isInteger(saved?.source) && saved.source > 0 ? saved.source : 36, foSources: [], foPage: Number(saved?.page) || 1,
         foPageInput: String(Number(saved?.page) || 1), foTitle: String(saved?.query || '').slice(0, 200),
         foKeywords: saved?.keywords?.includes('LTX') ? ['LTX'] : [], foTaskId: /^[A-Za-z0-9_-]{1,80}$/.test(saved?.taskId || '') ? saved.taskId : null,
         foMovies: [], foSelected: [], foTask: null, foCache: null, foCacheLoading: false, foStarting: false, foDetail: null, foError: '' };
 }
 
 export const forumMethods = {
+    async loadForumSources() {
+        if (this.state.foSources.length) return true;
+        if (this._forumSourcesRequest) return this._forumSourcesRequest;
+        this._forumSourcesRequest = (async () => {
+            try {
+                const response = await this.request('/api/movies/forum/sources');
+                const sources = response.forums;
+                if (!Array.isArray(sources) || !sources.length || sources.some(row => !Number.isInteger(row.id) || row.id <= 0 || typeof row.name !== 'string')) throw new Error('Invalid forum sources');
+                if (this._disposed) return false;
+                const patch = { foSources: sources, foError: '' };
+                if (!sources.some(row => row.id === this.state.foSource)) {
+                    this._forumCacheRequest = (this._forumCacheRequest || 0) + 1;
+                    this._forumRestored = true;
+                    Object.assign(patch, { foSource: sources.some(row => row.id === 36) ? 36 : sources[0].id,
+                        foPage: 1, foPageInput: '1', foTaskId: null, foTask: null, foCache: null, foMovies: [], foSelected: [], foDetail: null });
+                }
+                this.setState(patch, () => this.persistForum());
+                return true;
+            } catch {
+                if (!this._disposed) this.setState({ foError: '论坛分区列表加载失败，请点击获取影片重试' });
+                return false;
+            } finally { this._forumSourcesRequest = null; }
+        })();
+        return this._forumSourcesRequest;
+    },
+    async enterForum() {
+        if (await this.loadForumSources() && !this.state.foMovies.length) await this.loadForumCache();
+    },
     async loadForumCache() {
         const st = this.state;
         if (st.foTaskId || st.foTask || st.foStarting || st.foCacheLoading) return;
@@ -55,7 +83,7 @@ export const forumMethods = {
             const task = tasks.find(task => task.task_id === this.state.foTaskId) || (!this.state.foTaskId && latest);
             if (task) this.applyForumTask(task, true);
             else if (this.state.foTaskId) this.setState({ foTaskId: null, foError: '上一次获取任务已失效，请重新获取影片' }, () => {
-                if (this.state.route === 'forum') void this.loadForumCache();
+                if (this.state.route === 'forum') void this.enterForum();
             });
         }
         const task = tasks.find(task => task.task_id === this.state.foTaskId);
@@ -72,6 +100,7 @@ export const forumMethods = {
         if (!Number.isInteger(target) || target < 1 || target > 10000) { this.setState({ foError: '页码需为 1 至 10000 的整数' }); return; }
         this.setState({ foStarting: true, foError: '' });
         try {
+            if (!await this.loadForumSources()) return;
             const payload = { forum_id: this.state.foSource, page: target };
             const titleQuery = this.state.foTitle.trim();
             if (titleQuery) payload.title_query = titleQuery;
@@ -117,6 +146,8 @@ export const forumMethods = {
             (result.cache.hit ? '已使用缓存 · ' : result.cache.reused_posts ? `已复用 ${result.cache.reused_posts} 条帖子缓存 · ` : '') +
             '列表更新于 ' + savedAt.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
         return {
+            sourceGroups: [...new Set(st.foSources.map(row => row.group || '论坛分区'))].map(name => ({ name, forums: st.foSources.filter(row => (row.group || '论坛分区') === name) })),
+            sourcesUnavailable: !st.foSources.length,
             source: st.foSource, pageInput: st.foPageInput, query: st.foTitle, ltx: st.foKeywords.includes('LTX'), tool: st.tool,
             setSource: event => {
                 this._forumRestored = true;

@@ -236,5 +236,5 @@ def test_forum_job_routes_are_owned_by_browser_session(monkeypatch):
             assert (await other.get('/api/system/jobs/' + task_id)).status_code == 404
             assert (await first.post('/api/movies/forum/jobs', json={'forum_id': 999})).status_code == 422
             sources = (await first.get('/api/movies/forum/sources')).json()
-            assert sources['keywords'] == ['LTX'] and len(sources['forums']) == 2
+            assert sources['keywords'] == ['LTX'] and {row['group'] for row in sources['forums']} == {'原创BT电影', 'AI综合区'}
     asyncio.run(exercise())
