@@ -76,6 +76,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
     requests = []
     job_status = "running"
     job_retried = False
+    video_fixture = "test-pattern.mp4"
 
     def do_POST(self):
         self.requests.append(self.path)
@@ -150,7 +151,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             if path.endswith("/stream") and self.headers.get("Cookie") != "session=tv-session":
                 self.send_error(403)
                 return
-            data = (Path(__file__).parent / "fixtures/android_tv/test-pattern.mp4").read_bytes()
+            data = (Path(__file__).parent / "fixtures/android_tv" / self.video_fixture).read_bytes()
             byte_range = self.headers.get("Range")
             match = re.fullmatch(r"bytes=(\d+)-(\d*)", byte_range or "")
             if match:
@@ -201,6 +202,8 @@ def main():
     parser.add_argument("--playback-only", action="store_true", help="Check local playback, subtitle toggles and file switching only.")
     parser.add_argument("--seek-only", action="store_true", help="Check remote and pointer seeking using the debug androidTest APK.")
     args = parser.parse_args()
+    if args.seek_only:
+        FixtureHandler.video_fixture = "seek-pattern.mp4"
 
     def adb(*command, binary=False):
         return subprocess.check_output(["adb", "-s", args.serial, *command], timeout=30,

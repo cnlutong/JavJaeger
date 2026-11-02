@@ -12,6 +12,8 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -52,6 +54,8 @@ import java.util.concurrent.Executors;
 
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlaybackActivity extends Activity {
+    private static final int CONTROLS_HIDE_DELAY_MS = 1500;
+    private static final int SEEK_INCREMENT_MS = 30000;
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private LibraryClient client;
     private String movieId;
@@ -87,6 +91,7 @@ public final class PlaybackActivity extends Activity {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
         setContentView(root);
+        enterFullscreen();
         try {
             client = new LibraryClient(getIntent().getStringExtra("server"));
             movieId = getIntent().getStringExtra("movie_id");
@@ -116,6 +121,27 @@ public final class PlaybackActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (Build.VERSION.SDK_INT < 24 && !failed) loadPlayback();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) enterFullscreen();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void enterFullscreen() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(WindowInsets.Type.systemBars());
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
     }
 
     private void loadPlayback() {
@@ -209,7 +235,7 @@ public final class PlaybackActivity extends Activity {
             });
             fileSelector.setSelection(selected);
             fileSelector.setBackground(controlBackground());
-            fileSelector.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
+            fileSelector.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
             actions.addView(fileSelector, new LinearLayout.LayoutParams(0, Math.round(48 * getResources().getDisplayMetrics().density), 1));
             fileSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 @Override public void onNothingSelected(AdapterView<?> parent) { }
@@ -230,7 +256,7 @@ public final class PlaybackActivity extends Activity {
         subtitleToggle.setAllCaps(false);
         subtitleToggle.setTextColor(0xfff4f5f7);
         subtitleToggle.setBackground(controlBackground());
-        subtitleToggle.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
+        subtitleToggle.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
         subtitleToggle.setOnClickListener(view -> {
             if (player == null) return;
             subtitlesEnabled = !subtitlesEnabled;
@@ -242,7 +268,7 @@ public final class PlaybackActivity extends Activity {
         subtitleStyle.setAllCaps(false);
         subtitleStyle.setTextColor(0xfff4f5f7);
         subtitleStyle.setBackground(controlBackground());
-        subtitleStyle.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
+        subtitleStyle.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
         subtitleStyle.setOnClickListener(view -> showSubtitleAppearance());
         actions.addView(subtitleStyle);
         Button stop = new Button(this);
@@ -251,10 +277,10 @@ public final class PlaybackActivity extends Activity {
         stop.setTextColor(0xfff4f5f7);
         stop.setBackground(controlBackground());
         stop.setOnClickListener(view -> finish());
-        stop.setOnFocusChangeListener((view, focused) -> keepControlsVisible(focused));
+        stop.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
         actions.addView(stop);
         TextView hint = new TextView(this);
-        hint.setText("↓ 进度条 · ← → 定位 10 秒 · 确认完成定位 · 上键切换文件与字幕");
+        hint.setText("← 后退 30 秒 · → 快进 30 秒 · ↓ 进度条 · ↑ 切换文件与字幕");
         hint.setTextSize(13);
         hint.setTextColor(0xffa4abb7);
         bar.addView(hint);
@@ -263,10 +289,11 @@ public final class PlaybackActivity extends Activity {
         playerView.setKeepScreenOn(true);
         playerView.setShowNextButton(true);
         playerView.setShowPreviousButton(true);
-        playerView.setControllerShowTimeoutMs(4000);
+        playerView.setControllerShowTimeoutMs(CONTROLS_HIDE_DELAY_MS);
+        playerView.setControllerAnimationEnabled(false);
         playerView.setShowSubtitleButton(false);
         timeBar = playerView.findViewById(androidx.media3.ui.R.id.exo_progress);
-        timeBar.setKeyTimeIncrement(10000);
+        timeBar.setKeyTimeIncrement(SEEK_INCREMENT_MS);
         timeBar.setFocusable(true);
         timeBar.setBackground(controlBackground());
         FrameLayout.LayoutParams progressParams = (FrameLayout.LayoutParams) timeBar.getLayoutParams();
@@ -279,10 +306,15 @@ public final class PlaybackActivity extends Activity {
         centerParams.bottomMargin = Math.round(104 * getResources().getDisplayMetrics().density);
         centerControls.setLayoutParams(centerParams);
         applySubtitleAppearance();
-        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) bar::setVisibility);
+        playerView.setControllerVisibilityListener((PlayerView.ControllerVisibilityListener) visibility -> {
+            boolean returnFocus = visibility != View.VISIBLE && bar.hasFocus();
+            bar.setVisibility(visibility);
+            if (returnFocus && hasWindowFocus()) playerView.requestFocus();
+        });
         root.addView(playerView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         root.addView(bar, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP));
-        ExoPlayer.Builder builder = new ExoPlayer.Builder(this).setSeekBackIncrementMs(10000).setSeekForwardIncrementMs(10000);
+        ExoPlayer.Builder builder = new ExoPlayer.Builder(this)
+                .setSeekBackIncrementMs(SEEK_INCREMENT_MS).setSeekForwardIncrementMs(SEEK_INCREMENT_MS);
         if (browseJobId != null) builder.setMediaSourceFactory(new DefaultMediaSourceFactory(
                 () -> new SessionStreamDataSource(client.playJobStreamUrl(browseJobId), getIntent().getStringExtra("session_cookie"))));
         player = builder.build();
@@ -318,10 +350,8 @@ public final class PlaybackActivity extends Activity {
         playerView.requestFocus();
     }
 
-    private void keepControlsVisible(boolean focused) {
-        if (playerView == null) return;
-        playerView.setControllerShowTimeoutMs(focused ? 0 : 4000);
-        playerView.showController();
+    private void showControlsOnFocus(boolean focused) {
+        if (focused && playerView != null) playerView.showController();
     }
 
     private void updateSubtitleToggle() {
@@ -514,8 +544,18 @@ public final class PlaybackActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        int key = event.getKeyCode();
+        if (player != null && playerView.hasFocus()
+                && (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (key == KeyEvent.KEYCODE_DPAD_LEFT) player.seekBack();
+                else player.seekForward();
+                playerView.showController();
+            }
+            return true;
+        }
         if (player != null && event.getAction() == KeyEvent.ACTION_DOWN) {
-            int key = event.getKeyCode();
+            if (playbackBar.hasFocus()) playerView.showController();
             if (key == KeyEvent.KEYCODE_DPAD_UP && playerView.hasFocus()) {
                 playerView.showController();
                 if (fileSelector == null) playbackBar.getChildAt(playbackBar.getChildCount() - 1).requestFocus();
@@ -536,9 +576,9 @@ public final class PlaybackActivity extends Activity {
                 return true;
             }
             boolean hidden = playerView.hasFocus() && !playerView.isControllerFullyVisible();
-            if (hidden && (key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT || key == KeyEvent.KEYCODE_DPAD_DOWN)) {
+            if (hidden && key == KeyEvent.KEYCODE_DPAD_DOWN) {
                 playerView.showController();
-                if (timeBar.requestFocus()) return key == KeyEvent.KEYCODE_DPAD_DOWN || playerView.dispatchKeyEvent(event);
+                if (timeBar.requestFocus()) return true;
             }
             if (key == KeyEvent.KEYCODE_MEDIA_REWIND) {
                 player.seekBack();
