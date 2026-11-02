@@ -2,7 +2,7 @@
 
 原生 Android TV 客户端，通过现有 JavJaeger HTTP API 浏览和播放服务器影视库。支持 Android 6.0（API 23）及以上的 Android TV，使用遥控器方向键、确认键与返回键操作。
 
-**[下载 v0.3.6 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.6)**。本版加快播放控制层隐藏并进入全屏，支持左右方向键立即后退／快进 30 秒，无需确认，继续支持外挂字幕及样式设置；外挂字幕需要包含字幕接口的服务端。**本版改用本机新调试签名，旧版用户需先卸载再安装，无法直接覆盖升级。卸载会清除已保存的服务器地址和字幕偏好，安装后需重新设置。** 也可按下方步骤自行构建。
+**[下载 v0.3.6 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.6)**。本版加快播放控制层隐藏并进入全屏，支持左右方向键立即后退／快进 30 秒，无需确认，继续支持外挂字幕及样式设置；外挂字幕需要包含字幕接口的服务端。**从 v0.3.5 及更早发布版升级时，需先卸载再安装，服务器地址和字幕偏好需重新设置。v0.3.6 起固定沿用同一签名，后续版本可覆盖升级。** 也可按下方步骤自行构建。
 
 ## 使用
 
@@ -31,16 +31,18 @@
 
 ## 构建 APK
 
-需要 JDK 21、Android SDK 与网络连接。SDK 路径通过 `ANDROID_HOME` 或本机 `local.properties` 的 `sdk.dir` 指定，SDK 平台版本以 `app/build.gradle` 的 `compileSdk` 为准。Gradle Wrapper 会下载固定版本的构建工具和依赖。
+需要 JDK 21、Android SDK 与网络连接，并恢复下方的固定签名配置。SDK 路径通过 `ANDROID_HOME` 或本机 `local.properties` 的 `sdk.dir` 指定，SDK 平台版本以 `app/build.gradle` 的 `compileSdk` 为准。Gradle Wrapper 会下载固定版本的构建工具和依赖。
 
 在仓库根目录执行：
 
 ```bash
 cd android-tv
-./gradlew testDebugUnitTest lintDebug assembleDebug
+./gradlew verifyTvSigning testDebugUnitTest lintDebug assembleDebug
 ```
 
-成功后生成 `app/build/outputs/apk/debug/app-debug.apk`。该 APK 使用调试签名，适合自用安装和测试；正式分发时需要自行配置稳定的发布签名。
+成功后生成 `app/build/outputs/apk/debug/app-debug.apk`。该 APK 为调试构建，适合自用安装和测试；调试与 release 构建都使用 v0.3.6 的固定项目签名，后续发布不得改用新生成的密钥。发布时递增 `versionCode` 并保持 `applicationId` 不变。
+
+没有项目私密签名的贡献者，可显式使用 `./gradlew -PjavjaegerTvDevelopmentSigning=true testDebugUnitTest lintDebug assembleDebug` 进行本机开发。这类包不能覆盖官方安装包，也不能通过 `verifyTvSigning` 发布检查。
 
 启用电视的开发者选项与 ADB 后，安装 APK：
 
@@ -49,6 +51,27 @@ adb -s <电视序列号> install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 也可以把 APK 复制到电视，通过电视的文件管理器安装。电视端不需要配置下载器、网盘账号或媒体挂载。
+
+### 固定签名与备份
+
+固定签名配置由 `signing.gradle` 读取，默认位于仓库之外的 `/Volumes/dev1/Developer/private/JavJaeger/android-tv/signing.properties`。配置包含 `storeFile`、`storePassword`、`keyAlias`、`keyPassword`；相对的 `storeFile` 路径按配置文件所在目录解析。迁移机器或在其他位置构建时，通过 `JAVJAEGER_TV_SIGNING_PROPERTIES` 指向恢复后的私密配置文件，不把口令放进命令行或版本库。
+
+签名已备份在两处：
+
+- 外置盘私密目录 `/Volumes/dev1/Developer/private/JavJaeger/android-tv/`，包含 `javjaeger-tv-v0.3.6.keystore`、`signing.properties` 和 `SIGNING-IDENTITY.json`。
+- NAS 发布维护账号的私密主目录 `~/.javjaeger-tv-signing/v0.3.6/signing-backup.tar`，包含相同的三个文件；SSH 连接信息见 [部署说明](../DOCKER.md#当前本地部署环境)。该备份位于 Docker 和网站目录之外。
+
+目录权限为 `700`，文件权限为 `600`，两处备份已做回读比对。系统重装或机器迁移前保留外置盘副本；需要从 NAS 恢复时，将归档中的三个文件解包到仓库之外的私密目录，恢复上述权限，再运行 `verifyTvSigning`。不要在缺少签名时生成替代密钥。
+
+v0.3.6 的公开证书 SHA-256 指纹为：
+
+```text
+e436292d609251b8b847f6d488821265ca03171809e34cb78e242c96fbe6e41c
+```
+
+构建会检查私钥、口令、别名和该指纹；配置或密钥缺失、无法解锁、证书不一致时停止构建。私密配置和密钥必须留在 Git 之外，不上传到 Release。原始 `~/.android/debug.keystore` 仅保留为额外副本，发布构建不再依赖它。
+
+修改签名构建流程时，运行 `python3 tests/android_tv_signing_check.py`。该隔离检查使用临时生成的假密钥验证失败保护和开发签名限制，无需真实账号；临时目录默认使用 `/Volumes/dev1/codex/tmp`，其他机器可用 `JAVJAEGER_TV_SIGNING_TEST_TMP` 指向仓库之外的可写目录。
 
 ## 隔离工作流回归
 

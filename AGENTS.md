@@ -305,6 +305,12 @@ Do not derive architecture from:
 
 Use source code and declared module boundaries instead.
 
+### 11. Preserve the Android TV signing identity
+
+- All TV releases from v0.3.6 onward must reuse its pinned signing certificate through `android-tv/signing.gradle`.
+- Keep private keys and signing profiles outside Git. Restore the external-drive or NAS backup described in `android-tv/README.md` when they are missing; never generate a replacement release key.
+- Run `verifyTvSigning` before packaging or publishing. Explicit development signing is for disposable local builds only and must not be published.
+
 ## Dependency Rules
 
 Allowed:
@@ -438,7 +444,8 @@ Frontend changes:
 
 Android TV changes:
 
-- from `android-tv/`, run `./gradlew testDebugUnitTest lintDebug assembleDebug` with JDK 21 and the Android SDK
+- from `android-tv/`, run `./gradlew verifyTvSigning testDebugUnitTest lintDebug assembleDebug` with JDK 21, the Android SDK and the private signing backup (or explicitly use development signing for non-publishing work)
+- for signing/build workflow changes, run `python3 tests/android_tv_signing_check.py`
 - run `python3 tests/android_tv_smoke.py --serial <emulator> --apk <debug-apk>` for the isolated server and remote-control workflow
 
 Security or workflow changes:

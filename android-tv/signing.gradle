@@ -1,0 +1,77 @@
+import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.PrivateKey
+
+// Public certificate identity of the published v0.3.6 APK; never a private key.
+def expectedFingerprint = 'e436292d609251b8b847f6d488821265ca03171809e34cb78e242c96fbe6e41c'
+def developmentSigning = providers.gradleProperty('javjaegerTvDevelopmentSigning').getOrElse('false') == 'true'
+
+if (!developmentSigning) {
+    def profile = new File(providers.environmentVariable('JAVJAEGER_TV_SIGNING_PROPERTIES').getOrElse(
+            '/Volumes/dev1/Developer/private/JavJaeger/android-tv/signing.properties')).canonicalFile
+    if (!profile.isFile()) {
+        throw new GradleException('TV signing configuration is missing. Restore the private signing backup; use -PjavjaegerTvDevelopmentSigning=true only for disposable development builds.')
+    }
+    def repository = rootProject.projectDir.parentFile.canonicalFile.toPath()
+    if (profile.toPath().startsWith(repository)) {
+        throw new GradleException('TV signing credentials must stay outside the repository.')
+    }
+    def credentials = new Properties()
+    try {
+        profile.withInputStream { credentials.load(it) }
+    } catch (Exception ignored) {
+        throw new GradleException('Cannot read the private TV signing configuration.')
+    }
+    if (['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].any { !credentials.getProperty(it) }) {
+        throw new GradleException('TV signing configuration is incomplete. Restore the private signing backup.')
+    }
+    def keystore = new File(credentials.getProperty('storeFile'))
+    if (!keystore.isAbsolute()) keystore = new File(profile.parentFile, keystore.path)
+    keystore = keystore.canonicalFile
+    if (keystore.toPath().startsWith(repository)) {
+        throw new GradleException('TV signing credentials must stay outside the repository.')
+    }
+    if (!keystore.isFile()) {
+        throw new GradleException('TV signing keystore is missing. Restore the private signing backup instead of generating a new key.')
+    }
+    def fingerprint
+    try {
+        def identity = KeyStore.getInstance(keystore, credentials.getProperty('storePassword').toCharArray())
+        def alias = credentials.getProperty('keyAlias')
+        if (!identity.isKeyEntry(alias) || !(identity.getKey(alias, credentials.getProperty('keyPassword').toCharArray()) instanceof PrivateKey)) {
+            throw new IllegalStateException('No private signing key')
+        }
+        fingerprint = MessageDigest.getInstance('SHA-256').digest(identity.getCertificate(alias).encoded).encodeHex().toString()
+    } catch (Exception ignored) {
+        // Do not forward provider errors or credential values to the build log.
+        throw new GradleException('Cannot unlock the TV signing identity. Check the private signing configuration and backup.')
+    }
+    if (fingerprint != expectedFingerprint) {
+        throw new GradleException('TV signing certificate does not match v0.3.6. Restore the original signing backup; do not rotate the key.')
+    }
+    android {
+        signingConfigs {
+            persistentTv {
+                storeFile keystore
+                storePassword credentials.getProperty('storePassword')
+                keyAlias credentials.getProperty('keyAlias')
+                keyPassword credentials.getProperty('keyPassword')
+            }
+        }
+        buildTypes {
+            debug { signingConfig signingConfigs.persistentTv }
+            release { signingConfig signingConfigs.persistentTv }
+        }
+    }
+}
+
+tasks.register('verifyTvSigning') {
+    group = 'verification'
+    description = 'Require the persistent v0.3.6 signing identity before publishing.'
+    doLast {
+        if (developmentSigning) {
+            throw new GradleException('Development signing cannot be used for publishing.')
+        }
+        logger.lifecycle('TV signing certificate matches v0.3.6: ' + expectedFingerprint)
+    }
+}

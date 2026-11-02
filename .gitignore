@@ -45,3 +45,8 @@ android-tv/.gradle/
 android-tv/.kotlin/
 android-tv/local.properties
 android-tv/**/build/
+
+# Android signing identities and private credential profiles belong outside Git.
+*.keystore
+*.jks
+android-tv/signing.properties
