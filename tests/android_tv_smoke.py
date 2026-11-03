@@ -197,9 +197,10 @@ def main():
     parser.add_argument("--serial", required=True)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, default=Path("/tmp/javjaeger-tv-smoke"))
-    parser.add_argument("--layout-only", action="store_true", help="Check home, local and online artwork/navigation layouts without playback.")
+    parser.add_argument("--layout-only", action="store_true", help="Check equal front-cover cards and top navigation without playback.")
     parser.add_argument("--actors-only", action="store_true", help="Check actor photos and remote selection in local/online directories and details.")
     parser.add_argument("--playback-only", action="store_true", help="Check local playback, subtitle toggles and file switching only.")
+    parser.add_argument("--browse-only", action="store_true", help="Check discovery, grid focus, 115 session cancellation/retry and playback only.")
     parser.add_argument("--seek-only", action="store_true", help="Check remote and pointer seeking using the debug androidTest APK.")
     args = parser.parse_args()
     if args.seek_only:
@@ -311,26 +312,67 @@ def main():
             if cover is not None:
                 left, top, right, bottom = bounds(cover)
                 width, height = right - left, bottom - top
-                error = abs(height - width * expected_height / expected_width)
+                error = abs(height - width * 200 / 147)
                 if width > 0 and height > 0 and error <= 1 and previous == (width, height):
                     focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
                     assert focused is not None and focused.get("content-desc") == label, "Artwork loading must preserve the focused movie card"
-                    if stage == "home":
-                        card_bounds = bounds(card)
-                        assert abs(card_bounds[2] - card_bounds[0] - width) < bounds(root.find("node"))[2] * .02, "Shelf card width must follow its cover without empty columns"
+                    same_stage = [item for item in cover_measurements if item["stage"] == stage]
+                    if same_stage:
+                        assert abs(same_stage[0]["width"] - width) <= 1 and abs(same_stage[0]["height"] - height) <= 1, "Landscape, portrait and square sources must keep equal catalog frames"
                     cover_measurements.append({"stage": stage, "movie_id": movie_id, "width": width, "height": height,
                                                "source_width": expected_width, "source_height": expected_height, "error_px": error})
                     return root
                 previous = (width, height)
             time.sleep(.2)
-        raise AssertionError(f"Cover frame must preserve original image ratio within 1 px: {movie_id}, measured={previous}, source={expected_width}x{expected_height}")
+        raise AssertionError(f"Catalog frame must use 147:200 regardless of source: {movie_id}, measured={previous}, source={expected_width}x{expected_height}")
 
-    def check_compact_sidebar(root):
+    def check_navigation(root):
         screen = bounds(root.find("node"))
         nav = find(root, "影院导航")
-        assert nav is not None, "Collapsed TV sidebar must expose its navigation container"
-        left, _, right, _ = bounds(nav)
-        assert right - left <= (screen[2] - screen[0]) * .10, "Collapsed sidebar must use at most 10% of screen width while content has focus"
+        assert nav is not None, "TV must expose its top navigation container"
+        left, top, right, bottom = bounds(nav)
+        assert right - left >= (screen[2] - screen[0]) * .85, "Navigation must span the top of the catalog"
+        assert top == screen[1] and bottom - top <= (screen[3] - screen[1]) * .15, "Navigation must leave at least 85% of screen height for browsing"
+        assert not any(node.get("content-desc", "").startswith("精选封面：") for node in root.iter("node")), "The first movie must not become a promotional hero"
+
+    def check_grid_entry(first, second):
+        activate(first, click=False)
+        key("KEYCODE_DPAD_UP")
+        root = tree()
+        focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
+        assert focused is not None and focused.get("text") == "浏览筛选", "Up from an incomplete row must return to its filter toolbar"
+        key("KEYCODE_DPAD_DOWN")
+        root = tree()
+        focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
+        assert focused is not None and focused.get("content-desc") == first, "Down from filters must enter an incomplete result row before the footer"
+        key("KEYCODE_DPAD_LEFT")
+        root = tree()
+        assert find(root, first).get("focused") == "true", "Left at the first column must preserve the card"
+        key("KEYCODE_DPAD_RIGHT")
+        root = tree()
+        assert find(root, second).get("focused") == "true", "Right must select the adjacent card"
+        key("KEYCODE_DPAD_RIGHT")
+        root = tree()
+        assert find(root, second).get("focused") == "true", "Right at the final result must preserve the card"
+
+    def check_search_conditions():
+        activate("全部影片")
+        activate("打开搜索")
+        enter("搜索影片", "TV-001")
+        activate("搜索")
+        activate("筛选影片")
+        activate("标签")
+        activate("筛选标签：QA 标签")
+        activate("完成")
+        root, keyword = wait("清空搜索条件")
+        condition = find(root, "移除 标签 · QA 标签")
+        assert condition is not None, "Search must keep the selected tag visible"
+        assert abs(bounds(keyword)[1] - bounds(condition)[1]) <= 2, "Search and tag chips must share one compact row"
+        activate("清空搜索条件")
+        root, _ = wait("遥控器测试影片")
+        assert find(root, "另一部影片") is None and find(root, "移除 标签 · QA 标签") is not None, "Removing the query must preserve the selected tag"
+        activate("移除 标签 · QA 标签")
+        wait("另一部影片")
 
     def enter(label, value):
         _, node = wait(label)
@@ -487,150 +529,17 @@ def main():
         key("KEYCODE_DPAD_CENTER")  # Stop returns to the existing detail dialog.
         wait("播放：part-1.mp4")
 
-    try:
-        if args.seek_only:
-            test_apk = args.apk.resolve().parents[1] / "androidTest/debug/app-debug-androidTest.apk"
-            assert test_apk.is_file(), "Run ./gradlew assembleDebugAndroidTest first"
-            adb("install", "-r", str(test_apk))
-            result = adb("shell", "am", "instrument", "-w", "-r", "-e", "server", f"http://127.0.0.1:{port}",
-                         f"{PACKAGE}.test/{PACKAGE}.PlaybackSeekCheck")
-            print(result, flush=True)
-            assert "PASS: local and session playback" in result and "INSTRUMENTATION_CODE: -1" in result, result
-            return
+    def check_saved_server():
+        adb("shell", "am", "force-stop", PACKAGE)
         adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
-        enter("服务器地址", f"http://127.0.0.1:{port}")
-        activate("连接服务器")
-        if args.playback_only:
-            wait("最近入库")
-            activate("全部影片")
-            activate("遥控器测试影片")
-            check_local_playback()
-            print("PASS: isolated local playback and subtitle workflow", flush=True)
-            return
-        if args.actors_only:
-            wait("最近入库")
-            activate("浏览新片")
-            activate("浏览筛选")
-            activate("浏览演员目录")
-            check_actor_photo("在线演员", "在线演员", "/static/avatars/qa.jpg", "online-actors")
-            activate("在线演员")
-            activate("新片播放测试")
-            check_actor_photo("在线演员", "浏览演员：在线演员", "/remote-avatar.png", "online-detail-actors")
-            key("KEYCODE_BACK")
-            wait("新片播放测试")
-            activate("演员")
-            check_actor_photo("QA演员", "查看演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-actors")
-            activate("查看演员：QA演员")
-            activate("遥控器测试影片")
-            check_actor_photo("QA演员", "演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-detail-actors")
-            assert any(path.startswith("/api/image-proxy?url=") and "remote-avatar.png" in path for path in FixtureHandler.requests), "Remote actor photos must use the server image proxy"
-            print("PASS: actor photo requests, visible synthetic pixels and remote selection in all four entry points", flush=True)
-            return
-        for tab in ("推荐", "全部影片", "标签", "演员", "VR"):
-            wait(tab)
-        wait("最近入库")
-        root = check_cover("TV-001", "遥控器测试影片", "home")
-        check_compact_sidebar(root)
-        check_cover("TV-002", "另一部影片", "home")
-        activate("TV-001 遥控器测试影片", click=False)
-        screen = list(map(int, re.findall(r"\d+", root.find("node").get("bounds"))))
-        assert find(root, "搜索影片") is None, "Search input must open on demand"
-        print("PASS: server connection and cinema home", flush=True)
-        (args.artifacts / "home.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-        if args.layout_only:
-            activate("全部影片")
-            for movie_id, title in (("TV-001", "遥控器测试影片"), ("TV-002", "另一部影片"), ("PAGE-001", "分页测试影片 1")):
-                check_compact_sidebar(check_cover(movie_id, title, "library"))
-            (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-            activate("浏览新片")
-            check_compact_sidebar(check_cover("ONLINE-001", "新片播放测试", "browse"))
-            check_cover("ONLINE-002", "另一部新片测试", "browse")
-            (args.artifacts / "browse.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-            activate("演员")
-            activate("查看演员：QA演员", click=False)
-            actor_root, actor_card = wait("查看演员：QA演员")
-            actor_bounds = bounds(actor_card)
-            assert actor_bounds[2] - actor_bounds[0] <= bounds(actor_root.find("node"))[2] / 5, "Incomplete actor rows must keep the same six-column card width"
-            (args.artifacts / "actors.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-            print("PASS: natural wide/portrait/square artwork and compact sidebar across home/library/discovery", flush=True)
-            return
-        activate("TV-001 遥控器测试影片")
-        wait("播放：part-1.mp4")
-        check_actor_photo("QA演员", "演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-detail-actors")
-        key("KEYCODE_BACK")
-        root, _ = wait("TV-001 遥控器测试影片")
-        focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
-        assert focused is not None and focused.get("content-desc") == "TV-001 遥控器测试影片", "Closing home detail must restore the originating movie card's focus"
-        print("PASS: home detail returns focus to its movie card", flush=True)
-        activate("标签")
-        wait("搜索标签")
-        activate("选择标签：QA 标签")
-        activate("查看影片")
-        wait("全部标签")
-        root, _ = wait("遥控器测试影片")
-        assert find(root, "另一部影片") is None, "Tag selection must filter the movie wall"
-        filtered_card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
-        assert list(map(int, re.findall(r"\d+", filtered_card.get("bounds"))))[1] < screen[3] * .26, "Filtered walls must keep controls compact"
-        (args.artifacts / "tags.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
-        activate("全部标签")
-        activate("选择标签：第二标签")
-        activate("匹配全部标签")
-        activate("查看影片")
-        wait("没有符合条件的影片")
-        activate("筛选影片")
-        activate("标签")
-        activate("匹配任一标签")
-        activate("完成")
-        wait("遥控器测试影片")
-        wait("另一部影片")
-        activate("全部标签")
-        activate("清空标签选择")
-        print("PASS: tag directory, OR/AND and clear", flush=True)
-        activate("演员")
-        check_actor_photo("QA演员", "查看演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-actors")
-        activate("查看演员：QA演员")
-        wait("全部演员")
-        root, _ = wait("遥控器测试影片")
-        assert find(root, "另一部影片") is None, "Actor wall must filter by the selected actor"
-        activate("全部演员")
-        activate("VR")
-        wait("VR 2160p")
-        activate("全部影片")
-        root, _ = wait("遥控器测试影片")
-        root = check_cover("TV-001", "遥控器测试影片", "library")
-        check_compact_sidebar(root)
-        card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
-        card_top = list(map(int, re.findall(r"\d+", card.get("bounds"))))[1]
-        assert card_top < screen[3] * .26, "Movie wall must reserve at least 74% of screen height for content"
-        activate("筛选影片")
-        wait("完成")
-        activate("影院排序")
-        wait("发行日期")
-        key("KEYCODE_BACK")
-        activate("完成")
-        activate("打开搜索")
-        enter("搜索影片", "PAGE-")
-        print("PASS: actor and VR browsing, filter and sort controls", flush=True)
-        activate("搜索")
-        wait("第 1 / 2 页 · 共 63 项")
-        activate("下一页")
-        wait("第 2 / 2 页 · 共 63 项")
-        activate("上一页")
-        wait("第 1 / 2 页 · 共 63 项")
-        activate("打开搜索")
-        enter("搜索影片", "TV-001")
-        print("PASS: 60-item paging and search", flush=True)
-        activate("搜索")
-        root, _ = wait("遥控器测试影片")
-        assert find(root, "另一部影片") is None, "Search must filter the library"
-        activate("遥控器测试影片")
-        check_local_playback()
-        key("KEYCODE_BACK")
-        root, _ = wait("遥控器测试影片")
-        assert find(root, "另一部影片") is None, "Returning must preserve the search"
-        assert any(p.startswith("/api/image-proxy?url=") for p in FixtureHandler.requests), "Remote covers must use the server image proxy"
+        wait("遥控器测试影片")  # Credential-free server address survives a process restart.
+        (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+
+    def check_browse_playback():
         activate("浏览新片")
-        check_compact_sidebar(check_cover("ONLINE-001", "新片播放测试", "browse"))
+        wait("新片播放测试")
+        check_grid_entry("ONLINE-001 新片播放测试", "ONLINE-002 另一部新片测试")
+        check_navigation(check_cover("ONLINE-001", "新片播放测试", "browse"))
         activate("浏览筛选")
         activate("浏览演员目录")
         check_actor_photo("在线演员", "在线演员", "/static/avatars/qa.jpg", "online-actors")
@@ -669,10 +578,164 @@ def main():
                    "/api/automation/play-jobs", "/api/system/jobs/", "/fixture-covers/")
         assert all(path.startswith(allowed) for path in FixtureHandler.requests), "TV must use only its defined server APIs"
         print("PASS: online discovery, facets, session-owned 115 cancellation/retry and native playback", flush=True)
-        adb("shell", "am", "force-stop", PACKAGE)
+
+    try:
+        if args.seek_only:
+            test_apk = args.apk.resolve().parents[1] / "androidTest/debug/app-debug-androidTest.apk"
+            assert test_apk.is_file(), "Run ./gradlew assembleDebugAndroidTest first"
+            adb("install", "-r", str(test_apk))
+            result = adb("shell", "am", "instrument", "-w", "-r", "-e", "server", f"http://127.0.0.1:{port}",
+                         f"{PACKAGE}.test/{PACKAGE}.PlaybackSeekCheck")
+            print(result, flush=True)
+            assert "PASS: local and session playback" in result and "INSTRUMENTATION_CODE: -1" in result, result
+            return
         adb("shell", "am", "start", "-n", f"{PACKAGE}/.MainActivity")
-        wait("遥控器测试影片")  # Credential-free server address survives a process restart.
-        (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        enter("服务器地址", f"http://127.0.0.1:{port}")
+        activate("连接服务器")
+        if args.browse_only and not args.playback_only:
+            wait("最近入库")
+            check_browse_playback()
+            check_saved_server()
+            return
+        if args.playback_only:
+            wait("最近入库")
+            activate("全部影片")
+            activate("遥控器测试影片")
+            check_local_playback()
+            print("PASS: isolated local playback and subtitle workflow", flush=True)
+            if args.browse_only:
+                key("KEYCODE_BACK")
+                wait("遥控器测试影片")
+                check_browse_playback()
+            check_saved_server()
+            return
+        if args.actors_only:
+            wait("最近入库")
+            activate("浏览新片")
+            wait("新片播放测试")
+            check_grid_entry("ONLINE-001 新片播放测试", "ONLINE-002 另一部新片测试")
+            activate("浏览筛选")
+            activate("浏览演员目录")
+            check_actor_photo("在线演员", "在线演员", "/static/avatars/qa.jpg", "online-actors")
+            activate("在线演员")
+            activate("新片播放测试")
+            check_actor_photo("在线演员", "浏览演员：在线演员", "/remote-avatar.png", "online-detail-actors")
+            key("KEYCODE_BACK")
+            wait("新片播放测试")
+            activate("演员")
+            check_actor_photo("QA演员", "查看演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-actors")
+            activate("查看演员：QA演员")
+            activate("遥控器测试影片")
+            check_actor_photo("QA演员", "演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-detail-actors")
+            assert any(path.startswith("/api/image-proxy?url=") and "remote-avatar.png" in path for path in FixtureHandler.requests), "Remote actor photos must use the server image proxy"
+            print("PASS: actor photo requests, visible synthetic pixels and remote selection in all four entry points", flush=True)
+            return
+        for tab in ("推荐", "全部影片", "标签", "演员", "VR"):
+            wait(tab)
+        wait("最近入库")
+        root = check_cover("TV-001", "遥控器测试影片", "home")
+        check_navigation(root)
+        check_cover("TV-002", "另一部影片", "home")
+        activate("TV-001 遥控器测试影片", click=False)
+        screen = list(map(int, re.findall(r"\d+", root.find("node").get("bounds"))))
+        assert find(root, "搜索影片") is None, "Search input must open on demand"
+        print("PASS: server connection and cinema home", flush=True)
+        (args.artifacts / "home.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        if args.layout_only:
+            activate("全部影片")
+            for movie_id, title in (("TV-001", "遥控器测试影片"), ("TV-002", "另一部影片"), ("PAGE-001", "分页测试影片 1")):
+                check_navigation(check_cover(movie_id, title, "library"))
+            (args.artifacts / "library.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+            activate("浏览新片")
+            check_navigation(check_cover("ONLINE-001", "新片播放测试", "browse"))
+            check_cover("ONLINE-002", "另一部新片测试", "browse")
+            (args.artifacts / "browse.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+            activate("演员")
+            activate("查看演员：QA演员", click=False)
+            actor_root, actor_card = wait("查看演员：QA演员")
+            actor_bounds = bounds(actor_card)
+            assert actor_bounds[2] - actor_bounds[0] <= bounds(actor_root.find("node"))[2] / 5, "Incomplete actor rows must keep the same six-column card width"
+            (args.artifacts / "actors.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+            check_search_conditions()
+            print("PASS: equal 147:200 front covers, top navigation, grid focus and removable search/tag conditions", flush=True)
+            return
+        activate("TV-001 遥控器测试影片")
+        wait("播放：part-1.mp4")
+        check_actor_photo("QA演员", "演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-detail-actors")
+        key("KEYCODE_BACK")
+        root, _ = wait("TV-001 遥控器测试影片")
+        focused = next((node for node in root.iter("node") if node.get("focused") == "true"), None)
+        assert focused is not None and focused.get("content-desc") == "TV-001 遥控器测试影片", "Closing home detail must restore the originating movie card's focus"
+        print("PASS: home detail returns focus to its movie card", flush=True)
+        activate("标签")
+        wait("搜索标签")
+        activate("选择标签：QA 标签")
+        activate("查看影片")
+        wait("全部标签")
+        root, _ = wait("遥控器测试影片")
+        assert find(root, "另一部影片") is None, "Tag selection must filter the movie wall"
+        filtered_card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
+        assert list(map(int, re.findall(r"\d+", filtered_card.get("bounds"))))[1] < screen[3] * .36, "Filtered walls must keep the summary and visible condition chips compact"
+        (args.artifacts / "tags.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        activate("全部标签")
+        activate("选择标签：第二标签")
+        activate("匹配全部标签")
+        activate("查看影片")
+        wait("没有符合条件的影片")
+        activate("筛选影片")
+        activate("标签")
+        activate("匹配任一标签")
+        activate("完成")
+        wait("遥控器测试影片")
+        wait("另一部影片")
+        activate("全部标签")
+        activate("清空标签选择")
+        print("PASS: tag directory, OR/AND and clear", flush=True)
+        activate("演员")
+        check_actor_photo("QA演员", "查看演员：QA演员", "/api/movies/local-library/actors/qa-actor/avatar", "local-actors")
+        activate("查看演员：QA演员")
+        wait("全部演员")
+        root, _ = wait("遥控器测试影片")
+        assert find(root, "另一部影片") is None, "Actor wall must filter by the selected actor"
+        activate("全部演员")
+        activate("VR")
+        wait("VR 2160p")
+        activate("全部影片")
+        root, _ = wait("遥控器测试影片")
+        root = check_cover("TV-001", "遥控器测试影片", "library")
+        check_navigation(root)
+        card = next(node for node in root.iter("node") if node.get("content-desc") == "TV-001 遥控器测试影片")
+        card_top = list(map(int, re.findall(r"\d+", card.get("bounds"))))[1]
+        assert card_top < screen[3] * .26, "Movie wall must reserve at least 74% of screen height for content"
+        activate("筛选影片")
+        wait("完成")
+        activate("影院排序")
+        wait("发行日期")
+        key("KEYCODE_BACK")
+        activate("完成")
+        activate("打开搜索")
+        enter("搜索影片", "PAGE-")
+        print("PASS: actor and VR browsing, filter and sort controls", flush=True)
+        activate("搜索")
+        wait("第 1 / 2 页 · 共 63 项")
+        activate("下一页")
+        wait("第 2 / 2 页 · 共 63 项")
+        activate("上一页")
+        wait("第 1 / 2 页 · 共 63 项")
+        activate("打开搜索")
+        enter("搜索影片", "TV-001")
+        print("PASS: 60-item paging and search", flush=True)
+        activate("搜索")
+        root, _ = wait("遥控器测试影片")
+        assert find(root, "另一部影片") is None, "Search must filter the library"
+        activate("遥控器测试影片")
+        check_local_playback()
+        key("KEYCODE_BACK")
+        root, _ = wait("遥控器测试影片")
+        assert find(root, "另一部影片") is None, "Returning must preserve the search"
+        assert any(p.startswith("/api/image-proxy?url=") for p in FixtureHandler.requests), "Remote covers must use the server image proxy"
+        check_browse_playback()
+        check_saved_server()
         print("PASS: connect, remote search/details, missing-segment skip, playback, back and server persistence")
     finally:
         (args.artifacts / "actor-measurements.json").write_text(json.dumps(actor_measurements, indent=2))

@@ -156,7 +156,7 @@ public final class PlaybackActivity extends Activity {
         root.removeAllViews();
         TextView loading = new TextView(this);
         loading.setText("正在读取播放文件…");
-        loading.setTextColor(Color.WHITE);
+        loading.setTextColor(TvTheme.TEXT);
         loading.setTextSize(22);
         loading.setGravity(Gravity.CENTER);
         root.addView(loading, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -206,13 +206,13 @@ public final class PlaybackActivity extends Activity {
         bar.setGravity(Gravity.CENTER_VERTICAL);
         int padding = Math.round(24 * getResources().getDisplayMetrics().density);
         bar.setPadding(padding, padding / 2, padding, padding / 2);
-        bar.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xee101114, 0x00101114}));
+        bar.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xee10120f, 0x0010120f}));
         playbackTitle = new TextView(this);
         playbackTitle.setText(movie == null ? playlist.get(0).mediaMetadata.title : movie.id + " · " + movie.title);
         playbackTitle.setMaxLines(1);
         playbackTitle.setEllipsize(TextUtils.TruncateAt.END);
         playbackTitle.setTextSize(18);
-        playbackTitle.setTextColor(0xfff4f5f7);
+        playbackTitle.setTextColor(TvTheme.TEXT);
         bar.addView(playbackTitle, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout actions = new LinearLayout(this);
         playbackBar = actions;
@@ -254,7 +254,7 @@ public final class PlaybackActivity extends Activity {
         subtitleToggle.setText("无字幕");
         subtitleToggle.setEnabled(false);
         subtitleToggle.setAllCaps(false);
-        subtitleToggle.setTextColor(0xfff4f5f7);
+        subtitleToggle.setTextColor(TvTheme.TEXT);
         subtitleToggle.setBackground(controlBackground());
         subtitleToggle.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
         subtitleToggle.setOnClickListener(view -> {
@@ -266,7 +266,7 @@ public final class PlaybackActivity extends Activity {
         Button subtitleStyle = new Button(this);
         subtitleStyle.setText("字幕样式");
         subtitleStyle.setAllCaps(false);
-        subtitleStyle.setTextColor(0xfff4f5f7);
+        subtitleStyle.setTextColor(TvTheme.TEXT);
         subtitleStyle.setBackground(controlBackground());
         subtitleStyle.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
         subtitleStyle.setOnClickListener(view -> showSubtitleAppearance());
@@ -274,7 +274,7 @@ public final class PlaybackActivity extends Activity {
         Button stop = new Button(this);
         stop.setText("停止播放");
         stop.setAllCaps(false);
-        stop.setTextColor(0xfff4f5f7);
+        stop.setTextColor(TvTheme.TEXT);
         stop.setBackground(controlBackground());
         stop.setOnClickListener(view -> finish());
         stop.setOnFocusChangeListener((view, focused) -> showControlsOnFocus(focused));
@@ -282,7 +282,7 @@ public final class PlaybackActivity extends Activity {
         TextView hint = new TextView(this);
         hint.setText("← 后退 30 秒 · → 快进 30 秒 · ↓ 进度条 · ↑ 切换文件与字幕");
         hint.setTextSize(13);
-        hint.setTextColor(0xffa4abb7);
+        hint.setTextColor(TvTheme.DIM);
         bar.addView(hint);
         playerView = (PlayerView) getLayoutInflater().inflate(R.layout.tv_player, root, false);
         playerView.setContentDescription("影片播放器");
@@ -504,15 +504,7 @@ public final class PlaybackActivity extends Activity {
     }
 
     private StateListDrawable controlBackground() {
-        StateListDrawable states = new StateListDrawable();
-        for (int state : new int[]{android.R.attr.state_focused, 0}) {
-            GradientDrawable shape = new GradientDrawable();
-            shape.setColor(0xff1b1d22);
-            shape.setCornerRadius(7 * getResources().getDisplayMetrics().density);
-            shape.setStroke(Math.round(2 * getResources().getDisplayMetrics().density), state == 0 ? 0xff383d47 : 0xff59cbe8);
-            states.addState(state == 0 ? new int[]{} : new int[]{state}, shape);
-        }
-        return states;
+        return TvTheme.control(this, TvTheme.SURFACE);
     }
 
     private void showError(String message) {
@@ -527,12 +519,12 @@ public final class PlaybackActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("无法播放");
         title.setTextSize(30);
-        title.setTextColor(Color.WHITE);
+        title.setTextColor(TvTheme.TEXT);
         content.addView(title);
         TextView detail = new TextView(this);
         detail.setText(message);
         detail.setTextSize(20);
-        detail.setTextColor(Color.LTGRAY);
+        detail.setTextColor(TvTheme.DIM);
         detail.setPadding(0, padding / 2, 0, padding / 2);
         content.addView(detail);
         Button back = new Button(this);

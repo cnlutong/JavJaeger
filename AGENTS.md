@@ -129,7 +129,7 @@ Use this as the source-of-truth ownership map.
 - `frontend/src/`
   - editable frontend source
 - `android-tv/`
-  - standalone native Android TV client matching cinema navigation, hero/shelves, actor/tag/VR browsing, combined filters, sorting, paging, details and playback
+  - standalone native Android TV client using the JavFeng archive design: top navigation, uniform front-cover cards and shelves, actor/tag/VR browsing, combined filters, sorting, paging, details and playback
   - native JavBus discovery and session-owned 115 playback through existing movie and automation APIs
   - depends only on Android/Media3 and existing server HTTP APIs; never imports backend or browser implementation
   - stores a credential-free server address and subtitle appearance preferences; downloading, scraping and library management remain server-owned
