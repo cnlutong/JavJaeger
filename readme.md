@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License"></a>
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.6"><img src="https://img.shields.io/badge/Android_TV-v0.3.6_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.6 测试版"></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.7"><img src="https://img.shields.io/badge/Android_TV-v0.3.7_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.7 测试版"></a>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#网页影院与海报浏览">网页影院</a> ·
   <a href="#android-tv在电视上观看">Android TV</a> ·
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.6"><strong>下载 APK</strong></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.7"><strong>下载 APK</strong></a>
 </p>
 
 ![影院模式的完整推荐首页](docs/screenshots/cinema-recommendations.jpg)
@@ -201,9 +201,9 @@ docker compose logs --tail=100 javjaeger
 
 JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同一个 JavJaeger 服务器，共用服务器影视库。支持 **Android 6.0 及以上 Android TV**，使用遥控器方向键、确认键和返回键操作。
 
-**[下载 JavJaeger TV v0.3.6 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.6)** · [完整电视端说明](android-tv/README.md)
+**[下载 JavJaeger TV v0.3.7 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.7)** · [完整电视端说明](android-tv/README.md)
 
-**从 v0.3.5 及更早发布版升级到 v0.3.6 时，需先卸载再安装，服务器地址和字幕偏好需重新设置。v0.3.6 起固定沿用同一签名，后续版本可覆盖升级。** 签名已有外置盘与 NAS 两处私密备份，构建和恢复方法见[固定签名与备份](android-tv/README.md#固定签名与备份)。新片的 115 播放需要 v0.3.0 及以上服务端；外挂字幕需要部署包含字幕接口的新服务端。
+**v0.3.7 沿用 v0.3.6 的固定签名，可直接覆盖升级并保留服务器地址和字幕偏好；从 v0.3.5 及更早发布版升级时，需先卸载再安装并重新设置。** 签名已有外置盘与 NAS 两处私密备份，构建和恢复方法见[固定签名与备份](android-tv/README.md#固定签名与备份)。新片的 115 播放需要 v0.3.0 及以上服务端；外挂字幕需要部署包含字幕接口的新服务端。
 
 ### 安装与连接
 
