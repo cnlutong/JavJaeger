@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="#许可证"><img src="https://img.shields.io/badge/License-MIT-0f766e?style=flat-square" alt="MIT License"></a>
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.7"><img src="https://img.shields.io/badge/Android_TV-v0.3.7_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.7 测试版"></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.8"><img src="https://img.shields.io/badge/Android_TV-v0.3.8_preview-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android TV v0.3.8 测试版"></a>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#网页影院与海报浏览">网页影院</a> ·
   <a href="#android-tv在电视上观看">Android TV</a> ·
-  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.7"><strong>下载 APK</strong></a>
+  <a href="https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.8"><strong>下载 APK</strong></a>
 </p>
 
 ![影院模式的完整推荐首页](docs/screenshots/cinema-recommendations.jpg)
@@ -201,9 +201,9 @@ docker compose logs --tail=100 javjaeger
 
 JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同一个 JavJaeger 服务器，共用服务器影视库。支持 **Android 6.0 及以上 Android TV**，使用遥控器方向键、确认键和返回键操作。
 
-**[下载 JavJaeger TV v0.3.7 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.7)** · [完整电视端说明](android-tv/README.md)
+**[下载 JavJaeger TV v0.3.8 测试版 APK](https://github.com/cnlutong/JavJaeger/releases/tag/android-tv-v0.3.8)** · [完整电视端说明](android-tv/README.md)
 
-**v0.3.7 沿用 v0.3.6 的固定签名，可直接覆盖升级并保留服务器地址和字幕偏好；从 v0.3.5 及更早发布版升级时，需先卸载再安装并重新设置。** 签名已有外置盘与 NAS 两处私密备份，构建和恢复方法见[固定签名与备份](android-tv/README.md#固定签名与备份)。新片的 115 播放需要 v0.3.0 及以上服务端；外挂字幕需要部署包含字幕接口的新服务端。
+**v0.3.8 沿用 v0.3.6 的固定签名，支持从 v0.3.6、v0.3.7 直接覆盖升级并保留服务器地址和字幕偏好；从 v0.3.5 及更早发布版升级时，需先卸载再安装并重新设置。** 签名已有外置盘与 NAS 两处私密备份，构建和恢复方法见[固定签名与备份](android-tv/README.md#固定签名与备份)。新片的 115 播放需要 v0.3.0 及以上服务端；外挂字幕需要部署包含字幕接口的新服务端。
 
 ### 安装与连接
 
@@ -221,7 +221,7 @@ JavJaeger TV 是独立的原生 Android TV 客户端，与网页影院连接同�
 - 自动加载原片旁的 SRT/VTT 字幕，优先中文字幕；遥控器开关字幕，并配置字体、字号和底部留白，设置保存在当前设备。
 - 返回详情或浏览页时保留搜索、筛选和浏览位置；管理入口通过系统浏览器打开服务器管理页，没有浏览器时显示可在其他设备访问的地址。
 
-电视端采用 javfeng 网站的暖黑与橙色设计：顶部导航保持可见，推荐页直接展示收藏横排；推荐、本地和新片目录统一使用 147:200 的竖版封面与等尺寸卡片，宽幅图片按原比例取右侧正封面。卡片展示番号、两行标题、演员和标签／日期，影片墙按行列整齐排列，图片加载不会改变焦点路径。详情仍显示完整原图，关闭后恢复原卡片。搜索、筛选与排序按需打开，结果顶部显示可移除的条件；刷新、服务器连接和管理入口位于“更多”。播放器控件叠加在视频上并自动隐藏，继续支持现有遥控器、分段与字幕操作。
+电视端采用 javfeng 网站的暖黑与橙色设计。v0.3.8 以连续影片墙为主：首页用紧凑片单按钮切换最近入库、高清收藏和 VR；顶部导航保持可见，结果统计、筛选与分页合成一行，1080p 默认至少显示 8 列、2 排完整影片。推荐、本地和新片目录统一使用 147:200 竖版封面与等尺寸卡片，宽幅图片按原比例取右侧正封面；番号和画质叠在封面，下方保留两行片名和演员摘要。系统字号放大时减少列数，图片加载不会改变焦点路径。详情显示完整原图及更多资料，关闭后恢复原卡片。搜索、筛选与排序按需打开，结果顶部显示可移除的条件；刷新、服务器连接和管理入口位于“更多”。播放器保留现有遥控器、分段与字幕操作。
 
 电视端保存不含凭据的服务器地址和字幕显示偏好，下载、刮削和媒体整理在服务端完成。视频直接播放原文件，支持 Range 跳转；停止、换片或跳转使旧连接断开时，服务器会停止旧响应的后续读取并关闭文件。编码和内封音轨支持取决于电视；当前没有实时转码或跨设备观看进度。不支持的编码可先在服务器管理网页中转码。
 

@@ -198,6 +198,7 @@ def main():
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, default=Path("/tmp/javjaeger-tv-smoke"))
     parser.add_argument("--layout-only", action="store_true", help="Check equal front-cover cards and top navigation without playback.")
+    parser.add_argument("--density-only", action="store_true", help="Check two complete movie rows, compact chrome and remote row navigation.")
     parser.add_argument("--actors-only", action="store_true", help="Check actor photos and remote selection in local/online directories and details.")
     parser.add_argument("--playback-only", action="store_true", help="Check local playback, subtitle toggles and file switching only.")
     parser.add_argument("--browse-only", action="store_true", help="Check discovery, grid focus, 115 session cancellation/retry and playback only.")
@@ -258,6 +259,56 @@ def main():
 
     cover_measurements = []
     actor_measurements = []
+    density_measurements = []
+
+    def check_wall_density(root, stage, minimum=16):
+        screen = bounds(root.find("node"))
+        cards = [node for node in root.iter("node") if node.get("focusable") == "true"
+                 and node.get("class") == "android.widget.LinearLayout" and node.get("content-desc")
+                 and any(child.get("content-desc", "").startswith("封面：") for child in node.iter("node"))]
+        assert cards, f"{stage}: the movie wall must expose its cards"
+        full_height = max(bounds(card)[3] - bounds(card)[1] for card in cards)
+        complete = [card for card in cards if abs(bounds(card)[3] - bounds(card)[1] - full_height) <= 8
+                    and bounds(card)[1] >= screen[1] and bounds(card)[3] <= screen[3]]
+        rows = {}
+        for card in complete:
+            rows.setdefault(bounds(card)[1], []).append(card)
+        first_row = rows[min(rows)] if rows else []
+        wall = find(root, "影片墙")
+        item = {"stage": stage, "complete_movies": len(complete), "columns": len(first_row),
+                "complete_rows": len(rows), "first_card_top": min(bounds(card)[1] for card in cards),
+                "screen": screen, "wall": bounds(wall) if wall is not None else None}
+        density_measurements.append(item)
+        assert len(complete) >= minimum, f"{stage}: expected at least {minimum} complete movies, got {len(complete)}"
+        if minimum >= 16:
+            assert len(first_row) >= 8 and len(rows) >= 2, f"{stage}: browsing must show at least eight columns and two complete rows"
+        assert wall is not None and (bounds(wall)[3] - bounds(wall)[1]) >= (screen[3] - screen[1]) * .8, f"{stage}: at least 80% of height must belong to the movie wall"
+        assert item["first_card_top"] <= screen[1] + (screen[3] - screen[1]) * .2, f"{stage}: controls must not push movies below the first fifth of the screen"
+        (args.artifacts / (stage + "-density.png")).write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        return rows
+
+    def check_remote_rows(rows):
+        ordered = [sorted(items, key=lambda node: bounds(node)[0]) for _, items in sorted(rows.items())]
+        first = ordered[0][0].get("content-desc")
+        below = ordered[1][0].get("content-desc")
+        activate(first, click=False)
+        key("KEYCODE_DPAD_DOWN")
+        assert find(tree(), below).get("focused") == "true", "Down must enter the same column in the next row"
+        key("KEYCODE_DPAD_RIGHT")
+        assert find(tree(), ordered[1][1].get("content-desc")).get("focused") == "true", "Right must enter the adjacent movie"
+        key("KEYCODE_DPAD_LEFT")
+        key("KEYCODE_DPAD_UP")
+        assert find(tree(), first).get("focused") == "true", "Up must return to the original movie"
+
+    def set_font_scale(value):
+        adb("shell", "settings", "put", "system", "font_scale", value)
+        until = time.monotonic() + 15
+        while time.monotonic() < until:
+            applied = re.search(r"mGlobalConfiguration: \{([\d.]+)", adb("shell", "dumpsys", "activity"))
+            if applied and abs(float(applied.group(1)) - float(value)) < .01:
+                return
+            time.sleep(.1)
+        raise AssertionError("The emulator did not apply its requested system font scale")
 
     def check_actor_photo(name, action, image_path, stage):
         if "detail" in stage:
@@ -636,6 +687,33 @@ def main():
         root = check_cover("TV-001", "遥控器测试影片", "home")
         check_navigation(root)
         check_cover("TV-002", "另一部影片", "home")
+        rows = check_wall_density(tree(), "home")
+        if args.density_only:
+            check_remote_rows(rows)
+            activate("全部影片")
+            check_wall_density(wait("遥控器测试影片")[0], "library")
+            activate("推荐")
+            activate("VR 影厅")
+            root, _ = wait("另一部影片")
+            assert find(root, "遥控器测试影片") is None, "Home collections must switch the wall's movies"
+            activate("最近入库")
+            root, _ = wait("遥控器测试影片")
+            normal_actor = find(find(root, "TV-001 遥控器测试影片"), "QA演员")
+            actor_height = bounds(normal_actor)[3] - bounds(normal_actor)[1]
+            original_scale = adb("shell", "settings", "get", "system", "font_scale").strip()
+            try:
+                set_font_scale("1.3")
+                adb("shell", "am", "force-stop", PACKAGE)
+                adb("shell", "am", "start", "-W", "-n", PACKAGE + "/.MainActivity")
+                root, _ = wait("遥控器测试影片")
+                enlarged_actor = find(find(root, "TV-001 遥控器测试影片"), "QA演员")
+                assert bounds(enlarged_actor)[3] - bounds(enlarged_actor)[1] >= actor_height * 1.2, "Larger system fonts must grow actor labels instead of clipping them"
+                enlarged_rows = check_wall_density(root, "large-font", minimum=6)
+                assert len(enlarged_rows[min(enlarged_rows)]) < len(rows[min(rows)]), "Larger fonts must reduce columns for readable cards"
+            finally:
+                set_font_scale(original_scale if original_scale not in ("", "null") else "1.0")
+            print("PASS: 16 complete movies, 80% wall area, remote row navigation, collections and unclipped large fonts", flush=True)
+            return
         activate("TV-001 遥控器测试影片", click=False)
         screen = list(map(int, re.findall(r"\d+", root.find("node").get("bounds"))))
         assert find(root, "搜索影片") is None, "Search input must open on demand"
@@ -740,6 +818,7 @@ def main():
     finally:
         (args.artifacts / "actor-measurements.json").write_text(json.dumps(actor_measurements, indent=2))
         (args.artifacts / "cover-measurements.json").write_text(json.dumps(cover_measurements, indent=2))
+        (args.artifacts / "density-measurements.json").write_text(json.dumps(density_measurements, indent=2))
         (args.artifacts / "requests.json").write_text(json.dumps(FixtureHandler.requests, indent=2))
         (args.artifacts / "last-screen.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         (args.artifacts / "last-screen.xml").write_text(ET.tostring(tree(), encoding="unicode"))
