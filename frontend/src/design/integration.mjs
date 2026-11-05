@@ -75,6 +75,7 @@ const jobStorage = { scrapeTask: 'localScrapeActiveTask', scanTask: 'localLibrar
 const backgroundNames = { search: '检索补全', 'scraper-test': '刮削源测试', 'file-dispatch': '网盘发送', 'dispatch-pikpak': 'PikPak 派发', 'dispatch-pan115': '115 派发', 'dispatch-aria2': 'Aria2 派发', 'browse-play': '115 播放准备' };
 backgroundNames['forum-fetch'] = '论坛影片获取';
 const browsePlaybackKey = 'javjaeger.browsePlayback';
+const browsePageSize = 30;
 const taskListUrls = ['/api/movies/transcoding/tasks', '/api/automation/tasks', '/api/system/jobs'];
 const jobFinished = task => task && ['success', 'completed', 'failed', 'cancelled'].includes(task.status);
 const taskProgress = task => {
@@ -133,7 +134,7 @@ export function connectDesign(Base) {
             const libraryLink = String(window.location?.hash || '').match(/^#library(?:\/([A-Za-z0-9_-]+))?$/);
             this.auth = session.credentials;
             this.state = { ...this.state, ...initialForumState(), theme: loadAppTheme(), route: libraryLink ? 'library' : window.location?.hash === '#forum' ? 'forum' : window.location?.hash === '#browse' ? 'browse' : 'cinema', lbDetail: libraryLink?.[1] || null, cnHero: '', cnPlaying: null, cnDetail: null, cnDetailFile: 0, cnQ: '', cnFiltersOpen: false, cnFacetQueries: {}, cnTagQ: '', cnTagWall: false, cnTagMode: 'or',
-                brMovies: [], brFilters: [], brKind: 'normal', brPage: 0, brNext: 1, brLoaded: false, brLoading: false, brError: '', brDetail: null, brCatalog: null, brCatalogQ: '', brPlayback: null, brPlaybackError: '',
+                brMovies: [], brPending: [], brFilters: [], brKind: 'normal', brPage: 0, brNext: 1, brLoaded: false, brLoading: false, brError: '', brDetail: null, brCatalog: null, brCatalogQ: '', brPlayback: null, brPlaybackError: '',
                 code: '', sMode: 'code', fValue: '', fLabel: '', fList: [], dCodes: '', dScope: '3',
                 pikLogged: session.isLoggedIn, fsAria: 'down', fsPath: [], fsSrc: 'local',
                 scPhase: 'idle', scScanDir: '', scOutDir: '', lbSource: '', lbPaths: [], lbExcludes: [], auTask: '',
@@ -352,21 +353,36 @@ export function connectDesign(Base) {
         }; }
 
         async loadBrowse({ reset = false, filters = this.state.brFilters, kind = this.state.brKind } = {}) {
-            if (!reset && (this._browseLoading || !this.state.brNext)) return;
+            if (!reset && (this._browseLoading || (!this.state.brNext && !this.state.brPending.length))) return;
             const version = reset ? this._browseVersion = (this._browseVersion || 0) + 1 : this._browseVersion;
-            const page = reset ? 1 : this.state.brNext;
+            const fillPage = filters.filter(filter => filter.type === 'genre').length > 1;
+            const visible = reset ? [] : this.state.brMovies;
+            const pending = reset ? [] : [...this.state.brPending];
+            const seen = new Set([...visible, ...pending].map(movie => movie.code));
+            let page = reset ? 0 : this.state.brPage;
+            let nextPage = reset ? 1 : this.state.brNext;
             this._browseLoading = true;
-            this.setState({ brLoading: true, brError: '', brFilters: filters, brKind: kind, ...(reset ? { brMovies: [], brPage: 0, brNext: 1, brDetail: null, brCatalog: null } : {}) });
+            this.setState({ brLoading: true, brError: '', brFilters: filters, brKind: kind, ...(reset ? { brMovies: [], brPending: [], brPage: 0, brNext: 1, brDetail: null, brCatalog: null } : {}) });
             try {
-                const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: 'exist', page: String(page) });
-                const payload = await this.request(`/api/movies?${query}`);
-                if (version !== this._browseVersion || this._disposed) return;
-                const movies = (payload.movies || []).map(record => ({ ...movieView(record), cover: imageSource(browseCoverUrl(record)) })), pagination = payload.pagination;
-                const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= 30;
-                const next = Number(pagination?.nextPage);
-                const combined = new Map((reset ? [] : this.state.brMovies).map(movie => [movie.code, movie]));
-                for (const movie of movies) if (movie.code) combined.set(movie.code, movie);
-                this.setState({ brMovies: [...combined.values()], brLoaded: true, brPage: page, brNext: more ? Number.isInteger(next) && next > page ? next : page + 1 : null });
+                const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: 'exist' });
+                while (nextPage && pending.length < browsePageSize) {
+                    page = nextPage;
+                    query.set('page', String(page));
+                    const { movies = [], pagination } = await this.request(`/api/movies?${query}`);
+                    if (version !== this._browseVersion || this._disposed) return;
+                    for (const record of movies) {
+                        const movie = movieView(record);
+                        if (!movie.code || seen.has(movie.code)) continue;
+                        seen.add(movie.code);
+                        pending.push({ ...movie, cover: imageSource(browseCoverUrl(record)) });
+                    }
+                    const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= browsePageSize;
+                    const next = Number(pagination?.nextPage);
+                    nextPage = more ? (Number.isInteger(next) && next > page ? next : page + 1) : null;
+                    if (!fillPage) break;
+                }
+                const batch = fillPage ? pending.splice(0, browsePageSize) : pending;
+                this.setState({ brMovies: [...visible, ...batch], brPending: fillPage ? pending : [], brLoaded: true, brPage: page, brNext: nextPage });
             } catch (error) {
                 if (version === this._browseVersion && !this._disposed) this.setState({ brError: safeText(error.message), brLoaded: true });
             } finally {
@@ -444,13 +460,14 @@ export function connectDesign(Base) {
                     items: page.items.map(([name, value]) => ({ name, pick: () => this.addBrowseFilter(st.brCatalog, value, name) })), empty: !items.length, paging: page.paging };
             }
             const playback = st.brPlayback, task = playback && st.backgroundJobs.find(task => task.task_id === playback.taskId);
+            const hasMore = Boolean(st.brNext || st.brPending.length);
             const ready = task?.status === 'success' && task.result?.success === true;
             const waiting = !st.brPlaybackError && (!task || !jobFinished(task));
             return {
                 rows: st.brMovies.map(movie => ({ code: movie.code, title: movie.title, cover: movie.cover, meta: [movie.code, movie.date].filter(Boolean).join(' · '), open: () => this.openBrowseMovie(movie.code), play: () => this.startBrowsePlayback(movie.code), download: () => this.downloadBrowseMovie(movie.code) })),
                 tool: st.tool, setTool: event => this.setState({ tool: event.target.value }), connection: this.toolStates().find(tool => tool.name === st.tool)?.hint || '未连接', configure: () => this.setState({ toolCfg: st.tool }),
                 loading: st.brLoading, error: st.brError, empty: st.brLoaded && !st.brLoading && !st.brError && !st.brMovies.length,
-                emptyHint: st.brNext ? '来源还有下一页，可以继续加载。' : '试试移除一个筛选条件。', hasMore: Boolean(st.brNext && st.brLoaded && !st.brError), finished: st.brLoaded && !st.brLoading && !st.brError && !st.brNext,
+                emptyHint: hasMore ? '来源还有下一页，可以继续加载。' : '试试移除一个筛选条件。', hasMore: hasMore && st.brLoaded && !st.brError, finished: st.brLoaded && !st.brLoading && !st.brError && !hasMore,
                 count: st.brMovies.length, kind: st.brKind,
                 setKind: event => this.loadBrowse({ reset: true, kind: event.target.value }), hasFilters: Boolean(st.brFilters.length), filters: st.brFilters.map(filter => ({ text: `${typeNames[filter.type]}：${filter.label || filter.value}`, remove: () => this.loadBrowse({ reset: true, filters: st.brFilters.filter(item => item !== filter) }) })),
                 clearFilters: () => this.loadBrowse({ reset: true, filters: [] }), refresh: () => this.loadBrowse({ reset: true }), more: () => this.loadBrowse(), retry: () => this.loadBrowse({ reset: !st.brPage }),

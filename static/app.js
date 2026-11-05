@@ -6251,6 +6251,7 @@ class Component extends DCLogic {
   var backgroundNames = { search: "\u68C0\u7D22\u8865\u5168", "scraper-test": "\u522E\u524A\u6E90\u6D4B\u8BD5", "file-dispatch": "\u7F51\u76D8\u53D1\u9001", "dispatch-pikpak": "PikPak \u6D3E\u53D1", "dispatch-pan115": "115 \u6D3E\u53D1", "dispatch-aria2": "Aria2 \u6D3E\u53D1", "browse-play": "115 \u64AD\u653E\u51C6\u5907" };
   backgroundNames["forum-fetch"] = "\u8BBA\u575B\u5F71\u7247\u83B7\u53D6";
   var browsePlaybackKey = "javjaeger.browsePlayback";
+  var browsePageSize = 30;
   var taskListUrls = ["/api/movies/transcoding/tasks", "/api/automation/tasks", "/api/system/jobs"];
   var jobFinished = (task) => task && ["success", "completed", "failed", "cancelled"].includes(task.status);
   var taskProgress = (task) => {
@@ -6336,6 +6337,7 @@ class Component extends DCLogic {
           cnTagWall: false,
           cnTagMode: "or",
           brMovies: [],
+          brPending: [],
           brFilters: [],
           brKind: "normal",
           brPage: 0,
@@ -6661,21 +6663,36 @@ class Component extends DCLogic {
         };
       }
       async loadBrowse({ reset = false, filters = this.state.brFilters, kind = this.state.brKind } = {}) {
-        if (!reset && (this._browseLoading || !this.state.brNext)) return;
+        if (!reset && (this._browseLoading || !this.state.brNext && !this.state.brPending.length)) return;
         const version = reset ? this._browseVersion = (this._browseVersion || 0) + 1 : this._browseVersion;
-        const page = reset ? 1 : this.state.brNext;
+        const fillPage = filters.filter((filter) => filter.type === "genre").length > 1;
+        const visible = reset ? [] : this.state.brMovies;
+        const pending = reset ? [] : [...this.state.brPending];
+        const seen = new Set([...visible, ...pending].map((movie) => movie.code));
+        let page = reset ? 0 : this.state.brPage;
+        let nextPage = reset ? 1 : this.state.brNext;
         this._browseLoading = true;
-        this.setState({ brLoading: true, brError: "", brFilters: filters, brKind: kind, ...reset ? { brMovies: [], brPage: 0, brNext: 1, brDetail: null, brCatalog: null } : {} });
+        this.setState({ brLoading: true, brError: "", brFilters: filters, brKind: kind, ...reset ? { brMovies: [], brPending: [], brPage: 0, brNext: 1, brDetail: null, brCatalog: null } : {} });
         try {
-          const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: "exist", page: String(page) });
-          const payload = await this.request(`/api/movies?${query}`);
-          if (version !== this._browseVersion || this._disposed) return;
-          const movies = (payload.movies || []).map((record) => ({ ...movieView(record), cover: imageSource(browseCoverUrl(record)) })), pagination = payload.pagination;
-          const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= 30;
-          const next = Number(pagination?.nextPage);
-          const combined = new Map((reset ? [] : this.state.brMovies).map((movie) => [movie.code, movie]));
-          for (const movie of movies) if (movie.code) combined.set(movie.code, movie);
-          this.setState({ brMovies: [...combined.values()], brLoaded: true, brPage: page, brNext: more ? Number.isInteger(next) && next > page ? next : page + 1 : null });
+          const query = new URLSearchParams({ filters: JSON.stringify(filters), type: kind, magnet: "exist" });
+          while (nextPage && pending.length < browsePageSize) {
+            page = nextPage;
+            query.set("page", String(page));
+            const { movies = [], pagination } = await this.request(`/api/movies?${query}`);
+            if (version !== this._browseVersion || this._disposed) return;
+            for (const record of movies) {
+              const movie = movieView(record);
+              if (!movie.code || seen.has(movie.code)) continue;
+              seen.add(movie.code);
+              pending.push({ ...movie, cover: imageSource(browseCoverUrl(record)) });
+            }
+            const more = pagination ? Boolean(pagination.hasNextPage ?? pagination.nextPage) : movies.length >= browsePageSize;
+            const next = Number(pagination?.nextPage);
+            nextPage = more ? Number.isInteger(next) && next > page ? next : page + 1 : null;
+            if (!fillPage) break;
+          }
+          const batch = fillPage ? pending.splice(0, browsePageSize) : pending;
+          this.setState({ brMovies: [...visible, ...batch], brPending: fillPage ? pending : [], brLoaded: true, brPage: page, brNext: nextPage });
         } catch (error) {
           if (version === this._browseVersion && !this._disposed) this.setState({ brError: safeText(error.message), brLoaded: true });
         } finally {
@@ -6770,6 +6787,7 @@ class Component extends DCLogic {
           };
         }
         const playback = st.brPlayback, task = playback && st.backgroundJobs.find((task2) => task2.task_id === playback.taskId);
+        const hasMore = Boolean(st.brNext || st.brPending.length);
         const ready = task?.status === "success" && task.result?.success === true;
         const waiting = !st.brPlaybackError && (!task || !jobFinished(task));
         return {
@@ -6781,9 +6799,9 @@ class Component extends DCLogic {
           loading: st.brLoading,
           error: st.brError,
           empty: st.brLoaded && !st.brLoading && !st.brError && !st.brMovies.length,
-          emptyHint: st.brNext ? "\u6765\u6E90\u8FD8\u6709\u4E0B\u4E00\u9875\uFF0C\u53EF\u4EE5\u7EE7\u7EED\u52A0\u8F7D\u3002" : "\u8BD5\u8BD5\u79FB\u9664\u4E00\u4E2A\u7B5B\u9009\u6761\u4EF6\u3002",
-          hasMore: Boolean(st.brNext && st.brLoaded && !st.brError),
-          finished: st.brLoaded && !st.brLoading && !st.brError && !st.brNext,
+          emptyHint: hasMore ? "\u6765\u6E90\u8FD8\u6709\u4E0B\u4E00\u9875\uFF0C\u53EF\u4EE5\u7EE7\u7EED\u52A0\u8F7D\u3002" : "\u8BD5\u8BD5\u79FB\u9664\u4E00\u4E2A\u7B5B\u9009\u6761\u4EF6\u3002",
+          hasMore: hasMore && st.brLoaded && !st.brError,
+          finished: st.brLoaded && !st.brLoading && !st.brError && !hasMore,
           count: st.brMovies.length,
           kind: st.brKind,
           setKind: (event) => this.loadBrowse({ reset: true, kind: event.target.value }),

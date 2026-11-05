@@ -115,6 +115,42 @@ test('browse combines actor and tag filters, deduplicates pages and can continue
     assert.equal(instance.renderVals().br.hasMore, false);
 });
 
+test('browse fills each multi-tag batch across source pages and carries over remaining matches', async t => {
+    const instance = app(); t.after(() => instance.componentWillUnmount());
+    const filters = [{ type: 'genre', value: 'tag-a' }, { type: 'genre', value: 'tag-b' }];
+    const codes = (first, last) => Array.from({ length: last - first + 1 }, (_, index) => `QA-${first + index}`);
+    const pages = [codes(1, 16), [], codes(16, 35), codes(36, 63)];
+    const calls = [];
+    let failLastPage = true;
+    globalThis.fetch = async url => {
+        const query = new URL(url, 'http://test').searchParams;
+        assert.deepEqual(JSON.parse(query.get('filters')), filters);
+        const page = Number(query.get('page'));
+        calls.push(page);
+        if (page === 4 && failLastPage) throw new Error('来源暂时不可用');
+        return json({ movies: pages[page - 1].map(movie), pagination: { hasNextPage: page < pages.length } });
+    };
+    const visibleCodes = () => instance.renderVals().br.rows.map(row => row.code);
+
+    await instance.loadBrowse({ reset: true, filters });
+    assert.deepEqual(calls, [1, 2, 3]);
+    assert.deepEqual(visibleCodes(), codes(1, 30));
+
+    await instance.renderVals().br.more();
+    assert.match(instance.renderVals().br.error, /来源暂时不可用/);
+    assert.deepEqual(visibleCodes(), codes(1, 30));
+
+    failLastPage = false;
+    await instance.renderVals().br.retry();
+    assert.deepEqual(visibleCodes(), codes(1, 60));
+    assert.equal(instance.renderVals().br.hasMore, true, 'the exhausted source still has buffered matches');
+
+    await instance.renderVals().br.more();
+    assert.deepEqual(visibleCodes(), codes(1, 63));
+    assert.deepEqual(calls, [1, 2, 3, 4, 4]);
+    assert.equal(instance.renderVals().br.hasMore, false);
+});
+
 test('filter changes ignore old responses and detail actors and tags retain JavBus ids', async t => {
     const instance = app(); t.after(() => instance.componentWillUnmount());
     let release;

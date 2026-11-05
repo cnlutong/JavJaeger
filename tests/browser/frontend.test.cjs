@@ -509,19 +509,21 @@ test('browse: landscape artwork and confirmed downloads reach every tool on desk
     t.diagnostic(JSON.stringify({ baseURL, browser: 'Playwright Chromium', viewports: ['1440x1000', '390x844'], tools: submissions.map(body => body.tool) }));
 });
 
-test('browse: actor and tag filters, empty-page continuation and 115 playback survive reload', async t => {
+test('browse: multi-tag filtering fills each batch across source pages and 115 playback survives reload', async t => {
     const requests = []; let task = null, submissions = 0;
     const page = await openApp(t, 1440, async p => {
         await libraryFixture(p);
         await p.route('**/static/actors.json', route => route.fulfill({ json: { QA: [{ id: 'qa-star', name: '测试演员' }] } }));
-        await p.route('**/static/categories.json', route => route.fulfill({ json: { QA: [{ id: 'qa-genre', name: '测试标签' }] } }));
+        await p.route('**/static/categories.json', route => route.fulfill({ json: { QA: [{ id: 'qa-genre', name: '测试标签' }, { id: 'qa-genre-2', name: '第二标签' }] } }));
         await p.route(/\/api\/movies\?/, route => {
             const query = new URL(route.request().url()).searchParams;
             const filters = JSON.parse(query.get('filters') || '[]'), number = Number(query.get('page'));
             requests.push({ filters, number });
-            const empty = filters.length >= 2 && number === 1;
-            const movies = empty ? [] : Array.from({ length: number === 2 ? 8 : 1 }, (_, i) => ({ ...movie(`QA-${String(i + number).padStart(3, '0')}`), img: `/api/qa-browse-art/${i}` }));
-            return route.fulfill({ json: { movies, pagination: { currentPage: number, hasNextPage: number === 1, nextPage: number === 1 ? 2 : null } } });
+            const multiTag = filters.filter(filter => filter.type === 'genre').length === 2;
+            const count = multiTag ? [0, 18, 18][number - 1] : 1;
+            const first = multiTag && number === 3 ? 20 : number;
+            const movies = Array.from({ length: count }, (_, i) => ({ ...movie(`QA-${String(i + first).padStart(3, '0')}`), img: `/api/qa-browse-art/${i}` }));
+            return route.fulfill({ json: { movies, pagination: { currentPage: number, hasNextPage: multiTag && number < 3 } } });
         });
         await p.route(/\/api\/movies\/QA-\d+$/, route => route.fulfill({ json: { ...movie(new URL(route.request().url()).pathname.split('/').at(-1)), img: '/api/qa-browse-art/0' } }));
         await p.route('**/api/qa-browse-art/*', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="560"><rect width="400" height="560" fill="#444163"/><circle cx="200" cy="210" r="105" fill="#9184d9"/><path d="M0 560V440L180 270L400 450V560" fill="#232532"/><text x="30" y="510" fill="#fff" font-size="30">BROWSE TEST</text></svg>' }));
@@ -541,15 +543,24 @@ test('browse: actor and tag filters, empty-page continuation and 115 playback su
     await page.getByRole('dialog', { name: '浏览筛选目录', exact: true }).getByRole('button', { name: '测试演员', exact: true }).click();
     await main.getByRole('button', { name: '浏览标签目录', exact: true }).click();
     await page.getByRole('dialog', { name: '浏览筛选目录', exact: true }).getByRole('button', { name: '测试标签', exact: true }).click();
-    await main.getByRole('button', { name: '加载更多影片', exact: true }).click();
-    await main.getByRole('button', { name: '查看 QA-002 详情', exact: true }).waitFor();
-    assert.ok(requests.some(({ filters, number }) => number === 2 && filters.some(f => f.type === 'star' && f.value === 'qa-star') && filters.some(f => f.type === 'genre' && f.value === 'qa-genre')));
+    await main.getByRole('button', { name: '浏览标签目录', exact: true }).click();
+    await page.getByRole('dialog', { name: '浏览筛选目录', exact: true }).getByRole('button', { name: '第二标签', exact: true }).click();
+    await main.getByRole('button', { name: '查看 QA-031 详情', exact: true }).waitFor();
+    assert.equal(await main.locator('.jj-browse-card').count(), 30);
+    const filteredRequests = () => requests.filter(({ filters }) => filters.length === 3);
+    assert.deepEqual(filteredRequests().map(({ number }) => number), [1, 2, 3]);
+    assert.deepEqual(filteredRequests()[0].filters.map(({ value }) => value), ['qa-star', 'qa-genre', 'qa-genre-2']);
     assert.equal(await page.title(), 'JavJaeger');
     assert.equal(await page.locator('.sc-logic-error').count(), 0);
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-desktop.png'), animations: 'disabled' });
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await page.screenshot({ path: path.join(os.tmpdir(), 'javjaeger-browse-mobile.png'), animations: 'disabled' });
+    await main.getByRole('button', { name: '加载更多影片', exact: true }).click();
+    await main.getByRole('button', { name: '查看 QA-037 详情', exact: true }).waitFor();
+    assert.equal(await main.locator('.jj-browse-card').count(), 36);
+    assert.equal(filteredRequests().length, 3, 'remaining matches are already buffered');
+    assert.equal(await main.getByRole('button', { name: '加载更多影片', exact: true }).count(), 0);
     await main.getByRole('button', { name: '查看 QA-002 详情', exact: true }).click();
     await page.getByRole('dialog', { name: '浏览影片详情', exact: true }).getByRole('button', { name: '最佳资源播放', exact: true }).click();
     await page.getByRole('dialog', { name: '115 影片播放', exact: true }).getByText('115 下载中 42%', { exact: true }).waitFor();
